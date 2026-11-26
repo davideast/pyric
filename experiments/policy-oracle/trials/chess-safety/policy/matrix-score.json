@@ -1,0 +1,92 @@
+{
+  "authority": "independent complete Rules simulation",
+  "releases": [
+    {
+      "rulesSha256": "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1",
+      "cases": 150,
+      "profiles": [
+        "stock",
+        "compatibility",
+        "stronger",
+        "referee"
+      ],
+      "decisions": 600,
+      "changed": [
+        [
+          "pinned-slider",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ],
+        [
+          "castle-attacked-transit",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ]
+      ],
+      "peak": {
+        "id": "opening-pawn",
+        "evaluatedExpressions": 955
+      }
+    },
+    {
+      "rulesSha256": "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b",
+      "cases": 150,
+      "profiles": [
+        "stock",
+        "compatibility",
+        "stronger",
+        "referee"
+      ],
+      "decisions": 600,
+      "changed": [
+        [
+          "pinned-slider",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ],
+        [
+          "castle-attacked-transit",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ]
+      ],
+      "peak": {
+        "id": "native-2-a8a1",
+        "evaluatedExpressions": 969
+      }
+    },
+    {
+      "rulesSha256": "8d567417e1f6d67de3562b4f55fc7ce1a6591709d2f37239d87206d029ee64e5",
+      "cases": 150,
+      "profiles": [
+        "stock",
+        "compatibility",
+        "stronger",
+        "referee"
+      ],
+      "decisions": 600,
+      "changed": [
+        [
+          "pinned-slider",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ],
+        [
+          "castle-attacked-transit",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ]
+      ],
+      "peak": {
+        "id": "native-2-a8a1",
+        "evaluatedExpressions": 940
+      }
+    }
+  ]
+}

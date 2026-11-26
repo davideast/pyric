@@ -1,0 +1,781 @@
+{
+  "authority": "pinned local complete rules; signed write projections",
+  "rules": [
+    "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1",
+    "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b",
+    "8d567417e1f6d67de3562b4f55fc7ce1a6591709d2f37239d87206d029ee64e5"
+  ],
+  "cases": [
+    {
+      "id": "ordinary-white-move",
+      "expected": "ALLOW",
+      "observations": [
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "ordinary-black-move",
+      "expected": "ALLOW",
+      "observations": [
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "signed-out",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-seat",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "nonparticipant",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "unknown-current-turn",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "retained-turn",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-ply",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-previous-board",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-previous-rights",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-previous-ep",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "rewrite-host",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "rewrite-guest",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "rewrite-created-at",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "unrelated-document-field",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "illegal-en-passant-claim",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "impossible-rights",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "unknown-move-field",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "missing-move-from",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        }
+      ]
+    },
+    {
+      "id": "missing-move-to",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        }
+      ]
+    },
+    {
+      "id": "missing-move-extra",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        }
+      ]
+    },
+    {
+      "id": "missing-move-promotion",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        }
+      ]
+    },
+    {
+      "id": "extra-touched-square",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "source-not-vacated",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-arriving-piece",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "extra-board-key",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "missing-board-key",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "same-map-cardinality-different-key",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "reordered-board-map",
+      "expected": "ALLOW",
+      "observations": [
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "missing-board",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": true
+        }
+      ]
+    },
+    {
+      "id": "winner-on-ongoing",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "wrong-winning-seat",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "canonical-rights-retained",
+      "expected": "ALLOW",
+      "observations": [
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "noncanonical-stored-rights-normalized",
+      "expected": "ALLOW",
+      "observations": [
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        },
+        {
+          "decision": "ALLOW",
+          "evaluationError": false
+        }
+      ]
+    },
+    {
+      "id": "noncanonical-rights-copied-verbatim",
+      "expected": "DENY",
+      "observations": [
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        },
+        {
+          "decision": "DENY",
+          "evaluationError": false
+        }
+      ]
+    }
+  ]
+}

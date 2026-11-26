@@ -1,0 +1,74 @@
+{
+  "authority": "public candidate standalone; independent local Rules evaluation",
+  "cases": [
+    {
+      "id": "join-empty",
+      "outcome": "value",
+      "value": ""
+    },
+    {
+      "id": "join-empties",
+      "outcome": "value",
+      "value": "||a"
+    },
+    {
+      "id": "join-unicode",
+      "outcome": "value",
+      "value": "e/🎲"
+    },
+    {
+      "id": "join-two-types",
+      "outcome": "value",
+      "value": "2-false"
+    },
+    {
+      "id": "join-empty-separator",
+      "outcome": "value",
+      "value": "ab"
+    },
+    {
+      "id": "join-null-separator",
+      "outcome": "error"
+    },
+    {
+      "id": "join-null-receiver",
+      "outcome": "error"
+    },
+    {
+      "id": "matches-whole",
+      "outcome": "value",
+      "value": false
+    },
+    {
+      "id": "matches-empty",
+      "outcome": "value",
+      "value": true
+    },
+    {
+      "id": "matches-unicode",
+      "outcome": "value",
+      "value": true
+    },
+    {
+      "id": "matches-escaped",
+      "outcome": "value",
+      "value": true
+    },
+    {
+      "id": "matches-unsupported",
+      "outcome": "error"
+    },
+    {
+      "id": "matches-invalid-pattern",
+      "outcome": "error"
+    },
+    {
+      "id": "matches-null-pattern",
+      "outcome": "error"
+    },
+    {
+      "id": "matches-null-receiver",
+      "outcome": "error"
+    }
+  ]
+}

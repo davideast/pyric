@@ -6,9 +6,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sha } from '../../../arcade/corpus.mjs';
 
 const [arcade, reference, strongerCandidate] = process.argv.slice(2);
-const checkVacatedFile = process.argv[5] === '--vacated-file';
+const mode = process.argv[5];
+if (mode !== undefined) assert.ok(['--vacated-file','--king-safety'].includes(mode), 'unknown chess rules profile');
+const checkTransit = mode === '--king-safety';
+const checkVacatedFile = mode === '--vacated-file' || checkTransit;
 if (checkVacatedFile) assert.ok(strongerCandidate, 'supply the complete candidate rules');
-if (!arcade || !reference) throw Error('Usage: bun verify.mjs <pinned Arcade checkout | --archived-native> <installed reference rules package> [stronger rules]');
+if (!arcade || !reference) throw Error('Usage: bun verify.mjs <pinned Arcade checkout | --archived-native> <installed reference rules package> [stronger rules [--vacated-file | --king-safety]]');
 const pinned = '66e14d4f4b0aeab22c05db8d748704dde053d2e5';
 const native = 'games/chess/src/chess.ts';
 const nativePath = arcade === '--archived-native'
@@ -93,7 +96,7 @@ for (const [id,p,uci,decisions] of [
   ['knight-shape',start,'b1b3',strongerDenies], ['empty-castle-rights',position(castle + ' w - -'),'e1g1',strongerDenies],
   ['missing-promotion',promo,'a7a8',strongerDenies], ['backward-pawn',position('7k/8/8/8/4P3/8/8/K7 w - -'),'e4e3',strongerDenies],
   ['pinned-slider',position('4r2k/8/8/8/8/8/4R3/4K3 w - -'),'e2d2',checkVacatedFile ? strongerDenies : ok],
-  ['castle-attacked-transit',position('4kr2/8/8/8/8/8/8/4K2R w K -'),'e1g1',ok]
+  ['castle-attacked-transit',position('4kr2/8/8/8/8/8/8/4K2R w K -'),'e1g1',checkTransit ? strongerDenies : ok]
 ]) {
   const sample = turn(p,uci);
   assert.equal(sample.nativeLegal,false,id);

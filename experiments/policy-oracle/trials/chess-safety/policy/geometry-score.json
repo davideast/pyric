@@ -1,0 +1,9 @@
+{
+  "authority": "native attacked squares; synthetic attack configurations",
+  "nativeHash": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "singleAttacker": 48384,
+  "singleAttackerChecks": 7532,
+  "alignedBlocker": 20608,
+  "castles": 1428,
+  "castleRefusals": 422
+}
