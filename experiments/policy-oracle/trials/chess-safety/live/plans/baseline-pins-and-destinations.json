@@ -1,0 +1,30 @@
+{
+  "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "inputs": [
+    {
+      "batch": "00-file-pin",
+      "file": "../../king-safety/reference/positions.json",
+      "sha256": "e094b8218691bf7efe0070db356ab88bace68680fa23dc06e58cf4607e0f2588"
+    },
+    {
+      "batch": "00-file-pin",
+      "file": "../../king-safety/reference/cost-position.json",
+      "sha256": "05000731394a8baa188a865025e8e4d454fa797e3d962ffba77ccd5e842c1226"
+    },
+    {
+      "batch": "00-file-pin",
+      "file": "../../king-safety/reference/path-cost-controls.json",
+      "sha256": "66c9099711d70a87d78bece84c550b55566976ddd78045d7bd438ecfb8156eb1"
+    },
+    {
+      "batch": "01-rank-diagonal",
+      "file": "../batches/01-rank-diagonal/v1/positions.json",
+      "sha256": "fcfdc099e9667fccd083139742ec4a8ec27322605c462db58a2b5948c14444e7"
+    },
+    {
+      "batch": "02-king-destinations",
+      "file": "../batches/02-king-destinations/v1/positions.json",
+      "sha256": "8c3b3a9a0ea76b7f310c439d79343158ed6b5a0d9273d03058d485c847e799de"
+    }
+  ]
+}

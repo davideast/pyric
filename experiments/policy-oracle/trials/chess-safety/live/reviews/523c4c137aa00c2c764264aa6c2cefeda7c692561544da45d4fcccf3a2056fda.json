@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "file": "../../chess/bundle/artifacts/stronger.rules",
+  "basis": "Unchanged handwritten stronger release previously observed on the isolated Arcade database."
+}
