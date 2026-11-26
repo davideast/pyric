@@ -12,8 +12,18 @@ import {
   areCrashlyticsOptionsEqual,
   assertMatchingCrashlyticsOptions,
   getCrashlyticsBroker,
+  isCrashlyticsSnapshot,
 } from '../../src/crashlytics/internal.js';
+import {
+  captureCheckpoint,
+  restoreCheckpoint,
+} from '../../src/sandbox/checkpoints/index.js';
 import { applyFullState, captureFullState, initializeSandbox } from '../../src/sandbox/index.js';
+import { SandboxImpl } from '../../src/sandbox/internal/sandbox-impl.js';
+import {
+  persistedServiceHasData,
+  validatePersistedService,
+} from '../../src/sandbox/persistence/validate-services.js';
 
 afterEach(async () => {
   const activeApps = [...getApps()];
@@ -396,6 +406,140 @@ describe('pyric/crashlytics Web SDK mirror and shared CrashlyticsBroker', () => 
       }
     } finally {
       sandbox.dispose();
+    }
+  });
+
+  test('round-trips Crashlytics state across captureFullState/applyFullState, checkpoints, pending snapshots, and service validators', async () => {
+    const source = initializeSandbox();
+    const target = initializeSandbox();
+    const empty = initializeSandbox();
+    const pendingReceiver = initializeSandbox();
+    try {
+      const appId = '1:400:web:checkpointapp';
+      const broker = getCrashlyticsBroker(source);
+      broker.setUserId(appId, 'uid-cp-1');
+      broker.setCustomKeys(appId, { plan: 'pro', seats: 12, beta: true });
+      broker.log({ appId, message: 'pre-cp-log', attributes: { step: 1 } });
+      broker.recordError({
+        appId,
+        name: 'CheckoutError',
+        message: 'card-declined',
+        fatal: true,
+        appVersion: '3.2.0',
+        region: 'us-central1',
+        sdkPlatform: 'web',
+      });
+      broker.flush(appId);
+      broker.setCollectionEnabled(appId, false);
+      broker.recordError({
+        appId,
+        name: 'OfflineError',
+        message: 'queued-unsent',
+        sdkPlatform: 'android',
+      });
+
+      const snap = broker.snapshot();
+      expect(isCrashlyticsSnapshot(snap)).toBe(true);
+      expect(() => validatePersistedService('crashlytics', snap)).not.toThrow();
+      expect(persistedServiceHasData('crashlytics', snap)).toBe(true);
+      expect(persistedServiceHasData('crashlytics', { version: 1, nextSequence: 1, apps: [] })).toBe(false);
+
+      const badPayloads: unknown[] = [
+        null,
+        [],
+        { version: 2, nextSequence: 1, apps: [] },
+        { version: 1, nextSequence: 0, apps: [] },
+        { version: 1, nextSequence: 1.5, apps: [] },
+        { version: 1, nextSequence: 1, apps: [['', {}]] },
+        {
+          version: 1,
+          nextSequence: 2,
+          apps: [[appId, { ...snap.apps[0]?.[1], customKeys: { bad: Number.NaN } }]],
+        },
+        {
+          version: 1,
+          nextSequence: 2,
+          apps: [
+            [
+              appId,
+              {
+                ...snap.apps[0]?.[1],
+                reports: [{ ...snap.apps[0]?.[1].reports[0], sdkPlatform: 'desktop' }],
+              },
+            ],
+          ],
+        },
+      ];
+      for (const bad of badPayloads) {
+        expect(isCrashlyticsSnapshot(bad)).toBe(false);
+        expect(() => validatePersistedService('crashlytics', bad)).toThrow(/Invalid persisted Crashlytics state/);
+      }
+
+      const emptyState = await captureFullState(empty);
+      expect(emptyState.crashlytics).toBeUndefined();
+      expect((empty as SandboxImpl).getServiceRegistry().has('crashlytics')).toBe(false);
+
+      const cp = await captureCheckpoint(source);
+      expect(cp.state.crashlytics).toBeDefined();
+
+      // Mutate source after checkpoint; restore must bring back exact checkpointed state.
+      broker.setUserId(appId, 'uid-mutated');
+      broker.setCollectionEnabled(appId, true);
+      broker.deleteUnsentReports(appId);
+      broker.recordError({ appId, message: 'post-checkpoint-error' });
+
+      await restoreCheckpoint(source, cp);
+      const restored = broker.getState(appId);
+      expect(restored.userId).toBe('uid-cp-1');
+      expect(restored.collectionEnabled).toBe(false);
+      expect(restored.customKeys).toEqual({ plan: 'pro', seats: 12, beta: true });
+      expect(restored.appVersion).toBe('3.2.0');
+      expect(restored.region).toBe('us-central1');
+      expect(restored.didCrashOnPreviousExecution).toBe(true);
+      expect(restored.logs.map((l) => l.message)).toEqual(['pre-cp-log']);
+      expect(restored.reports.map((r) => r.message)).toEqual(['card-declined']);
+      expect(restored.reports[0]?.flushed).toBe(true);
+      expect(restored.unsentReports.map((r) => r.message)).toEqual(['queued-unsent']);
+
+      // Malformed checkpoint must fail closed before mutating live Crashlytics state.
+      const malformedCp = {
+        ...cp,
+        state: {
+          ...cp.state,
+          crashlytics: { version: 1, nextSequence: -1, apps: [] },
+        },
+      };
+      let malformedErr: unknown;
+      try {
+        await restoreCheckpoint(source, malformedCp as unknown as typeof cp);
+      } catch (err) {
+        malformedErr = err;
+      }
+      expect(malformedErr).toBeDefined();
+      expect(broker.getState(appId).userId).toBe('uid-cp-1');
+      expect(broker.getState(appId).reports).toHaveLength(1);
+
+      // Pending unconsumed snapshot loaded via loadSnapshot is captured without registering broker.
+      const rawBlob = source.snapshot();
+      pendingReceiver.loadSnapshot(rawBlob);
+      expect((pendingReceiver as SandboxImpl).getServiceRegistry().has('crashlytics')).toBe(false);
+      const capturedPending = await captureFullState(pendingReceiver);
+      expect(capturedPending.crashlytics).toBeDefined();
+      expect((pendingReceiver as SandboxImpl).getServiceRegistry().has('crashlytics')).toBe(false);
+
+      await applyFullState(target, capturedPending);
+      expect(getCrashlyticsBroker(target).getState(appId).userId).toBe('uid-cp-1');
+      expect(getCrashlyticsBroker(target).getState(appId).unsentReports).toHaveLength(1);
+
+      // Applying an empty state clears the pending unconsumed Crashlytics snapshot cleanly.
+      await applyFullState(pendingReceiver, emptyState);
+      expect(getCrashlyticsBroker(pendingReceiver).getState(appId).userId).toBeNull();
+      expect(getCrashlyticsBroker(pendingReceiver).getState(appId).reports).toHaveLength(0);
+    } finally {
+      source.dispose();
+      target.dispose();
+      empty.dispose();
+      pendingReceiver.dispose();
     }
   });
 });

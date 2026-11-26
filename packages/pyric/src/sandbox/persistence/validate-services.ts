@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
 import { seedUserSchema } from '../internal/state-schemas.js';
 import { isConsumedAppCheckSnapshot } from '../internal/app-check-token.js';
+import { hasCrashlyticsSnapshotData, isCrashlyticsSnapshot } from '../../crashlytics/persistence.js';
 import { isMessagingSnapshot } from '../../messaging/broker/persistence.js';
 
 const authState = z.object({ users: z.array(seedUserSchema), providers: z.record(z.boolean()) });
@@ -49,6 +50,13 @@ export function validatePersistedService(name: string, value: unknown): void {
     if (invalidSnapshot) throw new Error('Invalid persisted Messaging state.');
     return;
   }
+  const isCrashlytics = name === 'crashlytics';
+  if (isCrashlytics) {
+    const valid = isCrashlyticsSnapshot(value);
+    const invalidSnapshot = !valid;
+    if (invalidSnapshot) throw new Error('Invalid persisted Crashlytics state.');
+    return;
+  }
   const isAppCheck = name === 'app-check';
   if (isAppCheck) {
     const valid = isConsumedAppCheckSnapshot(value);
@@ -82,6 +90,8 @@ export function persistedServiceHasData(name: string, value: unknown): boolean {
   }
   const isMessaging = name === 'messaging' && isMessagingSnapshot(value);
   if (isMessaging) return value.tokens.length > 0 || value.topics.length > 0;
+  const isCrashlytics = name === 'crashlytics' && isCrashlyticsSnapshot(value);
+  if (isCrashlytics) return hasCrashlyticsSnapshotData(value);
   const isAppCheck = name === 'app-check' && isConsumedAppCheckSnapshot(value);
   if (isAppCheck) return value.consumedTokens.length > 0;
   return false;

@@ -9,6 +9,7 @@ export {
   CrashlyticsBroker,
   DEFAULT_CRASHLYTICS_APP_ID,
   getCrashlyticsBroker,
+  isCrashlyticsSnapshot,
   MAX_CRASHLYTICS_LOGS,
   MAX_CRASHLYTICS_REPORTS,
   resetCrashlyticsBroker,

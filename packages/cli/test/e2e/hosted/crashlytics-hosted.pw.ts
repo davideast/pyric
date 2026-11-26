@@ -161,6 +161,21 @@ window.__crashlyticsHosted = {
     return { freshDeletedCode };
   },
 
+  async mutateAfterCheckpoint() {
+    await inspector.sendOp({
+      method: 'crashlytics.setUserId',
+      appId: '${APP_ID}',
+      userId: 'chromium-user-mutated',
+    });
+    await inspector.sendOp({
+      method: 'crashlytics.recordError',
+      appId: '${APP_ID}',
+      name: 'PostCheckpointError',
+      message: 'discarded-by-restore',
+      sdkPlatform: 'web',
+    });
+  },
+
   async getBrokerState() {
     const res = await inspector.sendOp({
       method: 'crashlytics.getState',
@@ -298,6 +313,16 @@ test.describe('HostedRuntime browser Crashlytics web conformance', () => {
       ]);
       expect(cpSave.status, `${cpSave.stderr}\n${cpSave.stdout}`).toBe(0);
 
+      await page.evaluate(() =>
+        (
+          window as unknown as {
+            __crashlyticsHosted: {
+              mutateAfterCheckpoint(): Promise<void>;
+            };
+          }
+        ).__crashlyticsHosted.mutateAfterCheckpoint(),
+      );
+
       const cpRestore = runHostedCli(project.dir, [
         'sandbox',
         'restore',
@@ -313,13 +338,66 @@ test.describe('HostedRuntime browser Crashlytics web conformance', () => {
         (
           window as unknown as {
             __crashlyticsHosted: {
-              getBrokerState(): Promise<{ reports: unknown[]; userId: string | null }>;
+              getBrokerState(): Promise<{
+                userId: string | null;
+                customKeys: Record<string, unknown>;
+                reports: Array<{ message: string; fatal: boolean }>;
+              }>;
             };
           }
         ).__crashlyticsHosted.getBrokerState(),
       );
-      expect(afterCheckpointRestore.reports).toEqual([]);
-      expect(afterCheckpointRestore.userId).toBeNull();
+      expect(afterCheckpointRestore.userId).toBe('chromium-user-99');
+      expect(afterCheckpointRestore.customKeys).toEqual({
+        browser: 'chromium',
+        darkTheme: true,
+      });
+      expect(afterCheckpointRestore.reports.map((r) => r.message)).toEqual([
+        'caught-boundary-error',
+        'chromium-unhandled-window-error',
+        'chromium-unhandled-rejection',
+      ]);
+
+      // Restart the SQLite-backed HostedRuntime and verify persisted Crashlytics state survives.
+      await host.stop();
+      const restartedHost = startHost(project.dir);
+      try {
+        const restartedReady = await restartedHost.startup;
+        if (restartedReady.kind === 'exit') {
+          throw new Error(
+            `Restarted host exited (${restartedReady.code}): ${restartedReady.stderr}\n${restartedReady.stdout}`,
+          );
+        }
+        expect(restartedReady.kind).toBe('ready');
+
+        await page.goto(restartedReady.url);
+        await expect(page.locator('#status')).toHaveText('Ready');
+        const afterSqliteRestart = await page.evaluate(() =>
+          (
+            window as unknown as {
+              __crashlyticsHosted: {
+                getBrokerState(): Promise<{
+                  userId: string | null;
+                  customKeys: Record<string, unknown>;
+                  reports: Array<{ message: string }>;
+                }>;
+              };
+            }
+          ).__crashlyticsHosted.getBrokerState(),
+        );
+        expect(afterSqliteRestart.userId).toBe('chromium-user-99');
+        expect(afterSqliteRestart.customKeys).toEqual({
+          browser: 'chromium',
+          darkTheme: true,
+        });
+        expect(afterSqliteRestart.reports.map((r) => r.message)).toEqual([
+          'caught-boundary-error',
+          'chromium-unhandled-window-error',
+          'chromium-unhandled-rejection',
+        ]);
+      } finally {
+        await restartedHost.stop();
+      }
       expect(externalRequests).toEqual([]);
     } finally {
       await page.close();

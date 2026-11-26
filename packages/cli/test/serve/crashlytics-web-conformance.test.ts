@@ -1,5 +1,9 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { deleteApp, initializeApp } from 'pyric/app';
 import { bindAppRegistrySandbox, resetAppRegistryForTests } from 'pyric/app/internal';
@@ -7,6 +11,7 @@ import { breadcrumbs, flush, getCrashlytics, log, recordError } from 'pyric/cras
 import { createTransportCrashlytics } from 'pyric/crashlytics/internal';
 import { createMemoryBackend, initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { createWorkerCrashlyticsTransport } from '../../src/serve/worker/client/crashlytics.js';
+import { resolveNodeExecutable } from './require-node-on-path.js';
 import {
   APP_ID,
   openAttachedSocket,
@@ -18,10 +23,15 @@ import {
 
 describe('Crashlytics web live HostedRuntime and DOM conformance', () => {
   let activeSandbox: LocalSandbox | undefined;
+  const tempDirs: string[] = [];
   const savedWindow = (globalThis as Record<string, unknown>).window;
   const savedDocument = (globalThis as Record<string, unknown>).document;
 
   afterEach(() => {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+    }
     resetAppRegistryForTests();
     if (activeSandbox !== undefined) {
       activeSandbox.dispose();
@@ -297,7 +307,7 @@ describe('Crashlytics web live HostedRuntime and DOM conformance', () => {
     expect(parsed.deletedCode).toBe('app/app-deleted');
   });
 
-  test('persists Crashlytics state across HostedRuntime restarts and resets cleanly on sandbox.restore and sandbox.reset', async () => {
+  test('persists Crashlytics state across HostedRuntime restarts and restores cleanly via sandbox.checkpoint and sandbox.restore', async () => {
     const sharedBackend = createMemoryBackend();
     const host1 = await startLiveCrashlyticsHost(sharedBackend);
     let peer1: Awaited<ReturnType<typeof openAttachedSocket>> | undefined;
@@ -395,35 +405,171 @@ describe('Crashlytics web live HostedRuntime and DOM conformance', () => {
       const checkpointRes = await host2.hostedRuntime.runMethod(
         {
           key: 'sandbox.checkpoint',
-          args: { name: 'empty-telemetry-cp' },
+          args: { name: 'populated-telemetry-cp' },
           projectDir: REPO_ROOT,
         },
         methodOwner,
       );
       expect(checkpointRes.ok, checkpointRes.summary).toBe(true);
 
+      // Mutate Crashlytics state after taking the checkpoint.
+      expect(
+        (
+          await peer2.sendOp({
+            method: 'crashlytics.setUserId',
+            appId: APP_ID,
+            userId: 'post-checkpoint-uid',
+          })
+        ).ok,
+      ).toBe(true);
+      expect(
+        (
+          await peer2.sendOp({
+            method: 'crashlytics.setCollectionEnabled',
+            appId: APP_ID,
+            enabled: true,
+          })
+        ).ok,
+      ).toBe(true);
+      expect(
+        (
+          await peer2.sendOp({
+            method: 'crashlytics.deleteUnsentReports',
+            appId: APP_ID,
+          })
+        ).ok,
+      ).toBe(true);
+      expect(
+        (
+          await peer2.sendOp({
+            method: 'crashlytics.recordError',
+            appId: APP_ID,
+            name: 'TransientError',
+            message: 'discarded-on-restore',
+            sdkPlatform: 'web',
+          })
+        ).ok,
+      ).toBe(true);
+
       const restoreRes = await host2.hostedRuntime.runMethod(
         {
           key: 'sandbox.restore',
-          args: { name: 'empty-telemetry-cp', confirm: true },
+          args: { name: 'populated-telemetry-cp', confirm: true },
           projectDir: REPO_ROOT,
         },
         methodOwner,
       );
       expect(restoreRes.ok, restoreRes.summary).toBe(true);
 
-      const wipedAfterRestore = (
+      const restoredAfterCheckpoint = (
         await peer2.sendOp({ method: 'crashlytics.getState', appId: APP_ID })
       ).value as CrashlyticsStateView;
-      expect(wipedAfterRestore.collectionEnabled).toBe(true);
-      expect(wipedAfterRestore.userId).toBeNull();
-      expect(wipedAfterRestore.customKeys).toEqual({});
-      expect(wipedAfterRestore.logs).toEqual([]);
-      expect(wipedAfterRestore.reports).toEqual([]);
-      expect(wipedAfterRestore.unsentReports).toEqual([]);
+      expect(restoredAfterCheckpoint.collectionEnabled).toBe(false);
+      expect(restoredAfterCheckpoint.userId).toBe('checkpoint-uid-77');
+      expect(restoredAfterCheckpoint.customKeys).toEqual({ plan: 'enterprise', seats: 25 });
+      expect(restoredAfterCheckpoint.logs.map((l) => l.message)).toEqual(['before-restart-crumb']);
+      expect(restoredAfterCheckpoint.reports.map((r) => r.message)).toEqual(['card-expired']);
+      expect(restoredAfterCheckpoint.reports[0]?.flushed).toBe(true);
+      expect(restoredAfterCheckpoint.unsentReports.map((r) => r.message)).toEqual([
+        'queued-unsent-before-restart',
+      ]);
+      expect(restoredAfterCheckpoint.unsentReports[0]?.flushed).toBe(false);
+
+      const resetRes = await host2.hostedRuntime.runMethod(
+        {
+          key: 'sandbox.reset',
+          args: { confirm: true },
+          projectDir: REPO_ROOT,
+        },
+        methodOwner,
+      );
+      expect(resetRes.ok, resetRes.summary).toBe(true);
+
+      const wipedAfterReset = (
+        await peer2.sendOp({ method: 'crashlytics.getState', appId: APP_ID })
+      ).value as CrashlyticsStateView;
+      expect(wipedAfterReset.collectionEnabled).toBe(true);
+      expect(wipedAfterReset.userId).toBeNull();
+      expect(wipedAfterReset.customKeys).toEqual({});
+      expect(wipedAfterReset.logs).toEqual([]);
+      expect(wipedAfterReset.reports).toEqual([]);
+      expect(wipedAfterReset.unsentReports).toEqual([]);
     } finally {
       peer2?.close();
       await host2.close();
     }
+  });
+
+  test('persists Crashlytics state and checkpoints across real SQLite HostedPersistence restarts', () => {
+    const nodeBin = resolveNodeExecutable();
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-crashlytics-sqlite-'));
+    tempDirs.push(dir);
+    symlinkSync(join(REPO_ROOT, 'node_modules'), join(dir, 'node_modules'), 'dir');
+
+    const persistenceDist = new URL('../../dist/serve/hosted/persistence.js', import.meta.url).href;
+    const sandboxDist = new URL('../../../pyric/dist/sandbox/index.js', import.meta.url).href;
+    const crashlyticsInternalDist = new URL('../../../pyric/dist/crashlytics/internal.js', import.meta.url).href;
+    const checkpointsDist = new URL('../../../pyric/dist/sandbox/checkpoints/index.js', import.meta.url).href;
+
+    const scriptPath = join(dir, 'check-sqlite-crashlytics.mjs');
+    writeFileSync(
+      scriptPath,
+      [
+        `import assert from 'node:assert/strict';`,
+        `import { initializeSandbox } from '${sandboxDist}';`,
+        `import { getCrashlyticsBroker } from '${crashlyticsInternalDist}';`,
+        `import { saveCheckpoint, restoreNamedCheckpoint } from '${checkpointsDist}';`,
+        `import { createHostedPersistence } from '${persistenceDist}';`,
+        `const projectDir = process.argv[2];`,
+        `const appId = ${JSON.stringify(APP_ID)};`,
+        `const p1 = await createHostedPersistence(projectDir);`,
+        `try {`,
+        `  const sb1 = initializeSandbox();`,
+        `  await sb1.enablePersistence({ injectedBackend: p1.backend, key: 'hosted', flushIntervalMs: 0 });`,
+        `  const b1 = getCrashlyticsBroker(sb1);`,
+        `  b1.setUserId(appId, 'sqlite-uid-1');`,
+        `  b1.setCustomKeys(appId, { tier: 'enterprise' });`,
+        `  b1.log({ appId, message: 'sqlite-crumb' });`,
+        `  b1.recordError({ appId, name: 'SqliteErr', message: 'persisted-err' });`,
+        `  b1.flush(appId);`,
+        `  b1.setCollectionEnabled(appId, false);`,
+        `  b1.recordError({ appId, name: 'SqliteUnsent', message: 'unsent-err' });`,
+        `  await sb1.flush();`,
+        `  await saveCheckpoint(p1.checkpoints, 'sqlite-cp', sb1);`,
+        `  sb1.dispose();`,
+        `} finally {`,
+        `  p1.close();`,
+        `}`,
+        `const p2 = await createHostedPersistence(projectDir);`,
+        `try {`,
+        `  const sb2 = initializeSandbox();`,
+        `  await sb2.enablePersistence({ injectedBackend: p2.backend, key: 'hosted', flushIntervalMs: 0 });`,
+        `  const b2 = getCrashlyticsBroker(sb2);`,
+        `  const st2 = b2.getState(appId);`,
+        `  assert.equal(st2.userId, 'sqlite-uid-1');`,
+        `  assert.deepEqual(st2.customKeys, { tier: 'enterprise' });`,
+        `  assert.equal(st2.collectionEnabled, false);`,
+        `  assert.equal(st2.logs.length, 1);`,
+        `  assert.equal(st2.reports.length, 1);`,
+        `  assert.equal(st2.unsentReports.length, 1);`,
+        `  b2.reset();`,
+        `  assert.equal(b2.getState(appId).userId, null);`,
+        `  await restoreNamedCheckpoint(p2.checkpoints, 'sqlite-cp', sb2);`,
+        `  const st3 = b2.getState(appId);`,
+        `  assert.equal(st3.userId, 'sqlite-uid-1');`,
+        `  assert.equal(st3.reports[0]?.message, 'persisted-err');`,
+        `  assert.equal(st3.unsentReports[0]?.message, 'unsent-err');`,
+        `  sb2.dispose();`,
+        `} finally {`,
+        `  p2.close();`,
+        `}`,
+      ].join('\n'),
+    );
+
+    const proc = spawnSync(nodeBin, [scriptPath, dir], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(proc.status, `${proc.stderr}\n${proc.stdout}`).toBe(0);
   });
 });
