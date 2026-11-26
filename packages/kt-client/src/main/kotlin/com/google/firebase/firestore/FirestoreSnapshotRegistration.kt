@@ -40,6 +40,7 @@ internal class DocumentSnapshotRegistration(
     private var currentHandle: BridgeSubscriptionHandle? = null
     private var stateMonitorJob: Job? = null
     private var cacheMonitorJob: Job? = null
+    private var unregisterTermination: (() -> Unit)? = null
 
     // Mutated exclusively on deliveryQueue.
     private var lastDelivered: DocumentSnapshot? = null
@@ -115,16 +116,19 @@ internal class DocumentSnapshotRegistration(
                 }
             }
         }
+        val unregisterTerm = firestore.addTerminationObserver(::completeTerminal)
         val cancelJobs = synchronized(lock) {
             if (!active) {
                 true
             } else {
                 stateMonitorJob = stateJob
                 cacheMonitorJob = cacheJob
+                unregisterTermination = unregisterTerm
                 false
             }
         }
         if (cancelJobs) {
+            unregisterTerm()
             stateJob.cancel()
             cacheJob.cancel()
         }
@@ -236,7 +240,7 @@ internal class DocumentSnapshotRegistration(
     private fun completeTerminal() {
         cleanupResources()
         if (ended.compareAndSet(false, true)) {
-            deliveryQueue.enqueue { onComplete() }
+            onComplete()
         }
     }
 
@@ -244,13 +248,16 @@ internal class DocumentSnapshotRegistration(
         val handle: BridgeSubscriptionHandle?
         val sJob: Job?
         val cJob: Job?
+        val unregisterTerm: (() -> Unit)?
         synchronized(lock) {
             active = false
             generation.incrementAndGet()
             handle = currentHandle; currentHandle = null
             sJob = stateMonitorJob; stateMonitorJob = null
             cJob = cacheMonitorJob; cacheMonitorJob = null
+            unregisterTerm = unregisterTermination; unregisterTermination = null
         }
+        unregisterTerm?.invoke()
         sJob?.cancel()
         cJob?.cancel()
         handle?.cancel()
@@ -303,6 +310,7 @@ internal class QuerySnapshotRegistration(
     @Volatile private var active = true
     private var currentHandle: BridgeSubscriptionHandle? = null
     private var stateMonitorJob: Job? = null
+    private var unregisterTermination: (() -> Unit)? = null
 
     // Mutated exclusively on deliveryQueue.
     private var previousDocs: List<QueryDocumentSnapshot>? = null
@@ -330,13 +338,18 @@ internal class QuerySnapshotRegistration(
                     }
                 }
             }
+            val unregisterTerm = firestore.addTerminationObserver(::completeTerminal)
             val cancelNow = synchronized(lock) {
                 if (!active) true else {
                     stateMonitorJob = job
+                    unregisterTermination = unregisterTerm
                     false
                 }
             }
-            if (cancelNow) job.cancel()
+            if (cancelNow) {
+                unregisterTerm()
+                job.cancel()
+            }
         }
     }
 
@@ -414,19 +427,22 @@ internal class QuerySnapshotRegistration(
     private fun completeTerminal() {
         cleanupResources()
         if (ended.compareAndSet(false, true)) {
-            deliveryQueue.enqueue { onComplete() }
+            onComplete()
         }
     }
 
     private fun cleanupResources() {
         val handle: BridgeSubscriptionHandle?
         val job: Job?
+        val unregisterTerm: (() -> Unit)?
         synchronized(lock) {
             active = false
             generation.incrementAndGet()
             handle = currentHandle; currentHandle = null
             job = stateMonitorJob; stateMonitorJob = null
+            unregisterTerm = unregisterTermination; unregisterTermination = null
         }
+        unregisterTerm?.invoke()
         job?.cancel()
         handle?.cancel()
     }

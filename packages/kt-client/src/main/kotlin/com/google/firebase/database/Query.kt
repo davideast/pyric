@@ -264,6 +264,11 @@ open class Query(
         childListeners.remove(listener)?.cancel()
     }
 
+    internal fun diffChildEvents(
+        previousChildren: Map<String, DataSnapshot>?,
+        currentList: List<DataSnapshot>
+    ): List<ChildEvent> = diffChildSnapshots(previousChildren, currentList, querySpec)
+
     /** Paths under `/.info` are served by the client; every other path is a host subscription. */
     internal fun snapshotsFlow(): Flow<DataSnapshot> =
         RtdbSnapshotRegistration.snapshotsFlow(this, queryScope)

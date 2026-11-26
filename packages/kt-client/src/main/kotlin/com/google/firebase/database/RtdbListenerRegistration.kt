@@ -210,7 +210,7 @@ internal class RtdbSnapshotRegistration(
                 singleEvent = false,
                 onSnapshot = { snapshot ->
                     val currentList = snapshot.children.toList()
-                    val events = diffChildSnapshots(previousChildren, currentList, query.querySpec)
+                    val events = query.diffChildEvents(previousChildren, currentList)
                     previousChildren = currentList.associateBy { it.key ?: "" }
                     for (event in events) {
                         if (!registration.active) break
@@ -256,7 +256,7 @@ internal class RtdbSnapshotRegistration(
                 singleEvent = false,
                 onSnapshot = { snapshot ->
                     val currentList = snapshot.children.toList()
-                    val events = diffChildSnapshots(previousChildren, currentList, query.querySpec)
+                    val events = query.diffChildEvents(previousChildren, currentList)
                     previousChildren = currentList.associateBy { it.key ?: "" }
                     for (event in events) {
                         handoff.deliverValue(event)

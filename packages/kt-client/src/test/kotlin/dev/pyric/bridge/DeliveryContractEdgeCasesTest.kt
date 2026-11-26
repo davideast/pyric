@@ -12,7 +12,9 @@ import dev.pyric.database.DatabaseError
 import dev.pyric.database.FirebaseDatabase
 import dev.pyric.database.ValueEventListener
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
@@ -370,5 +372,69 @@ class DeliveryContractEdgeCasesTest {
         assertEquals(2, subTargets.count { it == "messaging.foreground" })
         assertEquals(1, subTargets.count { it == "messaging.background" })
         messaging.close()
+    }
+
+    @Test
+    fun `Firestore terminate synchronously completes active document and query snapshot flows`() = runBlocking {
+        awaitState(BridgeConnectionState.ATTACHED)
+
+        val firestore = FirebaseFirestore(client, app, "(default)")
+        val docReady = CountDownLatch(1)
+        val queryReady = CountDownLatch(1)
+        bridge.onFrame = { frame ->
+            if (frame["type"] == "worker-sub") {
+                val subId = frame["subId"]
+                val path = subPath(frame)
+                if (path == "users/alice") {
+                    bridge.current.deliver(
+                        mapOf(
+                            "type" to "worker-snap",
+                            "subId" to subId,
+                            "value" to mapOf(
+                                "id" to "alice",
+                                "path" to "users/alice",
+                                "exists" to true,
+                                "data" to mapOf("name" to "Alice")
+                            )
+                        )
+                    )
+                } else {
+                    bridge.current.deliver(
+                        mapOf(
+                            "type" to "worker-snap",
+                            "subId" to subId,
+                            "value" to mapOf("docs" to emptyList<Any>())
+                        )
+                    )
+                }
+            }
+        }
+
+        val docDone = CountDownLatch(1)
+        val queryDone = CountDownLatch(1)
+        val collectorScope = kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+        )
+        collectorScope.launch {
+            firestore.document("users/alice").snapshots().collect {
+                docReady.countDown()
+            }
+            docDone.countDown()
+        }
+        collectorScope.launch {
+            firestore.collection("users").snapshots().collect {
+                queryReady.countDown()
+            }
+            queryDone.countDown()
+        }
+        try {
+            assertTrue(docReady.await(10, TimeUnit.SECONDS), "expected initial doc snapshot")
+            assertTrue(queryReady.await(10, TimeUnit.SECONDS), "expected initial query snapshot")
+            com.google.android.gms.tasks.Tasks.await(firestore.terminate(), 10, TimeUnit.SECONDS)
+            assertTrue(docDone.await(10, TimeUnit.SECONDS), "doc snapshots() flow must complete on terminate()")
+            assertTrue(queryDone.await(10, TimeUnit.SECONDS), "query snapshots() flow must complete on terminate()")
+        } finally {
+            collectorScope.cancel()
+        }
     }
 }

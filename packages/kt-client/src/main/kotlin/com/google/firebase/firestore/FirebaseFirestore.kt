@@ -42,6 +42,8 @@ class FirebaseFirestore(
     internal val listenerScope = CoroutineScope(SupervisorJob(firestoreJob) + Dispatchers.IO)
     internal val offlineCoordinator = FirestoreOfflineCoordinator(this, firestoreScope)
     private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
+    private val terminationLock = Any()
+    private val terminationObservers = LinkedHashSet<() -> Unit>()
     private val _terminatedStateFlow = MutableStateFlow(false)
     internal val terminatedStateFlow: StateFlow<Boolean> = _terminatedStateFlow.asStateFlow()
 
@@ -227,12 +229,38 @@ class FirebaseFirestore(
         )
     }
 
-    fun terminate(): Task<Void?> {
-        if (isTerminated) {
-            return Tasks.forResult(null)
+    internal fun addTerminationObserver(observer: () -> Unit): () -> Unit {
+        val alreadyTerminated = synchronized(terminationLock) {
+            if (isTerminated) {
+                true
+            } else {
+                terminationObservers.add(observer)
+                false
+            }
         }
-        isTerminated = true
-        _terminatedStateFlow.value = true
+        if (alreadyTerminated) {
+            observer()
+            return {}
+        }
+        return {
+            synchronized(terminationLock) {
+                terminationObservers.remove(observer)
+            }
+        }
+    }
+
+    fun terminate(): Task<Void?> {
+        val observers = synchronized(terminationLock) {
+            if (isTerminated) {
+                return Tasks.forResult(null)
+            }
+            isTerminated = true
+            _terminatedStateFlow.value = true
+            terminationObservers.toList().also { terminationObservers.clear() }
+        }
+        for (observer in observers) {
+            runCatching { observer() }
+        }
         unregisterDenialObserver()
         instances.remove(Pair(app.name, databaseId), this)
         rulesDenialListeners.clear()
