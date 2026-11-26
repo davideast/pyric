@@ -1,0 +1,189 @@
+{
+  "candidateSha256": "3a79e94878d551a292757774f3e39cd2f3d57b15ffec93200807922ae3120fa6",
+  "broad": {
+    "evidenceSha256": "ddab1b907b1c55a5a7f36c86584d857e364733caf2bc2ac373cb936530214759",
+    "summary": {
+      "disputed": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "firstFalseAllow": null,
+      "firstFalseDenial": null,
+      "firstRegression": null,
+      "matches": 56,
+      "otherMismatches": 0,
+      "pending": 0,
+      "regressions": 0,
+      "scored": 56,
+      "unsupported": 0
+    }
+  },
+  "sokoban": {
+    "public": {
+      "total": 2,
+      "passes": 2,
+      "falseAllows": [],
+      "falseDenials": [],
+      "unsupported": [],
+      "cases": [
+        {
+          "case": "pushes-9",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass"
+        },
+        {
+          "case": "pushes-10",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass"
+        }
+      ]
+    },
+    "heldOut": {
+      "total": 19,
+      "passes": 19,
+      "falseAllows": [],
+      "falseDenials": [],
+      "unsupported": [],
+      "cases": [
+        {
+          "case": "c01",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves down, pushes up"
+        },
+        {
+          "case": "c02",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves down, pushes fixed"
+        },
+        {
+          "case": "c03",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves down, pushes down"
+        },
+        {
+          "case": "c04",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves fixed, pushes down"
+        },
+        {
+          "case": "c05",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves fixed, pushes fixed"
+        },
+        {
+          "case": "c06",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves fixed, pushes up"
+        },
+        {
+          "case": "c07",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves up, pushes down"
+        },
+        {
+          "case": "c08",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves up, pushes fixed"
+        },
+        {
+          "case": "c09",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves up, pushes up"
+        },
+        {
+          "case": "c10",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves fixed, pushes down"
+        },
+        {
+          "case": "c11",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves up, pushes down"
+        },
+        {
+          "case": "c12",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves down, pushes up"
+        },
+        {
+          "case": "c13",
+          "expected": "ALLOW",
+          "decision": "ALLOW",
+          "outcome": "pass",
+          "category": "moves down, pushes fixed"
+        },
+        {
+          "case": "c14",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "moves fixed, pushes fixed"
+        },
+        {
+          "case": "c15",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "document unchanged after server transform"
+        },
+        {
+          "case": "c16",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "signed-in non-owner"
+        },
+        {
+          "case": "c17",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "anonymous"
+        },
+        {
+          "case": "c18",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "proposal uid differs from owner"
+        },
+        {
+          "case": "c19",
+          "expected": "DENY",
+          "decision": "DENY",
+          "outcome": "pass",
+          "category": "proposal level differs from path"
+        }
+      ]
+    },
+    "knownRules": {
+      "sha256": "8dadfb730f16f1feb3d2474f27c468e0aa1a6324227cac6353edf45f2fd4182b",
+      "bytesEqual": true
+    }
+  }
+}

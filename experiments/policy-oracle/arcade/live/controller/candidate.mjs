@@ -19,10 +19,10 @@ function pinned(path, digest) {
 
 async function main(args) {
   const [mode, archive, sourcePath, digest, recipePath, recipeSha] = args;
-  assert.ok(mode === 'floor' && args.length === 6 || mode === 'sokoban' && args.length === 4, 'invalid candidate capture arguments');
+  assert.ok(mode === 'floor' && args.length === 6 || ['sokoban', 'yacht'].includes(mode) && args.length === 4, 'invalid candidate capture arguments');
   const source = pinned(sourcePath, digest).toString('utf8');
   assert.notEqual(digest, manifest.files['v1/rules/stock.rules']);
-  const { probe } = stockProbes().find(p => p.game === 'sokoban');
+  const probe = mode === 'floor' ? undefined : stockProbes().find(p => p.game === mode).probe;
   const recipe = mode === 'floor' ? floorRecipe(JSON.parse(pinned(recipePath, recipeSha))) : probe.fixture;
   const fixtureSha256 = mode === 'floor' ? recipeSha : probe.fixtureSha256;
   const runId = randomUUID();

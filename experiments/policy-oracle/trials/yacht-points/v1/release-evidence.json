@@ -1,0 +1,11 @@
+{
+  "yacht": {
+    "runId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+    "receipt": "22cbd16f422d4ec7a7dcea2dad5e8941d02b52062012bce95481b94aa82be623",
+    "stockReceipt": "e3233f03fa47a04ab3b298db2d7d23d4cebf32fcf941e1e72c30b8bcc6315065",
+    "bundle": "yacht-points/v1/artifacts/complete.rules",
+    "fixture": "../suites/arcade/yacht/claims/yacht-score/v1/probes/five-equal-dice/v1/fixture.json",
+    "localReceipt": "yacht-points/v1/firestore-receipt.json",
+    "decisions": { "score-50": "ALLOW", "score-49": "DENY" }
+  }
+}

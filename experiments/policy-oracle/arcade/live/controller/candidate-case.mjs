@@ -34,6 +34,7 @@ function wireValue(value) {
   if (typeof value === 'boolean') return { booleanValue: value };
   if (Number.isSafeInteger(value)) return { integerValue: String(value) };
   if (Number.isFinite(value)) return { doubleValue: value };
+  if (Array.isArray(value)) return { arrayValue: { values: value.map(wireValue) } };
   assert.ok(value && typeof value === 'object' && !Array.isArray(value));
   return { mapValue: { fields: wireFields(value) } };
 }
@@ -52,6 +53,7 @@ function decode(value) {
   if ('doubleValue' in value) { assert.ok(Number.isFinite(value.doubleValue)); return value.doubleValue; }
   if ('booleanValue' in value) return value.booleanValue;
   if ('stringValue' in value) return value.stringValue;
+  if ('arrayValue' in value) return (value.arrayValue.values ?? []).map(decode);
   assert.ok('mapValue' in value);
   return Object.fromEntries(Object.entries(value.mapValue.fields).map(([k,v]) => [k,decode(v)]));
 }
@@ -95,7 +97,7 @@ export async function runCase({ sample, writer, reader, journal, runId, tag, con
   const { sdk, createDocument, readDocument } = io;
   const { caseId, path, operation, data } = sample;
   const seed = { ...sample.before };
-  if (operation === 'set') seed.createdAt = sdk.Timestamp.fromDate(new Date(seed.createdAt));
+  if (operation === 'set' || operation === 'transaction-update') seed.createdAt = sdk.Timestamp.fromDate(new Date(seed.createdAt));
   const expectedBefore = JSON.parse(JSON.stringify(seed));
   assert.equal(writer.auth.currentUser.uid, writer.identity.uid);
   assert.equal(reader.auth.currentUser.uid, reader.identity.uid);
@@ -128,11 +130,21 @@ export async function runCase({ sample, writer, reader, journal, runId, tag, con
   if (operation === 'set') {
     assert.equal(data.createdAt, '$serverTimestamp');
     send = () => sdk.setDoc(submitRef, { ...data, createdAt: sdk.serverTimestamp() });
+  } else if (operation === 'transaction-update') {
+    send = () => sdk.runTransaction(submitRef.firestore, async transaction => {
+      const snap = await transaction.get(submitRef);
+      assert.ok(snap.exists());
+      row.transactionRead = JSON.parse(JSON.stringify(snap.data()));
+      assert.deepEqual(row.transactionRead, expectedBefore);
+      transaction.update(submitRef, data);
+      row.writeSubmitted = true;
+    }, { maxAttempts: 1 });
   } else {
     assert.equal(operation, 'update');
     send = () => sdk.updateDoc(submitRef, data);
   }
   const { decision, code } = await verdict(send);
+  if (operation === 'transaction-update') assert.equal(row.writeSubmitted, true, 'transaction did not submit a write');
   Object.assign(row, { decision, code });
   journal.event('candidate-verdict', { tag, runId, caseId, path, decision, code, at: now() });
   if (control) {

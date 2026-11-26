@@ -1,0 +1,2542 @@
+{
+  "mode": "yacht",
+  "runId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+  "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+  "fixtureSha256": "591fb6e2be899d2b4ceec6a10625ecca926f42a6ed1d0be535ddefccb1561d5f",
+  "rows": {
+    "score-50": {
+      "tag": "yacht",
+      "runId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+      "caseId": "score-50",
+      "operation": "transaction-update",
+      "path": "yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-50",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "actor": {
+        "uid": "9rSxuHRBLTe282zqIexsBDONxZv2",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "AUKV9kCePVaoSO0MCQjbVK7mROh1",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-50",
+        "fields": {
+          "turn": {
+            "integerValue": "0"
+          },
+          "rolls": {
+            "integerValue": "1"
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "lastCategory": {
+            "stringValue": "ones"
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "moveCount": {
+            "integerValue": "2"
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "lastAction": {
+            "stringValue": "reveal"
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "12"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          }
+        },
+        "createTime": "2026-11-26T01:51:50.814003Z",
+        "updateTime": "2026-11-26T01:51:50.814003Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-50",
+        "fields": {
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "12"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "rolls": {
+            "integerValue": "1"
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "lastCategory": {
+            "stringValue": "ones"
+          },
+          "lastAction": {
+            "stringValue": "reveal"
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "moveCount": {
+            "integerValue": "2"
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "turn": {
+            "integerValue": "0"
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "createTime": "2026-11-26T01:51:50.814003Z",
+        "updateTime": "2026-11-26T01:51:50.814003Z"
+      },
+      "before": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "lastCategory": "ones",
+          "players": [
+            "9rSxuHRBLTe282zqIexsBDONxZv2",
+            "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+          ],
+          "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+          "keep": [
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "salt": "00000000000000000000000000000416",
+          "lastAction": "reveal",
+          "status": "playing",
+          "turn": 0,
+          "rolls": 1,
+          "scores": {
+            "s1": {
+              "fullHouse": -1,
+              "choice": -1,
+              "bigStraight": -1,
+              "littleStraight": -1,
+              "fourKind": -1,
+              "fives": -1,
+              "sixes": -1,
+              "threes": -1,
+              "ones": 4,
+              "twos": -1,
+              "fours": -1,
+              "yacht": -1
+            },
+            "s0": {
+              "fives": -1,
+              "sixes": -1,
+              "yacht": -1,
+              "threes": -1,
+              "fours": -1,
+              "littleStraight": -1,
+              "ones": -1,
+              "fourKind": -1,
+              "fullHouse": -1,
+              "bigStraight": -1,
+              "twos": -1,
+              "choice": 12
+            }
+          },
+          "dice": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "totals": [
+            12,
+            4
+          ],
+          "lastSeat": 1,
+          "nonces": {
+            "0": "",
+            "1": "F00102030405060708090A0B0C0D0E0F"
+          },
+          "winner": -1,
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "commit": "",
+          "moveCount": 2
+        }
+      },
+      "proposal": {
+        "scores": {
+          "s0": {
+            "ones": -1,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": 12,
+            "yacht": 50
+          },
+          "s1": {
+            "ones": 4,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": -1,
+            "yacht": -1
+          }
+        },
+        "totals": [
+          62,
+          4
+        ],
+        "turn": 1,
+        "rolls": 0,
+        "moveCount": 3,
+        "lastCategory": "yacht",
+        "lastAction": "score",
+        "status": "playing",
+        "winner": -1
+      },
+      "attemptedAt": "2026-11-26T01:51:51.372Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/b2d48782-7d57-413b-aadb-774c37f86867",
+        "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+        "lockRunId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+        "lockVersion": "2026-11-26T01:51:11.567222Z",
+        "releaseUpdateTime": "2026-11-26T01:51:21.896933Z",
+        "verifiedAt": "2026-11-26T01:51:50.855Z",
+        "propagationReceiptSha256": "831c4b682f74450ddbdc162b15d7eaf8bca15ce4aa90e2249563c1f069975b0f"
+      },
+      "transactionRead": {
+        "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+        "players": [
+          "9rSxuHRBLTe282zqIexsBDONxZv2",
+          "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+        ],
+        "status": "playing",
+        "turn": 0,
+        "rolls": 1,
+        "commit": "",
+        "keep": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "nonces": {
+          "0": "",
+          "1": "F00102030405060708090A0B0C0D0E0F"
+        },
+        "salt": "00000000000000000000000000000416",
+        "dice": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "scores": {
+          "s0": {
+            "ones": -1,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": 12,
+            "yacht": -1
+          },
+          "s1": {
+            "ones": 4,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": -1,
+            "yacht": -1
+          }
+        },
+        "totals": [
+          12,
+          4
+        ],
+        "lastAction": "reveal",
+        "lastSeat": 1,
+        "lastCategory": "ones",
+        "moveCount": 2,
+        "winner": -1,
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1795537800,
+          "nanoseconds": 0
+        }
+      },
+      "writeSubmitted": true,
+      "decision": "ALLOW",
+      "code": "ok",
+      "stored": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "lastCategory": "yacht",
+          "status": "playing",
+          "scores": {
+            "s1": {
+              "twos": -1,
+              "threes": -1,
+              "ones": 4,
+              "fullHouse": -1,
+              "fours": -1,
+              "choice": -1,
+              "littleStraight": -1,
+              "yacht": -1,
+              "fives": -1,
+              "sixes": -1,
+              "fourKind": -1,
+              "bigStraight": -1
+            },
+            "s0": {
+              "fourKind": -1,
+              "threes": -1,
+              "twos": -1,
+              "littleStraight": -1,
+              "ones": -1,
+              "yacht": 50,
+              "choice": 12,
+              "fours": -1,
+              "fullHouse": -1,
+              "bigStraight": -1,
+              "fives": -1,
+              "sixes": -1
+            }
+          },
+          "lastAction": "score",
+          "players": [
+            "9rSxuHRBLTe282zqIexsBDONxZv2",
+            "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+          ],
+          "lastSeat": 1,
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "dice": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "turn": 1,
+          "totals": [
+            62,
+            4
+          ],
+          "moveCount": 3,
+          "commit": "",
+          "winner": -1,
+          "salt": "00000000000000000000000000000416",
+          "nonces": {
+            "0": "",
+            "1": "F00102030405060708090A0B0C0D0E0F"
+          },
+          "keep": [
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+          "rolls": 0
+        }
+      },
+      "readAttempts": [
+        {
+          "number": 1,
+          "attemptedAt": "2026-11-26T01:51:51.939Z",
+          "readAt": "2026-11-26T01:51:52.030Z",
+          "proof": {
+            "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+            "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+            "rulesetName": "projects/digame-mas/rulesets/b2d48782-7d57-413b-aadb-774c37f86867",
+            "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+            "lockRunId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+            "lockVersion": "2026-11-26T01:51:11.567222Z",
+            "releaseUpdateTime": "2026-11-26T01:51:21.896933Z",
+            "verifiedAt": "2026-11-26T01:51:51.939Z",
+            "propagationReceiptSha256": "831c4b682f74450ddbdc162b15d7eaf8bca15ce4aa90e2249563c1f069975b0f"
+          },
+          "decision": "ALLOW",
+          "code": "ok",
+          "fromCache": false,
+          "hasPendingWrites": false,
+          "data": {
+            "lastCategory": "yacht",
+            "status": "playing",
+            "scores": {
+              "s1": {
+                "twos": -1,
+                "threes": -1,
+                "ones": 4,
+                "fullHouse": -1,
+                "fours": -1,
+                "choice": -1,
+                "littleStraight": -1,
+                "yacht": -1,
+                "fives": -1,
+                "sixes": -1,
+                "fourKind": -1,
+                "bigStraight": -1
+              },
+              "s0": {
+                "fourKind": -1,
+                "threes": -1,
+                "twos": -1,
+                "littleStraight": -1,
+                "ones": -1,
+                "yacht": 50,
+                "choice": 12,
+                "fours": -1,
+                "fullHouse": -1,
+                "bigStraight": -1,
+                "fives": -1,
+                "sixes": -1
+              }
+            },
+            "lastAction": "score",
+            "players": [
+              "9rSxuHRBLTe282zqIexsBDONxZv2",
+              "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+            ],
+            "lastSeat": 1,
+            "createdAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795537800,
+              "nanoseconds": 0
+            },
+            "dice": [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            "turn": 1,
+            "totals": [
+              62,
+              4
+            ],
+            "moveCount": 3,
+            "commit": "",
+            "winner": -1,
+            "salt": "00000000000000000000000000000416",
+            "nonces": {
+              "0": "",
+              "1": "F00102030405060708090A0B0C0D0E0F"
+            },
+            "keep": [
+              false,
+              false,
+              false,
+              false,
+              false
+            ],
+            "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+            "rolls": 0
+          }
+        }
+      ],
+      "firstAfterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-50",
+        "fields": {
+          "lastCategory": {
+            "stringValue": "yacht"
+          },
+          "turn": {
+            "integerValue": "1"
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "62"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "lastAction": {
+            "stringValue": "score"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "50"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "moveCount": {
+            "integerValue": "3"
+          },
+          "rolls": {
+            "integerValue": "0"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          }
+        },
+        "createTime": "2026-11-26T01:51:50.814003Z",
+        "updateTime": "2026-11-26T01:51:51.507917Z"
+      },
+      "readAt": "2026-11-26T01:51:52.037Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-50",
+        "fields": {
+          "commit": {
+            "stringValue": ""
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "62"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "lastCategory": {
+            "stringValue": "yacht"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "rolls": {
+            "integerValue": "0"
+          },
+          "turn": {
+            "integerValue": "1"
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "50"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "moveCount": {
+            "integerValue": "3"
+          },
+          "lastAction": {
+            "stringValue": "score"
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "status": {
+            "stringValue": "playing"
+          }
+        },
+        "createTime": "2026-11-26T01:51:50.814003Z",
+        "updateTime": "2026-11-26T01:51:51.507917Z"
+      },
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/b2d48782-7d57-413b-aadb-774c37f86867",
+        "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+        "lockRunId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+        "lockVersion": "2026-11-26T01:51:11.567222Z",
+        "releaseUpdateTime": "2026-11-26T01:51:21.896933Z",
+        "verifiedAt": "2026-11-26T01:51:52.503Z",
+        "propagationReceiptSha256": "831c4b682f74450ddbdc162b15d7eaf8bca15ce4aa90e2249563c1f069975b0f"
+      }
+    },
+    "score-49": {
+      "tag": "yacht",
+      "runId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+      "caseId": "score-49",
+      "operation": "transaction-update",
+      "path": "yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-49",
+      "sdkVersion": "12.19.0",
+      "endpoint": "firestore.googleapis.com",
+      "project": "digame-mas",
+      "database": "arcade-counter-261125-5cbab1e4",
+      "actor": {
+        "uid": "9rSxuHRBLTe282zqIexsBDONxZv2",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "reader": {
+        "uid": "AUKV9kCePVaoSO0MCQjbVK7mROh1",
+        "audience": "digame-mas",
+        "issuer": "https://securetoken.google.com/digame-mas",
+        "provider": "anonymous"
+      },
+      "seedDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-49",
+        "fields": {
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "turn": {
+            "integerValue": "0"
+          },
+          "lastCategory": {
+            "stringValue": "ones"
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "12"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "moveCount": {
+            "integerValue": "2"
+          },
+          "rolls": {
+            "integerValue": "1"
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "lastAction": {
+            "stringValue": "reveal"
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          }
+        },
+        "createTime": "2026-11-26T01:51:52.716173Z",
+        "updateTime": "2026-11-26T01:51:52.716173Z"
+      },
+      "beforeDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-49",
+        "fields": {
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "rolls": {
+            "integerValue": "1"
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "lastAction": {
+            "stringValue": "reveal"
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "moveCount": {
+            "integerValue": "2"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "12"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "turn": {
+            "integerValue": "0"
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "lastCategory": {
+            "stringValue": "ones"
+          }
+        },
+        "createTime": "2026-11-26T01:51:52.716173Z",
+        "updateTime": "2026-11-26T01:51:52.716173Z"
+      },
+      "before": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "lastCategory": "ones",
+          "totals": [
+            12,
+            4
+          ],
+          "winner": -1,
+          "commit": "",
+          "nonces": {
+            "0": "",
+            "1": "F00102030405060708090A0B0C0D0E0F"
+          },
+          "lastAction": "reveal",
+          "turn": 0,
+          "lastSeat": 1,
+          "dice": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "status": "playing",
+          "keep": [
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+          "scores": {
+            "s1": {
+              "fourKind": -1,
+              "fours": -1,
+              "twos": -1,
+              "yacht": -1,
+              "ones": 4,
+              "sixes": -1,
+              "fives": -1,
+              "threes": -1,
+              "littleStraight": -1,
+              "bigStraight": -1,
+              "fullHouse": -1,
+              "choice": -1
+            },
+            "s0": {
+              "yacht": -1,
+              "bigStraight": -1,
+              "fours": -1,
+              "fullHouse": -1,
+              "twos": -1,
+              "littleStraight": -1,
+              "ones": -1,
+              "sixes": -1,
+              "fives": -1,
+              "threes": -1,
+              "fourKind": -1,
+              "choice": 12
+            }
+          },
+          "moveCount": 2,
+          "players": [
+            "9rSxuHRBLTe282zqIexsBDONxZv2",
+            "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+          ],
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "rolls": 1,
+          "salt": "00000000000000000000000000000416"
+        }
+      },
+      "proposal": {
+        "scores": {
+          "s0": {
+            "ones": -1,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": 12,
+            "yacht": 49
+          },
+          "s1": {
+            "ones": 4,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": -1,
+            "yacht": -1
+          }
+        },
+        "totals": [
+          61,
+          4
+        ],
+        "turn": 1,
+        "rolls": 0,
+        "moveCount": 3,
+        "lastCategory": "yacht",
+        "lastAction": "score",
+        "status": "playing",
+        "winner": -1
+      },
+      "attemptedAt": "2026-11-26T01:51:52.956Z",
+      "deploymentBefore": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/b2d48782-7d57-413b-aadb-774c37f86867",
+        "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+        "lockRunId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+        "lockVersion": "2026-11-26T01:51:11.567222Z",
+        "releaseUpdateTime": "2026-11-26T01:51:21.896933Z",
+        "verifiedAt": "2026-11-26T01:51:52.759Z",
+        "propagationReceiptSha256": "831c4b682f74450ddbdc162b15d7eaf8bca15ce4aa90e2249563c1f069975b0f"
+      },
+      "transactionRead": {
+        "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+        "players": [
+          "9rSxuHRBLTe282zqIexsBDONxZv2",
+          "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+        ],
+        "status": "playing",
+        "turn": 0,
+        "rolls": 1,
+        "commit": "",
+        "keep": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "nonces": {
+          "0": "",
+          "1": "F00102030405060708090A0B0C0D0E0F"
+        },
+        "salt": "00000000000000000000000000000416",
+        "dice": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "scores": {
+          "s0": {
+            "ones": -1,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": 12,
+            "yacht": -1
+          },
+          "s1": {
+            "ones": 4,
+            "twos": -1,
+            "threes": -1,
+            "fours": -1,
+            "fives": -1,
+            "sixes": -1,
+            "fullHouse": -1,
+            "fourKind": -1,
+            "littleStraight": -1,
+            "bigStraight": -1,
+            "choice": -1,
+            "yacht": -1
+          }
+        },
+        "totals": [
+          12,
+          4
+        ],
+        "lastAction": "reveal",
+        "lastSeat": 1,
+        "lastCategory": "ones",
+        "moveCount": 2,
+        "winner": -1,
+        "createdAt": {
+          "type": "firestore/timestamp/1.0",
+          "seconds": 1795537800,
+          "nanoseconds": 0
+        }
+      },
+      "writeSubmitted": true,
+      "decision": "DENY",
+      "code": "permission-denied",
+      "stored": {
+        "decision": "ALLOW",
+        "code": "ok",
+        "fromCache": false,
+        "hasPendingWrites": false,
+        "data": {
+          "lastCategory": "ones",
+          "totals": [
+            12,
+            4
+          ],
+          "winner": -1,
+          "commit": "",
+          "nonces": {
+            "0": "",
+            "1": "F00102030405060708090A0B0C0D0E0F"
+          },
+          "lastAction": "reveal",
+          "turn": 0,
+          "lastSeat": 1,
+          "dice": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "status": "playing",
+          "keep": [
+            false,
+            false,
+            false,
+            false,
+            false
+          ],
+          "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+          "scores": {
+            "s1": {
+              "fourKind": -1,
+              "fours": -1,
+              "twos": -1,
+              "yacht": -1,
+              "ones": 4,
+              "sixes": -1,
+              "fives": -1,
+              "threes": -1,
+              "littleStraight": -1,
+              "bigStraight": -1,
+              "fullHouse": -1,
+              "choice": -1
+            },
+            "s0": {
+              "yacht": -1,
+              "bigStraight": -1,
+              "fours": -1,
+              "fullHouse": -1,
+              "twos": -1,
+              "littleStraight": -1,
+              "ones": -1,
+              "sixes": -1,
+              "fives": -1,
+              "threes": -1,
+              "fourKind": -1,
+              "choice": 12
+            }
+          },
+          "moveCount": 2,
+          "players": [
+            "9rSxuHRBLTe282zqIexsBDONxZv2",
+            "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+          ],
+          "createdAt": {
+            "type": "firestore/timestamp/1.0",
+            "seconds": 1795537800,
+            "nanoseconds": 0
+          },
+          "rolls": 1,
+          "salt": "00000000000000000000000000000416"
+        }
+      },
+      "readAttempts": [
+        {
+          "number": 1,
+          "attemptedAt": "2026-11-26T01:51:53.519Z",
+          "readAt": "2026-11-26T01:51:53.644Z",
+          "proof": {
+            "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+            "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+            "rulesetName": "projects/digame-mas/rulesets/b2d48782-7d57-413b-aadb-774c37f86867",
+            "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+            "lockRunId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+            "lockVersion": "2026-11-26T01:51:11.567222Z",
+            "releaseUpdateTime": "2026-11-26T01:51:21.896933Z",
+            "verifiedAt": "2026-11-26T01:51:53.519Z",
+            "propagationReceiptSha256": "831c4b682f74450ddbdc162b15d7eaf8bca15ce4aa90e2249563c1f069975b0f"
+          },
+          "decision": "ALLOW",
+          "code": "ok",
+          "fromCache": false,
+          "hasPendingWrites": false,
+          "data": {
+            "lastCategory": "ones",
+            "totals": [
+              12,
+              4
+            ],
+            "winner": -1,
+            "commit": "",
+            "nonces": {
+              "0": "",
+              "1": "F00102030405060708090A0B0C0D0E0F"
+            },
+            "lastAction": "reveal",
+            "turn": 0,
+            "lastSeat": 1,
+            "dice": [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            "status": "playing",
+            "keep": [
+              false,
+              false,
+              false,
+              false,
+              false
+            ],
+            "host": "9rSxuHRBLTe282zqIexsBDONxZv2",
+            "scores": {
+              "s1": {
+                "fourKind": -1,
+                "fours": -1,
+                "twos": -1,
+                "yacht": -1,
+                "ones": 4,
+                "sixes": -1,
+                "fives": -1,
+                "threes": -1,
+                "littleStraight": -1,
+                "bigStraight": -1,
+                "fullHouse": -1,
+                "choice": -1
+              },
+              "s0": {
+                "yacht": -1,
+                "bigStraight": -1,
+                "fours": -1,
+                "fullHouse": -1,
+                "twos": -1,
+                "littleStraight": -1,
+                "ones": -1,
+                "sixes": -1,
+                "fives": -1,
+                "threes": -1,
+                "fourKind": -1,
+                "choice": 12
+              }
+            },
+            "moveCount": 2,
+            "players": [
+              "9rSxuHRBLTe282zqIexsBDONxZv2",
+              "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+            ],
+            "createdAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795537800,
+              "nanoseconds": 0
+            },
+            "rolls": 1,
+            "salt": "00000000000000000000000000000416"
+          }
+        }
+      ],
+      "firstAfterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-49",
+        "fields": {
+          "lastCategory": {
+            "stringValue": "ones"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "turn": {
+            "integerValue": "0"
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "moveCount": {
+            "integerValue": "2"
+          },
+          "lastAction": {
+            "stringValue": "reveal"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "rolls": {
+            "integerValue": "1"
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "12"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          }
+        },
+        "createTime": "2026-11-26T01:51:52.716173Z",
+        "updateTime": "2026-11-26T01:51:52.716173Z"
+      },
+      "readAt": "2026-11-26T01:51:53.648Z",
+      "afterDocument": {
+        "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/yacht/oracle-c7cc66e5-093c-4fa9-beea-817e516ca8fa-score-49",
+        "fields": {
+          "rolls": {
+            "integerValue": "1"
+          },
+          "winner": {
+            "integerValue": "-1"
+          },
+          "lastAction": {
+            "stringValue": "reveal"
+          },
+          "turn": {
+            "integerValue": "0"
+          },
+          "players": {
+            "arrayValue": {
+              "values": [
+                {
+                  "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+                },
+                {
+                  "stringValue": "AUKV9kCePVaoSO0MCQjbVK7mROh1"
+                }
+              ]
+            }
+          },
+          "scores": {
+            "mapValue": {
+              "fields": {
+                "s0": {
+                  "mapValue": {
+                    "fields": {
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      },
+                      "ones": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "12"
+                      }
+                    }
+                  }
+                },
+                "s1": {
+                  "mapValue": {
+                    "fields": {
+                      "ones": {
+                        "integerValue": "4"
+                      },
+                      "fullHouse": {
+                        "integerValue": "-1"
+                      },
+                      "threes": {
+                        "integerValue": "-1"
+                      },
+                      "yacht": {
+                        "integerValue": "-1"
+                      },
+                      "bigStraight": {
+                        "integerValue": "-1"
+                      },
+                      "fives": {
+                        "integerValue": "-1"
+                      },
+                      "fourKind": {
+                        "integerValue": "-1"
+                      },
+                      "fours": {
+                        "integerValue": "-1"
+                      },
+                      "sixes": {
+                        "integerValue": "-1"
+                      },
+                      "choice": {
+                        "integerValue": "-1"
+                      },
+                      "twos": {
+                        "integerValue": "-1"
+                      },
+                      "littleStraight": {
+                        "integerValue": "-1"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "moveCount": {
+            "integerValue": "2"
+          },
+          "host": {
+            "stringValue": "9rSxuHRBLTe282zqIexsBDONxZv2"
+          },
+          "dice": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "status": {
+            "stringValue": "playing"
+          },
+          "commit": {
+            "stringValue": ""
+          },
+          "keep": {
+            "arrayValue": {
+              "values": [
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                },
+                {
+                  "booleanValue": false
+                }
+              ]
+            }
+          },
+          "lastCategory": {
+            "stringValue": "ones"
+          },
+          "totals": {
+            "arrayValue": {
+              "values": [
+                {
+                  "integerValue": "12"
+                },
+                {
+                  "integerValue": "4"
+                }
+              ]
+            }
+          },
+          "salt": {
+            "stringValue": "00000000000000000000000000000416"
+          },
+          "lastSeat": {
+            "integerValue": "1"
+          },
+          "nonces": {
+            "mapValue": {
+              "fields": {
+                "0": {
+                  "stringValue": ""
+                },
+                "1": {
+                  "stringValue": "F00102030405060708090A0B0C0D0E0F"
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "timestampValue": "2026-11-24T16:30:00Z"
+          }
+        },
+        "createTime": "2026-11-26T01:51:52.716173Z",
+        "updateTime": "2026-11-26T01:51:52.716173Z"
+      },
+      "deploymentAfter": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/b2d48782-7d57-413b-aadb-774c37f86867",
+        "rulesSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+        "lockRunId": "c7cc66e5-093c-4fa9-beea-817e516ca8fa",
+        "lockVersion": "2026-11-26T01:51:11.567222Z",
+        "releaseUpdateTime": "2026-11-26T01:51:21.896933Z",
+        "verifiedAt": "2026-11-26T01:51:54.048Z",
+        "propagationReceiptSha256": "831c4b682f74450ddbdc162b15d7eaf8bca15ce4aa90e2249563c1f069975b0f"
+      }
+    }
+  }
+}

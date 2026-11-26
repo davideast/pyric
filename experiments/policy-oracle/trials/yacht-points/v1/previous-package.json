@@ -1,0 +1,9 @@
+{
+  "candidateSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "referenceSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "stockReceipts": [
+    "e3233f03fa47a04ab3b298db2d7d23d4cebf32fcf941e1e72c30b8bcc6315065"
+  ],
+  "passed": false,
+  "unsupported": "compile.mjs: 101 |         case 'isExpr': return check(expr.value, names, read);\n102 |         case 'ternary':\n103 |             check(expr.condition, names, read);\n104 |             check(expr.consequent, names, read);\n105 |             return check(expr.alternate, names, read);\n106 |         default: throw new Error(expr.type + ' is outside the experimental pure expression subset');\n                                 ^\nerror: bracketAccess is outside the experimental pure expression subset\n      at check (/oracle/arcade/runtime/node_modules/@pyric/rules/dist/policy/index.js:106:28)\n      at check (/oracle/arcade/runtime/node_modules/@pyric/rules/dist/policy/index.js:95:13)\n      at check (/oracle/arcade/runtime/node_modules/@pyric/rules/dist/policy/index.js:95:13)\n      at check (/oracle/arcade/runtime/node_modules/@pyric/rules/dist/policy/index.js:95:13)\n      at check (/oracle/arcade/runtime/node_modules/@pyric/rules/dist/policy/index.js:95:13)\n      at compileFunction (/oracle/arcade/runtime/node_modules/@pyric/rules/dist/policy/index.js:120:9)\n      at pointsFunction (/oracle/trials/yacht-points/v1/compile.mjs:10:10)\n\nBun v1.4.5 (Linux x64)\n"
+}

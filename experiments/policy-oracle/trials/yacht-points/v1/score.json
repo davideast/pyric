@@ -1,0 +1,32 @@
+{
+  "candidateSha256": "3a79e94878d551a292757774f3e39cd2f3d57b15ffec93200807922ae3120fa6",
+  "referenceSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "stockReceipts": [
+    "e3233f03fa47a04ab3b298db2d7d23d4cebf32fcf941e1e72c30b8bcc6315065"
+  ],
+  "passed": true,
+  "moduleSha256": "f8cf0e01bff36678d6e5e7a1c9e93a2e31d0b49eec8846a7c658a96a3f298832",
+  "bundleSha256": "740225784df7f7b90470ee0d281f56ed68287f957c2f3a5f9a0ec37521000349",
+  "nativeSha256": "a211d716090588d0787f3400fdcc80d18a737a622540942aa1622048b3528a6f",
+  "standalone": {
+    "total": 93312,
+    "matches": 93312,
+    "firstDivergence": null
+  },
+  "completeUpdates": {
+    "rolls": 7776,
+    "matches": 186624,
+    "wrongDecisions": 0,
+    "falseAllows": 0,
+    "falseDenials": 0,
+    "firstDivergence": null
+  },
+  "stockProduction": {
+    "score-50": "ALLOW",
+    "score-49": "DENY"
+  },
+  "generatedLocal": {
+    "score-50": "ALLOW",
+    "score-49": "DENY"
+  }
+}

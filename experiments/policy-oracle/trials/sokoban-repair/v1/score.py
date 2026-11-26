@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / "core"))
 import oracle
 from candidate import MAX_PACKAGE
-from offline_runtime import side
+from compiler_trial import run_stage, stock_answers
 
 COMMITMENT = "4d5c0cdc493980046103b1e6c15fadd1a2e748259e7a1bed6cb1963de4685ebf"
 REFERENCE = "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743"
@@ -38,29 +38,14 @@ def held_out_labels():
 
 
 def public_labels(controller):
-    oracle.require(controller.is_dir() and not controller.is_relative_to(oracle.checkout_boundary(ROOT)),
-                   "public scoring requires a separate capture-controller archive")
-    sources = oracle.EvidenceSources(oracle.released_pins(ROOT, None), controller, None)
-    report, snapshot = oracle.inspect(ROOT, sources)
-    for name, digest in sources.released.items():
-        oracle.require(snapshot["pins"].get(name) == digest, f"missing or altered released record: {name}")
-    probe = report["claims"][CLAIM]["probes"][PROBE]
-    oracle.require(probe["status"] == "evidenced" and probe["observations"],
-                   "public stock decisions require admitted authenticated write/readbacks")
-    receipts = [oracle.load(ROOT / PROBE_PATH / "observations" / (name + ".json"))
-                for name in probe["observations"]]
-    answers = receipts[0]["results"]
+    answers, receipts = stock_answers(ROOT, controller, CLAIM, PROBE, PROBE_PATH)
     oracle.exact_cases(answers, ["pushes-9", "pushes-10"], PROBE)
-    return answers, [r["evidence"]["sha256"] for r in receipts]
+    return answers, receipts
 
 
 def task(package, files, runner, args):
     name = TRIAL + "/" + runner
-    result = side(ROOT, package, {"run": {"engine": "node", "runner": "/oracle/" + name, "args": args}},
-                  reference=False, timeout=300, pinned_paths=files)
-    if "installError" in result:
-        return {"error": result["installError"]}
-    return result["tasks"]["run"]
+    return run_stage(ROOT, package, name, args, files, engine="node")
 
 
 def scored_rows(expected, values, error=None):

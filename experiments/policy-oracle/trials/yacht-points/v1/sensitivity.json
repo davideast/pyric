@@ -1,0 +1,30 @@
+{
+  "change": "Award 31 for a little straight in the emitted helper.",
+  "scope": "Offline complete ruleset replay",
+  "moduleSha256": "8cc985c1d56d2c2f2d8e3acf374bd00a582c555e4702e7f4885c8ca246ff53d4",
+  "bundleSha256": "618a0bb25e4205048e9177b102bb0893f4b9bc10a93c2f82f814b3cd8c5d3dd4",
+  "publicCases": {
+    "score-50": "ALLOW",
+    "score-49": "DENY"
+  },
+  "completeUpdates": {
+    "rolls": 7776,
+    "matches": 186384,
+    "wrongDecisions": 240,
+    "falseAllows": 120,
+    "falseDenials": 120,
+    "firstDivergence": {
+      "dice": [
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "category": "littleStraight",
+      "proposed": 30,
+      "expected": "ALLOW",
+      "actual": "DENY"
+    }
+  }
+}

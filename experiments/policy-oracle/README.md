@@ -1,6 +1,6 @@
 # Replaying the policy oracle
 
-[Production results and replay commands for the Arcade, Sokoban repair and Floor boost trials](trials/RESULTS.md)
+[Production results and replay commands for the Arcade, Sokoban repair and Floor boost trials](trials/RESULTS.md) · [Yacht compiler and scoring trial](trials/yacht-points/v1/README.md)
 
 The [pilot results](PILOT.md) list the observed decisions, pending captures and merge-order verification.
 
