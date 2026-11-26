@@ -499,22 +499,10 @@ describe('sandbox backend — reset clears state', () => {
 });
 
 describe('sandbox backend — explicitly-not-implemented surface', () => {
-  const validSessionCookieSample = unsignedJwt(
-    { alg: 'RS256', kid: 'sample-kid', typ: 'JWT' },
-    {
-      aud: SANDBOX_PROJECT_ID,
-      iss: `https://session.firebase.google.com/${SANDBOX_PROJECT_ID}`,
-      sub: 'alice',
-      iat: 1_700_000_000,
-      exp: 1_700_003_600,
-    },
-  );
   const validPreflightArgsByMethod: Record<string, readonly unknown[]> = {
     getUserByPhoneNumber: ['+15555550100'],
     getUsers: [[{ uid: 'alice' }]],
     deleteUsers: [['alice']],
-    createSessionCookie: ['sample-id-token', { expiresIn: 300_000 }],
-    verifySessionCookie: [validSessionCookieSample],
     generatePasswordResetLink: ['alice@example.com'],
     generateEmailVerificationLink: ['alice@example.com'],
     generateSignInWithEmailLink: ['alice@example.com', { url: 'https://example.com/finish' }],
@@ -527,8 +515,6 @@ describe('sandbox backend — explicitly-not-implemented surface', () => {
     'getUsers',
     'deleteUsers',
     'importUsers',
-    'createSessionCookie',
-    'verifySessionCookie',
     'generatePasswordResetLink',
     'generateEmailVerificationLink',
     'generateSignInWithEmailLink',
@@ -555,6 +541,42 @@ describe('sandbox backend — explicitly-not-implemented surface', () => {
     expect(() => (auth as Record<string, unknown>)['tenantManager']).toThrow(
       /not implemented in pyric-admin\/auth sandbox backend/,
     );
+  });
+});
+
+describe('sandbox backend - createSessionCookie & verifySessionCookie', () => {
+  it('mints and verifies a session cookie and isolates it from ID and custom tokens', async () => {
+    const {
+      getAuth: getClientAuth,
+      sandbox: clientAuthSandbox,
+      signInWithCustomToken,
+    } = await import('pyric/auth');
+    const sandbox = initializeSandbox();
+    const clientAuth = getClientAuth(sandbox);
+    clientAuthSandbox.setProjectIdSource(clientAuth, () => 'demo-cookie');
+    const auth = getAuth(initializeApp({ sandbox, projectId: 'demo-cookie' }));
+    const customToken = await auth.createCustomToken('alice', { role: 'owner' });
+    const { user } = await signInWithCustomToken(clientAuth, customToken);
+    const idToken = await user.getIdToken();
+
+    const sessionCookie = await auth.createSessionCookie(idToken, { expiresIn: 5 * 60 * 1000 });
+    const decoded = await auth.verifySessionCookie(sessionCookie, true);
+    expect(decoded.uid).toBe('alice');
+    expect(decoded.sub).toBe('alice');
+    expect(decoded.role).toBe('owner');
+    expect(decoded.aud).toBe('demo-cookie');
+    expect(decoded.iss).toBe('https://session.firebase.google.com/demo-cookie');
+    expect(decoded.exp - decoded.iat).toBe(300);
+
+    await expect(auth.verifyIdToken(sessionCookie)).rejects.toMatchObject({
+      code: 'auth/argument-error',
+    });
+    await expect(auth.verifySessionCookie(idToken)).rejects.toMatchObject({
+      code: 'auth/argument-error',
+    });
+    await expect(auth.verifySessionCookie(customToken)).rejects.toMatchObject({
+      code: 'auth/argument-error',
+    });
   });
 });
 

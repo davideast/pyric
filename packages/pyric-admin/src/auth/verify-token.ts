@@ -6,7 +6,7 @@
 import type { AuthAccountStanding } from 'pyric/sandbox/internal';
 import { PrefixedFirebaseError, type ErrorInfo } from '../app/firebase-error.js';
 import type { DecodedIdToken } from './types.js';
-import { checkClientIdToken, type IdTokenFailureCode, type IdTokenVerdict } from './token-decoders.js';
+import { checkClientIdToken, type IdTokenFailureCode } from './token-decoders.js';
 
 /** The codes `checkRevoked`, `revokeRefreshTokens`, and admin user-management add to a token check's. */
 export type AccountFailureCode =
@@ -14,6 +14,8 @@ export type AccountFailureCode =
   | 'user-not-found'
   | 'user-disabled'
   | 'id-token-revoked'
+  | 'session-cookie-expired'
+  | 'session-cookie-revoked'
   | 'invalid-uid'
   | 'email-already-exists'
   | 'phone-number-already-exists'
@@ -111,7 +113,7 @@ function remoteOrigin(url: string): string | undefined {
  * `PYRIC_SANDBOX` names, else a remote sandbox with no printable url, else a
  * sandbox in this process.
  */
-function sandboxLabel(): string {
+export function sandboxLabel(): string {
   const env = typeof process === 'undefined' ? {} : process.env;
   const instance = env.PYRIC_SANDBOX_INSTANCE;
   if (instance) return `instance ${instance}`;
@@ -125,7 +127,7 @@ function sandboxLabel(): string {
 let reportedModeMismatch = false;
 
 /** One stderr line per process the first time a token from the other mode is refused. */
-function reportModeMismatch(verdict: IdTokenVerdict & { ok: false }): void {
+export function reportModeMismatch(verdict: { readonly pyricCode?: string; readonly message: string }): void {
   const isFirstMismatch = verdict.pyricCode !== undefined && !reportedModeMismatch;
   if (!isFirstMismatch) return;
   reportedModeMismatch = true;
@@ -192,12 +194,29 @@ export function userNotFound(): FirebaseAuthError {
  * be enabled, and have no revocation after the token's `auth_time`, compared
  * in whole seconds as production stores it.
  */
-export function assertNotRevokedOrDisabled(decoded: DecodedIdToken, standing: AuthAccountStanding): DecodedIdToken {
+export function assertNotRevokedOrDisabled(
+  decoded: DecodedIdToken,
+  standing: AuthAccountStanding,
+  revokedKind: 'id-token' | 'session-cookie' = 'id-token',
+): DecodedIdToken {
   const hasNoRecord = standing.kind === 'deleted' || standing.kind === 'unrecorded';
   if (hasNoRecord) throw userNotFound();
   if (standing.kind === 'disabled') throw new FirebaseAuthError('user-disabled', 'The user record is disabled.');
   const validAfterMs = standing.tokensValidAfterMs;
-  const revoked = validAfterMs !== null && decoded.auth_time * 1000 < validAfterMs;
-  if (revoked) throw new FirebaseAuthError('id-token-revoked', 'The Firebase ID token has been revoked.');
+  if (validAfterMs !== null) {
+    const revoked =
+      typeof decoded.auth_time !== 'number' ||
+      !Number.isFinite(decoded.auth_time) ||
+      decoded.auth_time * 1000 < validAfterMs;
+    if (revoked) {
+      if (revokedKind === 'session-cookie') {
+        throw new FirebaseAuthError(
+          'session-cookie-revoked',
+          'The Firebase session cookie has been revoked.',
+        );
+      }
+      throw new FirebaseAuthError('id-token-revoked', 'The Firebase ID token has been revoked.');
+    }
+  }
   return decoded;
 }

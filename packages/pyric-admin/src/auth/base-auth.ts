@@ -7,6 +7,7 @@ import type {
   CreateRequest,
   DecodedIdToken,
   ListUsersResult,
+  SessionCookieOptions,
   UpdateRequest,
 } from './types.js';
 import type { UserRecord } from './user-record.js';
@@ -79,11 +80,11 @@ export class BaseAuth {
     return this.delegate.importUsers(users, options);
   }
 
-  createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string> {
+  createSessionCookie(idToken: string, sessionCookieOptions: SessionCookieOptions): Promise<string> {
     return this.delegate.createSessionCookie(idToken, sessionCookieOptions);
   }
 
-  verifySessionCookie(sessionCookie?: unknown, checkRevoked?: boolean): Promise<DecodedIdToken> {
+  verifySessionCookie(sessionCookie: string, checkRevoked?: boolean): Promise<DecodedIdToken> {
     return this.delegate.verifySessionCookie(sessionCookie, checkRevoked);
   }
 

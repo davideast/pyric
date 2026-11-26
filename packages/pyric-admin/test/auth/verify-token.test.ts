@@ -54,6 +54,13 @@ describe('pyric-admin/auth token verification helpers', () => {
     expect(() =>
       assertNotRevokedOrDisabled(sampleDecoded, { kind: 'active', tokensValidAfterMs: 101_000 }),
     ).toThrow(/revoked/);
+    expect(() =>
+      assertNotRevokedOrDisabled(
+        sampleDecoded,
+        { kind: 'active', tokensValidAfterMs: 101_000 },
+        'session-cookie',
+      ),
+    ).toThrow(/session cookie has been revoked/);
     expect(
       assertNotRevokedOrDisabled(sampleDecoded, { kind: 'active', tokensValidAfterMs: 100_000 }),
     ).toBe(sampleDecoded);

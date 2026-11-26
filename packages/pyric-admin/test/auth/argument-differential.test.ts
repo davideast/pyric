@@ -329,10 +329,15 @@ for (const armKind of ['local', 'remote'] as const) {
       ]);
     });
 
-    it('matches firebase-admin preflight on createSessionCookie, verifySessionCookie, and email action-link generators', async () => {
+    it('matches firebase-admin on createSessionCookie and verifySessionCookie across durations, tokens, and checkRevoked', async () => {
       await assertAuthMethodParity((schemas) => [
         ...generateMethodArgumentCases(schemas.createSessionCookie),
         ...generateMethodArgumentCases(schemas.verifySessionCookie),
+      ]);
+    });
+
+    it('matches firebase-admin preflight on email action-link generators', async () => {
+      await assertAuthMethodParity((schemas) => [
         ...generateMethodArgumentCases(schemas.generatePasswordResetLink),
         ...generateMethodArgumentCases(schemas.generateEmailVerificationLink),
         ...generateMethodArgumentCases(schemas.generateSignInWithEmailLink),

@@ -15,12 +15,14 @@ import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { validateCreateUserPreflight } from './preflight-validation.js';
 import { buildUnmodeledAuthPreflightMethods } from './session-and-link-preflight.js';
+import { createSandboxSessionCookie, verifySandboxSessionCookie } from './session-cookie.js';
 import { Auth } from './auth.js';
 import type {
   BaseAuthDelegate,
   CreateRequest,
   DecodedIdToken,
   ListUsersResult,
+  SessionCookieOptions,
   UpdateRequest,
 } from './types.js';
 import type { UserRecord } from './user-record.js';
@@ -123,6 +125,31 @@ export function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
       if (!checkRevoked) return verified;
       return verified.then((decoded) =>
         assertNotRevokedOrDisabled(decoded, clientAccountStanding(sandbox, decoded.sub)),
+      );
+    },
+
+    createSessionCookie(idToken: string, sessionCookieOptions: SessionCookieOptions): Promise<string> {
+      assertAdminAppActive(app);
+      return createSandboxSessionCookie(idToken, sessionCookieOptions, {
+        projectId: idTokenProjectId(app),
+        readNowMs: () => Promise.resolve(getClock(sandbox).now()),
+        readStanding: (uid) => Promise.resolve(clientAccountStanding(sandbox, uid)),
+      });
+    },
+
+    verifySessionCookie(sessionCookie: string, checkRevoked = false): Promise<DecodedIdToken> {
+      assertAdminAppActive(app);
+      const verified = verifySandboxSessionCookie(sessionCookie, {
+        projectId: idTokenProjectId(app),
+        nowMs: getClock(sandbox).now(),
+      });
+      if (!checkRevoked) return verified;
+      return verified.then((decoded) =>
+        assertNotRevokedOrDisabled(
+          decoded,
+          clientAccountStanding(sandbox, decoded.sub),
+          'session-cookie',
+        ),
       );
     },
 

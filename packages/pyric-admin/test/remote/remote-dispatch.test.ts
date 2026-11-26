@@ -672,10 +672,10 @@ describe('pyric-admin remote dispatch — Auth', () => {
     expect(() => getAuth(app).verifyIdToken(42 as unknown as string)).toThrow(/must be a Firebase ID token string/);
   });
 
-  it('unmodeled surface throws the canonical remote "not implemented" error', () => {
+  it('unmodeled surface throws the canonical remote "not implemented" error', async () => {
     const { app } = makeStack();
     const auth = getAuth(app);
-    expect(auth.createSessionCookie('x', { expiresIn: 300_000 })).rejects.toThrow(
+    await expect(auth.generatePasswordResetLink('alice@example.com')).rejects.toThrow(
       /not implemented in pyric-admin\/auth remote sandbox backend/,
     );
     expect(() => auth.tenantManager()).toThrow(/not implemented/);

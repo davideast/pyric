@@ -373,4 +373,67 @@ service cloud.firestore {
     expect(pageC2.users.map((u) => u.uid)).toEqual(['c3', 'c4']);
     expect(pageC2.pageToken).toBeUndefined();
   });
+
+  it('mints and verifies session cookies with checkRevoked across revocation, disable, delete, and expiry', async () => {
+    const sandbox = initializeSandbox();
+    const clock = getClock(sandbox);
+    const startMs = Date.UTC(2026, 5, 1, 10, 0, 0);
+    clock.set(startMs);
+    const app = initializeApp({ sandbox }, 'local-session-cookie');
+    const adminAuth = getAuth(app);
+    const clientAuth = getClientAuth(sandbox);
+
+    await adminAuth.createUser({
+      uid: 'ssr-user',
+      email: 'ssr@example.com',
+      password: 'secret-pw',
+    });
+    await adminAuth.setCustomUserClaims('ssr-user', { plan: 'pro' });
+    const { user } = await signInWithEmailAndPassword(clientAuth, 'ssr@example.com', 'secret-pw');
+    const idToken = await user.getIdToken();
+
+    const sessionCookie = await adminAuth.createSessionCookie(idToken, {
+      expiresIn: 24 * 60 * 60 * 1000,
+    });
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    expect(decoded.uid).toBe('ssr-user');
+    expect(decoded.email).toBe('ssr@example.com');
+    expect(decoded.plan).toBe('pro');
+    expect(decoded.iss).toMatch(/^https:\/\/session\.firebase\.google\.com\//);
+
+    // Revoking refresh tokens invalidates checkRevoked=true but not checkRevoked=false.
+    clock.advance(2000);
+    await adminAuth.revokeRefreshTokens('ssr-user');
+    await expect(adminAuth.verifySessionCookie(sessionCookie)).resolves.toMatchObject({
+      uid: 'ssr-user',
+    });
+    await expect(adminAuth.verifySessionCookie(sessionCookie, true)).rejects.toMatchObject({
+      code: 'auth/session-cookie-revoked',
+    });
+
+    // Disabling the user rejects checkRevoked=true with auth/user-disabled.
+    await adminAuth.updateUser('ssr-user', { disabled: true });
+    await expect(adminAuth.verifySessionCookie(sessionCookie, true)).rejects.toMatchObject({
+      code: 'auth/user-disabled',
+    });
+
+    // Deleting the user rejects checkRevoked=true with auth/user-not-found.
+    await adminAuth.deleteUser('ssr-user');
+    await expect(adminAuth.verifySessionCookie(sessionCookie, true)).rejects.toMatchObject({
+      code: 'auth/user-not-found',
+    });
+
+    // Advancing past expiresIn rejects with auth/session-cookie-expired.
+    clock.set(startMs + 24 * 60 * 60 * 1000);
+    await expect(adminAuth.verifySessionCookie(sessionCookie)).rejects.toMatchObject({
+      code: 'auth/session-cookie-expired',
+    });
+
+    // Deleted app rejects both session cookie methods synchronously.
+    await deleteApp(app);
+    expect(() => adminAuth.createSessionCookie(idToken, { expiresIn: 300_000 })).toThrow(
+      /has already been deleted/,
+    );
+    expect(() => adminAuth.verifySessionCookie(sessionCookie)).toThrow(/has already been deleted/);
+  });
 });

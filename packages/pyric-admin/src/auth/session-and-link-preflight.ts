@@ -1,15 +1,9 @@
 /**
- * Client-preflight argument validators for `pyric-admin/auth` session cookies
- * and out-of-band email action-link generators (`firebase-admin/auth` v13.10.0).
+ * Client-preflight argument validators for unmodeled `pyric-admin/auth`
+ * batch user, phone lookup, and out-of-band email action-link methods
+ * (`firebase-admin/auth`).
  */
 
-import {
-  CUSTOM_TOKEN_AUDIENCE,
-  JWS_SHAPE,
-  latin1FromBase64url,
-  parseClaimJson,
-  utf8FromBase64url,
-} from 'pyric/sandbox/internal';
 import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import {
@@ -21,106 +15,9 @@ import {
   isNonNullPlainRecord,
   isWebUrl,
 } from './preflight-validation.js';
-import type { BaseAuthDelegate, DecodedIdToken } from './types.js';
+import type { BaseAuthDelegate } from './types.js';
 import type { UserRecord } from './user-record.js';
-import { idTokenProjectId } from './validation.js';
 import { FirebaseAuthError } from './verify-token.js';
-
-const SESSION_COOKIE_ISSUER_PREFIX = 'https://session.firebase.google.com/';
-const MIN_SESSION_COOKIE_DURATION_SEC = 5 * 60;
-const MAX_SESSION_COOKIE_DURATION_SEC = 14 * 24 * 60 * 60;
-
-function isValidSessionCookieDurationMs(expiresIn: unknown): expiresIn is number {
-  if (typeof expiresIn !== 'number' || !Number.isFinite(expiresIn)) {
-    return false;
-  }
-  const durationSec = Math.floor(expiresIn / 1000);
-  return (
-    durationSec >= MIN_SESSION_COOKIE_DURATION_SEC &&
-    durationSec <= MAX_SESSION_COOKIE_DURATION_SEC
-  );
-}
-
-function assertCreateSessionCookiePreflight(idToken: unknown, options: unknown): void {
-  if (!isNonNullPlainRecord(options) || !isValidSessionCookieDurationMs(options.expiresIn)) {
-    throw new FirebaseAuthError(
-      'invalid-session-cookie-duration',
-      'The session cookie duration must be a valid number in milliseconds between 5 minutes and 2 weeks.',
-    );
-  }
-  if (!isNonEmptyString(idToken)) {
-    throw new FirebaseAuthError(
-      'invalid-id-token',
-      'The provided ID token is not a valid Firebase ID token.',
-    );
-  }
-}
-
-function assertVerifySessionCookiePreflight(
-  sessionCookie: unknown,
-  projectId: string,
-): void {
-  if (typeof sessionCookie !== 'string') {
-    throw new FirebaseAuthError(
-      'argument-error',
-      'First argument to verifySessionCookie() must be a Firebase session cookie string.',
-    );
-  }
-  if (!JWS_SHAPE.test(sessionCookie)) {
-    throw new FirebaseAuthError(
-      'argument-error',
-      'Decoding Firebase session cookie failed. Make sure you passed the entire string JWT.',
-    );
-  }
-  const parts = sessionCookie.split('.');
-  let header: unknown;
-  let payload: unknown;
-  try {
-    header = JSON.parse(latin1FromBase64url(parts[0] ?? ''));
-    payload = parseClaimJson(utf8FromBase64url(parts[1] ?? ''));
-  } catch {
-    throw new FirebaseAuthError(
-      'argument-error',
-      'Decoding Firebase session cookie failed. Make sure you passed the entire string JWT.',
-    );
-  }
-  if (!isNonNullPlainRecord(header) || !isNonNullPlainRecord(payload)) {
-    throw new FirebaseAuthError(
-      'argument-error',
-      'Decoding Firebase session cookie failed. Make sure you passed the entire string JWT.',
-    );
-  }
-  if (header.kid === undefined) {
-    if (payload.aud === CUSTOM_TOKEN_AUDIENCE) {
-      throw new FirebaseAuthError(
-        'argument-error',
-        'verifySessionCookie() expects a session cookie, but was given a custom token.',
-      );
-    }
-    throw new FirebaseAuthError('argument-error', 'Firebase session cookie has no "kid" claim.');
-  }
-  if (header.alg !== 'RS256') {
-    throw new FirebaseAuthError(
-      'argument-error',
-      `Firebase session cookie has incorrect algorithm. Expected "RS256" but got "${String(header.alg)}".`,
-    );
-  }
-  if (payload.aud !== projectId) {
-    throw new FirebaseAuthError(
-      'argument-error',
-      'Firebase session cookie has incorrect "aud" (audience) claim.',
-    );
-  }
-  if (payload.iss !== `${SESSION_COOKIE_ISSUER_PREFIX}${projectId}`) {
-    throw new FirebaseAuthError(
-      'argument-error',
-      'Firebase session cookie has incorrect "iss" (issuer) claim.',
-    );
-  }
-  if (typeof payload.sub !== 'string' || payload.sub.length === 0 || payload.sub.length > 128) {
-    throw new FirebaseAuthError('argument-error', 'Firebase session cookie has an invalid "sub" claim.');
-  }
-}
 
 function assertActionCodeSettingsPreflight(actionCodeSettings: unknown): void {
   if (!isNonNullPlainRecord(actionCodeSettings)) {
@@ -257,8 +154,6 @@ type UnmodeledAuthMethodNames =
   | 'getUsers'
   | 'deleteUsers'
   | 'importUsers'
-  | 'createSessionCookie'
-  | 'verifySessionCookie'
   | 'generatePasswordResetLink'
   | 'generateEmailVerificationLink'
   | 'generateSignInWithEmailLink'
@@ -300,30 +195,6 @@ export function buildUnmodeledAuthPreflightMethods(
     importUsers(): Promise<unknown> {
       assertAdminAppActive(app);
       return Promise.reject(notImplemented('importUsers'));
-    },
-    createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string> {
-      assertAdminAppActive(app);
-      try {
-        assertCreateSessionCookiePreflight(idToken, sessionCookieOptions);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('createSessionCookie'));
-    },
-    verifySessionCookie(sessionCookie?: unknown): Promise<DecodedIdToken> {
-      assertAdminAppActive(app);
-      if (typeof sessionCookie !== 'string') {
-        throw new FirebaseAuthError(
-          'argument-error',
-          'First argument to verifySessionCookie() must be a Firebase session cookie string.',
-        );
-      }
-      try {
-        assertVerifySessionCookiePreflight(sessionCookie, idTokenProjectId(app));
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('verifySessionCookie'));
     },
     generatePasswordResetLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
       assertAdminAppActive(app);

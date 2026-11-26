@@ -61,6 +61,10 @@ export interface UserRecordInit {
   readonly tenantId: string | null;
 }
 
+export interface SessionCookieOptions {
+  expiresIn: number;
+}
+
 export interface ListUsersResult {
   users: UserRecord[];
   pageToken?: string;
@@ -82,8 +86,8 @@ export interface BaseAuthDelegate {
   getUsers(identifiers?: unknown): Promise<unknown>;
   deleteUsers(uids?: unknown): Promise<unknown>;
   importUsers(users?: unknown, options?: unknown): Promise<unknown>;
-  createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string>;
-  verifySessionCookie(sessionCookie?: unknown, checkRevoked?: boolean): Promise<DecodedIdToken>;
+  createSessionCookie(idToken: string, sessionCookieOptions: SessionCookieOptions): Promise<string>;
+  verifySessionCookie(sessionCookie: string, checkRevoked?: boolean): Promise<DecodedIdToken>;
   generatePasswordResetLink(email?: unknown, actionCodeSettings?: unknown): Promise<string>;
   generateEmailVerificationLink(email?: unknown, actionCodeSettings?: unknown): Promise<string>;
   generateSignInWithEmailLink(email?: unknown, actionCodeSettings?: unknown): Promise<string>;
