@@ -1,0 +1,43 @@
+{
+  "variant": "knight-endgame-paired-pawn-combined-bare-simple-packed-v5",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "localConformance": false,
+  "matchesObservedProductionCases": null,
+  "passesScoredCases": false,
+  "checkout": "fd88f77c3",
+  "candidateRulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "command": "python3 replay.py --sealed-referee <private referee> --archive <journal directory> --report <report> --scorecard <markdown>",
+  "cleanCheckoutAfter": true,
+  "candidateScore": {
+    "match": 15682,
+    "false-allow": 223
+  },
+  "histories": {
+    "match": 9584,
+    "false-allow": 3
+  },
+  "completePrefixes": 37,
+  "legalSuccessors": 47087,
+  "sealedReferee": {
+    "status": "scored",
+    "authority": "pinned hidden-trace reference and independent local evaluator",
+    "archiveSha256": "26a9eb7b807c0b18774008af09aa413e92336b43a38a852685e4b8079103dd4e",
+    "successorDigest": "228dc23018aff06bac3414959a57a0f74231901bbfc46008fa864259be275518",
+    "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+    "decisionsSha256": "d69163886fd8a73f0115719ec1fb44bd6bda90ad6ef05fc7a1d4d01f1dc16dd4",
+    "groups": {
+      "each-legal-successor": {
+        "match": 46385
+      },
+      "three-claims-per-board": {
+        "match": 4563
+      }
+    },
+    "first": {}
+  },
+  "hostedStatus": "unmeasured",
+  "hostedCases": 0,
+  "privateJournalChecked": true,
+  "reportSha256": "dbf4c7e819679a8c1a13975734b4b8059ee01420d0f0c28fca1cb4d5b679a7f5",
+  "scorecardSha256": "702f266487e771eca8bcf48b1f62cd8c86bdd506b989f619a063e4e450d8a482"
+}
