@@ -7,6 +7,7 @@ export {
   getApp,
   getApps,
   initializeApp,
+  initializeServerApp,
 } from './registry.js';
 export type {
   FirebaseApp,

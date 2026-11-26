@@ -21,9 +21,20 @@ export interface AppCheckActivation<State = unknown> {
 }
 
 const activations = new WeakMap<object, AppCheckActivation>();
+const serverAppTokens = new WeakMap<object, string>();
 
 export function recordAppCheckActivation<State>(app: object, activation: AppCheckActivation<State>): void {
   activations.set(app, activation);
+}
+
+/** Record the static `FirebaseServerAppSettings.appCheckToken` carried by an `initializeServerApp` handle. */
+export function recordServerAppCheckToken(app: object, token: string): void {
+  serverAppTokens.set(app, token);
+}
+
+/** Whether `app` carries either a server-app `appCheckToken` or an `initializeAppCheck` activation. */
+export function hasAppCheckTokenSource(app: object): boolean {
+  return serverAppTokens.has(app) || activations.has(app);
 }
 
 /** The app's activation, or `undefined` when it never called `initializeAppCheck`. */
@@ -38,10 +49,16 @@ export interface AppCheckTokenOptions {
 
 /**
  * The mirror token a request from this app carries, or `null` when the app
- * never called `initializeAppCheck`.
+ * never called `initializeAppCheck` and carries no `FirebaseServerApp` token.
+ * Matches `@firebase/ai` `initApiSettings`: a `FirebaseServerApp` with a
+ * non-empty `settings.appCheckToken` resolves that token directly before
+ * consulting any `AppCheck` provider.
  */
 export async function appCheckTokenFor(app: object, options: AppCheckTokenOptions = {}): Promise<string | null> {
+  const serverToken = serverAppTokens.get(app);
+  if (serverToken !== undefined) return serverToken;
   const activation = appCheckActivationOf(app);
   if (activation === undefined) return null;
-  return options.limitedUse === true ? activation.limitedUseToken() : activation.token();
+  if (options.limitedUse === true) return activation.limitedUseToken();
+  return activation.token();
 }

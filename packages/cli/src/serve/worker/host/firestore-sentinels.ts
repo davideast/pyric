@@ -3,6 +3,8 @@ import {
   arrayUnion,
   deleteField,
   increment,
+  maximum,
+  minimum,
   serverTimestamp,
   vector,
 } from 'pyric/firestore';
@@ -13,6 +15,8 @@ function resolveSentinel(marker: SentinelMarker): unknown {
   switch (marker.__sentinel) {
     case 'serverTimestamp': return serverTimestamp();
     case 'increment':       return increment(marker.n);
+    case 'maximum':         return maximum(marker.n);
+    case 'minimum':         return minimum(marker.n);
     case 'arrayUnion':      return arrayUnion(...marker.values);
     case 'arrayRemove':     return arrayRemove(...marker.values);
     case 'deleteField':     return deleteField();

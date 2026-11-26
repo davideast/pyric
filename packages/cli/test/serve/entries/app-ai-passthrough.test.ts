@@ -31,6 +31,7 @@ describe('served app-ai-passthrough entry lazy registry binding (#1778)', () => 
 
     const served = await import('../../../src/serve/entries/app-ai-passthrough.js');
     expect(typeof served.initializeApp).toBe('function');
+    expect(typeof served.initializeServerApp).toBe('function');
     expect(() => served.initializeApp(OPTIONS, 'conflict-app')).toThrow(
       'pyric/app/internal: the app registry sandbox is already bound',
     );
@@ -43,6 +44,7 @@ describe('served app-ai-passthrough entry lazy registry binding (#1778)', () => 
     await resetAppRegistryForTests();
     const first = served.initializeApp(OPTIONS, 'passthrough-first');
     const second = served.initializeApp(OPTIONS, 'passthrough-second');
+    const serverApp = served.initializeServerApp(OPTIONS, { automaticDataCollectionEnabled: false });
 
     expect(() => bindAppRegistrySandbox(sandbox)).not.toThrow();
     const otherSandbox = createSandboxRoot();
@@ -55,8 +57,10 @@ describe('served app-ai-passthrough entry lazy registry binding (#1778)', () => 
     }
     expect(shadowAppOf(first)).toBe(sdkApp.getApp('passthrough-first'));
     expect(shadowAppOf(second)).toBe(sdkApp.getApp('passthrough-second'));
+    expect(shadowAppOf(serverApp)).not.toBe(serverApp);
 
     await served.deleteApp(first);
     await served.deleteApp(second);
+    await served.deleteApp(serverApp);
   });
 });

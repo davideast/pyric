@@ -36,9 +36,13 @@ import { buildStoredMetadata } from './upload.js';
 
 export {
   bindStorageOperationContext,
+  DEFAULT_STORAGE_BUCKET,
   getAdminStorageSandbox,
+  getStorageDefaultPolicy,
   getStorageService,
   nameStorageBucket,
+  noticeUndeployedStorageBucket,
+  setStorageDefaultPolicy,
   storageAuth,
   storageOperationProvenance,
   targetOf,
@@ -51,7 +55,9 @@ export {
   lockUndeployedStorageBuckets,
   storageBucketsWithRules,
   compiledStorageRulesForBucket,
+  type StorageDefaultPolicy,
 } from './service.js';
+export { undeployedBucketNotice } from '../sandbox/internal/instances.js';
 export {
   getActiveStorageRulesResolution,
   getDefaultStorageRulesResolution,
@@ -143,6 +149,7 @@ interface MutableStorageBucketRuleCaches {
   defaultStoreNames?: WeakMap<Sandbox, string>;
   claimedDefaultNames?: WeakMap<Sandbox, Set<string>>;
   undeployedPolicies?: WeakMap<Sandbox, string>;
+  noticedUndeployedBuckets?: WeakMap<Sandbox, Set<string>>;
 }
 
 /**
@@ -170,6 +177,7 @@ export function pruneStorageBucketRules(
     caches?.defaultStoreNames?.delete(sandbox);
     caches?.claimedDefaultNames?.delete(sandbox);
     caches?.undeployedPolicies?.delete(sandbox);
+    caches?.noticedUndeployedBuckets?.delete(sandbox);
     return;
   }
   const pinnedDefault = caches?.defaultStoreNames?.get(sandbox);
@@ -185,6 +193,17 @@ export function pruneStorageBucketRules(
     }
     if (claimed.size === 0) {
       caches?.claimedDefaultNames?.delete(sandbox);
+    }
+  }
+  const noticed = caches?.noticedUndeployedBuckets?.get(sandbox);
+  if (noticed !== undefined) {
+    for (const candidate of [...noticed]) {
+      if (!normalizedKeep.has(candidate)) {
+        noticed.delete(candidate);
+      }
+    }
+    if (noticed.size === 0) {
+      caches?.noticedUndeployedBuckets?.delete(sandbox);
     }
   }
 }

@@ -88,7 +88,10 @@ describe('omit: true parity across every trigger family (#1938)', () => {
           { document: 'items/{id}', omit: true },
           () => undefined,
         ),
-        omittedStorage: storageV2.onObjectFinalized({ omit: true }, () => undefined),
+        omittedStorage: storageV2.onObjectFinalized(
+          { bucket: 'demo-project.firebasestorage.app', omit: true },
+          () => undefined,
+        ),
         omittedScheduleV2: schedulerV2.onSchedule(
           { schedule: 'every 5 minutes', omit: true },
           () => undefined,
@@ -229,7 +232,10 @@ describe('omit: true parity across every trigger family (#1938)', () => {
           { document: 'items/{id}', omit: reset },
           () => undefined,
         ),
-        resetStorage: storageV2.onObjectFinalized({ omit: reset }, () => undefined),
+        resetStorage: storageV2.onObjectFinalized(
+          { bucket: 'demo-project.firebasestorage.app', omit: reset },
+          () => undefined,
+        ),
         resetSchedule: schedulerV2.onSchedule(
           { schedule: 'every 5 minutes', omit: reset },
           () => undefined,

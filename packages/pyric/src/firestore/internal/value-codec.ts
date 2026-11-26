@@ -45,6 +45,8 @@ export {
   createArrayUnionSentinel,
   createDeleteFieldSentinel,
   createIncrementSentinel,
+  createMaximumSentinel,
+  createMinimumSentinel,
   createServerTimestampSentinel,
 } from '../field-value-sentinels.js';
 
@@ -175,8 +177,12 @@ export function encodeDocValue(value: unknown): unknown {
     if (sentinel.__sentinel === 'deleteField') {
       return { __sentinel: 'deleteField' };
     }
-    if (sentinel.__sentinel === 'increment') {
-      return { __sentinel: 'increment', n: encodeDocValue(sentinel.n) };
+    if (
+      sentinel.__sentinel === 'increment' ||
+      sentinel.__sentinel === 'maximum' ||
+      sentinel.__sentinel === 'minimum'
+    ) {
+      return { __sentinel: sentinel.__sentinel, n: encodeDocValue(sentinel.n) };
     }
     if (
       (sentinel.__sentinel === 'arrayUnion' || sentinel.__sentinel === 'arrayRemove') &&

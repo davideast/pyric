@@ -38,7 +38,13 @@ export const builderMeasurementSchema = z.object({
 
 /** How the verifier judged each reported problem of one run. */
 export const verdictCountsSchema = z.object({
-  confirmed: z.object({ pyricDiffers: count, misleadingDocs: count, unclearError: count }).strict(),
+  confirmed: z.object({
+    pyricDiffers: count,
+    misleadingDocs: count,
+    unclearError: count,
+    /** A confirmed CLI or tooling lifecycle defect with no Firebase counterpart (#1767). */
+    toolingBug: count.default(0),
+  }).strict(),
   /** Reproduced, but an open or recently closed issue already has it. */
   duplicate: count,
   /** Pyric may differ, with no production evidence yet: listed for the oracle queue, not filed. */

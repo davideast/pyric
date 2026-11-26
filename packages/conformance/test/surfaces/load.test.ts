@@ -21,7 +21,7 @@ describe('machine-readable surface contracts', () => {
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
     expect(surfaceDescriptors).toHaveLength(49);
     expect(loadCensusPairs()).toHaveLength(10);
-    expect(loadSurfaceDispositions()).toHaveLength(39);
+    expect(loadSurfaceDispositions()).toHaveLength(29);
   });
 
   it('models the service-worker census-only surface as a contract, not code', () => {
@@ -140,12 +140,14 @@ describe('machine-readable surface contracts', () => {
   });
 
   it('rejects a disposition whose registry evidence target does not exist', () => {
-    const app = surfaceContracts.find(({ key }) => key === 'app')?.record;
-    expect(app?.kind).toBe('mirror');
-    if (app?.kind !== 'mirror') throw new Error('expected App mirror contract');
+    const auth = surfaceContracts.find(({ key }) => key === 'auth')?.record;
+    expect(auth?.kind).toBe('mirror');
+    if (auth?.kind !== 'mirror') throw new Error('expected Auth mirror contract');
+    const firstDisposition = auth.dispositions[0];
+    if (!firstDisposition) throw new Error('expected Auth disposition');
     const problems = surfaceRecordProblems('fixture.json', {
-      ...app,
-      dispositions: [{ ...app.dispositions[0], evidenceRefs: ['registry:nope#999'] }],
+      ...auth,
+      dispositions: [{ ...firstDisposition, evidenceRefs: ['registry:nope#999'] }],
     });
     expect(problems.some((problem) => problem.includes("registry evidence target 'nope#999' does not exist"))).toBe(true);
   });
@@ -195,44 +197,46 @@ describe('machine-readable surface contracts', () => {
   });
 
   it('uses the published schema as the executable raw-acceptance contract', () => {
-    const app = surfaceContracts.find(({ key }) => key === 'app')?.record;
-    if (app?.kind !== 'mirror') throw new Error('expected App mirror contract');
+    const auth = surfaceContracts.find(({ key }) => key === 'auth')?.record;
+    if (auth?.kind !== 'mirror') throw new Error('expected Auth mirror contract');
+    const firstDisposition = auth.dispositions[0];
+    if (!firstDisposition) throw new Error('expected Auth disposition');
     const cases: Array<{ name: string; value: unknown; valid: boolean }> = [
-      { name: 'authored contract', value: app, valid: true },
+      { name: 'authored contract', value: auth, valid: true },
       {
         name: 'whitespace-padded evidence reference',
-        value: { ...app, dispositions: [{ ...app.dispositions[0], evidenceRefs: [' upstream:firebase/app '] }] },
+        value: { ...auth, dispositions: [{ ...firstDisposition, evidenceRefs: [' upstream:firebase/auth '] }] },
         valid: false,
       },
       {
         name: 'whitespace-only summary',
-        value: { ...app, dispositions: [{ ...app.dispositions[0], summary: '   ' }] },
+        value: { ...auth, dispositions: [{ ...firstDisposition, summary: '   ' }] },
         valid: false,
       },
       {
         name: 'out-of-scope implementation deferral',
-        value: { ...app, dispositions: [{ ...app.dispositions[0], availability: 'out-of-scope', reasonCode: 'implementation-deferred' }] },
+        value: { ...auth, dispositions: [{ ...firstDisposition, availability: 'out-of-scope', reasonCode: 'implementation-deferred' }] },
         valid: false,
       },
       {
         name: 'deferred upstream deprecation',
-        value: { ...app, dispositions: [{ ...app.dispositions[0], availability: 'deferred', reasonCode: 'upstream-deprecated' }] },
+        value: { ...auth, dispositions: [{ ...firstDisposition, availability: 'deferred', reasonCode: 'upstream-deprecated' }] },
         valid: false,
       },
       {
         name: 'missing exact private-runtime classifications',
-        value: { ...app, privateRuntimeExports: undefined },
+        value: { ...auth, privateRuntimeExports: undefined },
         valid: false,
       },
       {
         name: 'non-private name in private-runtime classifications',
-        value: { ...app, privateRuntimeExports: ['publicName'] },
+        value: { ...auth, privateRuntimeExports: ['publicName'] },
         valid: false,
       },
-      { name: 'unknown field', value: { ...app, executablePolicy: true }, valid: false },
+      { name: 'unknown field', value: { ...auth, executablePolicy: true }, valid: false },
     ];
     for (const fixture of cases) {
-      expect(surfaceRecordProblems('app.json', fixture.value).length === 0, fixture.name).toBe(fixture.valid);
+      expect(surfaceRecordProblems('auth.json', fixture.value).length === 0, fixture.name).toBe(fixture.valid);
     }
   });
 });

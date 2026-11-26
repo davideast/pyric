@@ -18,7 +18,7 @@
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { openOrUpdateIssue, spawnGh } from './github-issues.ts';
+import { openOrUpdateIssue, spawnGh, type Gh, type IssueFiling } from './github-issues.ts';
 
 export const SDK_PACKAGES = ['firebase', 'firebase-admin'] as const;
 export type SdkPackage = (typeof SDK_PACKAGES)[number];
@@ -109,13 +109,19 @@ export function rewriteSpecifiers<M extends Manifest>(manifest: M, versions: Sdk
 const ANSI = /\u001b\[[0-9;]*m/g;
 const FAIL_LINE = /^\(fail\)\s+(.*?)(?:\s+\[[\d.]+m?s\])?$/;
 
-/** The names of the failed tests in `bun test` output. */
+/** The unique names of the failed tests in `bun test` output, preserving first-seen order. */
 export function failingTests(output: string): string[] {
-  return output
-    .replace(ANSI, '')
-    .split('\n')
-    .map((line) => FAIL_LINE.exec(line.trim())?.[1])
-    .filter((name): name is string => name !== undefined);
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const line of output.replace(ANSI, '').split('\n')) {
+    const match = FAIL_LINE.exec(line.trim());
+    const name = match?.[1];
+    if (name !== undefined && !seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names;
 }
 
 function major(version: string): string {
@@ -245,17 +251,29 @@ async function runStep(step: Step): Promise<StepResult> {
 }
 
 function stepLine(step: StepResult): string {
-  const passed = step.exitCode === 0;
-  const verdict = passed ? 'passed' : step.gates ? 'failed' : 'observations to re-capture';
+  let verdict = 'observations to re-capture';
+  if (step.exitCode === 0) {
+    verdict = 'passed';
+  } else if (step.gates) {
+    verdict = 'failed';
+  }
   return `| ${step.name} | ${verdict} | ${step.failingTests.length} |`;
 }
 
 export function summaryMarkdown(result: DriftResult): string {
-  const versionRows = SDK_PACKAGES.map((name) =>
-    `| ${name} | ${result.ranges[name]} | ${result.selected[name]} | ${result.resolved[name] ?? 'not installed'} |`);
-  const failures = result.steps.flatMap((step) => step.failingTests.map((test) => `- ${step.name}: ${test}`));
-  return [
-    `## SDK drift: ${result.tier} ${result.failed ? 'failed' : 'passed'}`,
+  const versionRows = SDK_PACKAGES.map(
+    (name) =>
+      `| ${name} | ${result.ranges[name]} | ${result.selected[name]} | ${result.resolved[name] ?? 'not installed'} |`,
+  );
+  const failures = result.steps.flatMap((step) =>
+    step.failingTests.map((test) => `- ${step.name}: ${test}`),
+  );
+  let statusText = 'passed';
+  if (result.failed) {
+    statusText = 'failed';
+  }
+  const lines: string[] = [
+    `## SDK drift: ${result.tier} ${statusText}`,
     '',
     '| Package | Declared range | Selected | Resolved in node_modules |',
     '|---|---|---|---|',
@@ -265,15 +283,22 @@ export function summaryMarkdown(result: DriftResult): string {
     '|---|---|---|',
     ...result.steps.map(stepLine),
     '',
-    ...(failures.length > 0 ? ['### Failing tests', '', ...failures.slice(0, 200), ''] : []),
-    ...(failures.length > 200 ? [`and ${failures.length - 200} more, in the run log.`, ''] : []),
-  ].join('\n');
+  ];
+  if (failures.length > 0) {
+    lines.push('### Failing tests', '', ...failures.slice(0, 200), '');
+  }
+  if (failures.length > 200) {
+    lines.push(`and ${failures.length - 200} more, in the run log.`, '');
+  }
+  return lines.join('\n');
 }
 
 async function run(tier: Tier, resultPath: string): Promise<number> {
   const ranges = declaredRanges(readJson<Manifest>(join(REPO_ROOT, RANGE_MANIFEST)));
   const selected = {} as SdkVersions;
-  for (const name of SDK_PACKAGES) selected[name] = selectVersion(await fetchRegistry(name), tier, ranges[name]);
+  for (const name of SDK_PACKAGES) {
+    selected[name] = selectVersion(await fetchRegistry(name), tier, ranges[name]);
+  }
   console.log(`Tier ${tier}: firebase ${selected.firebase}, firebase-admin ${selected['firebase-admin']}`);
 
   rewriteManifests(selected);
@@ -296,45 +321,81 @@ async function run(tier: Tier, resultPath: string): Promise<number> {
   }
 
   const failed = steps.some((step) => step.gates && step.exitCode !== 0);
-  const runUrl = process.env.GITHUB_RUN_ID
-    ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-    : undefined;
-  const result: DriftResult = { tier, ranges, selected, resolved, steps, failed, runUrl };
+  let runUrl: string | undefined;
+  if (process.env.GITHUB_RUN_ID) {
+    runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+  }
+  const result: DriftResult = { tier, ranges, selected, resolved, steps, failed };
+  if (runUrl !== undefined) {
+    result.runUrl = runUrl;
+  }
   writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
   const summary = summaryMarkdown(result);
   console.log(`\n${summary}`);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
-  return failed ? 1 : 0;
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+  }
+  if (failed) {
+    return 1;
+  }
+  return 0;
 }
 
 function issueBody(result: DriftResult): string {
-  const run = result.runUrl ? `Run: ${result.runUrl}\n\n` : '';
+  let run = '';
+  if (result.runUrl) {
+    run = `Run: ${result.runUrl}\n\n`;
+  }
   return [
-    `The scheduled SDK drift job ran pyric's suites against npm's \`latest\` releases and they failed.`,
+    "The scheduled SDK drift job ran pyric's suites against npm's `latest` releases and they failed.",
     'The job installs both packages together, so a failure may come from either one.',
     '',
     run + summaryMarkdown(result),
   ].join('\n');
 }
 
-function fileIssues(resultPath: string): void {
+interface FileIssuesOptions {
+  gh?: Gh;
+  log?: (line: string) => void;
+  repository?: string;
+}
+
+export function fileIssues(resultPath: string, options: FileIssuesOptions = {}): string[] {
+  const log = options.log ?? ((line: string) => console.log(line));
   const result = readJson<DriftResult>(resultPath);
   if (!result.failed) {
-    console.log('The run passed; no issue to file.');
-    return;
+    log('The run passed; no issue to file.');
+    return [];
   }
-  const gh = spawnGh(REPO_ROOT);
+  const gh = options.gh ?? spawnGh(REPO_ROOT);
   const bodyFile = `${resultPath}.issue.md`;
   writeFileSync(bodyFile, issueBody(result));
+  const urls: string[] = [];
+  const failures: string[] = [];
   for (const name of blamedPackages(result.selected, result.ranges)) {
     const version = result.selected[name];
-    console.log(openOrUpdateIssue(gh, {
+    const filing: IssueFiling = {
       prefix: issueTitlePrefix(name, version),
       title: issueTitle(name, version),
       label: ISSUE_LABEL,
       bodyFile,
-    }));
+    };
+    if (options.repository !== undefined) {
+      filing.repository = options.repository;
+    }
+    try {
+      const url = openOrUpdateIssue(gh, filing);
+      log(url);
+      urls.push(url);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      failures.push(`${name}@${version}: ${reason}`);
+    }
   }
+  if (failures.length > 0) {
+    throw new Error(`Failed to file SDK drift issue(s): ${failures.join('; ')}`);
+  }
+  return urls;
 }
 
 function flag(args: string[], name: string): string | undefined {

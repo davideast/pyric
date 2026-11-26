@@ -3,9 +3,12 @@
  * `functions.fire` (`ADR 0023` Swap-or-Stop).
  *
  * Spawned with `--import @pyric/cli/register` and `buildFunctionsChildEnv`
- * (`GOOGLE_APPLICATION_CREDENTIALS` stripped), so user Functions code never
- * loads real `firebase-admin` / `@google-cloud/*`, sees host ADC credentials,
- * or reuses stale module cache entries across edits.
+ * (`GOOGLE_APPLICATION_CREDENTIALS`, `FIREBASE_SA_BASE64`, and
+ * `GOOGLE_CLOUD_QUOTA_PROJECT` stripped; `CLOUDSDK_CONFIG`, `HOME`,
+ * `APPDATA`, and `USERPROFILE` redirected to an isolated path), so user
+ * Functions code never loads real `firebase-admin`, `@google-cloud/firestore`,
+ * or `@google-cloud/storage`, never sees host ADC credentials, and never
+ * reuses stale module cache entries across edits.
  */
 import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
 import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
@@ -87,6 +90,19 @@ export type FunctionsParentToChild = FunctionsRunnerRequest;
 
 export const FUNCTIONS_RUNNER_CHILD_ENV = 'PYRIC_FUNCTIONS_RUNNER_CHILD';
 const DEFAULT_LOCATION = 'us-central1';
+const STRIPPED_RUNNER_CREDENTIAL_KEYS: ReadonlySet<string> = new Set([
+  'google_application_credentials',
+  'firebase_sa_base64',
+  'google_cloud_quota_project',
+]);
+
+function scrubHostCredentialsFromRunnerEnv(env: NodeJS.ProcessEnv): void {
+  for (const key of Object.keys(env)) {
+    if (STRIPPED_RUNNER_CREDENTIAL_KEYS.has(key.toLowerCase())) {
+      delete env[key];
+    }
+  }
+}
 
 function serializeTrigger(trigger: {
   exportName: string;
@@ -282,6 +298,7 @@ function installLocalFallbackFactory(): () => void {
 }
 
 async function handleRunnerRequest(req: FunctionsRunnerRequest): Promise<void> {
+  scrubHostCredentialsFromRunnerEnv(process.env);
   const usesHostedUrl = (process.env.PYRIC_SANDBOX ?? '').startsWith('remote:');
   let cleanupSandbox: () => void = () => {};
   if (!usesHostedUrl) {

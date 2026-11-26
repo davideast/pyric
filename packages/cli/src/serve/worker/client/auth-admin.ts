@@ -70,3 +70,20 @@ export async function setProviderConfig(
     t: 'op', id: nextId(), method: 'auth.setProviderConfig', providerId, enabled,
   });
 }
+
+export async function getEmailEnumerationProtection(
+  auth: ClientAuth,
+): Promise<boolean> {
+  return (await rpc(auth.port, {
+    t: 'op', id: nextId(), method: 'auth.getEmailEnumerationProtection',
+  })) as boolean;
+}
+
+export async function setEmailEnumerationProtection(
+  auth: ClientAuth,
+  enabled: boolean,
+): Promise<void> {
+  await rpc(auth.port, {
+    t: 'op', id: nextId(), method: 'auth.setEmailEnumerationProtection', enabled,
+  });
+}

@@ -1,4 +1,4 @@
-import { TOKEN_SHAPE_RE, isValidTopicName } from './validate.js';
+import { isValidMessagingTargetId, isValidTopicName } from './validate.js';
 
 export interface TokenRecord {
   registrationId: string;
@@ -21,7 +21,7 @@ function isTokenEntry(value: unknown): value is [string, TokenRecord] {
   const isPair = Array.isArray(value) && value.length === 2;
   if (!isPair) return false;
   const [token, record] = value;
-  const hasToken = typeof token === 'string' && TOKEN_SHAPE_RE.test(token);
+  const hasToken = typeof token === 'string' && isValidMessagingTargetId(token);
   const hasRecord = isRecord(record);
   const isValidEntry = hasToken && hasRecord;
   if (!isValidEntry) return false;
@@ -32,7 +32,7 @@ function isTokenEntry(value: unknown): value is [string, TokenRecord] {
 }
 
 function isToken(value: unknown): value is string {
-  const hasTokenShape = typeof value === 'string' && TOKEN_SHAPE_RE.test(value);
+  const hasTokenShape = typeof value === 'string' && isValidMessagingTargetId(value);
   return hasTokenShape;
 }
 

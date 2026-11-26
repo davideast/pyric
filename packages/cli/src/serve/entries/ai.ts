@@ -76,6 +76,7 @@ if (!useWorker) {
 export {
   AIError,
   AIErrorCode,
+  AgentPlatformBackend,
   Backend,
   BackendType,
   GoogleAIBackend,

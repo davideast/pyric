@@ -20,6 +20,11 @@ import {
 } from '../sandbox-backend.js';
 import { targetOf, type SandboxTarget } from '../target.js';
 import type { AvatarMint } from './default-avatar.js';
+import {
+  getProjectEmailEnumerationProtection,
+  setProjectEmailEnumerationProtection,
+  subscribeProjectEmailEnumerationProtection,
+} from './email-enumeration-protection.js';
 import { recordStorePhotoOrigin } from './photo-origin.js';
 import {
   TARGET_SYMBOL,
@@ -40,6 +45,7 @@ export const SERVED_SANDBOX_HOOK: unique symbol = Symbol.for('pyric.auth.servedS
 /** The driver calls a served handle needs, carried to wherever its Auth lives. */
 export interface ServedSandboxHook {
   mockSignInResult(result: UserCredential): void;
+  setEmailEnumerationProtection?(enabled: boolean): void;
 }
 
 function requireSandbox(auth: Auth): SandboxTarget {
@@ -274,5 +280,44 @@ export const sandbox = {
 
   subscribeAuthProviderConfig(auth: Auth, callback: () => void): Unsubscribe {
     return requireSandbox(auth).backend.subscribeProviderConfig(callback);
+  },
+
+  /**
+   * Whether project-level Email Enumeration Protection is enabled (`true` by
+   * default, matching Firebase Auth / Identity Platform for new projects).
+   */
+  getEmailEnumerationProtection(auth: Auth): boolean {
+    const store = SandboxBackend.projectStoreOf(requireSandbox(auth).backend);
+    return getProjectEmailEnumerationProtection(store);
+  },
+
+  /**
+   * Toggle project-level Email Enumeration Protection (`true` by default).
+   * When `true`, password sign-in and credential reauthentication reject
+   * unknown emails and wrong passwords with `auth/invalid-credential` and
+   * `sendPasswordResetEmail` resolves silently for unknown emails; when
+   * `false`, unknown emails reject with `auth/user-not-found` and wrong
+   * passwords reject with `auth/wrong-password`.
+   */
+  setEmailEnumerationProtection(auth: Auth, enabled: boolean): void {
+    if (typeof enabled !== 'boolean') {
+      throw new SandboxError(
+        'invalid-argument',
+        'sandbox.setEmailEnumerationProtection: enabled must be a boolean.',
+      );
+    }
+    const hook = servedHookOf(auth);
+    const forwardSet = hook?.setEmailEnumerationProtection;
+    if (forwardSet !== undefined && !hasOwnTarget(auth)) {
+      forwardSet.call(hook, enabled);
+      return;
+    }
+    const store = SandboxBackend.projectStoreOf(requireSandbox(auth).backend);
+    setProjectEmailEnumerationProtection(store, enabled);
+  },
+
+  subscribeEmailEnumerationProtection(auth: Auth, callback: () => void): Unsubscribe {
+    const store = SandboxBackend.projectStoreOf(requireSandbox(auth).backend);
+    return subscribeProjectEmailEnumerationProtection(store, callback);
   },
 };

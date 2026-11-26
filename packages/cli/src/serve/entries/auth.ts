@@ -223,6 +223,7 @@ function resolveServedAuth(
     // A page whose pyric/auth is another copy stages through this bundle's own.
     attachServedSandboxHook(handle, {
       mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
+      setEmailEnumerationProtection: (enabled) => ipAuth.sandbox.setEmailEnumerationProtection(handle, enabled),
     });
     wireAppPersistence(resolved, handle, initialPersistence);
     attachServedInPageAuthStateReady(handle);
@@ -238,6 +239,9 @@ function resolveServedAuth(
   }) as unknown as ReturnType<typeof pyricGetAuth>;
   attachServedSandboxHook(handle, {
     mockSignInResult: (result) => stageSignInResult(handle as never, result),
+    setEmailEnumerationProtection: (enabled) => {
+      void wcRaw.setEmailEnumerationProtection(handle as never, enabled);
+    },
   });
   workerAuthByApp.set(resolved, handle);
   wireAppPersistence(resolved, handle, initialPersistence);
@@ -373,6 +377,7 @@ export const initializeAuth = ((app?: unknown, deps?: unknown) => {
     markServiceUsed();
     attachServedSandboxHook(handle, {
       mockSignInResult: (result) => ipAuth.sandbox.mockSignInResult(handle, result),
+      setEmailEnumerationProtection: (enabled) => ipAuth.sandbox.setEmailEnumerationProtection(handle, enabled),
     });
     wireAppPersistence(resolved, handle, initialPersistence);
     attachServedInPageAuthStateReady(handle);

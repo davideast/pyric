@@ -22,7 +22,14 @@
  */
 
 export { getStorageSandbox, TARGET_SYMBOL } from './service.js';
-export type { CrossServiceIam, FirebaseStorage, StorageOptions, Target, SandboxTarget } from './service.js';
+export type {
+  CrossServiceIam,
+  FirebaseStorage,
+  SandboxTarget,
+  StorageDefaultPolicy,
+  StorageOptions,
+  Target,
+} from './service.js';
 export { getStorage, connectStorageEmulator } from './instances.js';
 
 export { StorageError } from './errors.js';

@@ -26,6 +26,7 @@ import {
   oversizedPayloadEnvelope,
 } from './envelopes.js';
 import { isNonNullPlainObject, validateMessagePayloadFields } from './payload-validation.js';
+import { FID_SHAPE_RE } from './tokens.js';
 import type { BrokerMessage, ResolvedTarget } from './types.js';
 
 /**
@@ -45,6 +46,11 @@ export const TOPIC_NAME_RE = /^[a-zA-Z0-9-_.~%]+$/;
  * broker's provisional model.
  */
 export const TOKEN_SHAPE_RE = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
+
+/** Whether `targetId` is a syntactically valid FCM registration token or 22-char Firebase Installation ID. */
+export function isValidMessagingTargetId(targetId: string): boolean {
+  return TOKEN_SHAPE_RE.test(targetId) || FID_SHAPE_RE.test(targetId);
+}
 
 /**
  * The EMPIRICAL data-payload enforcement boundary.
@@ -288,7 +294,7 @@ export function validateMessage(message: BrokerMessage): ResolvedTarget {
     // oracle: messaging-send-invalid-topic-name-error-envelope
     throw new BrokerSendError(invalidTopicNameEnvelope());
   }
-  if (target.kind === 'token' && !TOKEN_SHAPE_RE.test(target.token)) {
+  if (target.kind === 'token' && !isValidMessagingTargetId(target.token)) {
     // oracle: messaging-send-invalid-token-error-envelope
     throw new BrokerSendError(invalidTokenEnvelope());
   }

@@ -11,6 +11,7 @@ import {
 } from '../../storage/index.js';
 import {
   DEFAULT_BUCKET,
+  arrayBufferToBase64,
   base64ToBytes,
   deployStorageBucketRules,
   getAdminStorageSandbox,
@@ -29,19 +30,22 @@ import {
   snapshotStorageState,
   storageBucketsWithRules,
   type StorageStateRecord,
+  type StoredMetadata,
 } from '../../storage/internal.js';
 import type { LocalSandbox, Sandbox } from '../types/service.js';
 import {
   assertInlineStorageFits,
   base64DecodedLength,
+  isSha256Hex,
   type InlineStorageDocument,
 } from './inline-storage-limit.js';
 
 /**
  * One Storage object, with everything a reader of it can observe. Its bytes are
  * either inline as base64, or named by SHA-256 in the backend that holds them:
- * a capture by reference writes the second form, and only a backend that keeps
- * content-addressed files can apply it.
+ * a capture by reference writes the second form, and branch sandboxes forked
+ * from a reference-backed state preserve inherited SHA-256 references without
+ * copying bytes inline.
  */
 export type StorageObjectState = {
   /** Non-default bucket holding the object; omitted for the default bucket (`pyric-default`). */
@@ -69,6 +73,9 @@ export type StorageObjectState = {
   }
 );
 
+/** A Storage entry in `FullSandboxState` whose bytes are named by SHA-256 content hash. */
+export type StorageObjectReferenceState = Extract<StorageObjectState, { sha256: string; size: number }>;
+
 export interface CapturedStorageRules {
   storage: string | null;
   storageBuckets?: Record<string, string>;
@@ -76,7 +83,14 @@ export interface CapturedStorageRules {
   storageCrossServiceIam?: 'granted' | 'denied';
 }
 
+interface InheritedStorageReference {
+  readonly sha256: string;
+  readonly size: number;
+  readonly blobType: string;
+}
+
 const STORAGE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
+const INHERITED_STORAGE_REFERENCES = new WeakMap<Sandbox, Map<string, InheritedStorageReference>>();
 
 type StorageService = Awaited<ReturnType<typeof getStorageService>>;
 
@@ -108,6 +122,31 @@ function setOwnString(target: Record<string, string>, key: string, value: string
   });
 }
 
+function inheritedReferenceKey(bucket: string, fullPath: string): string {
+  return `${bucket}/${fullPath}`;
+}
+
+async function rootBackendSupportsReferences(sandbox: LocalSandbox): Promise<boolean> {
+  getAdminStorageSandbox(sandbox);
+  const rootEntry = readRuntimeStorageCaches()?.openServices.get(sandbox);
+  if (rootEntry === undefined) return false;
+  const rootService = await rootEntry.service;
+  return typeof rootService.backend.putReference === 'function' &&
+    typeof rootService.backend.references === 'function';
+}
+
+async function sha256HexFromBytes(bytes: Uint8Array): Promise<string> {
+  const input = new Uint8Array(bytes.byteLength);
+  input.set(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', input);
+  const view = new Uint8Array(digest);
+  let hex = '';
+  for (const byte of view) {
+    hex += byte.toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
 /** Normalize an optional object bucket field; returns `undefined` for the default bucket. */
 export function normalizeObjectBucket(bucket: string | undefined): string | undefined {
   if (bucket === undefined || bucket === '' || bucket === DEFAULT_BUCKET) {
@@ -125,12 +164,52 @@ export function holdsBytesInline(object: StorageObjectState): object is StorageO
   return 'contentBase64' in object;
 }
 
+/** Whether a Storage entry names its bytes by SHA-256 reference. */
+export function holdsBytesByReference(object: StorageObjectState): object is StorageObjectReferenceState {
+  return !holdsBytesInline(object);
+}
+
+/**
+ * Convert any `StorageObjectState` (inline or reference) into a validated
+ * SHA-256 reference entry without mutating the input.
+ */
+export async function toStorageObjectReference(
+  object: StorageObjectState,
+): Promise<StorageObjectReferenceState> {
+  const normalizedBucket = normalizeObjectBucket(object.bucket);
+  const customMetadata = { ...object.customMetadata };
+  const clonedMetadata = object.metadata !== undefined ? structuredClone(object.metadata) : undefined;
+  let sha256: string;
+  let size: number;
+  if (holdsBytesByReference(object)) {
+    if (!isSha256Hex(object.sha256)) {
+      throw new Error(`Storage object '${object.path}' has an invalid SHA-256 reference '${String(object.sha256)}'.`);
+    }
+    const isValidSize = Number.isSafeInteger(object.size) && object.size >= 0;
+    if (!isValidSize) {
+      throw new Error(`Storage object '${object.path}' has an invalid byte size ${String(object.size)}.`);
+    }
+    sha256 = object.sha256;
+    size = object.size;
+  } else {
+    const decoded = base64ToBytes(object.contentBase64);
+    sha256 = await sha256HexFromBytes(decoded);
+    size = decoded.byteLength;
+  }
+  const out: StorageObjectReferenceState = { path: object.path, sha256, size, customMetadata };
+  if (normalizedBucket !== undefined) out.bucket = normalizedBucket;
+  if (object.contentType !== undefined) out.contentType = object.contentType;
+  if (clonedMetadata !== undefined) out.metadata = { ...clonedMetadata, size };
+  if (object.blobType !== undefined) out.blobType = object.blobType;
+  return out;
+}
+
 /** Where an inline capture's Storage ends up, and what to use past its limit. */
 const INLINE_CAPTURE_DOCUMENT: InlineStorageDocument = {
-  document: 'An inline state capture, which forks, branch files, and in-process checkpoints are written from,',
-  instead: 'Branches carry their Storage bytes inline in every sandbox, so delete or shrink objects until the total ' +
-    'fits before forking. On the Node host (`pyric sandbox --hosted`), checkpoints and `pyric snapshot` refer to ' +
-    'object bytes by hash and are not bound by this limit.',
+  document: 'An inline state capture, which inline forks, branch files, and in-process checkpoints are written from,',
+  instead: 'Unreferenced in-process Storage objects are carried inline, so delete or shrink inline objects until ' +
+    'the total fits before capturing. On the Node host (`pyric sandbox --hosted`), checkpoints, `pyric snapshot`, ' +
+    'and branches forked from reference-backed states refer to object bytes by SHA-256 hash and are not bound by this limit.',
 };
 
 /** The object bytes a set of Storage entries carries inline, counted without decoding them. */
@@ -207,6 +286,46 @@ function handleForBucket(
   return getAdminStorageSandbox(sandbox, { bucket: rawBucket });
 }
 
+function buildReferenceObjectState(
+  stored: StoredMetadata,
+  objectBucket: string | undefined,
+  binding: InheritedStorageReference,
+): StorageObjectReferenceState {
+  const { fullPath, contentType, customMetadata, ...metadata } = stored;
+  const clonedCustom: Record<string, string> =
+    customMetadata !== undefined ? { ...customMetadata } : {};
+  const object: StorageObjectReferenceState = {
+    path: fullPath,
+    sha256: binding.sha256,
+    size: binding.size,
+    customMetadata: clonedCustom,
+    metadata: structuredClone(metadata),
+    blobType: binding.blobType,
+  };
+  if (objectBucket !== undefined) object.bucket = objectBucket;
+  if (contentType !== undefined) object.contentType = contentType;
+  return object;
+}
+
+function buildInlineObjectState(
+  record: StorageStateRecord,
+  objectBucket: string | undefined,
+): StorageObjectState {
+  const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
+  const clonedCustom: Record<string, string> =
+    customMetadata !== undefined ? { ...customMetadata } : {};
+  const object: StorageObjectState = {
+    path: fullPath,
+    contentBase64: record.dataBase64,
+    customMetadata: clonedCustom,
+    metadata: structuredClone(metadata),
+    blobType: record.blobType,
+  };
+  if (objectBucket !== undefined) object.bucket = objectBucket;
+  if (contentType !== undefined) object.contentType = contentType;
+  return object;
+}
+
 /** Read every Storage object across the default and named buckets, inline or by reference. */
 export async function captureStorageObjects(
   sandbox: LocalSandbox,
@@ -214,26 +333,46 @@ export async function captureStorageObjects(
 ): Promise<StorageObjectState[]> {
   const defaultHandle = getAdminStorageSandbox(sandbox);
   const buckets = orderedStorageBuckets(sandbox);
+  const supportsNativeReferences = await rootBackendSupportsReferences(sandbox);
+  const inherited = INHERITED_STORAGE_REFERENCES.get(sandbox);
+
   if (mode === 'reference') {
     const referenced: StorageObjectState[] = [];
+    if (supportsNativeReferences) {
+      for (const rawBucket of buckets) {
+        const handle = handleForBucket(sandbox, defaultHandle, rawBucket);
+        const records = await referenceStorageState(handle);
+        records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
+        const objectBucket = normalizeObjectBucket(rawBucket);
+        for (const record of records) {
+          referenced.push(
+            buildReferenceObjectState(record.metadata, objectBucket, {
+              sha256: record.sha256,
+              size: record.size,
+              blobType: record.blobType,
+            }),
+          );
+        }
+      }
+      return referenced;
+    }
+
     for (const rawBucket of buckets) {
       const handle = handleForBucket(sandbox, defaultHandle, rawBucket);
-      const records = await referenceStorageState(handle);
-      records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
+      const service = await getStorageService(handle);
+      const listedEntries = await service.backend.listByPrefix('', rawBucket);
+      listedEntries.sort((left, right) => compareText(left.fullPath, right.fullPath));
       const objectBucket = normalizeObjectBucket(rawBucket);
-      for (const record of records) {
-        const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
-        const object: StorageObjectState = {
-          path: fullPath,
-          sha256: record.sha256,
-          size: record.size,
-          customMetadata: customMetadata !== undefined ? { ...customMetadata } : {},
-          metadata: structuredClone(metadata),
-          blobType: record.blobType,
-        };
-        if (objectBucket !== undefined) object.bucket = objectBucket;
-        if (contentType !== undefined) object.contentType = contentType;
-        referenced.push(object);
+      for (const listed of listedEntries) {
+        const storedObject = await service.backend.getObject(listed.fullPath, rawBucket);
+        const binding = inherited?.get(inheritedReferenceKey(rawBucket, listed.fullPath));
+        const isInheritedReference =
+          storedObject === undefined && binding !== undefined && listed.size === binding.size;
+        if (!isInheritedReference) {
+          await referenceStorageState(handle);
+          continue;
+        }
+        referenced.push(buildReferenceObjectState(listed, objectBucket, binding));
       }
     }
     return referenced;
@@ -242,34 +381,102 @@ export async function captureStorageObjects(
   let listedTotal = 0;
   for (const rawBucket of buckets) {
     const service = await getStorageService(handleForBucket(sandbox, defaultHandle, rawBucket));
-    for (const listed of await service.backend.listByPrefix('')) {
+    for (const listed of await service.backend.listByPrefix('', rawBucket)) {
+      const binding = inherited?.get(inheritedReferenceKey(rawBucket, listed.fullPath));
+      if (binding !== undefined && listed.size === binding.size) {
+        const storedObject = await service.backend.getObject(listed.fullPath, rawBucket);
+        if (storedObject === undefined) continue;
+      }
       listedTotal += listed.size;
     }
   }
   assertInlineStorageFits(listedTotal, INLINE_CAPTURE_DOCUMENT);
 
   const objects: StorageObjectState[] = [];
+  const hasInheritedBindings = inherited !== undefined && inherited.size > 0;
+  if (!hasInheritedBindings) {
+    for (const rawBucket of buckets) {
+      const handle = handleForBucket(sandbox, defaultHandle, rawBucket);
+      const records = await snapshotStorageState(handle);
+      records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
+      const objectBucket = normalizeObjectBucket(rawBucket);
+      for (const record of records) {
+        objects.push(buildInlineObjectState(record, objectBucket));
+      }
+    }
+    assertInlineStorageFits(inlineStorageBytes(objects), INLINE_CAPTURE_DOCUMENT);
+    return objects;
+  }
+
   for (const rawBucket of buckets) {
     const handle = handleForBucket(sandbox, defaultHandle, rawBucket);
-    const records = await snapshotStorageState(handle);
-    records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
+    const service = await getStorageService(handle);
+    const listedEntries = await service.backend.listByPrefix('', rawBucket);
+    listedEntries.sort((left, right) => compareText(left.fullPath, right.fullPath));
     const objectBucket = normalizeObjectBucket(rawBucket);
-    for (const record of records) {
-      const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
-      const object: StorageObjectState = {
-        path: fullPath,
-        contentBase64: record.dataBase64,
-        customMetadata: customMetadata !== undefined ? { ...customMetadata } : {},
-        metadata: structuredClone(metadata),
-        blobType: record.blobType,
-      };
-      if (objectBucket !== undefined) object.bucket = objectBucket;
-      if (contentType !== undefined) object.contentType = contentType;
-      objects.push(object);
+    for (const listed of listedEntries) {
+      const storedObject = await service.backend.getObject(listed.fullPath, rawBucket);
+      if (storedObject !== undefined) {
+        const dataBase64 = arrayBufferToBase64(await storedObject.blob.arrayBuffer());
+        objects.push(
+          buildInlineObjectState(
+            {
+              dataBase64,
+              blobType: storedObject.blob.type,
+              metadata: structuredClone(storedObject.metadata),
+            },
+            objectBucket,
+          ),
+        );
+        continue;
+      }
+      const binding = inherited.get(inheritedReferenceKey(rawBucket, listed.fullPath));
+      if (binding !== undefined && listed.size === binding.size) {
+        objects.push(buildReferenceObjectState(listed, objectBucket, binding));
+      }
     }
   }
   assertInlineStorageFits(inlineStorageBytes(objects), INLINE_CAPTURE_DOCUMENT);
   return objects;
+}
+
+async function seedInheritedReferenceOnSandbox(
+  sandbox: LocalSandbox,
+  handle: FirebaseStorage,
+  targetBucket: string,
+  object: StorageObjectReferenceState,
+  metadata: NonNullable<StorageObjectState['metadata']>,
+): Promise<void> {
+  const blobType = object.blobType ?? object.contentType ?? '';
+  const storedMetadata: StoredMetadata = {
+    ...structuredClone(metadata),
+    bucket: targetBucket,
+    fullPath: object.path,
+    size: object.size,
+    contentType: object.contentType,
+    customMetadata: { ...object.customMetadata },
+  };
+  const service = await getStorageService(handle);
+  // Seed the generation high-water mark with a transient zero-byte placeholder
+  // so any subsequent inline upload on this path issues a strictly newer generation.
+  await service.backend.put(
+    object.path,
+    new Blob([], { type: blobType }),
+    { ...storedMetadata, size: 0 },
+  );
+  await service.backend.delete(object.path, targetBucket);
+  await service.backend.putMetadata(object.path, storedMetadata, targetBucket);
+
+  let sandboxBindings = INHERITED_STORAGE_REFERENCES.get(sandbox);
+  if (sandboxBindings === undefined) {
+    sandboxBindings = new Map<string, InheritedStorageReference>();
+    INHERITED_STORAGE_REFERENCES.set(sandbox, sandboxBindings);
+  }
+  sandboxBindings.set(inheritedReferenceKey(targetBucket, object.path), {
+    sha256: object.sha256,
+    size: object.size,
+    blobType,
+  });
 }
 
 /** Replace every bucket's objects on `sandbox` with exactly the ones `objects` carries. */
@@ -279,6 +486,7 @@ export async function applyStorageObjects(
 ): Promise<void> {
   const defaultHandle = getAdminStorageSandbox(sandbox);
   const caches = readRuntimeStorageCaches();
+  INHERITED_STORAGE_REFERENCES.delete(sandbox);
   const openEntry = caches?.openServices.get(sandbox);
   if (openEntry !== undefined) {
     const rootService = await openEntry.service;
@@ -290,28 +498,42 @@ export async function applyStorageObjects(
   }
   await resetStorageState(defaultHandle);
 
+  const supportsNativeReferences = await rootBackendSupportsReferences(sandbox);
   for (const object of objects) {
     const bucketName = normalizeObjectBucket(object.bucket);
     const targetBucket = bucketName ?? DEFAULT_BUCKET;
     const handle = handleForBucket(sandbox, defaultHandle, targetBucket);
     const metadata = object.metadata;
-    const referenced = !holdsBytesInline(object);
-    if (referenced) {
+    if (holdsBytesByReference(object)) {
       if (metadata === undefined) {
         throw new Error(`Storage object '${object.path}' is a reference without its metadata.`);
       }
-      await restoreStorageReferences(handle, [{
-        sha256: object.sha256,
-        size: object.size,
-        blobType: object.blobType ?? object.contentType ?? '',
-        metadata: {
-          ...metadata,
-          bucket: targetBucket,
-          fullPath: object.path,
-          contentType: object.contentType,
-          customMetadata: { ...object.customMetadata },
-        },
-      }]);
+      if (typeof object.sha256 !== 'string' || object.sha256.trim().length === 0) {
+        throw new Error(`Storage object '${object.path}' has an invalid SHA-256 reference '${String(object.sha256)}'.`);
+      }
+      const isValidSize = Number.isSafeInteger(object.size) && object.size >= 0;
+      if (!isValidSize) {
+        throw new Error(`Storage object '${object.path}' has an invalid byte size ${String(object.size)}.`);
+      }
+      if (supportsNativeReferences) {
+        await restoreStorageReferences(handle, [{
+          sha256: object.sha256,
+          size: object.size,
+          blobType: object.blobType ?? object.contentType ?? '',
+          metadata: {
+            ...metadata,
+            bucket: targetBucket,
+            fullPath: object.path,
+            contentType: object.contentType,
+            customMetadata: { ...object.customMetadata },
+          },
+        }]);
+        continue;
+      }
+      if (!isSha256Hex(object.sha256)) {
+        throw new Error(`Storage object '${object.path}' has an invalid SHA-256 reference '${String(object.sha256)}'.`);
+      }
+      await seedInheritedReferenceOnSandbox(sandbox, handle, targetBucket, object, metadata);
       continue;
     }
     if (metadata !== undefined) {

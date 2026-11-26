@@ -5,6 +5,7 @@ import { shadowedAppRegistry } from './app-bridge-shadow.js';
 const registry = shadowedAppRegistry(pyricApp);
 
 export const initializeApp = registry.initializeApp;
+export const initializeServerApp = registry.initializeServerApp;
 export const getApp = registry.getApp;
 export const getApps = registry.getApps;
 export const deleteApp = registry.deleteApp;
@@ -20,6 +21,8 @@ export type {
   FirebaseApp,
   FirebaseAppSettings,
   FirebaseOptions,
+  FirebaseServerApp,
+  FirebaseServerAppSettings,
   LogCallback,
   LogEntry,
   LogLevel,

@@ -278,7 +278,10 @@ function getEvalSemantics(): Semantics {
 
     UnaryExpr_not(_op, expr) {
       const val = (expr as any).eval(this.args.ctx);
-      return typeof val === 'boolean' ? !val : false;
+      if (typeof val !== 'boolean') {
+        throw new RtdbRuleRuntimeError('! only operates on booleans.');
+      }
+      return !val;
     },
     UnaryExpr_neg(_op, expr) {
       const value = (expr as any).eval(this.args.ctx);
@@ -412,8 +415,9 @@ function getEvalSemantics(): Semantics {
       if (_dollar.sourceString === '$') {
         const bindings = ctx?.pathVariableBindings;
         if (bindings !== undefined) {
-          if (name in bindings) return bindings[name];
-          if (name.slice(1) in bindings) return bindings[name.slice(1)];
+          if (Object.hasOwn(bindings, name)) return bindings[name];
+          const bareName = name.slice(1);
+          if (Object.hasOwn(bindings, bareName)) return bindings[bareName];
         }
         return undefined;
       }

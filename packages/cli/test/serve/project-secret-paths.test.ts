@@ -27,12 +27,77 @@ describe('isProjectSecretPath', () => {
     '.envrc',
     'functions/.env.production',
     '.ENV',
+    '.git',
+    '.git/config',
+    '.git/hooks/post-checkout',
+    '.git/hooks/pre-commit',
+    'nested/.git/HEAD',
+    '.GIT/config',
+    '.git./hooks/post-merge',
+    'a\\.git\\hooks\\pre-push',
+    '.npmrc',
+    'packages/app/.npmrc',
+    '.NPMRC',
+    '.npmrc.',
+    '.npmrc.local',
+    '.yarnrc',
+    '.yarnrc.yml',
+    '.yarnrc.yaml',
+    'web/.YARNRC.YML.',
+    '.ssh',
+    '.ssh/id_rsa',
+    '.ssh/config',
+    'home/.SSH/authorized_keys',
+    '.aws',
+    '.aws/credentials',
+    '.aws/config',
+    '.netrc',
+    '.pypirc',
+    'application_default_credentials.json',
+    'certs/server.pem',
+    'certs/SERVER.PEM.',
+    'keys/tls.key',
+    'keys/TLS.KEY ',
+    'certs/bundle.p12',
+    'certs/cert.pfx',
+    'android/release.keystore',
+    'android/upload.jks',
+    'ssh/deploy.ppk',
+    'keys/id_rsa',
+    'keys/id_ed25519',
+    'service-account.json',
+    'keys/prod-service-account-123.json',
+    'keys/prod_service_account.json',
+    'keys/demo-firebase-adminsdk-abc12-deadbeef.json',
+    'KEYS/MY-SERVICE-ACCOUNT.JSON.',
     'node_modules',
     'node_modules/pkg/index.js',
     'web/Node_Modules/x.js',
     'a\\.pyric\\state',
   ];
-  const plain = ['', '.', 'src/app.tsx', 'firestore.rules', 'environment.ts', 'env/.keep', 'pyric/state', 'my.pyric/x', 'modules/node_modules.md', 'src/.environment.js', '.envoy.yaml'];
+  const plain = [
+    '',
+    '.',
+    'src/app.tsx',
+    'firestore.rules',
+    'environment.ts',
+    'env/.keep',
+    'pyric/state',
+    'my.pyric/x',
+    'modules/node_modules.md',
+    'src/.environment.js',
+    '.envoy.yaml',
+    '.gitignore',
+    '.gitattributes',
+    '.gitkeep',
+    'src/git-status.ts',
+    'src/keyboard.ts',
+    'src/key-format.ts',
+    'src/service-account-view.tsx',
+    'package.json',
+    'firebase.json',
+    'yarn.lock',
+  ];
 
   for (const path of secret) {
     it(`refuses ${path}`, () => expect(isProjectSecretPath(path)).toBe(true));
@@ -43,12 +108,22 @@ describe('isProjectSecretPath', () => {
 });
 
 describe('isPyricStateOrEnvPath', () => {
-  it('refuses .pyric and .env paths but leaves dependencies to Vite', () => {
+  it('refuses secret/control paths but leaves dependencies and ordinary files to Vite', () => {
     expect(isPyricStateOrEnvPath('.pyric/state/hosted/state.sqlite')).toBe(true);
     expect(isPyricStateOrEnvPath('.env.local')).toBe(true);
     expect(isPyricStateOrEnvPath('.envrc')).toBe(true);
+    expect(isPyricStateOrEnvPath('.git/config')).toBe(true);
+    expect(isPyricStateOrEnvPath('.git/hooks/post-checkout')).toBe(true);
+    expect(isPyricStateOrEnvPath('.npmrc')).toBe(true);
+    expect(isPyricStateOrEnvPath('.yarnrc.yml')).toBe(true);
+    expect(isPyricStateOrEnvPath('.ssh/id_rsa')).toBe(true);
+    expect(isPyricStateOrEnvPath('.aws/credentials')).toBe(true);
+    expect(isPyricStateOrEnvPath('certs/server.pem')).toBe(true);
+    expect(isPyricStateOrEnvPath('certs/private.key')).toBe(true);
+    expect(isPyricStateOrEnvPath('keys/prod-service-account.json')).toBe(true);
     expect(isPyricStateOrEnvPath('node_modules/.vite/deps/firebase.js')).toBe(false);
     expect(isPyricStateOrEnvPath('src/main.js')).toBe(false);
     expect(isPyricStateOrEnvPath('src/.environment.js')).toBe(false);
+    expect(isPyricStateOrEnvPath('.gitignore')).toBe(false);
   });
 });

@@ -2,8 +2,8 @@
  * The `reproduce` command: re-runs one problem of a kept builder run, with a
  * script the verifier wrote, in a fresh copy of the builder's app on the
  * same tarballs. At most two tries, each in a new scratch directory; it stops
- * at the first that reproduces, or at the first that plants a link, which
- * makes the run invalid.
+ * at the first that reproduces, or at the first that plants a link or leaves
+ * its sandbox running after SIGKILL, which makes the run invalid.
  *
  * Each try runs under the same rules as a round's run: its own sandbox,
  * whose phase checks the sandbox inventory before anything starts, the
@@ -23,13 +23,14 @@ import { installApp, npmCacheDir } from './app-install.ts';
 import { playwrightBrowsersPath } from './browser-server.ts';
 import { phaseEnvironment } from './builder-run.ts';
 import { readPhaseResult } from './run-finish.ts';
-import { startEgressNamespace, type EgressNamespace } from './namespace.ts';
+import { startEgressNamespace, type EgressNamespace, type SandboxOptions, type SandboxStop } from './namespace.ts';
 import { restoreOwnerAccess } from './owner-access.ts';
 import { firstLine } from './parse.ts';
 import { sha256File } from './provenance.ts';
 import { browserEvents, readNetLog } from './recorder/chromium-netlog.ts';
 import { appendBrowserEvents, readNetworkRecord } from './recorder/network-record.ts';
 import { layOutReproApp } from './repro-app.ts';
+import { removeReproTryScratch, stampReproTryMarker } from './repro-scratch.ts';
 import { judgeTry, reproResult, type ReproResult, type TryEvidence, type TryJudgment, type TryOutcome } from './repro-verdict.ts';
 import { checkReproduce, type CheckedRepro } from './reproduce-check.ts';
 import type { ReproduceOptions } from './reproduce-options.ts';
@@ -52,16 +53,24 @@ export interface TryRecord extends TryJudgment {
   scratch: string;
   exit: PhaseResult | null;
   googleHosts: string[];
+  sandboxLeftRunning: boolean;
+}
+
+export interface ReproduceDeps {
+  check?: (options: ReproduceOptions) => CheckedRepro;
+  startNamespace?: (options: SandboxOptions) => Promise<EgressNamespace>;
+  runInSandbox?: (namespace: EgressNamespace, dirs: BuilderRunDirs) => Promise<string>;
 }
 
 interface ReproContext {
   options: ReproduceOptions;
   checked: CheckedRepro;
   stamp: string;
+  deps: ReproduceDeps;
 }
 
 function say(line: string): void {
-  console.log(`▸ ${line}`);
+  console.log(`\u25b8 ${line}`);
 }
 
 /** What the run phase runs for a try: node on the script, with no model channel. */
@@ -130,34 +139,71 @@ export function failedTry(error: unknown): TryJudgment {
 /** Whether the tries stop after this one: it reproduced, or it made the run invalid. */
 const endsTries = (outcome: TryOutcome) => outcome === 'reproduced' || outcome === 'invalid';
 
+const SANDBOX_LEFT_RUNNING: TryJudgment = {
+  outcome: 'invalid',
+  reason: "the try's sandbox was still running after SIGKILL",
+};
+
+function leftRunningFailure(error: unknown): TryJudgment {
+  return {
+    outcome: 'invalid',
+    reason: `the try's sandbox was still running after SIGKILL (${firstLine(error)})`,
+  };
+}
+
 /**
  * One try. Any failure but a sandbox that can't start becomes an
- * inconclusive try, or an invalid one for a planted link, so its data is
- * kept like any other's.
+ * inconclusive try, or an invalid one for a planted link or a sandbox that
+ * outlived SIGKILL, so its data is kept like any other's.
  */
 async function runTry(context: ReproContext, attempt: number): Promise<TryRecord> {
   const { options, checked } = context;
   const dirs = builderRunDirsAt(reproTryRoot(options.round, options.run, checked.target.slug, context.stamp, attempt));
   createRunDirs(dirs.root);
+  stampReproTryMarker(dirs.root);
   say(`try ${attempt} of ${MAX_TRIES}: starting its sandbox in ${dirs.root}`);
   const readOnly = [playwrightBrowsersPath(), checked.packagesDir];
-  const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
+  const startNamespace = context.deps.startNamespace ?? startEgressNamespace;
+  const namespace = await startNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
+  let sandbox: SandboxStop = 'exited';
   let judged: { evidence: TryEvidence; judgment: TryJudgment };
   try {
     let phaseOutput: string;
     try {
-      phaseOutput = await runInSandbox(namespace, context, dirs);
+      if (context.deps.runInSandbox !== undefined) {
+        phaseOutput = await context.deps.runInSandbox(namespace, dirs);
+      } else {
+        phaseOutput = await runInSandbox(namespace, context, dirs);
+      }
     } finally {
-      await namespace.stop();
+      sandbox = await namespace.stop();
     }
-    const evidence = tryEvidence(dirs, phaseOutput);
-    judged = { evidence, judgment: judgeTry(checked.target, evidence, options.expect) };
+    if (sandbox === 'still-running') {
+      judged = { evidence: { exit: null, output: '', googleHosts: [] }, judgment: SANDBOX_LEFT_RUNNING };
+    } else {
+      const evidence = tryEvidence(dirs, phaseOutput);
+      judged = { evidence, judgment: judgeTry(checked.target, evidence, options.expect) };
+    }
   } catch (error) {
-    judged = { evidence: { exit: null, output: '', googleHosts: [] }, judgment: failedTry(error) };
+    let judgment: TryJudgment;
+    if (sandbox === 'still-running') {
+      judgment = leftRunningFailure(error);
+    } else {
+      judgment = failedTry(error);
+    }
+    judged = { evidence: { exit: null, output: '', googleHosts: [] }, judgment };
   }
+  const sandboxLeftRunning = sandbox === 'still-running';
   const { evidence, judgment } = judged;
   say(`try ${attempt}: ${judgment.outcome}, ${judgment.reason}`);
-  return { attempt, scratch: dirs.root, exit: evidence.exit, googleHosts: [...evidence.googleHosts], ...judgment };
+  return {
+    attempt,
+    scratch: dirs.root,
+    exit: evidence.exit,
+    googleHosts: [...evidence.googleHosts],
+    sandboxLeftRunning,
+    ...judgment,
+  };
 }
 
 /** Copies the script and each try's record and logs into the run's data, and writes `repro.json`. */
@@ -167,13 +213,18 @@ function keep(context: ReproContext, tries: readonly TryRecord[], startedAt: Dat
   mkdirSync(dataDir, { recursive: true });
   const script = `script${extname(options.script)}`;
   copyFileSync(options.script, join(dataDir, script));
-  // A copy that follows no link; the try had no token to redact.
+  // A copy that follows no link; the try had no token to redact. A scratch
+  // directory whose sandbox is still running is left untouched; finished tries
+  // are removed once their logs and network record are kept (#1767).
   for (const entry of tries) {
     const dirs = builderRunDirsAt(entry.scratch);
     const kept = join(dataDir, `try-${entry.attempt}`);
     mkdirSync(kept, { recursive: true });
-    copyRedacted(dirs.networkLog, join(kept, 'network.jsonl'), undefined);
-    copyRedacted(dirs.logs, join(kept, 'logs'), undefined);
+    if (!entry.sandboxLeftRunning) {
+      copyRedacted(dirs.networkLog, join(kept, 'network.jsonl'), undefined);
+      copyRedacted(dirs.logs, join(kept, 'logs'), undefined);
+      removeReproTryScratch(entry.scratch);
+    }
   }
   const { target } = checked;
   const record = {
@@ -200,9 +251,10 @@ function keep(context: ReproContext, tries: readonly TryRecord[], startedAt: Dat
  * its result. Throws `NamespaceUnavailable`, after keeping the tries before
  * it, when a try's sandbox can't start.
  */
-export async function runReproduce(options: ReproduceOptions): Promise<ReproResult> {
-  const checked = checkReproduce(options);
-  const context: ReproContext = { options, checked, stamp: runStamp() };
+export async function runReproduce(options: ReproduceOptions, deps: ReproduceDeps = {}): Promise<ReproResult> {
+  const check = deps.check ?? checkReproduce;
+  const checked = check(options);
+  const context: ReproContext = { options, checked, stamp: runStamp(), deps };
   say(`reproducing ${checked.target.selector} of run ${options.run}, round ${options.round}: up to ${MAX_TRIES} tries, ${options.minutes} minutes each, no model channel`);
   const slot = await takeHeavyRunSlot({ command: `bun test/builders/harness.ts reproduce ${options.round} ${options.run} ${checked.target.selector}`, env: { ...process.env } });
   const startedAt = new Date();

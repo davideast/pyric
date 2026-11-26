@@ -31,7 +31,7 @@
  * works there, so they keep the page guidance.
  */
 import type { FirebaseApp } from '../app/types.js';
-import { appCheckActivationOf, appCheckTokenFor } from '../sandbox/internal/app-check-activation.js';
+import { appCheckTokenFor, hasAppCheckTokenSource } from '../sandbox/internal/app-check-activation.js';
 import { APP_CHECK_PLACEHOLDER_TOKEN, checkAppCheckToken } from '../sandbox/internal/app-check-token.js';
 import type { AppCheckClaim, AppCheckRuntime, WireErrorEnvelope } from './broker/types.js';
 import { RequestHeadersFailure } from './errors.js';
@@ -226,7 +226,7 @@ function buildClaim(
  * option while preserving `activeAtCreation`.
  */
 export function appCheckAttachmentFor(app: FirebaseApp, limitedUse: boolean): AppCheckAttachment {
-  const activeAtCreation = appCheckActivationOf(app) !== undefined;
+  const activeAtCreation = hasAppCheckTokenSource(app);
   const identity = snapshotAppIdentity(app);
   function buildAttachment(mode: boolean): AppCheckAttachment {
     return {

@@ -11,16 +11,18 @@
  *
  * Everything it makes stays under `<builders root>/canary/<stamp>/`.
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { takeHeavyRunSlot } from '../../../scripts/lib/heavy-run-slots.ts';
 import { packWorkspace, prepareApp, runCommand, tarballsIn, type Tarballs } from '../../apps/install.ts';
 import { installApp, npmCacheDir } from '../app-install.ts';
 import { playwrightBrowsersPath } from '../browser-server.ts';
-import { startEgressNamespace, type EgressNamespace } from '../namespace.ts';
+import { readRunFile, writeNewFile } from '../factory/host-files.ts';
+import { startEgressNamespace, type EgressNamespace, type SandboxOptions, type SandboxStop } from '../namespace.ts';
+import type { ExpectedPlants } from './plant-names.ts';
 import { browserEvents, readNetLog } from '../recorder/chromium-netlog.ts';
-import { appendBrowserEvents, readNetworkRecord } from '../recorder/network-record.ts';
+import { appendBrowserEvents, parseNetworkLines, readNetworkRecord, type NetworkEvent } from '../recorder/network-record.ts';
 import { buildersRoot, createRunDirs, demoProjectId, runStamp, writeFakeFirebaseConfig, type RunDirs } from '../scratch.ts';
 import { PLANTS_FILE, type PlantOutput } from './plant-phase.ts';
 import { judgeCanary, type CanaryVerdict } from './verdict.ts';
@@ -38,7 +40,7 @@ export interface CanaryOptions {
 }
 
 function step(line: string): void {
-  console.log(`▸ ${line}`);
+  console.log(`\u25b8 ${line}`);
 }
 
 async function runUnitTests(): Promise<void> {
@@ -77,17 +79,31 @@ async function plantInNamespace(namespace: EgressNamespace, dirs: RunDirs): Prom
 
 function printVerdict(verdict: CanaryVerdict, dirs: RunDirs): void {
   console.log('');
-  for (const check of verdict.checks) console.log(`${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`);
+  for (const check of verdict.checks) {
+    const mark = check.ok ? '\u2713' : '\u2717';
+    console.log(`${mark} ${check.name}: ${check.detail}`);
+  }
   console.log('');
   console.log(`${verdict.googleEvents} Google-host or metadata events in ${dirs.networkLog}`);
-  console.log(verdict.ok ? '✓ canary passed' : '✗ canary failed: a planted request was missed, succeeded, or was stopped by the wrong layer, or a local one was blocked');
+  if (verdict.ok) {
+    console.log('\u2713 canary passed');
+  } else {
+    console.log('\u2717 canary failed: a planted request was missed, succeeded, or was stopped by the wrong layer, a local one was blocked, or the sandbox did not stop');
+  }
 }
 
-/** The package directories `scripts/pack-packages.sh` packs, read from its `PACKAGES=(...)` list. */
+/** The package directories `scripts/pack-packages.sh` packs, read across its `PACKAGES=(...)` lists. */
 export function packedPackageDirs(repoRoot: string): string[] {
   const script = readFileSync(join(repoRoot, 'scripts', 'pack-packages.sh'), 'utf8');
-  const list = /^PACKAGES=\(([^)]*)\)/m.exec(script)?.[1] ?? '';
-  return [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1] ?? '').filter((dir) => dir !== '');
+  const dirs = new Set<string>();
+  for (const block of script.matchAll(/^\s*PACKAGES=\(([^)]*)\)/gm)) {
+    const body = block[1] ?? '';
+    for (const quoted of body.matchAll(/"([^"]+)"/g)) {
+      const dir = quoted[1] ?? '';
+      if (dir !== '') dirs.add(dir);
+    }
+  }
+  return [...dirs];
 }
 
 /** Why the canary can't start in this checkout, said before anything runs. */
@@ -121,11 +137,60 @@ export function preflightProblems(repoRoot: string, options: CanaryOptions): str
   return problems;
 }
 
+export interface CanaryDeps {
+  preflight?: (repoRoot: string, options: CanaryOptions) => string[];
+  unitTests?: () => Promise<void>;
+  startNamespace?: (options: SandboxOptions) => Promise<EgressNamespace>;
+  runPlants?: (namespace: EgressNamespace, dirs: RunDirs, stamp: string, options: CanaryOptions) => Promise<PlantOutput>;
+  expectedPlants?: ExpectedPlants;
+}
+
+async function runPlantsInSandbox(namespace: EgressNamespace, dirs: RunDirs, stamp: string, options: CanaryOptions): Promise<PlantOutput> {
+  const tarballs = await packages(options);
+  prepareApp({ appDir: CANARY_APP, projectDir: dirs.app, tarballs });
+  writeFakeFirebaseConfig(dirs.app, demoProjectId(`canary-${stamp.slice(0, 10)}`));
+  await installApp(namespace, dirs, 'builders-canary', step);
+  return plantInNamespace(namespace, dirs);
+}
+
+function readStillRunningRecord(dirs: RunDirs): NetworkEvent[] {
+  const networkRead = readRunFile(dirs.networkLog);
+  let base: NetworkEvent[] = [];
+  if (networkRead.ok) {
+    base = parseNetworkLines(networkRead.text).events;
+  }
+  const netLogRead = readRunFile(dirs.netLog);
+  if (!netLogRead.ok) return base;
+  const stamp = new Date().toISOString();
+  const browser = browserEvents(readNetLog(netLogRead.text)).map((event) => ({ time: stamp, ...event }));
+  return [...base, ...browser];
+}
+
+function collectCanaryRecord(dirs: RunDirs, sandbox: SandboxStop): NetworkEvent[] {
+  if (sandbox === 'still-running') return readStillRunningRecord(dirs);
+  if (existsSync(dirs.netLog)) {
+    appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
+  }
+  return readNetworkRecord(dirs.networkLog);
+}
+
+function writeCanaryJson(dirs: RunDirs, payload: unknown, sandbox: SandboxStop): void {
+  const path = join(dirs.root, 'canary.json');
+  const text = `${JSON.stringify(payload, null, 2)}\n`;
+  try {
+    writeNewFile(path, text);
+  } catch (error) {
+    if (sandbox !== 'still-running') throw error;
+  }
+}
+
 /** Runs the canary. Resolves true when every check passed. */
-export async function runCanary(options: CanaryOptions): Promise<boolean> {
-  const problems = preflightProblems(REPO_ROOT, options);
+export async function runCanary(options: CanaryOptions, deps: CanaryDeps = {}): Promise<boolean> {
+  const preflight = deps.preflight ?? preflightProblems;
+  const problems = preflight(REPO_ROOT, options);
   if (problems.length > 0) throw new PreflightFailed(`the canary can't run in this checkout:\n- ${problems.join('\n- ')}`);
-  await runUnitTests();
+  const unitTests = deps.unitTests ?? runUnitTests;
+  await unitTests();
   const slot = await takeHeavyRunSlot({ command: 'bun test/builders/harness.ts canary' });
   try {
     const stamp = runStamp();
@@ -137,20 +202,19 @@ export async function runCanary(options: CanaryOptions): Promise<boolean> {
     const packagesDir = canaryPackagesDir(REPO_ROOT, options);
     mkdirSync(packagesDir, { recursive: true });
     const readOnly = [playwrightBrowsersPath(), packagesDir];
-    const namespace = await startEgressNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
+    const startNamespace = deps.startNamespace ?? startEgressNamespace;
+    const namespace = await startNamespace({ networkLog: dirs.networkLog, runRoot: dirs.root, readOnly, overlaid: [npmCacheDir()] });
+    const runPlants = deps.runPlants ?? runPlantsInSandbox;
     let output: PlantOutput;
+    let sandbox: SandboxStop = 'exited';
     try {
-      const tarballs = await packages(options);
-      prepareApp({ appDir: CANARY_APP, projectDir: dirs.app, tarballs });
-      writeFakeFirebaseConfig(dirs.app, demoProjectId(`canary-${stamp.slice(0, 10)}`));
-      await installApp(namespace, dirs, 'builders-canary', step);
-      output = await plantInNamespace(namespace, dirs);
+      output = await runPlants(namespace, dirs, stamp, options);
     } finally {
-      await namespace.stop();
+      sandbox = await namespace.stop();
     }
-    appendBrowserEvents(dirs.networkLog, browserEvents(readNetLog(readFileSync(dirs.netLog, 'utf8'))));
-    const verdict = judgeCanary({ ...output, record: readNetworkRecord(dirs.networkLog) });
-    writeFileSync(join(dirs.root, 'canary.json'), `${JSON.stringify({ ...output, verdict }, null, 2)}\n`);
+    const record = collectCanaryRecord(dirs, sandbox);
+    const verdict = judgeCanary({ ...output, record, sandbox }, deps.expectedPlants);
+    writeCanaryJson(dirs, { ...output, sandbox, verdict }, sandbox);
     printVerdict(verdict, dirs);
     return verdict.ok;
   } finally {

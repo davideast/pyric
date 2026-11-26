@@ -24,6 +24,10 @@ import { createReadStream } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { answerAndClose } from '../../bridge/server/peer.js';
 import { timingSafeTokenMatch, getHeader } from '../server.js';
+import {
+  UNTRUSTED_CONTENT_TYPE_OPTIONS,
+  untrustedContentHeaders,
+} from '../untrusted-content-headers.js';
 import { STORAGE_ROUTE_PREFIX } from '../worker/protocol/storage.js';
 import type { PyricWriteRefusal } from './own-writes.js';
 import { UploadOffsetError, type ScopedStorageBackend, type UploadProgress } from './persistence/storage.js';
@@ -99,7 +103,12 @@ function refuse(
   message: string,
   headers: Record<string, string> = {},
 ): void {
-  answerAndClose(req, res, status, { 'content-type': 'text/plain; charset=utf-8', ...headers }, message);
+  const responseHeaders: Record<string, string> = {
+    'content-type': 'text/plain; charset=utf-8',
+    'x-content-type-options': UNTRUSTED_CONTENT_TYPE_OPTIONS,
+    ...headers,
+  };
+  answerAndClose(req, res, status, responseHeaders, message);
 }
 
 function hasUnreadRequestBody(req: IncomingMessage): boolean {
@@ -183,13 +192,15 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const pinned = url.searchParams.get('generation');
     const changed = pinned !== null && pinned !== object.metadata.generation;
     if (changed) return refuse(req, res, 412, 'The object changed since its rules were checked. Read its metadata and retry.');
+    const trimmedMime = object.mime.trim();
+    const contentType = trimmedMime.length > 0 ? trimmedMime : 'application/octet-stream';
+    const safetyHeaders = untrustedContentHeaders(contentType, object.metadata.contentDisposition);
     const headers: Record<string, string> = {
-      'content-type': object.mime || 'application/octet-stream',
+      'content-type': contentType,
       'accept-ranges': 'bytes',
       'cache-control': object.metadata.cacheControl ?? 'no-store',
+      ...safetyHeaders,
     };
-    const disposition = object.metadata.contentDisposition;
-    if (disposition !== undefined) headers['content-disposition'] = disposition;
     const range = rangeOf(getHeader(req, 'range'), object.size);
     const unsatisfiable = range === 'unsatisfiable';
     if (unsatisfiable) return refuse(req, res, 416, 'The range is past the end of the object.', { 'content-range': `bytes */${object.size}` });
