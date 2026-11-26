@@ -1,0 +1,102 @@
+[
+  {
+    "id": "white-short-clear",
+    "fen": "kr6/8/8/8/8/8/8/4K2R w K -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "white-short-start-attacked",
+    "fen": "k3r3/8/8/8/8/8/8/4K2R w K -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "white-short-transit-attacked",
+    "fen": "k4r2/8/8/8/8/8/8/4K2R w K -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "white-short-destination-attacked",
+    "fen": "k5r1/8/8/8/8/8/8/4K2R w K -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "white-short-rook-attacked",
+    "fen": "k6r/8/8/8/8/8/8/4K2R w K -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "white-long-clear",
+    "fen": "1r5k/8/8/8/8/8/8/R3K3 w Q -",
+    "uci": "e1c1"
+  },
+  {
+    "id": "white-long-start-attacked",
+    "fen": "4r2k/8/8/8/8/8/8/R3K3 w Q -",
+    "uci": "e1c1"
+  },
+  {
+    "id": "white-long-transit-attacked",
+    "fen": "3r3k/8/8/8/8/8/8/R3K3 w Q -",
+    "uci": "e1c1"
+  },
+  {
+    "id": "white-long-destination-attacked",
+    "fen": "2r4k/8/8/8/8/8/8/R3K3 w Q -",
+    "uci": "e1c1"
+  },
+  {
+    "id": "white-long-rook-attacked",
+    "fen": "r6k/8/8/8/8/8/8/R3K3 w Q -",
+    "uci": "e1c1"
+  },
+  {
+    "id": "black-short-clear",
+    "fen": "4k2r/8/8/8/8/8/8/KR6 b k -",
+    "uci": "e8g8"
+  },
+  {
+    "id": "black-short-start-attacked",
+    "fen": "4k2r/8/8/8/8/8/8/K3R3 b k -",
+    "uci": "e8g8"
+  },
+  {
+    "id": "black-short-transit-attacked",
+    "fen": "4k2r/8/8/8/8/8/8/K4R2 b k -",
+    "uci": "e8g8"
+  },
+  {
+    "id": "black-short-destination-attacked",
+    "fen": "4k2r/8/8/8/8/8/8/K5R1 b k -",
+    "uci": "e8g8"
+  },
+  {
+    "id": "black-short-rook-attacked",
+    "fen": "4k2r/8/8/8/8/8/8/K6R b k -",
+    "uci": "e8g8"
+  },
+  {
+    "id": "black-long-clear",
+    "fen": "r3k3/8/8/8/8/8/8/1R5K b q -",
+    "uci": "e8c8"
+  },
+  {
+    "id": "black-long-start-attacked",
+    "fen": "r3k3/8/8/8/8/8/8/4R2K b q -",
+    "uci": "e8c8"
+  },
+  {
+    "id": "black-long-transit-attacked",
+    "fen": "r3k3/8/8/8/8/8/8/3R3K b q -",
+    "uci": "e8c8"
+  },
+  {
+    "id": "black-long-destination-attacked",
+    "fen": "r3k3/8/8/8/8/8/8/2R4K b q -",
+    "uci": "e8c8"
+  },
+  {
+    "id": "black-long-rook-attacked",
+    "fen": "r3k3/8/8/8/8/8/8/R6K b q -",
+    "uci": "e8c8"
+  }
+]

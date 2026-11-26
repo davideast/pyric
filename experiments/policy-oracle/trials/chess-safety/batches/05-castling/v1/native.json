@@ -1,0 +1,581 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "white-short-clear",
+      "fen": "kr6/8/8/8/8/8/8/4K2R w K -",
+      "uci": "e1g1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "kr6/8/8/8/8/8/8/5RK1 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a8a7",
+        "a8b7",
+        "b8b1",
+        "b8b2",
+        "b8b3",
+        "b8b4",
+        "b8b5",
+        "b8b6",
+        "b8b7",
+        "b8c8",
+        "b8d8",
+        "b8e8",
+        "b8f8",
+        "b8g8",
+        "b8h8"
+      ]
+    },
+    {
+      "id": "white-short-start-attacked",
+      "fen": "k3r3/8/8/8/8/8/8/4K2R w K -",
+      "uci": "e1g1",
+      "beforeCheck": true,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "k3r3/8/8/8/8/8/8/5RK1 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "white-short-transit-attacked",
+      "fen": "k4r2/8/8/8/8/8/8/4K2R w K -",
+      "uci": "e1g1",
+      "beforeCheck": false,
+      "transitCheck": true,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "k4r2/8/8/8/8/8/8/5RK1 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "white-short-destination-attacked",
+      "fen": "k5r1/8/8/8/8/8/8/4K2R w K -",
+      "uci": "e1g1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "k5r1/8/8/8/8/8/8/5RK1 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "white-short-rook-attacked",
+      "fen": "k6r/8/8/8/8/8/8/4K2R w K -",
+      "uci": "e1g1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k6r/8/8/8/8/8/8/5RK1 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a8a7",
+        "a8b7",
+        "a8b8",
+        "h8b8",
+        "h8c8",
+        "h8d8",
+        "h8e8",
+        "h8f8",
+        "h8g8",
+        "h8h1",
+        "h8h2",
+        "h8h3",
+        "h8h4",
+        "h8h5",
+        "h8h6",
+        "h8h7"
+      ]
+    },
+    {
+      "id": "white-long-clear",
+      "fen": "1r5k/8/8/8/8/8/8/R3K3 w Q -",
+      "uci": "e1c1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "1r5k/8/8/8/8/8/8/2KR4 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b8a8",
+        "b8b1",
+        "b8b2",
+        "b8b3",
+        "b8b4",
+        "b8b5",
+        "b8b6",
+        "b8b7",
+        "b8c8",
+        "b8d8",
+        "b8e8",
+        "b8f8",
+        "b8g8",
+        "h8g7",
+        "h8g8",
+        "h8h7"
+      ]
+    },
+    {
+      "id": "white-long-start-attacked",
+      "fen": "4r2k/8/8/8/8/8/8/R3K3 w Q -",
+      "uci": "e1c1",
+      "beforeCheck": true,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "4r2k/8/8/8/8/8/8/2KR4 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "white-long-transit-attacked",
+      "fen": "3r3k/8/8/8/8/8/8/R3K3 w Q -",
+      "uci": "e1c1",
+      "beforeCheck": false,
+      "transitCheck": true,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "3r3k/8/8/8/8/8/8/2KR4 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "white-long-destination-attacked",
+      "fen": "2r4k/8/8/8/8/8/8/R3K3 w Q -",
+      "uci": "e1c1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "2r4k/8/8/8/8/8/8/2KR4 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "white-long-rook-attacked",
+      "fen": "r6k/8/8/8/8/8/8/R3K3 w Q -",
+      "uci": "e1c1",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "r6k/8/8/8/8/8/8/2KR4 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a8a1",
+        "a8a2",
+        "a8a3",
+        "a8a4",
+        "a8a5",
+        "a8a6",
+        "a8a7",
+        "a8b8",
+        "a8c8",
+        "a8d8",
+        "a8e8",
+        "a8f8",
+        "a8g8",
+        "h8g7",
+        "h8g8",
+        "h8h7"
+      ]
+    },
+    {
+      "id": "black-short-clear",
+      "fen": "4k2r/8/8/8/8/8/8/KR6 b k -",
+      "uci": "e8g8",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "5rk1/8/8/8/8/8/8/KR6 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a1a2",
+        "a1b2",
+        "b1b2",
+        "b1b3",
+        "b1b4",
+        "b1b5",
+        "b1b6",
+        "b1b7",
+        "b1b8",
+        "b1c1",
+        "b1d1",
+        "b1e1",
+        "b1f1",
+        "b1g1",
+        "b1h1"
+      ]
+    },
+    {
+      "id": "black-short-start-attacked",
+      "fen": "4k2r/8/8/8/8/8/8/K3R3 b k -",
+      "uci": "e8g8",
+      "beforeCheck": true,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "5rk1/8/8/8/8/8/8/K3R3 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "black-short-transit-attacked",
+      "fen": "4k2r/8/8/8/8/8/8/K4R2 b k -",
+      "uci": "e8g8",
+      "beforeCheck": false,
+      "transitCheck": true,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "5rk1/8/8/8/8/8/8/K4R2 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "black-short-destination-attacked",
+      "fen": "4k2r/8/8/8/8/8/8/K5R1 b k -",
+      "uci": "e8g8",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "5rk1/8/8/8/8/8/8/K5R1 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "black-short-rook-attacked",
+      "fen": "4k2r/8/8/8/8/8/8/K6R b k -",
+      "uci": "e8g8",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "5rk1/8/8/8/8/8/8/K6R w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a1a2",
+        "a1b1",
+        "a1b2",
+        "h1b1",
+        "h1c1",
+        "h1d1",
+        "h1e1",
+        "h1f1",
+        "h1g1",
+        "h1h2",
+        "h1h3",
+        "h1h4",
+        "h1h5",
+        "h1h6",
+        "h1h7",
+        "h1h8"
+      ]
+    },
+    {
+      "id": "black-long-clear",
+      "fen": "r3k3/8/8/8/8/8/8/1R5K b q -",
+      "uci": "e8c8",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "2kr4/8/8/8/8/8/8/1R5K w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b1a1",
+        "b1b2",
+        "b1b3",
+        "b1b4",
+        "b1b5",
+        "b1b6",
+        "b1b7",
+        "b1b8",
+        "b1c1",
+        "b1d1",
+        "b1e1",
+        "b1f1",
+        "b1g1",
+        "h1g1",
+        "h1g2",
+        "h1h2"
+      ]
+    },
+    {
+      "id": "black-long-start-attacked",
+      "fen": "r3k3/8/8/8/8/8/8/4R2K b q -",
+      "uci": "e8c8",
+      "beforeCheck": true,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "2kr4/8/8/8/8/8/8/4R2K w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "black-long-transit-attacked",
+      "fen": "r3k3/8/8/8/8/8/8/3R3K b q -",
+      "uci": "e8c8",
+      "beforeCheck": false,
+      "transitCheck": true,
+      "afterCheck": false,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "2kr4/8/8/8/8/8/8/3R3K w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "black-long-destination-attacked",
+      "fen": "r3k3/8/8/8/8/8/8/2R4K b q -",
+      "uci": "e8c8",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": true,
+      "kingSafe": false,
+      "nativeLegal": false,
+      "nativeAdmission": false,
+      "successor": "2kr4/8/8/8/8/8/8/2R4K w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": null
+    },
+    {
+      "id": "black-long-rook-attacked",
+      "fen": "r3k3/8/8/8/8/8/8/R6K b q -",
+      "uci": "e8c8",
+      "beforeCheck": false,
+      "transitCheck": false,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "2kr4/8/8/8/8/8/8/R6K w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a1a2",
+        "a1a3",
+        "a1a4",
+        "a1a5",
+        "a1a6",
+        "a1a7",
+        "a1a8",
+        "a1b1",
+        "a1c1",
+        "a1d1",
+        "a1e1",
+        "a1f1",
+        "a1g1",
+        "h1g1",
+        "h1g2",
+        "h1h2"
+      ]
+    }
+  ]
+}
