@@ -1,0 +1,10 @@
+{
+  "authority": "pinned native Arcade and independent standalone legal moves",
+  "scope": "every king square, slider ray, attacker distance, interior knight square, valid slider family, and color; one empty-square knight jump per geometry",
+  "pairs": 10304,
+  "writes": 20608,
+  "geometryClasses": 672,
+  "geometrySha256": "387f9abc15d81dc6c622c7b68fcbb5aebdc4d0810742c178b9c8f91d14621868",
+  "inputsSha256": "8ec6e0a5899323b3da5b046e0ada2f1975373ce0e3893ca5e8ff797889dff29d",
+  "successorsSha256": "24f456cfe6f282b0fc0f94b342ba84fd41e9ea00089ec41d898209e9de260810"
+}

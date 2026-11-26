@@ -1,0 +1,19 @@
+Build a cumulative chess king-safety oracle that can score any conforming Pyric compiler package. Start from experiment/king-oracle at bf50cb6f0. The deliverable is reusable evidence, a package scorer and one replay command. Cap the run at four hours. Record the deadline at start and reserve the final 25 minutes for independent replay and reporting.
+
+Work through this queue in order. Advance immediately when a batch qualifies or its first reproducible compiler boundary is recorded. A passing first batch is a checkpoint. Keep going.
+
+1. Rank and diagonal pins. Pair the same move on a safe and exposed board. Cover rook/queen rank attacks, bishop/queen attacks on both diagonals, a surviving blocker, and a pinned piece legally moving along the pin line or capturing the attacker. Catch a candidate that rejects every move by a pinned piece.
+2. King destinations. Pair safe and attacked king steps and captures. Cover a defended capture, a knight jump over blockers, pawn attack direction for both colors, and adjacent kings. Include a king capture onto a square defended by a pinned enemy piece. Catch a candidate that equates attacked squares with legal enemy moves.
+3. Escaping check. Freeze legal responses by moving the king, capturing the checker, or interposing. Pair each with a near miss. Add double check where removing one attacker leaves the king in check, plus a legal king escape.
+4. En passant. Use the same capture with a clear versus blocked attack line. Include the case where removing both pawns opens a rook attack across the rank. Catch a candidate that evaluates an ordinary capture or leaves the captured pawn on the board.
+5. Castling. Hold rights and path clearance constant. Isolate attack on the starting, transit and destination square; include a legal castle where only the rook is attacked. Exercise both wings. Catch a final-board-only check.
+6. Composition and cost. Combine the qualified checks in one complete Arcade ruleset. Try long legal rays, crowded boards and captures at board edges. Minimize the first false allow or false refusal. Replay every earlier cohort after each revision.
+7. If time remains, test terminal claims. Freeze mate, stalemate and exactly-one-legal-reply positions. Ask whether a candidate can validate the claimed result. Distinguish Firestore storing a submitted result from Rules independently establishing it. Then spend remaining investigation time finding and minimizing counterexamples across batches.
+
+For each batch, reuse the coverage inventory and existing fixtures. Freeze positions, moves, native Arcade answers and exact successors before evaluating a candidate. Cross-check standalone Pyric separately. Prefer matched pairs that change one relevant fact. Include a deliberate faulty implementation and record its first divergence. Keep each batch in its own versioned directory.
+
+Score the submitted package through its public compiler API. Link its emitted text into the full Arcade ruleset and use an independent evaluator. Report standalone errors, compilation failures, false allows, false refusals and local resource limits separately. Replay all ten existing file-pin trial cases, including the long slide and path blockers.
+
+Serialize live releases to the isolated Firestore database. Compare authenticated SDK writes under the pinned baseline and reviewed generated rules. Read back the full match and server version after every attempt. Verify restoration and signed closure. Keep native answers immutable and live observations keyed to the exact deployed rules digest. Mark other bytes unmeasured. A referee verdict or local expression count cannot establish what Firestore enforced.
+
+Finish with a per-batch scorecard, the smallest case that changed a design decision, exact evidence links, one replay command, and the next unmeasured obligation.
