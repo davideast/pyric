@@ -1,5 +1,7 @@
 # Priorities
 
+> **Status note (2026-11-26):** Workspace is now at `0.1.0-alpha.36` (`@pyric/rules` `0.1.0`), conformance-tested against Firebase `13.4.0` and `firebase-admin` `^14.5.1`. Several "Now" bullets drafted on 2026-10-28 and 2026-11-11 below have already landed on `main`: `packages/rules` (`@pyric/rules`) is extracted, App Check AI Logic enforcement (401 `UNAUTHENTICATED`, captured 2026-11-03 in `app-check-ai-gate-wire`) and Vite SSR verification are shipped, per-bucket Storage rules (#1313) and `getFirestore(app, databaseId)` / `db.databaseId` (#3211, #3398) are landed, Crashlytics checkpoint persistence (#3396) and Admin Auth session cookies (#3397) are landed, and remote-access two-hop proxy `/__pyric/unlock` pairing (#3372-#3374) plus security hardening wave 2 are landed. The priority framing and tests below are retained until the next full priority reset.
+
 As of 2026-10-28. The Node host has shipped: main and npm `latest` (alpha.26) include it. Firebase AI Logic enforces App Check from November 2, and each project can delay enforcement up to January 21, 2027, so App Check comes first. CI and release velocity comes second, because the last two releases each took hours and every other priority pays for that time. Rules fidelity, multi-resource support, and reliability follow. When a proposal serves none of the tests below, it waits.
 
 ## Direction

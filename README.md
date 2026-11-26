@@ -143,7 +143,7 @@ See [persistence and multi-tab behavior](packages/site-docs/src/content/observe/
 
 ## Verify the rules against production
 
-Development sessions capture Firestore and Realtime Database operations in `.pyric/last-session.json` by default. Replay those requests against candidate rules before deployment:
+Development sessions capture Firestore, Realtime Database, and Storage operations in `.pyric/last-session.json` by default. Replay those requests against candidate rules before deployment:
 
 ```bash
 npx pyric verify
@@ -163,7 +163,7 @@ The built application contains the real Firebase SDK and uses the Firebase confi
 
 The mirrored data services do not connect to a production Firebase project. Local writes cannot delete production data or create Firebase usage charges, and local rules changes do not deploy. Pyric owns the development sandbox and verification workflow. Firebase owns production, with `firebase-tools` or the Firebase Console handling deployment.
 
-Normal Auth, Firestore, Realtime Database, Storage, Messaging, and Firebase AI Logic usage still belongs in the [Firebase documentation](https://firebase.google.com/docs). Pyric documents the parts that differ locally, including supported behavior, Security Rules, persistence, inspection, verification, and known gaps. See [use the Vite plugin](packages/site-docs/src/content/get-started/vite.md) for the complete plugin contract.
+Normal Auth, App Check, Firestore, Realtime Database, Storage, Messaging, Cloud Functions, Crashlytics, and Firebase AI Logic usage still belongs in the [Firebase documentation](https://firebase.google.com/docs). Pyric documents the parts that differ locally, including supported behavior, Security Rules, persistence, inspection, verification, and known gaps. See [use the Vite plugin](packages/site-docs/src/content/get-started/vite.md) for the complete plugin contract.
 
 ## Check what Pyric mirrors
 

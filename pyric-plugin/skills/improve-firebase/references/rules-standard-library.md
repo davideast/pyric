@@ -7,8 +7,8 @@ tested policy building blocks and the data they expect.
 ## Workflow
 
 1. Choose the service: `firestore` or `storage`.
-2. Call `rules_stdlib_list({ service })` when available.
-3. Call `rules_stdlib_get({ service, key })` for every candidate module.
+2. Call `rules` `{ method: 'listStdlib', args: { service } }` (`pyric rules listStdlib --service <service>`, or `rules_stdlib_list({ service })` on the browser-bridge surface) when available.
+3. Call `rules` `{ method: 'getStdlib', args: { service, key } }` (`pyric rules getStdlib --service <service> --key <key>`, or `rules_stdlib_get({ service, key })` on the browser-bridge surface) for every candidate module.
 4. Confirm exact signatures and service compatibility before shaping fields,
    metadata, paths, or allow conditions.
 5. Import the selected functions from the modular source. Never copy their
