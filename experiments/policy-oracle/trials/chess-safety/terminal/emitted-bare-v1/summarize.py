@@ -3,6 +3,7 @@ from hashlib import sha256
 import json
 from collections import Counter
 from pathlib import Path
+import subprocess
 import sys
 
 
@@ -53,6 +54,11 @@ def checked_archive(directory):
     sources = [file for file in (root/'artefacts').glob('*.rules') if sha256(file.read_bytes()).hexdigest()==release]
     if not sources:
         raise ValueError('Missing the measured complete Rules source')
+    extracted = json.loads(subprocess.check_output(['bun','--no-install',directory.parent/'verify.mjs',
+                                                   '--source-only',sources[0]]))
+    first = json.loads((directory/'shard-0.json').read_bytes())
+    if any(extracted[key]!=first[key] for key in ('bundleSha256','helperScopeSha256','functions')):
+        raise ValueError('Emitted helper source differs from the measured shard')
     return {**summary, 'rules':sources[0].relative_to(root).as_posix()}
 
 

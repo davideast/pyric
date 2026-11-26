@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {touching} from '../v1/geometry.mjs';
 import {pieces,verdict} from '../table-v2/endings.mjs';
 const [sdk,bundle,shardArg='0',shardsArg='1',limitArg]=process.argv.slice(2);
+const sourceOnly=sdk==='--source-only';
 const shard=Number(shardArg),shards=Number(shardsArg),limit=limitArg?Number(limitArg):Infinity;
 assert.ok(Number.isInteger(shards)&&Number.isInteger(shard)&&shard>=0&&shard<shards&&shards>0);
 const full=readFileSync(bundle,'utf8');
@@ -23,6 +24,10 @@ function include(name){
 }
 include('admittedStatus');
 const specimen="rules_version = '2'; service cloud.firestore {\n"+[...needed.values()].join('\n')+"\nmatch /databases/{db}/documents/test/{id} { allow update: if admittedStatus(request.resource.data.text,request.resource.data.color,request.resource.data.status); } }";
+if(sourceOnly){
+  console.log(JSON.stringify({bundleSha256:sha(full),helperScopeSha256:sha(specimen),functions:[...needed.keys()]}));
+  process.exit(0);
+}
 const {firestoreRules}=await import(pathToFileURL(resolve(sdk,'dist/index.js')));
 const rules=firestoreRules(specimen);
 const request={description:'bare-king-result',method:'update',path:'test/end',auth:{uid:'player'},resource:{},expectation:'ALLOW'};
