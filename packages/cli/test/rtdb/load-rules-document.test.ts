@@ -1,7 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { serverTimestamp } from 'pyric/rules';
 import { loadRtdbRulesDocument } from '../../src/rtdb/load-rules-document.js';
 
@@ -238,5 +239,156 @@ describe('loadRtdbRulesDocument', () => {
     expect(hung.ok).toBe(false);
     if (hung.ok) return;
     expect(hung.message).toContain('timed out after 100ms');
+  });
+
+  test('isolates early process exits and repeated mid-transpile timeouts without destabilizing the caller (#3411)', async () => {
+    mkdirSync(fixturesRoot, { recursive: true });
+    fixtureDir = mkdtempSync(join(fixturesRoot, 'isolation-'));
+
+    writeFileSync(join(fixtureDir, 'early-exit.rules.ts'), 'process.exit(7);\n');
+    const exited = await loadRtdbRulesDocument('early-exit.rules.ts', { cwd: fixtureDir });
+    expect(exited.ok).toBe(false);
+    if (!exited.ok) {
+      expect(exited.message).toContain('exited with code 7');
+    }
+
+    for (let i = 0; i < 8; i += 1) {
+      const imports: string[] = [];
+      for (let j = 0; j < 16; j += 1) {
+        const depName = `dep_${i}_${j}.ts`;
+        writeFileSync(
+          join(fixtureDir, depName),
+          `export const value_${i}_${j}: number = ${i * 100 + j};\n`,
+        );
+        imports.push(`import { value_${i}_${j} } from './${depName}'; void value_${i}_${j};`);
+      }
+      const entryName = `fanout_${i}.rules.ts`;
+      writeFileSync(
+        join(fixtureDir, entryName),
+        [
+          "import { allow, defineRtdbRules } from 'pyric/rules';",
+          ...imports,
+          'await new Promise((resolve) => setTimeout(resolve, 60_000));',
+          `export const rules = defineRtdbRules({ paths: { '/items': { read: allow() } } });`,
+        ].join('\n'),
+      );
+
+      const timedOut = await loadRtdbRulesDocument(entryName, {
+        cwd: fixtureDir,
+        timeoutMs: 25 + i * 15,
+      });
+      expect(timedOut.ok).toBe(false);
+    }
+
+    writeFileSync(
+      join(fixtureDir, 'after-timeouts.rules.ts'),
+      [
+        "import { allow, defineRtdbRules } from 'pyric/rules';",
+        'export const rules = defineRtdbRules({',
+        "  paths: { '/items': { read: allow() } },",
+        '});',
+      ].join('\n'),
+    );
+    const healthy = await loadRtdbRulesDocument('after-timeouts.rules.ts', { cwd: fixtureDir });
+    expect(healthy.ok).toBe(true);
+    if (!healthy.ok) return;
+    expect(healthy.document.toJSON()).toEqual({
+      rules: { items: { '.read': true } },
+    });
+  });
+
+  test('evaluates, reloads edited sibling TypeScript modules, and enforces timeouts under Node', () => {
+    const builtLoaderPath = fileURLToPath(
+      new URL('../../dist/rtdb/load-rules-document.js', import.meta.url),
+    );
+    expect(existsSync(builtLoaderPath)).toBe(true);
+
+    mkdirSync(fixturesRoot, { recursive: true });
+    fixtureDir = mkdtempSync(join(fixturesRoot, 'node-runtime-'));
+    const driverPath = join(fixtureDir, 'driver.mjs');
+    writeFileSync(
+      driverPath,
+      [
+        "import { writeFileSync } from 'node:fs';",
+        "import { join } from 'node:path';",
+        `import { loadRtdbRulesDocument } from ${JSON.stringify(pathToFileURL(builtLoaderPath).href)};`,
+        'const dir = process.argv[2];',
+        "writeFileSync(join(dir, 'shared.ts'), \"import { allow } from 'pyric/rules';\\nexport const access = allow();\\n\");",
+        "writeFileSync(join(dir, 'entry.rules.ts'), \"import { defineRtdbRules } from 'pyric/rules';\\nimport { access } from './shared.ts';\\nexport const rules = defineRtdbRules({ paths: { '/items': { read: access } } });\\n\");",
+        "const first = await loadRtdbRulesDocument('entry.rules.ts', { cwd: dir });",
+        "writeFileSync(join(dir, 'shared.ts'), \"import { deny } from 'pyric/rules';\\nexport const access = deny();\\n\");",
+        "const second = await loadRtdbRulesDocument('entry.rules.ts', { cwd: dir });",
+        "writeFileSync(join(dir, 'spin.rules.ts'), 'while (true) {}\\n');",
+        "const third = await loadRtdbRulesDocument('spin.rules.ts', { cwd: dir, timeoutMs: 80 });",
+        'process.stdout.write(JSON.stringify({',
+        '  first: first.ok ? first.document.toJSON() : first.message,',
+        '  second: second.ok ? second.document.toJSON() : second.message,',
+        '  thirdOk: third.ok,',
+        '  thirdMessage: third.ok ? null : third.message,',
+        '}));',
+      ].join('\n'),
+    );
+
+    const run = spawnSync('node', [driverPath, fixtureDir], {
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    if (run.status !== 0) {
+      throw new Error(`node exited ${run.status}\nstdout: ${run.stdout}\nstderr: ${run.stderr}`);
+    }
+    const parsed = JSON.parse(run.stdout) as {
+      first: unknown;
+      second: unknown;
+      thirdOk: boolean;
+      thirdMessage: string | null;
+    };
+    expect(parsed.first).toEqual({ rules: { items: { '.read': true } } });
+    expect(parsed.second).toEqual({ rules: { items: { '.read': false } } });
+    expect(parsed.thirdOk).toBe(false);
+    expect(parsed.thirdMessage).toContain('timed out after 80ms');
+  });
+
+  test('dispatches child rules evaluation through CLI runDirect when PYRIC_RTDB_RULES_CHILD_INPUT is set', async () => {
+    const cliEntryPath = fileURLToPath(new URL('../../dist/cli/index.js', import.meta.url));
+    expect(existsSync(cliEntryPath)).toBe(true);
+
+    mkdirSync(fixturesRoot, { recursive: true });
+    fixtureDir = mkdtempSync(join(fixturesRoot, 'standalone-dispatch-'));
+    const rulesFile = join(fixtureDir, 'database.rules.ts');
+    writeFileSync(
+      rulesFile,
+      [
+        "import { allow, defineRtdbRules, deny } from 'pyric/rules';",
+        'export default defineRtdbRules({',
+        "  paths: { '/items': { read: allow(), write: deny() } },",
+        '});',
+      ].join('\n'),
+    );
+
+    const { spawn } = await import('node:child_process');
+    const outcome = await new Promise<unknown>((resolve, reject) => {
+      const child = spawn(process.execPath, [cliEntryPath], {
+        cwd: fixtureDir,
+        env: {
+          ...process.env,
+          PYRIC_RTDB_RULES_CHILD_INPUT: JSON.stringify({
+            resolved: rulesFile,
+            exportName: 'rules',
+          }),
+        },
+        stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+      });
+      let message: unknown;
+      child.on('message', (payload) => {
+        message = payload;
+      });
+      child.on('error', reject);
+      child.on('close', () => resolve(message));
+    });
+
+    expect(outcome).toEqual({
+      status: 'loaded',
+      json: { rules: { items: { '.read': true, '.write': false } } },
+    });
   });
 });

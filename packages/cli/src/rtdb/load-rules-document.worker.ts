@@ -1,8 +1,8 @@
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { isMainThread, parentPort, workerData } from 'node:worker_threads';
 import type { RtdbRulesJson } from 'pyric/rules/internal/rtdb';
-import { isRtdbRulesDocument } from './rules-json.js';
+
+export const RTDB_RULES_CHILD_INPUT_ENV = 'PYRIC_RTDB_RULES_CHILD_INPUT';
 
 export interface LoadRulesWorkerInput {
   resolved: string;
@@ -21,51 +21,86 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-async function evaluateModule(): Promise<void> {
-  const { resolved, exportName } = workerData as LoadRulesWorkerInput;
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function extractRulesJson(value: unknown): RtdbRulesJson | null {
+  if (!isPlainObject(value) || typeof value.toJSON !== 'function') {
+    return null;
+  }
   try {
-    const resolvedEntry = createRequire(resolved).resolve(resolved);
-    const mod = (await import(pathToFileURL(resolvedEntry).href)) as Record<string, unknown>;
-
-    const namedCandidate = mod[exportName];
-    if (isRtdbRulesDocument(namedCandidate)) {
-      const outcome: WorkerEvaluationOutcome = {
-        status: 'loaded',
-        json: namedCandidate.toJSON(),
-      };
-      parentPort?.postMessage(outcome);
-      return;
+    const json = (value as { toJSON(): unknown }).toJSON();
+    if (isPlainObject(json) && isPlainObject(json.rules)) {
+      return json as unknown as RtdbRulesJson;
     }
-
-    const defaultCandidate = mod.default;
-    if (isRtdbRulesDocument(defaultCandidate)) {
-      const outcome: WorkerEvaluationOutcome = {
-        status: 'loaded',
-        json: defaultCandidate.toJSON(),
-      };
-      parentPort?.postMessage(outcome);
-      return;
-    }
-
-    const invalidOutcome: WorkerEvaluationOutcome = { status: 'invalid-export' };
-    parentPort?.postMessage(invalidOutcome);
-  } catch (error) {
-    const errorOutcome: WorkerEvaluationOutcome = {
-      status: 'import-error',
-      detail: errorMessage(error),
-    };
-    parentPort?.postMessage(errorOutcome);
+    return null;
+  } catch {
+    return null;
   }
 }
 
 let started = false;
+let outcomeSent = false;
+let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+
+function sendOutcome(outcome: WorkerEvaluationOutcome): void {
+  if (outcomeSent || typeof process.send !== 'function') {
+    return;
+  }
+  outcomeSent = true;
+  process.send(outcome, () => {
+    if (keepAliveTimer !== undefined) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = undefined;
+    }
+    process.exit(0);
+  });
+}
+
+async function evaluateModule(rawInput: string): Promise<void> {
+  try {
+    const { resolved, exportName } = JSON.parse(rawInput) as LoadRulesWorkerInput;
+    const resolvedEntry = createRequire(resolved).resolve(resolved);
+    const mod = (await import(pathToFileURL(resolvedEntry).href)) as Record<string, unknown>;
+
+    const namedJson = extractRulesJson(mod[exportName]);
+    if (namedJson !== null) {
+      sendOutcome({ status: 'loaded', json: namedJson });
+      return;
+    }
+
+    const defaultJson = extractRulesJson(mod.default);
+    if (defaultJson !== null) {
+      sendOutcome({ status: 'loaded', json: defaultJson });
+      return;
+    }
+
+    sendOutcome({ status: 'invalid-export' });
+  } catch (error) {
+    sendOutcome({
+      status: 'import-error',
+      detail: errorMessage(error),
+    });
+  }
+}
 
 export function startLoadRtdbRulesDocumentWorker(): void {
-  if (started || isMainThread || !workerData) {
+  const rawInput = process.env[RTDB_RULES_CHILD_INPUT_ENV];
+  if (started || !rawInput || typeof process.send !== 'function') {
     return;
   }
   started = true;
-  void evaluateModule();
+  delete process.env[RTDB_RULES_CHILD_INPUT_ENV];
+  keepAliveTimer = setInterval(() => {}, 60_000);
+
+  const onFatalError = (error: unknown): void => {
+    sendOutcome({ status: 'import-error', detail: errorMessage(error) });
+  };
+  process.on('uncaughtException', onFatalError);
+  process.on('unhandledRejection', onFatalError);
+
+  void evaluateModule(rawInput);
 }
 
 startLoadRtdbRulesDocumentWorker();

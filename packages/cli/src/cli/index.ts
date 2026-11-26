@@ -455,6 +455,18 @@ export function isDirectRun(): boolean {
  * otherwise exit 0 silently.
  */
 export function runDirect(): void {
+  if (process.env.PYRIC_RTDB_RULES_CHILD_INPUT && typeof process.send === 'function') {
+    import('../rtdb/load-rules-document.worker.js').then(
+      (m) => m.startLoadRtdbRulesDocumentWorker(),
+      (err) => {
+        process.stderr.write(
+          `pyric: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+        );
+        exitAfterFlush(2);
+      },
+    );
+    return;
+  }
   main().then(
     (code) => exitAfterFlush(code),
     (err) => {
