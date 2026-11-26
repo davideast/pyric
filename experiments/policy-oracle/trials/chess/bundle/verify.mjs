@@ -2,15 +2,23 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { sha } from '../../../arcade/corpus.mjs';
 
 const [arcade, reference, strongerCandidate] = process.argv.slice(2);
-if (!arcade || !reference) throw Error('Usage: bun verify.mjs <pinned Arcade checkout> <installed reference rules package>');
+if (!arcade || !reference) throw Error('Usage: bun verify.mjs <pinned Arcade checkout | --archived-native> <installed reference rules package> [stronger rules]');
 const pinned = '66e14d4f4b0aeab22c05db8d748704dde053d2e5';
 const native = 'games/chess/src/chess.ts';
-assert.deepEqual(readFileSync(join(arcade, native)), execFileSync('git', ['-C', arcade, 'show', pinned + ':' + native]));
-const { initialPosition, squareOf, squareName, applyMove, outcome, legalMoves, isLegal } = await import(pathToFileURL(resolve(arcade, native)));
+const nativePath = arcade === '--archived-native'
+  ? fileURLToPath(new URL('../reference/arcade-reference.ts', import.meta.url))
+  : resolve(arcade, native);
+const nativeBytes = readFileSync(nativePath);
+if (arcade === '--archived-native') {
+  assert.equal(sha(nativeBytes), '1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e');
+} else {
+  assert.deepEqual(nativeBytes, execFileSync('git', ['-C', arcade, 'show', pinned + ':' + native]));
+}
+const { initialPosition, squareOf, squareName, applyMove, outcome, legalMoves, isLegal } = await import(pathToFileURL(nativePath));
 const { firestoreRules } = await import(pathToFileURL(resolve(reference, 'dist/index.js')));
 const names = ['stock', 'compatibility', 'stronger', 'referee'];
 const handles = names.map(name => {
@@ -120,4 +128,4 @@ for (const [i,p] of [start,white,black,ep,promo,longRay].entries()) {
   }
 }
 console.log(JSON.stringify({ authority:'local-pinned-reference-evaluator', arcade:pinned,
-  sourceSha256:sha(readFileSync(resolve(arcade,native))), profiles:names, cases:Object.keys(verdicts).length, peak, verdicts }, null, 2));
+  sourceSha256:sha(nativeBytes), profiles:names, cases:Object.keys(verdicts).length, peak, verdicts }, null, 2));

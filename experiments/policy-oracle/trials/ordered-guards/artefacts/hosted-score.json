@@ -1,0 +1,120 @@
+{
+  "paired": 5,
+  "releases": [
+    {
+      "mode": "handwritten",
+      "bundleSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "privateReceipt": "79fbde8506d368033dcc0ca4dfaf1d465d813f5471ca48769d3eac9df81e3091",
+      "decisions": [
+        {
+          "id": "capture-at-destination",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 780
+        },
+        {
+          "id": "blocked-before-destination",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 409
+        },
+        {
+          "id": "adjacent",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 744
+        },
+        {
+          "id": "six-clear",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 896
+        },
+        {
+          "id": "sixth-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 564
+        }
+      ],
+      "reads": 11
+    },
+    {
+      "mode": "generated",
+      "bundleSha256": "415c6f0029b3a0eb2b793f882f99dd98a7d4510723e832a814325444438bcf4b",
+      "privateReceipt": "68228c4179897f7ae60b090fbd7b3bddaf5adcc0ead3f05fe73d5c3e1fdc0369",
+      "decisions": [
+        {
+          "id": "capture-at-destination",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 752
+        },
+        {
+          "id": "blocked-before-destination",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 390
+        },
+        {
+          "id": "adjacent",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 699
+        },
+        {
+          "id": "six-clear",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 919
+        },
+        {
+          "id": "sixth-blocked",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 585
+        }
+      ],
+      "reads": 11
+    },
+    {
+      "mode": "ordered-errors",
+      "bundleSha256": "5fdf61e8fb38efd76922bf3733df967d326ca501c0909dd90184523b120f4515",
+      "privateReceipt": "0db60a69132d53cf86e4d4f7cbdd05ef0d6081686a15bbdbd68b02c20e58ce1b",
+      "decisions": [
+        {
+          "id": "skip-missing",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 44
+        },
+        {
+          "id": "reach-missing",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 51
+        },
+        {
+          "id": "overlap-first-wins",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 44
+        },
+        {
+          "id": "second-guard-returns",
+          "decision": "DENY",
+          "versionChanged": false,
+          "localExpressions": 52
+        },
+        {
+          "id": "fall-through",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 53
+        }
+      ],
+      "reads": 11
+    }
+  ],
+  "privateJournalChecked": true
+}

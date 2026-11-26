@@ -1,0 +1,38 @@
+{
+  "paired": 1,
+  "releases": [
+    {
+      "mode": "handwritten",
+      "bundleSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "privateReceipt": "052fa3f6932dc385a2bf84860204c2ddee2e1efd79fd0c6c18895571b5aace1c",
+      "decisions": [
+        {
+          "id": "native-2-a8a1",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 965,
+          "native": "ALLOW",
+          "localVerdict": "ALLOW"
+        }
+      ],
+      "reads": 3
+    },
+    {
+      "mode": "generated",
+      "bundleSha256": "415c6f0029b3a0eb2b793f882f99dd98a7d4510723e832a814325444438bcf4b",
+      "privateReceipt": "3d1d9acc5f1ff6f69d854c4455f628014e548e0c8511feef1b0adefc988c7556",
+      "decisions": [
+        {
+          "id": "native-2-a8a1",
+          "decision": "ALLOW",
+          "versionChanged": true,
+          "localExpressions": 997,
+          "native": "ALLOW",
+          "localVerdict": "ALLOW"
+        }
+      ],
+      "reads": 3
+    }
+  ],
+  "privateJournalChecked": true
+}

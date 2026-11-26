@@ -1,5 +1,7 @@
 # Four-hour goal prompt
 
+The [completed ordered-guard trial](../ordered-guards/README.md) records the original submission, its sealed score, and the production comparisons.
+
 Use up to four hours to decide whether Pyric should promise multiple guarded returns inside a bounded `for...of`. Start with the locked loop trial on `experiment/policy-for-of-contract` and its compiler revision in `experiments/policy-oracle/trials/for-of/lock.json`. Work in a separate worktree. Run the existing replay first.
 
 Use the loop author’s original two-guard chess policy as the motivating case. It returns true when it reaches the destination and false when it finds an occupied intermediate square. The one-guard rewrite already passes the hidden positions. The question is whether accepting the author’s natural first version buys enough clarity at an acceptable semantic and Firestore cost.

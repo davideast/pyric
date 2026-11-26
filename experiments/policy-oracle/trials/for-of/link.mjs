@@ -10,7 +10,10 @@ const read = (directory, file) => readFileSync(join(directory, file), 'utf8');
 
 // Resolve the unchanged game modules twice. Any difference in the control
 // bytes means the comparison has moved away from the qualified Arcade build.
-export function linkCandidate(compileFunction, resolveModules, output) {
+export function linkCandidate(compileFunction, resolveModules, output, {
+  pathSource = read(here, 'policies/rook.policy'),
+  witnessSource = read(here, 'policies/first-hit.policy'),
+} = {}) {
   verifyInputs();
   const source = json('v1/imports.json');
   source.modules['../games/tictactoe/tictactoe'] = read(here, '../sokoban-repair/v1/tictactoe.stock.rules');
@@ -28,8 +31,7 @@ export function linkCandidate(compileFunction, resolveModules, output) {
   const old = read(chess, 'source/path.rules').trimEnd();
   const helper = source.modules[helperPath];
   assert.equal(helper.split(old).length, 2, 'expected a single handwritten function');
-  const loop = read(here, 'policies/rook.policy');
-  const moduleText = compileFunction(loop).firestoreModule();
+  const moduleText = compileFunction(pathSource).firestoreModule();
   const header = /^rules_version\s*=\s*'2\+modules';\s*export\s+(?=function pathClear\()/;
   assert.match(moduleText, header);
   // Retain the original private visibility within the qualified module.
@@ -37,7 +39,7 @@ export function linkCandidate(compileFunction, resolveModules, output) {
   const linked = resolveComplete();
   writeFileSync(join(output, 'path-module.rules'), moduleText);
   writeFileSync(join(output, 'generated.rules'), linked);
-  const witness = compileFunction(read(here, 'policies/first-hit.policy')).firestoreModule();
+  const witness = compileFunction(witnessSource).firestoreModule();
   source.modules['../loop-evidence'] = witness;
   const wildcard = '    match /{document=**} {';
   assert.equal(source.root.split(wildcard).length, 2);
@@ -54,6 +56,6 @@ export function linkCandidate(compileFunction, resolveModules, output) {
   const errorProof = resolveComplete();
   writeFileSync(join(output, 'first-hit-module.rules'), witness);
   writeFileSync(join(output, 'ordered-errors.rules'), errorProof);
-  return {policy: sha(loop), module: sha(moduleText), handwritten: sha(control), generated: sha(linked),
+  return {policy: sha(pathSource), module: sha(moduleText), handwritten: sha(control), generated: sha(linked),
     orderedErrors: sha(errorProof)};
 }

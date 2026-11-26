@@ -1,0 +1,14 @@
+{
+  "values": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "emitted": "rules_version = '2+modules';\n\nexport function choose(items) {\n  return items[0].a ? 1 : items[0].b ? 2 : items[0].c ? 3 : 4;\n}\n",
+  "firstRefusal": {
+    "length": 37,
+    "fallback": 4,
+    "diagnostic": "choose: standalone only: unrolled helper cannot prove its 1000-expression budget (upper bound 1002)"
+  }
+}

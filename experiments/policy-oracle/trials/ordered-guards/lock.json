@@ -1,0 +1,58 @@
+{
+  "campaignBase": "fe92dfbb511b5e71909f694c0bc57b9e6a6d4803",
+  "compilerBase": "0f8f42cf03d7b6bda108fe73bc5b671fc65b6590",
+  "compilerSource": "dcffab60f01ef9d6508735a14c2b6d1436f5e7d2",
+  "compilerBranch": "experiment/ordered-guard-compiler",
+  "fixtureFreeze": "6e7deb9106e41b5136858a92936f6cdd6c1f8575",
+  "package": "c96a1f08a6808901f14e810bf31564d7f7a0c893126f99d9b8d18747e486a932",
+  "linked": {
+    "policy": "be308877884422ea30634a2ec02187ab541ddf88ef7259bdfb0e7b5faae6c114",
+    "module": "0eddb9d0411a32f639605f4aea9ed65e96052d2bee8e613e1f013383d9bc019d",
+    "handwritten": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "generated": "415c6f0029b3a0eb2b793f882f99dd98a7d4510723e832a814325444438bcf4b",
+    "orderedErrors": "5fdf61e8fb38efd76922bf3733df967d326ca501c0909dd90184523b120f4515"
+  },
+  "generated": {
+    "path-module.rules": "0eddb9d0411a32f639605f4aea9ed65e96052d2bee8e613e1f013383d9bc019d",
+    "first-hit-module.rules": "2dfa1edd340bb2e70008f0688b450d0cafbd94d5d698ad4398bba33c86be347c",
+    "generated.rules": "415c6f0029b3a0eb2b793f882f99dd98a7d4510723e832a814325444438bcf4b",
+    "ordered-errors.rules": "5fdf61e8fb38efd76922bf3733df967d326ca501c0909dd90184523b120f4515"
+  },
+  "localPeaks": {
+    "stock": {
+      "id": "black-queenside",
+      "evaluatedExpressions": 384
+    },
+    "compatibility": {
+      "id": "black-queenside",
+      "evaluatedExpressions": 381
+    },
+    "stronger": {
+      "id": "native-2-a8a1",
+      "evaluatedExpressions": 997
+    },
+    "referee": {
+      "id": "resign-modifies-board",
+      "evaluatedExpressions": 93
+    }
+  },
+  "evidence": {
+    "reference/cases.json": "5727eb223d49100e7ce9d1123d222a915611ecb5b0cc0ca7bdda21a1f71c8b7f",
+    "reference/native.json": "06550c1f1ec5cb35d3965373e5a4d31fc0fc49ae44e45216d8f776c5bb31d984",
+    "reference/budget-case.json": "94151b7613ceb9a9bf9606317df9cc924a76e13b2e5e0df088b3e8e947df8a95",
+    "reference/sealed-score.json": "75d8691d3c543654cc0ca547f97576a5561682a8e614d79c47b2acdf018cc4e4",
+    "reference/baseline-score.json": "81cdffe37cf47e68dcc7e918f7e1af9cdc916be8711ca1addaefe910d443041f",
+    "reference/standalone-score.json": "0d94dfdc4f4bf0cbdac54ba0af74115001c7843bf31c8f906c78515471379893",
+    "policies/first-hit.policy": "8acaa63218950ac50929ccef08bff0eeaebd402e954bf716fa4fc8584943fe0e",
+    "artefacts/hosted-score.json": "a98389e3bcd654170f208208a126a0b9702c657e76a31e1cee19545e9334404a",
+    "artefacts/hosted-budget.json": "41c1ed410808064cda584f0dc82932d309e8e203833bf07ac2a1a202dd742693",
+    "artefacts/placement.json": "a54850bec2dc504048d7e7587786f58aadcb64b05727b93fe6b6bcdc0cec17f1",
+    "artefacts/regressions.json": "79615f6b5130ed8aa17d050032bdcf1b47990a4d7a5df22eb92c60b15158b32f",
+    "live/releases.json": "e39a28427d122ed0a95c38fc3518e3650bb627adc82f24904657f11fc8efcdbc",
+    "live/budget/receipts/generated.json.gz": "73331a20931844de62d7352486550a7547585469c302ae1df6a6f0d5355aad80",
+    "live/budget/receipts/handwritten.json.gz": "35ce815a80f4f91881dd0608e32059e73e9f661f1192edd0f2e569a1a6929837",
+    "live/receipts/generated.json.gz": "8d46a52d97c2b9e617667500834979d8f02a878b3d9f1e3f211e2a9908952ff6",
+    "live/receipts/handwritten.json.gz": "b7088fbb47777d3a35ca1ba93e8062acfbcfc1c225f07398330a20bb36b58885",
+    "live/receipts/ordered-errors.json.gz": "de6b86bd9fe8f21270cc3d33f3b2eedc084bdd6e1ef8fa22e3930c79f5d9e103"
+  }
+}
