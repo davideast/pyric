@@ -8,8 +8,12 @@ Check package manifests, lockfiles, imports, and scripts:
 
 - use `@pyric/cli` for the CLI and build integrations
 - import `{ pyric }` from `@pyric/cli/vite`
-- use `pyric()` as the Vite plugin name
+- use `pyric()` as the Vite plugin name (`hosted: true` for Node host, `bridge: true` for browser SharedWorker bridge)
 - use `withPyric` from `@pyric/cli/next` for a Next.js integration
+- use `@pyric/rules` for standalone rules unit-testing when installed without the rest of Pyric
+- use `@pyric/live` (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`) only for deliberate live-mode observation against a real Firebase project
+- flag direct `@google-cloud/firestore` or `@google-cloud/storage` imports in sandboxed Node/SSR code (stopped with `PYRIC_REAL_SDK_STOPPED` under `@pyric/cli/register` and Vite SSR; use `firebase/*` or `firebase-admin/*`)
+- flag `bun`, `bunx`, or `deno` child commands launched under `pyric sandbox` or `pyric run` (refused with `PYRIC_UNSUPPORTED_RUNTIME` because they cannot evaluate Node loader hooks)
 - flag absolute `file:/...` dependencies that point to a global installation
 
 Confirm versions from the lockfile and installed package. Inspect the exports used by the project and report any concrete mismatch without changing package versions during the audit.
@@ -30,13 +34,16 @@ When a server is already running, inspect `/__pyric/health`. Agent data-plane wo
 
 Inspect the options supported by the installed `@pyric/cli/vite`. Current surfaces may include:
 
-- `root` and `rules` for project and Rules discovery
+- `root` and `rules` for project and Rules discovery (including named Firestore databases and per-bucket Storage rules in `firebase.json`)
+- `hosted` for the Node-hosted sandbox (`.pyric/state/hosted/state.sqlite`, no open browser tab required)
 - `persist`, `fresh`, and `seed` for local state
 - `capture` for `.pyric/last-session.json`
 - `bridge`, `ui`, and `runtimeChip` for development access
-- `functions` for supported local Functions discovery
+- `remoteAccess` (`allowedHosts`, `allowPeers`, `trustProxy`, `browserUnlock`) for reverse-proxy and two-hop proxy access; note that Vite `server.allowedHosts: true` is deliberately ignored on `/__pyric/*`, remote browsers pair via `/__pyric/unlock#code=<token>` (port-scoped `__pyric_session_<port>` cookie), and live mode requires a separate `--allow-remote-live` / `allowLiveRemotePeers: true` gate
+- `functions` for local Functions discovery (HTTP, Callable, Firestore, RTDB, Storage, Identity, Pub/Sub, Scheduler, and Tasks triggers)
 - `swapInBuild` for deliberate sandbox builds
-- `ai` for scripted, OpenAI-compatible, or production-pass-through AI Logic
+- `ai` for scripted, OpenAI-compatible, or production-pass-through AI Logic (and `pyric/app-check` when App Check is enforced)
+- `pyric/crashlytics` when client Crashlytics telemetry is wired (persisted across checkpoints and SQLite restarts)
 
 Report options only when they change an application outcome or create a misleading local/production boundary. Read [ai-logic.md](ai-logic.md) whenever `ai` or a `PYRIC_AI_*` key is present.
 

@@ -14,9 +14,10 @@ npm install
 npm run dev
 ```
 
-Use `--template chat` for the full React/Firebase/AI reference app. The default
+Use `--template nextjs` for a Next.js App Router starter wired with `withPyric`,
+or `--template chat` for the full React/Firebase/AI reference app. The default
 remains the smaller Vite starter.
 
-Flags: `--template web|node|static|chat`, `--name`, `--force`, `--json`.
+Flags: `--template web|node|static|chat|nextjs`, `--name`, `--force`, `--json`.
 
 The directory is the optional positional argument; omit it to scaffold in the current working directory. `--name` only sets the package name.

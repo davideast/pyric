@@ -20,7 +20,8 @@ documents, not scan too many.
 
 3. **Prove rules compatibility.** Rules are not filters: a list query must be
    constrained (`where` on owner/membership fields) so it can only return
-   documents its identity may read. Verify with `firestore_simulate_rules`
+   documents its identity may read. Verify with `rules` `{ method: 'simulate', args: { service: 'firestore', ... } }`
+   (or `firestore_simulate_rules` on the browser-bridge surface)
    per identity, or a hosted Rules Test API case
    (`pyric verify --engine rules-test-api|both`) per query. Complete when
    every list query has a matching rule + constraint pair.
@@ -45,7 +46,7 @@ documents, not scan too many.
    composite query has a ready index.
 
 7. **Verify against data.** Run representative queries with
-   `firestore_query_where` (seed via `firestore_batch_write` if needed) and
+   `firestore` `{ method: 'getDocs' }` (seed via `firestore` `{ method: 'writeBatch' }` if needed; browser-bridge aliases `firestore_query_where` and `firestore_batch_write`) and
    confirm result shape and size match the inventory. Complete when each
    intent returns what its screen expects.
 

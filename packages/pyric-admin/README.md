@@ -16,12 +16,19 @@ loads `firebase-admin` directly.
 
 | Subpath | Sandbox surface |
 |---|---|
-| `pyric-admin/app` | Admin app registry and sandbox binding |
-| `pyric-admin/firestore` | Admin Firestore shape |
-| `pyric-admin/auth` | Admin Auth shape |
+| `pyric-admin` / `pyric-admin/app` | Admin app registry and sandbox binding |
+| `pyric-admin/firestore` | Admin Firestore shape (including named databases and `db.databaseId`) |
+| `pyric-admin/auth` | Admin Auth shape (including `createSessionCookie` and `verifySessionCookie`) |
+| `pyric-admin/app-check` | Admin App Check token verification and minting |
 | `pyric-admin/database` | Admin Realtime Database shape |
 | `pyric-admin/storage` | Admin Storage shape |
 | `pyric-admin/messaging` | Admin Cloud Messaging send plane |
+| `pyric-admin/functions` | Admin Functions task-queue / mirror entry |
+
+Unmodeled `firebase-admin/*` subpaths (`data-connect`, `eventarc`, `extensions`,
+`installations`, `machine-learning`, `phone-number-verification`,
+`project-management`, `remote-config`, `security-rules`) link cleanly without
+network calls and throw `PyricDeferredApiError` on method invocation.
 
 ## Explicit sandbox setup
 
@@ -42,8 +49,8 @@ without sandbox activation and therefore resolves Firebase Admin directly.
 
 ## Documentation
 
-- [App registry and activation](docs/app/)
-- [Firestore](docs/firestore/)
+- [How the swap works (including `firebase-admin/*`)](../site-docs/src/content/get-started/how-the-swap-works.md)
+- [Cloud Firestore](../site-docs/src/content/build/cloud-firestore.md)
 - [Auth API](https://pyric.dev/docs/pyric-admin-auth-reference-api/)
 - [Realtime Database API](https://pyric.dev/docs/pyric-admin-database-reference-api/)
 - [Storage API](https://pyric.dev/docs/pyric-admin-storage-reference-api/)

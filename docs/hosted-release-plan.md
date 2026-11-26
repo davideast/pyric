@@ -1,5 +1,7 @@
 # Hosted sandbox: path to a releasable main
 
+> **Historical snapshot.** Written 2026-09-18 and reconciled through 2026-10-17 while landing the Node host (`pyric sandbox --hosted`). The Node host has since shipped on `main` and npm (current workspace line is `0.1.0-alpha.36`, tested against Firebase `13.4.0`). Kept as an archival release-plan record; see `packages/site-docs/src/content/get-started/node-host.md` and `CONTEXT.md` for current status.
+
 Written 2026-09-18. Companion documents: `docs/hosted-review-ledger.md` (the item-level acceptance record, cited here by item id) and `docs/hosted-persistence-plan-review.md` (the persistence plan review and its addendum).
 
 This document is the working plan for landing the `hosted-live-mode` branch on `main` in reviewable slices, with every known regression fixed in the slice that owns it, and with acceptance evidence that runs in CI. It is written for both the implementing agent and the reviewing agent. Sections 3 and 4 are the tracking surface; update them as items move.
