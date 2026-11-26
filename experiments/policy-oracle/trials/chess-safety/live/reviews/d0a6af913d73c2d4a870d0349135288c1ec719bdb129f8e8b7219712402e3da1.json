@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1",
+  "file": "../artefacts/packed-v3.rules",
+  "basis": "Compared to fe6ae708, unchanged match and allow clauses and every non-chess helper. Replaces the 64 individual square predicates and king dispatch with pure packed-board, finite-regex attack checks. The rewrite specializes horizontal, file and diagonal clearance, castle path and rights, and retains exact board key-set equality, seat ownership and protected fields in chessMove."
+}
