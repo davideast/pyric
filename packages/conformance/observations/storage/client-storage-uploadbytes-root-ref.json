@@ -5,8 +5,8 @@
     "storage#31"
   ],
   "description": "firebase/storage uploadBytes(ref(storage), data) on the root reference: observes synchronous FirebaseError storage/invalid-root-operation client-side preflight with zero network requests.",
-  "observedAt": "2026-11-17T23:55:21.485Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.686Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "rootFullPath": "",
     "rootName": "",

@@ -7,8 +7,8 @@
     "storage#21"
   ],
   "description": "firebase/storage ref(storage) and ref(storage, path) root and segment properties: observes fullPath, name, parent, root value-object semantics, and gs://<bucket>/<fullPath> string formatting.",
-  "observedAt": "2026-11-17T23:55:21.167Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.684Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "bareRoot": {
       "bucket": "buckets-default",

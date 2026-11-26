@@ -5,8 +5,8 @@
     "storage#65"
   ],
   "description": "firebase/storage deleteObject(ref(storage)) on the root reference: observes client-side invalid-root-operation preflight with zero network requests.",
-  "observedAt": "2026-11-18T08:39:24.783Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:40.650Z",
+  "fbSdkVersion": "13.4.0",
   "behavior": {
     "rootFullPath": "",
     "rootName": "",
