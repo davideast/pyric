@@ -227,6 +227,7 @@ def main():
     p.add_argument('--sealed-referee',type=Path,help='also score the prior private chess reference archive')
     p.add_argument('--archive',type=Path,help='optionally authenticate each private Firestore journal')
     p.add_argument('--report',type=Path,help='also retain the JSON report at this path')
+    p.add_argument('--summary',action='store_true',help='print a compact human-readable result instead of the full JSON')
     p.add_argument('--scorecard',type=Path,help='also render the recorded release comparison in Markdown')
     args = p.parse_args()
     with tempfile.TemporaryDirectory(prefix='chess-safety-replay-') as scratch:
@@ -237,7 +238,22 @@ def main():
         args.report.write_text(output)
     if args.scorecard:
         args.scorecard.write_text(render(result))
-    print(output,end='')
+    if args.summary:
+        print(f"{result['variant']} — {result['hosted'].get('rulesSha256') or 'no linked Rules'}")
+        for plane in ('kingSafety','standaloneBoard','linkedWrites'):
+            print(f"  Primary {plane}: {result['coreDiagnostics'][plane]['outcomes']}")
+        if 'discovery' in result:
+            print(f"  Additional cases: {result['discovery']['outcomes']}")
+            print(f"  Absolute pin twins: {result['absolutePinRays']['stats']}")
+            run=result['lifecycle']
+            print(f"  Complete match histories: {run['completePrefixes']}/{run['traces']}; {run['outcomes']}")
+        print(f"  Official compilation: {result.get('targetCompilation',{}).get('status','unmeasured')}")
+        print(f"  Authenticated Firestore writes: {result['hosted'].get('distinctCases',0)} distinct "
+              f"({result['hosted']['status']})")
+        if args.scorecard:
+            print(f"  Scorecard: {args.scorecard.resolve()}")
+    else:
+        print(output,end='')
     return int(args.candidate_package is not None and not matches)
 
 
