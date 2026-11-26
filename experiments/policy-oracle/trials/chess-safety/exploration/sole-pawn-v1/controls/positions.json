@@ -1,0 +1,110 @@
+[
+  {
+    "id": "sole-pawn-w-absent-playing",
+    "fen": "8/k1K5/6Q1/8/8/8/8/8 w - -",
+    "uci": "g6c6",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-w-absent-won",
+    "fen": "8/k1K5/6Q1/8/8/8/8/8 w - -",
+    "uci": "g6c6",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "sole-pawn-w-absent-draw",
+    "fen": "8/k1K5/6Q1/8/8/8/8/8 w - -",
+    "uci": "g6c6",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-b-absent-playing",
+    "fen": "8/8/8/8/8/6q1/K1k5/8 b - -",
+    "uci": "g3c3",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-b-absent-won",
+    "fen": "8/8/8/8/8/6q1/K1k5/8 b - -",
+    "uci": "g3c3",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "sole-pawn-b-absent-draw",
+    "fen": "8/8/8/8/8/6q1/K1k5/8 b - -",
+    "uci": "g3c3",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-w-mobile-playing",
+    "fen": "8/k1K5/p5Q1/8/8/8/8/8 w - -",
+    "uci": "g6c6",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-w-mobile-won",
+    "fen": "8/k1K5/p5Q1/8/8/8/8/8 w - -",
+    "uci": "g6c6",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "sole-pawn-w-mobile-draw",
+    "fen": "8/k1K5/p5Q1/8/8/8/8/8 w - -",
+    "uci": "g6c6",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-b-mobile-playing",
+    "fen": "8/8/8/8/8/P5q1/K1k5/8 b - -",
+    "uci": "g3c3",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "sole-pawn-b-mobile-won",
+    "fen": "8/8/8/8/8/P5q1/K1k5/8 b - -",
+    "uci": "g3c3",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "sole-pawn-b-mobile-draw",
+    "fen": "8/8/8/8/8/P5q1/K1k5/8 b - -",
+    "uci": "g3c3",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  }
+]
