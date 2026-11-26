@@ -6,10 +6,12 @@
  * chip nor Studio copy.
  */
 import { describe, expect, it } from 'bun:test';
+import { symlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ObservedCall } from 'pyric/sandbox';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 import { formatAiBlockedBlock, formatAiRejectionBlock } from '../../src/serve/ai-terminal-blocks.js';
-import { createLiveHostState } from '../../src/serve/live-host-state.js';
+import { createLiveHostState, type LiveHostReport } from '../../src/serve/live-host-state.js';
 import {
   createLiveTerminalLines,
   formatObservedAiBlock,
@@ -19,6 +21,12 @@ import {
   rulesFilesOf,
   type LiveRulesFiles,
 } from '../../src/serve/live-terminal-lines.js';
+import { FIREBASE_RULES_API_ORIGIN } from '../../src/serve/observed-session/deployed-rules-http.js';
+import {
+  readLocalRulesTexts,
+  withDeployedRulesOptIn,
+} from '../../src/serve/observed-session/deployed-rules-live.js';
+import { useTempDirs } from '../use-temp-dirs.js';
 
 const RULES: LiveRulesFiles = { firestore: ['firestore.rules'], rtdb: ['database.rules.json'], storage: ['storage.rules'] };
 
@@ -274,5 +282,185 @@ describe('the live host', () => {
       '      auth: u1',
       '      production decided this with its deployed rules, not your local firestore.rules',
     ].join('\n')]);
+  });
+
+  const makeTempDir = useTempDirs('pyric-live-deployed-lines-');
+  const SECRET = 'terminal-secret-bearer-token';
+  const DEPLOYED_FS = [
+    "rules_version = '2';",
+    'service cloud.firestore {',
+    '  match /databases/{database}/documents {',
+    '    match /users/{uid} {',
+    '      allow read: if request.auth != null && request.auth.uid == uid;',
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+  const LOCAL_FS_OPEN = DEPLOYED_FS.replace('request.auth != null && request.auth.uid == uid', 'true');
+  const DEPLOYED_STORAGE = [
+    "rules_version = '2';",
+    'service firebase.storage {',
+    '  match /b/{bucket}/o {',
+    '    match /private/{file} {',
+    "      allow read: if resource.metadata.owner == request.auth.uid;",
+    '    }',
+    '  }',
+    '}',
+  ].join('\n');
+
+  async function waitForPrints(printed: readonly string[], expectedCount: number): Promise<void> {
+    const deadline = Date.now() + 2_000;
+    while (printed.length < expectedCount && Date.now() < deadline) {
+      await new Promise((done) => setTimeout(done, 10));
+    }
+  }
+
+  it('makes zero token or network calls and omits deployedRules from report when off by default', () => {
+    let tokenCalls = 0;
+    let fetchCalls = 0;
+    const printed: string[] = [];
+    const live = createLiveHostState({
+      configProjectId: 'demo-proj',
+      configSource: undefined,
+      optionName: '--project',
+      warn: () => {},
+      print: (block) => printed.push(block),
+      deployedRulesOptions: {
+        tokenProvider: {
+          async resolveToken() {
+            tokenCalls += 1;
+            return { ok: true, source: 'firebase-cli', token: SECRET, expiresAt: Date.now() + 60_000 };
+          },
+        },
+        fetchImpl: (async () => {
+          fetchCalls += 1;
+          return new Response('{}', { status: 200 });
+        }) as typeof fetch,
+      },
+    });
+    live.readRulesFiles(() => RULES);
+    live.inbound(frame('1', call({ method: 'getDoc', path: 'users/alice', outcome: denied, account: { uid: 'bob' } }), 'node'));
+    live.outbound(reply('1', true));
+
+    const status: LiveHostReport = live.report();
+    expect(status.deployedRules).toBeUndefined();
+    expect(tokenCalls).toBe(0);
+    expect(fetchCalls).toBe(0);
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toContain('not your local firestore.rules');
+  });
+
+  it('explains Firestore and Storage denials against deployed rules with local drift and session metadata when opted in', async () => {
+    const projectDir = makeTempDir();
+    const outsideDir = makeTempDir();
+    writeFileSync(join(outsideDir, 'outside.rules'), 'service cloud.firestore {}', 'utf8');
+    symlinkSync(join(outsideDir, 'outside.rules'), join(projectDir, 'symlink-escape.rules'));
+    writeFileSync(join(projectDir, 'firestore.rules'), LOCAL_FS_OPEN, 'utf8');
+    writeFileSync(join(projectDir, 'storage.rules'), DEPLOYED_STORAGE, 'utf8');
+    expect(readLocalRulesTexts({ firestore: ['../escape.rules'], rtdb: [], storage: [] }, projectDir)).toEqual({});
+    expect(readLocalRulesTexts({ firestore: ['symlink-escape.rules'], rtdb: [], storage: [] }, projectDir)).toEqual({});
+
+    const methods: Array<string | undefined> = [];
+    const redirects: Array<RequestRedirect | undefined> = [];
+    const routes: Record<string, () => Response> = {
+      [`${FIREBASE_RULES_API_ORIGIN}/v1/projects/demo-proj/releases/cloud.firestore`]: () =>
+        new Response(JSON.stringify({ name: 'projects/demo-proj/releases/cloud.firestore', rulesetName: 'projects/demo-proj/rulesets/rs-fs' }), { status: 200 }),
+      [`${FIREBASE_RULES_API_ORIGIN}/v1/projects/demo-proj/rulesets/rs-fs`]: () =>
+        new Response(JSON.stringify({ name: 'projects/demo-proj/rulesets/rs-fs', source: { files: [{ name: 'firestore.rules', content: DEPLOYED_FS }] } }), { status: 200 }),
+      [`${FIREBASE_RULES_API_ORIGIN}/v1/projects/demo-proj/releases/firebase.storage/demo-proj.firebasestorage.app`]: () =>
+        new Response(JSON.stringify({ name: 'projects/demo-proj/releases/firebase.storage/demo-proj.firebasestorage.app', rulesetName: 'projects/demo-proj/rulesets/rs-st' }), { status: 200 }),
+      [`${FIREBASE_RULES_API_ORIGIN}/v1/projects/demo-proj/rulesets/rs-st`]: () =>
+        new Response(JSON.stringify({ name: 'projects/demo-proj/rulesets/rs-st', source: { files: [{ name: 'storage.rules', content: DEPLOYED_STORAGE }] } }), { status: 200 }),
+    };
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(init?.method);
+      redirects.push(init?.redirect);
+      const handler = routes[String(input)];
+      return handler === undefined ? new Response('not found', { status: 404 }) : handler();
+    }) as typeof fetch;
+
+    const printed: string[] = [];
+    const live = withDeployedRulesOptIn(true, () =>
+      createLiveHostState({
+        configProjectId: 'demo-proj',
+        configSource: undefined,
+        optionName: 'pyricLive()',
+        warn: () => {},
+        print: (block) => printed.push(block),
+        deployedRulesOptions: {
+          tokenProvider: {
+            async resolveToken() {
+              return { ok: true, source: 'firebase-cli', token: SECRET, expiresAt: Date.now() + 60_000 };
+            },
+          },
+          fetchImpl,
+        },
+      }),
+    );
+    live.readRulesFiles(() =>
+      rulesFilesOf(
+        {
+          firestoreRulesFiles: () => ['firestore.rules'],
+          databaseRulesFiles: () => [],
+          storageRulesFiles: () => ['storage.rules'],
+        },
+        projectDir,
+      ),
+    );
+    live.sessionData.apply({
+      storage: [
+        {
+          kind: 'upsert',
+          bucket: 'demo-proj.firebasestorage.app',
+          fullPath: 'private/report.pdf',
+          metadata: { size: 10, customMetadata: { owner: 'alice' } },
+        },
+      ],
+    });
+
+    live.inbound(frame('fs-1', call({ service: 'firestore', method: 'getDoc', path: 'users/alice', outcome: denied, account: { uid: 'bob' } }), 'node'));
+    live.outbound(reply('fs-1', true));
+    live.inbound(frame('st-1', call({ service: 'storage', method: 'getBytes', bucket: 'demo-proj.firebasestorage.app', path: 'private/report.pdf', outcome: { status: 'error', code: 'storage/unauthorized' }, account: { uid: 'bob' } }), 'node'));
+    live.outbound(reply('st-1', true));
+
+    await waitForPrints(printed, 2);
+    expect(printed).toHaveLength(2);
+    expect(printed[0]).toContain('rules source: deployed ((default), ruleset rs-fs)');
+    expect(printed[0]).toContain('deployed rule: line 5');
+    expect(printed[0]).toContain('drift: local firestore.rules:');
+    expect(printed[1]).toContain('rules source: deployed (demo-proj.firebasestorage.app, ruleset rs-st)');
+    expect(printed[1]).toContain('deployed rule: line 5');
+    expect(printed[1]).toContain('drift: deployed rules match local storage.rules');
+    expect(methods.every((m) => m === 'GET')).toBe(true);
+    expect(redirects.every((r) => r === 'manual')).toBe(true);
+    expect(JSON.stringify(live.report())).not.toContain(SECRET);
+    expect(printed.join('\n')).not.toContain(SECRET);
+  });
+
+  it('degrades gracefully to local fallback without leaking credentials when unauthenticated', async () => {
+    const printed: string[] = [];
+    const live = createLiveHostState({
+      configProjectId: 'demo-proj',
+      configSource: undefined,
+      optionName: '--project',
+      warn: () => {},
+      print: (block) => printed.push(block),
+      deployedRules: true,
+      deployedRulesOptions: {
+        tokenProvider: {
+          async resolveToken() {
+            return { ok: false, code: 'unauthenticated', message: 'Run firebase login to inspect deployed rules.' };
+          },
+        },
+      },
+    });
+    live.readRulesFiles(() => RULES);
+    live.inbound(frame('u-1', call({ method: 'getDoc', path: 'users/alice', outcome: denied }), 'node'));
+    live.outbound(reply('u-1', true));
+
+    await waitForPrints(printed, 1);
+    expect(printed[0]).toContain('rules source: local fallback (unauthenticated:');
+    expect(printed[0]).toContain('not your local firestore.rules');
+    expect(live.report().deployedRules?.enabled).toBe(true);
   });
 });

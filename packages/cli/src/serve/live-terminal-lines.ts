@@ -21,6 +21,8 @@ import type { ObservedCall } from 'pyric/sandbox';
 import { formatAiBlockedBlock, formatAiRejectionBlock } from './ai-terminal-blocks.js';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import { createDenialThrottle } from './namespace.js';
+import type { DeployedRulesEvaluationOutcome } from './observed-session/deployed-rules-eval.js';
+import { formatDeployedRulesTerminalLines, isRulesDenialCall } from './observed-session/deployed-rules-live.js';
 
 /** The client an observed call came from, as the host's client list names it. */
 export interface LiveCallSource {
@@ -45,6 +47,13 @@ export interface RulesFilesSession {
 }
 
 const NO_RULES_FILES: LiveRulesFiles = { firestore: [], rtdb: [], storage: [] };
+const MAX_INFLIGHT_DEPLOYED_DENIALS = 16;
+const RULES_PROJECT_DIRS = new WeakMap<LiveRulesFiles, string>();
+
+/** The project directory associated with a `LiveRulesFiles` snapshot created by `rulesFilesOf`. */
+export function rulesProjectDirOf(files: LiveRulesFiles): string | undefined {
+  return RULES_PROJECT_DIRS.get(files);
+}
 
 /** The services whose production answer comes from deployed Security Rules. */
 const RULES_SERVICES: ReadonlySet<string> = new Set(['firestore', 'rtdb', 'storage']);
@@ -90,11 +99,13 @@ function fromText(source: LiveCallSource | undefined): string | undefined {
 /** The rules files a session loads, relative to the project directory. Firestore's first file is its source. */
 export function rulesFilesOf(session: RulesFilesSession, projectDir: string): LiveRulesFiles {
   const named = (files: readonly string[]) => [...new Set(files.map((file) => path.relative(projectDir, path.resolve(projectDir, file))))];
-  return {
+  const files: LiveRulesFiles = {
     firestore: named(session.firestoreRulesFiles().slice(0, 1)),
     rtdb: named(session.databaseRulesFiles()),
     storage: named(session.storageSourceFiles ? session.storageSourceFiles() : session.storageRulesFiles()),
   };
+  RULES_PROJECT_DIRS.set(files, path.resolve(projectDir));
+  return files;
 }
 
 function rulesFilesFor(service: string, files: LiveRulesFiles): readonly string[] {
@@ -110,7 +121,12 @@ function isRulesDenial(call: ObservedCall): boolean {
 }
 
 /** The block for a call production's Security Rules denied. */
-export function formatProductionDenial(call: ObservedCall, source: LiveCallSource | undefined, rulesFiles: LiveRulesFiles): string {
+export function formatProductionDenial(
+  call: ObservedCall,
+  source: LiveCallSource | undefined,
+  rulesFiles: LiveRulesFiles,
+  deployedOutcome?: DeployedRulesEvaluationOutcome,
+): string {
   const target = call.path === undefined ? '' : ` ${text(call.path)}`;
   const lines = [`  ⚠ [pyric] production denied: ${call.service} ${text(call.method)}${target}`];
   if (call.outcome.status === 'error') {
@@ -122,7 +138,11 @@ export function formatProductionDenial(call: ObservedCall, source: LiveCallSourc
   if (from !== undefined) lines.push(`      from: ${from}`);
   if (call.account !== undefined) lines.push(`      auth: ${text(call.account.uid)}`);
   const files = rulesFilesFor(call.service, rulesFiles).map(text);
-  if (files.length > 0) lines.push(`      production decided this with its deployed rules, not your local ${files.join(', ')}`);
+  if (deployedOutcome !== undefined) {
+    lines.push(...formatDeployedRulesTerminalLines(deployedOutcome, files, text));
+  } else if (files.length > 0) {
+    lines.push(`      production decided this with its deployed rules, not your local ${files.join(', ')}`);
+  }
   return lines.join('\n');
 }
 
@@ -192,23 +212,55 @@ export interface LiveTerminalLines {
   readRulesFiles(read: () => LiveRulesFiles): void;
 }
 
-export function createLiveTerminalLines(input: { print(block: string): void; now?: () => number }): LiveTerminalLines {
+export interface LiveTerminalLinesInput {
+  print(block: string): void;
+  now?: () => number;
+  evaluateDeployedDenial?: (
+    call: ObservedCall,
+    files: LiveRulesFiles,
+  ) => Promise<DeployedRulesEvaluationOutcome | undefined>;
+}
+
+export function createLiveTerminalLines(input: LiveTerminalLinesInput): LiveTerminalLines {
   const throttle = createDenialThrottle();
   const now = input.now ?? Date.now;
   let readRulesFiles: () => LiveRulesFiles = () => NO_RULES_FILES;
+  let inFlightDeployed = 0;
   const currentRulesFiles = (): LiveRulesFiles => {
     try {
       return readRulesFiles();
-    } catch {
+    } catch (_error: unknown) {
       return NO_RULES_FILES;
     }
   };
   return {
     accepted(call, source) {
-      const printed = liveTerminalBlock(call, source, currentRulesFiles());
+      const files = currentRulesFiles();
+      const printed = liveTerminalBlock(call, source, files);
       if (printed === null) return;
       if (!throttle.shouldPrint(printed.key, now())) return;
-      input.print(printed.block);
+      const evaluator = input.evaluateDeployedDenial;
+      const canEvaluateDeployed =
+        evaluator !== undefined &&
+        isRulesDenialCall(call) &&
+        inFlightDeployed < MAX_INFLIGHT_DEPLOYED_DENIALS;
+      if (!canEvaluateDeployed) {
+        input.print(printed.block);
+        return;
+      }
+      inFlightDeployed += 1;
+      void evaluator(call, files)
+        .then(
+          (outcome) => {
+            input.print(formatProductionDenial(call, source, files, outcome));
+          },
+          () => {
+            input.print(printed.block);
+          },
+        )
+        .finally(() => {
+          inFlightDeployed -= 1;
+        });
     },
     readRulesFiles(read) {
       readRulesFiles = read;

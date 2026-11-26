@@ -46,6 +46,7 @@ import { ADMIN_PASS_THROUGH, passThroughSet } from './vite-supplied-rows.js';
 
 export { livePassThroughLine } from 'pyric/sandbox/internal';
 export { LiveProjectMissingError, liveProjectId } from './live-project.js';
+export { withDeployedRulesOptIn } from './observed-session/deployed-rules-live.js';
 
 /** The `@pyric/live` export whose presence opens this seam: the package's own command. */
 const LIVE_COMMAND_SUBPATH = 'register';
@@ -93,6 +94,8 @@ export interface LiveHostStart {
    * and unobserved (`pyric-live --pass-through`). Validated with `passThroughSet`.
    */
   passThrough?: readonly string[];
+  /** Explicit opt-in (`pyric-live --deployed-rules`) to read deployed rules read-only via CLI/ADC login. Off by default. */
+  deployedRules?: boolean;
 }
 
 function validateLiveHostPassThrough(listed: readonly string[] | undefined): readonly string[] {
@@ -153,6 +156,7 @@ export async function runLiveHost(argv: readonly string[], start: LiveHostStart 
       writeRefusal: refusal.fn as unknown as PyricWriteRefusal,
       allowRemotePeers: start.allowRemotePeers === true,
       passThrough,
+      deployedRules: start.deployedRules === true,
     },
   });
 }

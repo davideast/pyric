@@ -20,6 +20,10 @@ import type { AiRequestObservation, CallerSource } from 'pyric/sandbox/internal'
 import type { EventCaller, EventProvenance, ObservedCall, ObservedProduction, ProductionOutcome, SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
+import {
+  readDeployedRulesEventDetail,
+  type DeployedRulesEventDetail,
+} from '../observed-session/deployed-rules-wire.js';
 
 /** One line of the Traffic view. */
 export interface ChipRequest {
@@ -75,6 +79,11 @@ export interface ChipRequest {
    * with the rule context it carries; `unevaluated` names the data it needed.
    */
   local?: LocalVerdict;
+  /**
+   * Deployed Security Rules evaluation summary when opted in (`--deployed-rules`
+   * / `deployedRules: true`), distinguishing `deployed` vs `local` source and drift.
+   */
+  deployedRules?: DeployedRulesEventDetail;
 }
 
 type LocalVerdict = NonNullable<ObservedProduction['local']>;
@@ -217,6 +226,8 @@ function observedRequest(event: SandboxEvent, rules: RulesDisposition | undefine
   };
   if (localDrift !== undefined) request.localDrift = localDrift;
   if (local !== undefined) request.local = local;
+  const deployedRules = readDeployedRulesEventDetail(event.detail?.deployedRules);
+  if (deployedRules !== undefined) request.deployedRules = deployedRules;
   // The local rules' trace reads as a sandbox row's evidence; production still decided.
   const trace = production.local?.result === 'unevaluated' ? undefined : production.local?.trace;
   if (trace !== undefined) request.rulesEvidence = structuredClone(trace);

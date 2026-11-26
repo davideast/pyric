@@ -46,6 +46,9 @@ Options:
   --project <id>             Firebase project. Default: the one .firebaserc or firebase use names.
   --pass-through <specifier> Firebase import to pass through unwrapped and unobserved
                              (repeatable or comma-separated, e.g. firebase/functions).
+  --deployed-rules           Opt in to read-only inspection of deployed Security Rules via
+                             your local Firebase CLI or ADC login (off by default; zero stored
+                             credentials).
   --allow-remote-live        Second explicit gate to allow non-loopback peers in live mode.
   --no-open                  Do not open a browser.
   --help                     Show this help.
@@ -82,10 +85,16 @@ async function main(argv: readonly string[]): Promise<number> {
     liveStartLine(ENTRY, projectId),
     ...passThroughLines(ENTRY, parsed.passThrough, livePassThroughLine),
   ];
+  if (parsed.deployedRules) {
+    startLines.push(
+      `${ENTRY}: deployed Security Rules inspection enabled (read-only via local CLI/ADC login; no credentials stored).`,
+    );
+  }
   process.stdout.write(`${startLines.join('\n')}\n`);
   return runLiveHost(parsed.hostArgv, {
     liveRoot: LIVE_ROOT,
     allowRemotePeers: parsed.allowRemotePeers,
+    deployedRules: parsed.deployedRules,
     passThrough: parsed.passThrough,
   });
 }

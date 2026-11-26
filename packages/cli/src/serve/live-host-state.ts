@@ -35,11 +35,28 @@ import type { BridgeMessage } from '../bridge/protocol.js';
 import type { FirebaseProjectSource } from '../cli/firebase-project.js';
 import type { ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import { createLiveClients, type SandboxClientIds } from './live-clients.js';
-import { createLiveTerminalLines, type LiveCallSource, type LiveRulesFiles } from './live-terminal-lines.js';
+import {
+  createLiveTerminalLines,
+  rulesProjectDirOf,
+  type LiveCallSource,
+  type LiveRulesFiles,
+} from './live-terminal-lines.js';
 import {
   applyAcceptedSessionCall,
   invalidateEvictedPendingCall,
 } from './observed-session/call-policy.js';
+import {
+  evaluateDeniedCallWithLiveContext,
+  isDeployedRulesOptInActive,
+  readLocalRulesTexts,
+  registerDeployedRulesLiveContext,
+  type DeployedRulesLiveContext,
+} from './observed-session/deployed-rules-live.js';
+import {
+  createDeployedRulesStore,
+  type DeployedRulesHealthStatus,
+  type DeployedRulesStoreOptions,
+} from './observed-session/deployed-rules-store.js';
 import { createObservedSessionDataStore, type ObservedSessionDataStore } from './observed-session/store.js';
 import { readObservedSessionDelta, skipReasonOf, type SessionDeltaSkipReason } from './observed-session/delta-validation.js';
 import type { ObservedSessionDelta, ObservedSessionSource } from './observed-session/wire.js';
@@ -49,9 +66,14 @@ const MAX_PENDING_CALLS = 4096;
 /** Projects one host lists; a bound on what a client's records can grow. */
 const MAX_APP_PROJECTS = 8;
 
+/** The `live` field of `/__pyric/health`, including credential-free deployed-rules status only when opted in. */
+export type LiveHostReport = LiveHostStatus & {
+  deployedRules?: DeployedRulesHealthStatus;
+};
+
 export interface LiveHostState {
   /** The `live` field of the host's health report. */
-  report(): LiveHostStatus;
+  report(): LiveHostReport;
   /** One frame on its way from the bridge to the Node sandbox. */
   inbound(message: BridgeMessage): void;
   /** One frame on its way from the Node sandbox to the bridge. */
@@ -85,6 +107,10 @@ export interface LiveHostStateInput {
   observed?: ObservedImportsSource;
   /** The host clock, in epoch milliseconds, for each client's last frame. `Date.now` by default. */
   now?: () => number;
+  /** Explicit opt-in to read active deployed Security Rules read-only via CLI/ADC login. Strictly OFF by default. */
+  deployedRules?: boolean;
+  /** Injectable token provider, fetch, or TTL overrides for deployed rules evaluation (tests). */
+  deployedRulesOptions?: Omit<DeployedRulesStoreOptions, 'enabled' | 'projectId' | 'now'>;
 }
 
 /** Where the report reads the imports the app resolved to live rows. */
@@ -183,23 +209,66 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
   // sees only its own Node; a backend on Node 22 says in its own start line that its Admin rows stay shut.
   const admin: NonNullable<LiveHostStatus['admin']> = { mode: 'observed', observed: true, bypassesRules: true };
   const clients = createLiveClients(input.now ?? Date.now);
-  const terminal = createLiveTerminalLines({ print: input.print ?? input.warn, now: input.now });
+  const deployedRulesEnabled =
+    input.deployedRules === true ||
+    (input.deployedRules === undefined && isDeployedRulesOptInActive());
+  const deployedRulesStore = createDeployedRulesStore({
+    ...input.deployedRulesOptions,
+    enabled: deployedRulesEnabled,
+    projectId: input.configProjectId,
+    now: input.now ?? Date.now,
+  });
+  let rulesFilesReader: (() => LiveRulesFiles) | undefined;
+  const readCurrentLocalRules = () => {
+    if (rulesFilesReader === undefined) return {};
+    try {
+      const files = rulesFilesReader();
+      return readLocalRulesTexts(files, rulesProjectDirOf(files));
+    } catch (_error: unknown) {
+      return {};
+    }
+  };
   const sessionData = createObservedSessionDataStore({
     projectId: input.configProjectId,
     now: input.now ?? Date.now,
   });
-
-  const report = (): LiveHostStatus => ({
-    projectId: liveProjectOf(appProjectIds, input.configProjectId),
-    configProjectId: input.configProjectId,
-    configSource,
-    appProjectIds: [...appProjectIds],
-    billed: billed.count(),
-    ...passThroughField,
-    ...observedField(input.observed),
-    admin,
-    ...clients.field(),
+  let deployedLiveContext: DeployedRulesLiveContext | undefined;
+  if (deployedRulesEnabled) {
+    deployedLiveContext = {
+      store: deployedRulesStore,
+      readLocalRules: readCurrentLocalRules,
+    };
+    registerDeployedRulesLiveContext(sessionData, deployedLiveContext);
+  }
+  const activeContext = deployedLiveContext;
+  let evaluateDeployedDenial: ((call: ObservedCall) => ReturnType<typeof evaluateDeniedCallWithLiveContext>) | undefined;
+  if (activeContext !== undefined) {
+    evaluateDeployedDenial = (call) => evaluateDeniedCallWithLiveContext(call, activeContext, sessionData);
+  }
+  const terminal = createLiveTerminalLines({
+    print: input.print ?? input.warn,
+    now: input.now,
+    evaluateDeployedDenial,
   });
+
+  const report = (): LiveHostReport => {
+    const base: LiveHostReport = {
+      projectId: liveProjectOf(appProjectIds, input.configProjectId),
+      configProjectId: input.configProjectId,
+      configSource,
+      appProjectIds: [...appProjectIds],
+      billed: billed.count(),
+      ...passThroughField,
+      ...observedField(input.observed),
+      admin,
+      ...clients.field(),
+    };
+    const deployedStatus = deployedRulesStore.status();
+    if (deployedStatus !== undefined) {
+      base.deployedRules = deployedStatus;
+    }
+    return base;
+  };
 
   const noteProject = (projectId: string | undefined): void => {
     const isNew = projectId !== undefined && !appProjectIds.includes(projectId) && appProjectIds.length < MAX_APP_PROJECTS;
@@ -252,6 +321,7 @@ export function createLiveHostState(input: LiveHostStateInput): LiveHostState {
       clients.readClientIds(lookup);
     },
     readRulesFiles(read) {
+      rulesFilesReader = read;
       terminal.readRulesFiles(read);
     },
   };

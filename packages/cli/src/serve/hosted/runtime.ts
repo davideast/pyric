@@ -60,6 +60,12 @@ import { rtdbInstance } from '../worker/host/rtdb-instances.js';
 import { isPathInside } from '../path-inside.js';
 import type { LiveSeedMode, ObservedSessionDataSnapshot } from '../observed-session/wire.js';
 import type { ObservedSessionDataStore } from '../observed-session/store.js';
+import {
+  evaluateDeployedRulesDetailForObserve,
+  getDeployedRulesLiveContext,
+  runWithDeployedRulesEventDetail,
+  takeDeployedRulesEventDetail,
+} from '../observed-session/deployed-rules-live.js';
 import { createObservedSeedRunner, type ObservedSeedResult } from './seed-from-observed-session.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
@@ -139,6 +145,23 @@ export async function createHostedRuntime(
     if (ownsPersistence) persistence.close();
   };
   const sandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
+  const deployedLiveContext = getDeployedRulesLiveContext(ai.observedSession);
+  let unsubscribeDeployedRules: (() => void) | undefined;
+  if (deployedLiveContext !== undefined && deployedLiveContext.store.enabled) {
+    unsubscribeDeployedRules = sandbox.onEvent((event) => {
+      if (event.kind !== 'operation' || event.production === undefined) return;
+      const detail = takeDeployedRulesEventDetail();
+      if (detail === undefined) return;
+      const nextDetail: Record<string, unknown> = {};
+      if (event.detail !== undefined) {
+        for (const [key, value] of Object.entries(event.detail)) {
+          Object.defineProperty(nextDetail, key, { value, enumerable: true, configurable: true, writable: true });
+        }
+      }
+      nextDetail.deployedRules = detail;
+      (event as { detail?: Record<string, unknown> }).detail = nextDetail;
+    });
+  }
   const instanceId = randomUUID();
   try {
     installStorageBackend(sandbox, persistence.storage);
@@ -557,6 +580,16 @@ export async function createHostedRuntime(
       refusePortWrite(owned.port, message);
       const changesDurableState = message.t === 'op' && requiresHealthyPersistence(message);
       if (changesDurableState) requireHealthyPersistence();
+      if (message.t === 'observe' && deployedLiveContext !== undefined && deployedLiveContext.store.enabled) {
+        const detail = await evaluateDeployedRulesDetailForObserve(
+          message.call,
+          deployedLiveContext,
+          ai.observedSession,
+        );
+        if (detail !== undefined) {
+          return await runWithDeployedRulesEventDetail(detail, () => handleMessage(ctx, owned.port, message));
+        }
+      }
       return handleMessage(ctx, owned.port, message);
     }).catch((error: unknown) => {
       const hasReplyId = 'id' in message;
@@ -997,6 +1030,7 @@ export async function createHostedRuntime(
           if (healthy) await flushPersistence();
         } finally {
           restAuthRtdb.unregister();
+          unsubscribeDeployedRules?.();
           unsubscribeFailure();
           unsubscribeAiDiagnostics();
           initialized.dispose();

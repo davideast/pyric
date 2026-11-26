@@ -35,6 +35,7 @@ describe('parseLiveHostArgs', () => {
     expect(parseLiveHostArgs(['--port', '4000', '--host', '127.0.0.1', '--project', 'acme-live', '--no-open'])).toEqual({
       kind: 'start',
       allowRemotePeers: false,
+      deployedRules: false,
       passThrough: [],
       hostArgv: ['--port', '4000', '--host', '127.0.0.1', '--project', 'acme-live', '--no-open'],
     });
@@ -53,6 +54,7 @@ describe('parseLiveHostArgs', () => {
     expect(repeated).toEqual({
       kind: 'start',
       allowRemotePeers: true,
+      deployedRules: false,
       passThrough: ['firebase/functions', 'firebase/remote-config'],
       hostArgv: ['--port', '3474'],
     });
@@ -66,6 +68,7 @@ describe('parseLiveHostArgs', () => {
     expect(commaAndMixed).toEqual({
       kind: 'start',
       allowRemotePeers: false,
+      deployedRules: false,
       passThrough: ['firebase/functions', 'firebase/analytics', 'firebase/remote-config'],
       hostArgv: ['--no-open'],
     });
@@ -74,6 +77,7 @@ describe('parseLiveHostArgs', () => {
     expect(allCandidates).toEqual({
       kind: 'start',
       allowRemotePeers: false,
+      deployedRules: false,
       passThrough: [...PASS_THROUGH_CANDIDATES],
       hostArgv: [],
     });
@@ -95,6 +99,7 @@ describe('parseLiveHostArgs', () => {
     expect(withChildSeparator).toEqual({
       kind: 'start',
       allowRemotePeers: false,
+      deployedRules: false,
       passThrough: ['firebase/functions'],
       hostArgv: ['--', 'node', 'server.js', '--help'],
     });

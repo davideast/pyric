@@ -1,7 +1,7 @@
 /**
  * Parses `pyric-live` host-mode flags owned by `@pyric/live` (`--help`/`-h`,
- * `--allow-remote-live`, and `--pass-through`) before passing the remaining
- * flags through to `runLiveHost`.
+ * `--allow-remote-live`, `--deployed-rules`, and `--pass-through`) before
+ * passing the remaining flags through to `runLiveHost`.
  */
 import { passThroughOption } from './refusal.js';
 
@@ -10,6 +10,8 @@ export const LIVE_HOST_ENTRY = 'pyric-live';
 const PASS_THROUGH_FLAG = '--pass-through';
 const PASS_THROUGH_PREFIX = '--pass-through=';
 const ALLOW_REMOTE_LIVE_FLAG = '--allow-remote-live';
+const DEPLOYED_RULES_FLAG = '--deployed-rules';
+const DEPLOYED_RULES_PREFIX = '--deployed-rules=';
 
 const MISSING_PASS_THROUGH_MESSAGE =
   `${LIVE_HOST_ENTRY}: --pass-through needs a Firebase import, such as --pass-through firebase/functions.`;
@@ -17,12 +19,16 @@ const MISSING_PASS_THROUGH_MESSAGE =
 const EMPTY_PASS_THROUGH_ENTRY_MESSAGE =
   `${LIVE_HOST_ENTRY}: --pass-through contains an empty entry; pass comma-separated Firebase imports such as --pass-through firebase/functions,firebase/remote-config.`;
 
+const DEPLOYED_RULES_VALUE_MESSAGE =
+  `${LIVE_HOST_ENTRY}: --deployed-rules takes no value; pass --deployed-rules to opt in.`;
+
 type ParsedLiveHostArgs =
   | { readonly kind: 'help' }
   | { readonly kind: 'error'; readonly message: string }
   | {
       readonly kind: 'start';
       readonly allowRemotePeers: boolean;
+      readonly deployedRules: boolean;
       readonly passThrough: readonly string[];
       readonly hostArgv: readonly string[];
     };
@@ -53,6 +59,7 @@ function splitPassThroughValue(raw: string): SplitPassThroughResult {
  */
 export function parseLiveHostArgs(argv: readonly string[]): ParsedLiveHostArgs {
   let allowRemotePeers = false;
+  let deployedRules = false;
   const hostArgv: string[] = [];
   const rawPassThrough: string[] = [];
   let firstError: string | null = null;
@@ -69,6 +76,14 @@ export function parseLiveHostArgs(argv: readonly string[]): ParsedLiveHostArgs {
     }
     if (arg === ALLOW_REMOTE_LIVE_FLAG) {
       allowRemotePeers = true;
+      continue;
+    }
+    if (arg === DEPLOYED_RULES_FLAG) {
+      deployedRules = true;
+      continue;
+    }
+    if (arg.startsWith(DEPLOYED_RULES_PREFIX)) {
+      if (firstError === null) firstError = DEPLOYED_RULES_VALUE_MESSAGE;
       continue;
     }
     if (arg === PASS_THROUGH_FLAG) {
@@ -114,6 +129,7 @@ export function parseLiveHostArgs(argv: readonly string[]): ParsedLiveHostArgs {
   return {
     kind: 'start',
     allowRemotePeers,
+    deployedRules,
     passThrough,
     hostArgv,
   };
