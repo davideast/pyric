@@ -5,45 +5,7 @@ import Combine
 
 extension Auth {
 
-    // -- Listeners & Modern Concurrency Streams --
-
-    public func addStateDidChangeListener(
-        _ listener: @escaping @Sendable (Auth, User?) -> Void
-    ) -> AuthStateDidChangeListenerHandle {
-        let handle = AuthStateDidChangeListenerHandle()
-        stateLock.lock()
-        stateListeners[handle] = listener
-        let current = _currentUser
-        stateLock.unlock()
-
-        listener(self, current)
-        return handle
-    }
-
-    public func removeStateDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        stateListeners.removeValue(forKey: handle)
-    }
-
-    public func addIDTokenDidChangeListener(
-        _ listener: @escaping @Sendable (Auth, User?) -> Void
-    ) -> AuthStateDidChangeListenerHandle {
-        let handle = AuthStateDidChangeListenerHandle()
-        stateLock.lock()
-        idTokenListeners[handle] = listener
-        let current = _currentUser
-        stateLock.unlock()
-
-        listener(self, current)
-        return handle
-    }
-
-    public func removeIDTokenDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        idTokenListeners.removeValue(forKey: handle)
-    }
+    // -- Modern Concurrency Streams --
 
     public var authStateDidChangeStream: AsyncStream<User?> {
         AsyncStream { continuation in
@@ -81,14 +43,6 @@ extension Auth {
                 self.stateLock.unlock()
             }
         }
-    }
-
-    public var authStateChanges: AuthStateChangesSequence {
-        AuthStateChangesSequence(self)
-    }
-
-    public var idTokenChanges: IDTokenChangesSequence {
-        IDTokenChangesSequence(self)
     }
 
     #if canImport(Combine)

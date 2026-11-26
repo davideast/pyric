@@ -377,9 +377,11 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             let hub = database.connectionInfoHub
             let token = hub.addObserver { [weak activeView] connected in
                 guard let activeView else { return }
-                let wire = ConnectionInfo.wire(at: path, connected: connected)
-                guard wire["exists"]?.boolValue == true, dedup.shouldEmit(wire) else { return }
-                activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef))
+                for wire in [ConnectionInfo.wire(at: path, connected: connected)] {
+                    guard wire["exists"]?.boolValue == true else { continue }
+                    guard dedup.shouldEmit(wire) else { continue }
+                    activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef))
+                }
             }
             return (nil, { hub.removeObserver(token) })
         }
