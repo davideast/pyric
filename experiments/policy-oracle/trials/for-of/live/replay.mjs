@@ -15,7 +15,7 @@ export async function replay({generated,simulator,archive,ordered}, fixtures = d
   const {firestoreRules} = await import(pathToFileURL(dist));
   const handwritten = fileURLToPath(new URL('../../chess/bundle/artifacts/stronger.rules',import.meta.url));
   const reports=[], operands=[];
-  const bundles=[['handwritten',handwritten],['generated',generated]];
+  const bundles=fixtures.singleRelease ? [[fixtures.singleRelease,generated]] : [['handwritten',handwritten],['generated',generated]];
   if(ordered) bundles.push(['ordered-errors',ordered]);
   for(const [mode,bundle] of bundles) {
     const ev = JSON.parse(gunzipSync(readFileSync(new URL(mode+'.json.gz',receipts))));
@@ -39,7 +39,11 @@ export async function replay({generated,simulator,archive,ordered}, fixtures = d
     const handle=firestoreRules(source), decisions=[];
     function check(description,method,path,auth,resource,data,expectation) {
       const [r]=handle.simulate([{description,path,method,auth,resource,data,expectation:expectation??'ALLOW'}]).cases;
-      assert.ok(!r.unsupported && !r.resourceLimit,description+' unsupported');
+      assert.ok(!r.unsupported,description+' unsupported');
+      if (r.resourceLimit) {
+        assert.ok(method==='update' && spec.measureExpressionLimit && r.resourceLimit.kind==='expressions'
+          && r.resourceLimit.limit===1000 && r.decision==='DENY',description+' unexpected resource limit');
+      }
       if(expectation!==undefined) assert.equal(r.decision,expectation,description);
       return r;
     }
@@ -52,12 +56,13 @@ export async function replay({generated,simulator,archive,ordered}, fixtures = d
       const local = check(r.id,'update',op.path,{uid:r.actor},before.data,{...before.data,...op.data},localExpected);
       check(r.id+' after signed read','get',after.path,{uid:r.reader},after.data,undefined,'ALLOW');
       decisions.push({id:r.id,decision:r.observed,versionChanged:after.version !== before.version,localExpressions:local.evaluatedExpressions,
-        ...(spec.measureAdmission && {native:localExpected,localVerdict:local.decision})});
+        ...(spec.measureAdmission && {native:localExpected,localVerdict:local.decision}),
+        ...(local.resourceLimit && {localResourceLimit:local.resourceLimit})});
     }
     reports.push({mode,bundleSha256:ev.rulesSha256,privateReceipt:ev.privateReceipt,decisions,reads:2*ev.rows.length+1});
   }
-  assert.deepEqual(operands[0],operands[1],'paired releases must have identical normalized comparison inputs');
-  return {paired:operands[0].length,releases:reports,privateJournalChecked:Boolean(archive)};
+  if (!fixtures.singleRelease) assert.deepEqual(operands[0],operands[1],'paired releases must have identical normalized comparison inputs');
+  return {paired:fixtures.singleRelease ? 0 : operands[0].length,releases:reports,privateJournalChecked:Boolean(archive)};
 }
 
 if(import.meta.main) {

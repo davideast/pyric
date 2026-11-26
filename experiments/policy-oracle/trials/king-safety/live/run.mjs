@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import {retain} from '../../for-of/live/retain.mjs';
 import {replay} from '../../for-of/live/replay.mjs';
-import * as fixtures from './fixtures.mjs';
+import * as primary from './fixtures.mjs';
 
-const [operation,...args] = process.argv.slice(2);
-const receipts = new URL('receipts/',import.meta.url);
+const argv = process.argv.slice(2);
+const cost = argv[0] === 'cost';
+if (cost) argv.shift();
+const [operation,...args] = argv;
+const fixtures = cost ? await import('./cost/fixtures.mjs') : primary;
+const receipts = new URL(cost?'cost/receipts/':'receipts/',import.meta.url);
 if (operation === 'capture') {
   const {capture} = await import('../../for-of/live/capture.mjs');
   await capture(args,fixtures);
