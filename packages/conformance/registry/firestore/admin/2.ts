@@ -5,16 +5,20 @@ export default row({
   featureKeys: ['Firestore.databaseId'],
   api: 'getFirestore(app, databaseId) and Firestore.databaseId',
   behavior:
-    'Production isolates documents, batches, and transactions per named Firestore database (`firestore-named-database-admin-mixing`) and exposes `db.databaseId`; `pyric-admin/firestore` does not yet support selecting or isolating a non-default `databaseId` and omits `db.databaseId`.',
-  status: 'unsupported',
-  automation: 'unsupported',
-  exceptionReason:
-    'Named Firestore database selection, per-database storage isolation, and Firestore.databaseId are not yet implemented in pyric-admin/firestore.',
+    'Isolates documents, batches, and transactions per named Firestore database across both in-process and remote SharedWorker arms and exposes readonly `db.databaseId` on `AdminFirestore` handles (`"(default)"` for default handles or the normalized database id for named handles).',
+  status: 'conforms',
+  automation: 'oracle-backed',
   oracleObservations: ['firestore-named-database-admin-mixing'],
   conformanceTests: [
     'packages/pyric-admin/test/firestore/named-database.test.ts',
     'packages/pyric-admin/test/surface/admin-surface.test.ts',
+    'packages/pyric/test/firestore/oracle-conformance.test.ts',
   ],
   evidence:
-    'Production capture `firestore-named-database-admin-mixing` records cross-database isolation; `named-database.test.ts` and `admin-surface.test.ts` pin the single-database boundary.',
+    'Production capture `firestore-named-database-admin-mixing` (firebase-admin 13.10.0) replayed across both in-process and remote SharedWorker arms in `packages/pyric-admin/test/firestore/named-database.test.ts`, gated by `packages/pyric/test/firestore/oracle-conformance.test.ts`, and verified against upstream `firebase-admin` types in `packages/pyric-admin/test/surface/admin-surface.test.ts`.',
+  risk: ['error-code', 'stateful'],
+  riskScore: 3,
+  riskReasons: [
+    'asserts readonly Firestore.databaseId, per-database isolation, cross-db reference storage, and gRPC 3 INVALID_ARGUMENT rejection across local and remote arms',
+  ],
 });

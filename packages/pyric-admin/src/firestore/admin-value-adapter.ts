@@ -373,6 +373,7 @@ defineDeferredMembers(
 const SYNTHETIC_ROOT_FIRESTORE_PROPS = new Set<PropertyKey>([
   'bulkWriter',
   'bundle',
+  'databaseId',
   'getAll',
   'listCollections',
   'pipeline',
@@ -399,7 +400,8 @@ export function wrapAdminFirestoreHandle(
       const own = Reflect.getOwnPropertyDescriptor(t, prop);
       if (own !== undefined) return own;
       if (SYNTHETIC_ROOT_FIRESTORE_PROPS.has(prop)) {
-        return { value: Reflect.get(proxy, prop, proxy), writable: true, enumerable: false, configurable: true };
+        const isWritable = prop !== 'databaseId';
+        return { value: Reflect.get(proxy, prop, proxy), writable: isWritable, enumerable: false, configurable: true };
       }
       return undefined;
     },
@@ -453,6 +455,8 @@ export function wrapAdminFirestoreHandle(
             );
         case 'bulkWriter':
           return (options?: BulkWriterOptions) => createAdminBulkWriter(proxy, options);
+        case 'databaseId':
+          return getAdminHandleDatabaseId(proxy);
         case 'pipeline':
           return firestoreDeferredStubs.pipeline;
         case 'bundle':
