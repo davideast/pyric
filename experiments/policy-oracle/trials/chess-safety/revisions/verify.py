@@ -3,13 +3,14 @@ from collections import Counter
 from hashlib import sha256
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 
 sys.dont_write_bytecode = True
 HERE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(HERE))
-from replay import build_recorded_package
+from replay import REFERENCE, build_recorded_package
 from score import score
 
 
@@ -25,6 +26,13 @@ def verify():
                 # witness. It has no deployable bytes. The tiled revision has its own score.
                 if archive.name!='indexed-packed-v5-through-7.json' or '8192 characters' not in str(old['diagnostics']):
                     raise ValueError('Unexpected uncompiled archived program '+str(archive))
+                package=build_recorded_package(old['variant'],work)
+                if sha256(package.read_bytes()).hexdigest()!=old['candidateSha256']:
+                    raise ValueError('Indexed compiler package changed')
+                sdk=REFERENCE['install_rules'](package,work/'indexed-limit')/'@pyric/rules'
+                measured=json.loads(subprocess.check_output(['bun',HERE/'terminal/table-v2/source-boundary.mjs',sdk]))
+                if measured!=json.loads((HERE/'terminal/table-v2/source-boundary.json').read_bytes()):
+                    raise ValueError('Monolithic table compiler boundary changed')
                 results.append({'archive':archive.name,'variant':old['variant'],'historicalCompileBoundary':'function source exceeds 8192 characters','linkedRulesSha256':None})
                 continue
             variant=old['variant'];package=build_recorded_package(variant,work)

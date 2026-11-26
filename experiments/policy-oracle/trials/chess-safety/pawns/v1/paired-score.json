@@ -1,0 +1,95 @@
+{
+  "authority": "independent pinned local full Rules evaluator",
+  "rulesSha256": "12c714bb2c32abc6ec3ffc41e15227370829c5313458d4638ab130d764ce475f",
+  "cases": 15905,
+  "allMatch": false,
+  "outcomes": {
+    "match": 15544,
+    "false-allow": 361
+  },
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "outcomes": {
+        "match": 2459,
+        "false-allow": 22
+      },
+      "decisionsSha256": "a05765061b3519ef4d323cb30d9ac8881608b657db6efd09a72f2a34219787d9"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "outcomes": {
+        "match": 316,
+        "false-allow": 62
+      },
+      "decisionsSha256": "1b1289e4657e052da295fc2ad5628a7a34229396ca561c1edb9afbfeef4a816f"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "outcomes": {
+        "match": 1736
+      },
+      "decisionsSha256": "dc17d34993f9403046725dd0bcd7fcecda6862e340577f5383496dc40dabb24f"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "outcomes": {
+        "match": 904
+      },
+      "decisionsSha256": "784c78738ac3852b0aaf2b02d7624572af678ce8d1a5b5b145aa4a20a90b65be"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "outcomes": {
+        "match": 353,
+        "false-allow": 31
+      },
+      "decisionsSha256": "f592b4324ed543fcd24b148f770ad2032877d471774db22c2c98935f790442cc"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "outcomes": {
+        "match": 2048
+      },
+      "decisionsSha256": "e3a9514c5e08d26c43bd3145f270f031469d046e0e0a6cdf0b4bb7034800233a"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "outcomes": {
+        "match": 4440
+      },
+      "decisionsSha256": "ec42ccf100ef23a9066e93a461a4167a7bd574740e02db6cb890981af3303320"
+    },
+    "king-last-v1": {
+      "cases": 288,
+      "outcomes": {
+        "match": 288
+      },
+      "decisionsSha256": "61b095dade3fb380b92d06276136787b00df91425a8b945edd420bf4226ef298"
+    },
+    "successor-claims-v1": {
+      "cases": 762,
+      "outcomes": {
+        "match": 700,
+        "false-allow": 62
+      },
+      "decisionsSha256": "83ec6bfa91eda71698c64b69765ed622f1acb78bc28acb9b37378cfcdde5d324"
+    },
+    "bare-defender-v1": {
+      "cases": 1992,
+      "outcomes": {
+        "match": 1972,
+        "false-allow": 20
+      },
+      "decisionsSha256": "35ce0ddc4450f66d3a4334864e7ef6d262b3b169b6905eafbf7aa4dfe47715c3"
+    },
+    "knight-replies-v1": {
+      "cases": 492,
+      "outcomes": {
+        "match": 328,
+        "false-allow": 164
+      },
+      "decisionsSha256": "2f5b165684043250ef66abc38bc72f530975aca69eae65920be8ba0136fbd133"
+    }
+  }
+}

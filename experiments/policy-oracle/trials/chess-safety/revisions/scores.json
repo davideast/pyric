@@ -1,0 +1,1241 @@
+[
+  {
+    "archive": "attacks-through-4.json",
+    "variant": "attacks",
+    "linkedRulesSha256": "d12d76ec83c0d5078600c5912887383b99c2b7b692dfa5f0a75b7070fdece756",
+    "standalone": {
+      "match": 86,
+      "false-allow": 8
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "false-refusal": 48,
+      "match": 33,
+      "evaluation-error": 13
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "false-refusal": 4,
+        "match": 6
+      },
+      "01-rank-diagonal": {
+        "false-refusal": 11,
+        "match": 8
+      },
+      "02-king-destinations": {
+        "false-refusal": 6,
+        "match": 6
+      },
+      "03-check-evasions": {
+        "false-refusal": 4,
+        "match": 4
+      },
+      "04-en-passant": {
+        "false-refusal": 3,
+        "match": 2
+      },
+      "05-castling": {
+        "false-refusal": 8,
+        "evaluation-error": 8,
+        "match": 4
+      },
+      "06-composition": {
+        "match": 3,
+        "false-refusal": 7
+      },
+      "07-terminal": {
+        "false-refusal": 5,
+        "evaluation-error": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 12
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "castle-through-7.json",
+    "variant": "castle",
+    "linkedRulesSha256": "2d5b56dce1e4b76d5557efeba6a8a3ee350e8266a61af51c01a12412face1758",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "false-refusal": 52,
+      "match": 32,
+      "evaluation-error": 10
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "false-refusal": 4,
+        "match": 6
+      },
+      "01-rank-diagonal": {
+        "false-refusal": 13,
+        "match": 6
+      },
+      "02-king-destinations": {
+        "false-refusal": 6,
+        "match": 6
+      },
+      "03-check-evasions": {
+        "false-refusal": 4,
+        "match": 4
+      },
+      "04-en-passant": {
+        "false-refusal": 3,
+        "match": 2
+      },
+      "05-castling": {
+        "false-refusal": 8,
+        "match": 7,
+        "evaluation-error": 5
+      },
+      "06-composition": {
+        "false-refusal": 9,
+        "match": 1
+      },
+      "07-terminal": {
+        "false-refusal": 5,
+        "evaluation-error": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 88
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "combined-bare-packed-v5-through-7.json",
+    "variant": "combined-bare-packed-v5",
+    "linkedRulesSha256": "9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "combined-pattern-fast-packed-v5-through-7.json",
+    "variant": "combined-pattern-fast-packed-v5",
+    "linkedRulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "combined-whole-lazy-packed-v5-through-7.json",
+    "variant": "combined-whole-lazy-packed-v5",
+    "linkedRulesSha256": "246042791e2798ee8b04a822210ffacce9c61a4f5f337c4311718c785b183dc7",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "ending-packed-v3-through-7.json",
+    "variant": "ending-packed-v3",
+    "linkedRulesSha256": "005a47b967bad42a06157ced178ddbb7c79b222477168b7080aaba3bce5574fc",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 89,
+      "false-refusal": 4,
+      "false-allow": 1
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 9,
+        "false-refusal": 1
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 8,
+        "false-refusal": 2
+      },
+      "07-terminal": {
+        "match": 8,
+        "false-refusal": 1,
+        "false-allow": 1
+      }
+    },
+    "firstDivergence": {
+      "id": "long-safe-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 575,
+        "column": 1242
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "ending-packed-v4-through-7.json",
+    "variant": "ending-packed-v4",
+    "linkedRulesSha256": "687c85f97ed48109152823ad2718d13661df9c730a7486b330a0fa8e5df498df",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 88,
+      "false-refusal": 5,
+      "false-allow": 1
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 9,
+        "false-refusal": 1
+      },
+      "01-rank-diagonal": {
+        "match": 18,
+        "false-refusal": 1
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 8,
+        "false-refusal": 2
+      },
+      "07-terminal": {
+        "match": 8,
+        "false-refusal": 1,
+        "false-allow": 1
+      }
+    },
+    "firstDivergence": {
+      "id": "long-safe-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 575,
+        "column": 1133
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "guarded-pawn-combined-bare-simple-packed-v5-through-7.json",
+    "variant": "guarded-pawn-combined-bare-simple-packed-v5",
+    "linkedRulesSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "indexed-packed-v5-through-7.json",
+    "variant": "indexed-packed-v5",
+    "historicalCompileBoundary": "function source exceeds 8192 characters",
+    "linkedRulesSha256": null
+  },
+  {
+    "archive": "indexed-tiles-through-7.json",
+    "variant": "indexed-packed-v5",
+    "linkedRulesSha256": "4b5333d408f6a5edc01b24884e7c9bc247a6734bd960f557c941082bb93ba98d",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 93,
+      "false-refusal": 1
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 9,
+        "false-refusal": 1
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": {
+      "id": "long-file-edge-capture-black",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 554,
+        "column": 1022
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "optimized-through-7.json",
+    "variant": "optimized",
+    "linkedRulesSha256": "fe6ae708a8efb6ab4225108e13783a36067425206b98778b5d176abe100cc33c",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 62,
+      "false-refusal": 22,
+      "evaluation-error": 8,
+      "false-allow": 2
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 17,
+        "false-refusal": 2
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 7,
+        "false-refusal": 1
+      },
+      "04-en-passant": {
+        "false-refusal": 3,
+        "match": 2
+      },
+      "05-castling": {
+        "false-refusal": 8,
+        "match": 7,
+        "evaluation-error": 5
+      },
+      "06-composition": {
+        "match": 5,
+        "false-refusal": 5
+      },
+      "07-terminal": {
+        "false-refusal": 3,
+        "evaluation-error": 3,
+        "match": 2,
+        "false-allow": 2
+      }
+    },
+    "firstDivergence": {
+      "id": "rank-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 678,
+        "column": 111
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "packed-through-7.json",
+    "variant": "packed",
+    "linkedRulesSha256": "8414e274ae0fa054f437091e904b451a5a563759507bd064d67e6b1041c7f8cc",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 79,
+      "false-refusal": 10,
+      "false-allow": 5
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 14,
+        "false-refusal": 6
+      },
+      "06-composition": {
+        "match": 6,
+        "false-refusal": 4
+      },
+      "07-terminal": {
+        "match": 5,
+        "false-allow": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "white-long-clear",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 20,
+        "column": 12
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "packed-v2-through-7.json",
+    "variant": "packed-v2",
+    "linkedRulesSha256": "59aa7767d09dd01026ab061a0b6f0ce5e9c1429b4485073a45ae8903cd72f63e",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 88,
+      "false-refusal": 1,
+      "false-allow": 5
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 9,
+        "false-refusal": 1
+      },
+      "07-terminal": {
+        "match": 5,
+        "false-allow": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "crowded-kiwipete-edge-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 20,
+        "column": 12
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "packed-v3-through-7.json",
+    "variant": "packed-v3",
+    "linkedRulesSha256": "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 89,
+      "false-allow": 5
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 5,
+        "false-allow": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "mate-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 775,
+      "status": "false-allow"
+    }
+  },
+  {
+    "archive": "packed-v4-through-7.json",
+    "variant": "packed-v4",
+    "linkedRulesSha256": "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 89,
+      "false-allow": 5
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 5,
+        "false-allow": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "mate-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 784,
+      "status": "false-allow"
+    }
+  },
+  {
+    "archive": "packed-v5-through-7.json",
+    "variant": "packed-v5",
+    "linkedRulesSha256": "8d567417e1f6d67de3562b4f55fc7ce1a6591709d2f37239d87206d029ee64e5",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 89,
+      "false-allow": 5
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 5,
+        "false-allow": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "mate-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 784,
+      "status": "false-allow"
+    }
+  },
+  {
+    "archive": "pattern-packed-v5-through-7.json",
+    "variant": "pattern-packed-v5",
+    "linkedRulesSha256": "1eb49420f7d479cfb4dc31667fa9085e617077e2ed426de403bda6f53552c699",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 93,
+      "false-refusal": 1
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 9,
+        "false-refusal": 1
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": {
+      "id": "long-file-edge-capture-black",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 587,
+        "column": 1093
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "pawn-combined-bare-packed-v5-through-7.json",
+    "variant": "pawn-combined-bare-packed-v5",
+    "linkedRulesSha256": "fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "pawn-combined-pattern-fast-packed-v5-through-7.json",
+    "variant": "pawn-combined-pattern-fast-packed-v5",
+    "linkedRulesSha256": "f34103660c30d15a0a2b74a80ec2c31210844d3bd19229c04cc0034a8c2569ef",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "pins-through-1.json",
+    "variant": "pins",
+    "linkedRulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
+    "standalone": {
+      "match": 81,
+      "false-allow": 13
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 39,
+      "false-refusal": 37,
+      "evaluation-error": 12,
+      "false-allow": 6
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 9,
+        "false-refusal": 1
+      },
+      "01-rank-diagonal": {
+        "false-refusal": 10,
+        "match": 9
+      },
+      "02-king-destinations": {
+        "false-refusal": 6,
+        "match": 1,
+        "evaluation-error": 5
+      },
+      "03-check-evasions": {
+        "false-refusal": 4,
+        "match": 4
+      },
+      "04-en-passant": {
+        "false-refusal": 3,
+        "match": 2
+      },
+      "05-castling": {
+        "match": 10,
+        "false-allow": 6,
+        "false-refusal": 2,
+        "evaluation-error": 2
+      },
+      "06-composition": {
+        "match": 4,
+        "false-refusal": 6
+      },
+      "07-terminal": {
+        "false-refusal": 5,
+        "evaluation-error": 5
+      }
+    },
+    "firstDivergence": {
+      "id": "black-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 12
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "quick-packed-v5-through-7.json",
+    "variant": "quick-packed-v5",
+    "linkedRulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 94
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 10
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": null
+  },
+  {
+    "archive": "reply-packed-v4-through-7.json",
+    "variant": "reply-packed-v4",
+    "linkedRulesSha256": "24d4a4ed9f0238122e23636cb472f6ff03cc59ed32fade408be59f5144e7b8e4",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 92,
+      "false-refusal": 2
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 8,
+        "false-refusal": 2
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": {
+      "id": "long-rank-edge-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 582,
+        "column": 1064
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "reply-packed-v5-through-7.json",
+    "variant": "reply-packed-v5",
+    "linkedRulesSha256": "8139edc6f4a5cd791500855c8602d575b8c2a7e422de7c1bbcf75a580855b880",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 92,
+      "false-refusal": 2
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 8,
+        "false-refusal": 2
+      },
+      "07-terminal": {
+        "match": 10
+      }
+    },
+    "firstDivergence": {
+      "id": "long-rank-edge-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 592,
+        "column": 1064
+      },
+      "status": "false-refusal"
+    }
+  },
+  {
+    "archive": "table-packed-v4-through-7.json",
+    "variant": "table-packed-v4",
+    "linkedRulesSha256": "238fc02bd4f95c24d74e74b12f7a6e973e336e35a6d97413efb6e9f5b0f4bf14",
+    "standalone": {
+      "match": 94
+    },
+    "standaloneBoard": {
+      "match": 94
+    },
+    "linked": {
+      "match": 91,
+      "false-refusal": 2,
+      "false-allow": 1
+    },
+    "byBatch": {
+      "00-legacy-file": {
+        "match": 10
+      },
+      "01-rank-diagonal": {
+        "match": 19
+      },
+      "02-king-destinations": {
+        "match": 12
+      },
+      "03-check-evasions": {
+        "match": 8
+      },
+      "04-en-passant": {
+        "match": 5
+      },
+      "05-castling": {
+        "match": 20
+      },
+      "06-composition": {
+        "match": 8,
+        "false-refusal": 2
+      },
+      "07-terminal": {
+        "match": 9,
+        "false-allow": 1
+      }
+    },
+    "firstDivergence": {
+      "id": "long-rank-edge-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 579,
+        "column": 962
+      },
+      "status": "false-refusal"
+    }
+  }
+]

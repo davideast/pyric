@@ -21,5 +21,5 @@ function visit(file){
     visit(resolve(dirname(file),source.path));
   }
 }
-visit(resolve(trial,'pawns/v1/adapter.mjs'));
+visit(resolve(trial,'mobility/knight.mjs'));
 console.log(JSON.stringify([...modules].sort()));

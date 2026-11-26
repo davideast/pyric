@@ -9,7 +9,9 @@ import {position} from '../../../chess/reference/score.mjs';
 import {squareName,squareOf,attacked} from '../../../chess/reference/arcade-reference.ts';
 import {projections,sources} from './policy.mjs';
 
-const [candidate,ref]=process.argv.slice(2);
+const [candidate,ref,mode]=process.argv.slice(2);
+assert.ok(mode===undefined||mode==='paired');
+const paired=mode==='paired';
 const {compileFunction}=await loadPolicyApi(candidate);
 const {firestoreRules}=await import(pathToFileURL(resolve(ref,'dist/index.js')));
 const raw=gunzipSync(readFileSync(new URL('corpus.json.gz',import.meta.url)));
@@ -22,12 +24,14 @@ function pack(board){
   return cells.join(',')+',';
 }
 const promises={};
-for(const [name,source] of Object.entries(sources())){
+for(const [name,source] of Object.entries(sources(paired))){
   const color=name.at(-1),test=compileFunction(source);
   const mod=test.firestoreModule();
   const fn=mod.slice(mod.indexOf('export function')).replace('export function','function');
   const rules="rules_version = '2'; service cloud.firestore { "+fn+" match /databases/{d}/documents/chess/{id} { allow update: if "+name+"(request.resource.data.board); } }";
-  const byDirection=projections(color).map((expr,i)=>compileFunction(`function project${i}(original) { return ${expr}; }`));
+  const moves=projections(color);
+  if(paired)moves.push(...projections(color,true));
+  const byDirection=moves.map((expr,i)=>compileFunction(`function project${i}(original) { return ${expr}; }`));
   promises[color]={test,check:firestoreRules(rules),byDirection};
 }
 const stats={positions:0,concreteProjections:0,unsafeProjections:0,witnessed:0,missed:0,noPawnMove:0,

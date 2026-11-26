@@ -1,4 +1,4 @@
-import {compile} from './pawns/v1/adapter.mjs';
+import {compile} from './mobility/knight.mjs';
 import {loadPolicyApi} from '../king-safety/policy/public-api.mjs';
 const [mode,variant,dir,...args]=process.argv.slice(2);
 const {compileFunction}=await loadPolicyApi(dir);

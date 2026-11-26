@@ -1,0 +1,40 @@
+{
+  "positions": 3246,
+  "concreteProjections": 6936,
+  "unsafeProjections": 568,
+  "witnessed": 1769,
+  "missed": 30,
+  "noPawnMove": 1447,
+  "missedOneStep": 4,
+  "missedOnlyDoubleOrEp": 26,
+  "firstMiss": {
+    "id": "pawn-reply-34",
+    "fen": "rnb1kbn1/1p1p4/p3pp1r/P1q3pP/1B2PPQ1/NP5B/3P1K1P/R5NR w - -",
+    "native": [
+      {
+        "uci": "d2d4",
+        "kind": "double"
+      }
+    ],
+    "projections": [
+      [
+        "f4f5",
+        false
+      ],
+      [
+        "f4g5",
+        false
+      ],
+      [
+        "d2d3",
+        false
+      ],
+      [
+        "f4g5",
+        false
+      ]
+    ]
+  },
+  "proofsSha256": "a5ff0bec3398bdac7f7729168d6d83673fc061e838c6e06124a2bd8695c87a0a",
+  "nativeSha256": "698ce23e88081609b5a3340fb08f7b68681a86317284d41f7ad99a9370884472"
+}

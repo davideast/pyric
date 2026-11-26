@@ -13,9 +13,20 @@ LABELS = {'00-legacy-file':'Existing file pins','01-rank-diagonal':'Rank and dia
 
 
 def render(report):
+    if not report['hosted'].get('rulesSha256'):
+        lines = ['# Chess compiler scorecard', '',
+                 f"Program `{report['variant']}` from package `{report['packageSha256']}` produced no deployable release.",
+                 '','| Batch | Plane | Outcomes |','| --- | --- | --- |']
+        for batch, planes in report['coreBatches'].items():
+            for name, result in planes.items():
+                counts = ', '.join(f'{count} {kind}' for kind, count in result['counts'].items())
+                lines.append(f'| {LABELS.get(batch,batch)} | {name} | {counts} |')
+        lines.extend(['', '## Diagnostics', '','```json',json.dumps(report['diagnostics'],indent=2),'```',
+                      '', 'Live Firestore status for this submission is unmeasured.'])
+        return '\n'.join(lines)+'\n'
     releases = [r for r in report['releaseComparisons'] if r['productionCases']]
     releases.sort(key=lambda r:(0 if r['sha256'].startswith('523c4c') else 1,r['rules']))
-    names = [('Stock' if r['sha256'].startswith('523c4c') else Path(r['rules']).stem) for r in releases]
+    names = [('Prior stronger baseline' if r['sha256'].startswith('523c4c') else Path(r['rules']).stem) for r in releases]
     output = ['# Cumulative chess oracle scorecard','',
               'Each live cell gives native matches divided by distinct signed proposals on that release. A dash means the corresponding bytes have no completed measurement for that batch. The local columns use the selected candidate program `'+report['variant']+'`.','',
               '| Batch | Standalone king safety | Standalone board | Local linked writes | '+' | '.join(names)+' |',
@@ -69,6 +80,14 @@ def render(report):
         for key,data in report['sealedReferee']['groups'].items():append('Private traces, '+key,data)
     else:output += ['','The optional private trace corpus was not scored in this replay.']
     output+=['','The cohort totals are independent measurements. Some corpora share positions or requests. [Native answers and mutation controls](batches/) · [Third-referee checks](exploration/independent-review/) · [Public package scoring](README.md)']
+    for record in report.get('openings',[]):
+        output += ['', '## Authenticated opening under '+record['rulesSha256'][:12], '',
+                   ' | '.join(f'{action} {verdict} (ply {ply})' for action,verdict,ply in record['rows']),
+                   '', f"Final stored status was **{record['finalStatus']}**. [Full signed readbacks](live/openings/{record['rulesSha256']}/{record['plan']}.json.gz)"]
+    evidence=report.get('management',{})
+    if evidence.get('managementFailures') or evidence.get('unqualified'):
+        output += ['', '## Unscored live attempts','',
+                   f"{len(evidence.get('managementFailures',[]))} management failures produced no qualifying case observations. {len(evidence.get('unqualified',[]))} completed attempts failed the evidence checks. [Management journal summaries](live/failures/) · [Excluded receipts](live/unqualified/)"]
     return '\n'.join(output)+'\n'
 
 if __name__=='__main__':

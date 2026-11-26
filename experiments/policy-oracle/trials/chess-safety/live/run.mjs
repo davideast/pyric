@@ -110,11 +110,11 @@ if(operation==='measure') {
     else writeFileSync(path,pin,{flag:'wx'});
   }
 } else {
-  assert.ok(operation==='replay'||operation==='lookup');
+  assert.ok(['replay','observed','lookup'].includes(operation));
   const digest=operation==='lookup' ? args.shift() : undefined;
   if(operation==='lookup') assert.match(digest,/^[0-9a-f]{64}$/);
   assert.ok(!args.length || (args.length===2 && args[0]==='--archive'));
-  const result=report(args[1],operation==='lookup');
+  const result=report(args[1],operation!=='replay');
   const measured=digest && result.releases.find(r=>r.rulesSha256===digest);
   const data=digest ? {...(measured ?? {rulesSha256:digest,status:'unmeasured',distinctCases:0,captures:[]}),
     managementFailures:result.managementFailures.filter(f=>f.intendedRulesSha256===digest),

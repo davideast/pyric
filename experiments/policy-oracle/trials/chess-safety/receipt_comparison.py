@@ -11,13 +11,12 @@ sys.dont_write_bytecode = True
 from corpus import HERE
 
 
-def compare(native, sdk, archive=None):
+def compare(native, sdk, captures):
     releases = []
     for review in sorted((HERE/'live/reviews').glob('*.json')):
         spec = json.loads(review.read_bytes())
         digest = spec['rulesSha256']
-        args = ['--archive',str(archive)] if archive else []
-        hosted = json.loads(subprocess.check_output(['bun',HERE/'live/run.mjs','lookup',digest,*args]))
+        hosted = captures.get(digest, {'status':'unmeasured','captures':[]})
         source = (HERE/'live'/spec['file']).resolve()
         if sha256(source.read_bytes()).hexdigest()!=digest:
             raise ValueError(f'Review changed for {digest}')
@@ -59,7 +58,8 @@ def compare(native, sdk, archive=None):
                 if outcome['native']!=outcome['production'] or outcome['local']!=outcome['production'] or outcome['localError']:
                     disagreements.append({'id':key,**outcome,'receipt':str(receipt.relative_to(HERE)),'versions':[row['before'][0]['version'],row['after'][0]['version']]})
         releases.append({'rules':str(source.relative_to(HERE)) if source.is_relative_to(HERE) else spec['file'],
-                         'sha256':digest,'status':hosted['status'],'productionCases':len(distinct),'batches':batches,
+                         'sha256':digest,'receipts':[c['receipt'] for c in hosted['captures']],
+                         'status':hosted['status'],'productionCases':len(distinct),'batches':batches,
                          'examples':{k:v for k,v in distinct.items() if k.startswith(('holdout-black-queen-corner-','sole-pawn-w-'))},
                          'disagreements':disagreements})
     return releases
