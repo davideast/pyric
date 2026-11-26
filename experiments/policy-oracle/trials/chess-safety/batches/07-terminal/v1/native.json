@@ -1,0 +1,275 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "mate-correct",
+      "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+      "uci": "e7g7",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7k/6Q1/6K1/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "mate-wrong-result",
+      "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+      "uci": "e7g7",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7k/6Q1/6K1/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "stalemate-correct",
+      "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+      "uci": "e7f7",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7k/5Q2/6K1/8/8/8/8/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "stalemate-wrong-result",
+      "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+      "uci": "e7f7",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7k/5Q2/6K1/8/8/8/8/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "one-king-reply-correct",
+      "fen": "7k/8/4Q1K1/8/8/8/8/8 w - -",
+      "uci": "e6e7",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7k/4Q3/6K1/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "h8g8"
+      ]
+    },
+    {
+      "id": "one-king-reply-wrong-result",
+      "fen": "7k/8/4Q1K1/8/8/8/8/8 w - -",
+      "uci": "e6e7",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7k/4Q3/6K1/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "h8g8"
+      ]
+    },
+    {
+      "id": "one-rook-reply-correct",
+      "fen": "7k/r3Q3/6K1/8/8/8/8/8 w - -",
+      "uci": "e7g7",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7k/r5Q1/6K1/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a7g7"
+      ]
+    },
+    {
+      "id": "one-rook-reply-wrong-result",
+      "fen": "7k/r3Q3/6K1/8/8/8/8/8 w - -",
+      "uci": "e7g7",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7k/r5Q1/6K1/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "a7g7"
+      ]
+    },
+    {
+      "id": "black-mate-correct",
+      "fen": "8/8/8/8/8/6k1/4q3/7K b - -",
+      "uci": "e2g2",
+      "claim": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/8/8/8/6k1/6q1/7K w - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "replies": []
+    },
+    {
+      "id": "black-mate-reported-playing",
+      "fen": "8/8/8/8/8/6k1/4q3/7K b - -",
+      "uci": "e2g2",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "8/8/8/8/8/6k1/6q1/7K w - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    }
+  ]
+}

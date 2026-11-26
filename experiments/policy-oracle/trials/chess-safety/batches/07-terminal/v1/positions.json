@@ -1,0 +1,92 @@
+[
+  {
+    "id": "mate-correct",
+    "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+    "uci": "e7g7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "mate-wrong-result",
+    "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+    "uci": "e7g7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "stalemate-correct",
+    "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+    "uci": "e7f7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "stalemate-wrong-result",
+    "fen": "7k/4Q3/6K1/8/8/8/8/8 w - -",
+    "uci": "e7f7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "one-king-reply-correct",
+    "fen": "7k/8/4Q1K1/8/8/8/8/8 w - -",
+    "uci": "e6e7",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "one-king-reply-wrong-result",
+    "fen": "7k/8/4Q1K1/8/8/8/8/8 w - -",
+    "uci": "e6e7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "one-rook-reply-correct",
+    "fen": "7k/r3Q3/6K1/8/8/8/8/8 w - -",
+    "uci": "e7g7",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "one-rook-reply-wrong-result",
+    "fen": "7k/r3Q3/6K1/8/8/8/8/8 w - -",
+    "uci": "e7g7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "black-mate-correct",
+    "fen": "8/8/8/8/8/6k1/4q3/7K b - -",
+    "uci": "e2g2",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "black-mate-reported-playing",
+    "fen": "8/8/8/8/8/6k1/4q3/7K b - -",
+    "uci": "e2g2",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  }
+]
