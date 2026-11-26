@@ -1,0 +1,17 @@
+{
+  "plan": "baseline-followups",
+  "intendedRulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "journalBoundRulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "journalSha256": "041feb82c9e4e6e7d7f1b4a562922f19efdbbcac9368b588a8ff41bdf1fe025c",
+  "failureTime": "2026-11-26T15:42:04.355Z",
+  "operation": "activate-release",
+  "httpStatus": 503,
+  "serviceCode": "UNAVAILABLE",
+  "caseWrites": 0,
+  "originalClosed": true,
+  "leaseReleased": true,
+  "signedPhases": [
+    "initially-closed",
+    "restored-closed"
+  ]
+}
