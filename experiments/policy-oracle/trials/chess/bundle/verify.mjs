@@ -7,8 +7,9 @@ import { sha } from '../../../arcade/corpus.mjs';
 
 const [arcade, reference, strongerCandidate] = process.argv.slice(2);
 const mode = process.argv[5];
-if (mode !== undefined) assert.ok(['--vacated-file','--king-safety'].includes(mode), 'unknown chess rules profile');
-const checkTransit = mode === '--king-safety';
+if (mode !== undefined) assert.ok(['--vacated-file','--king-safety','--king-safety-status'].includes(mode), 'unknown chess rules profile');
+const checkStatus = mode === '--king-safety-status';
+const checkTransit = checkStatus || mode === '--king-safety';
 const checkVacatedFile = mode === '--vacated-file' || checkTransit;
 if (checkVacatedFile) assert.ok(strongerCandidate, 'supply the complete candidate rules');
 if (!arcade || !reference) throw Error('Usage: bun verify.mjs <pinned Arcade checkout | --archived-native> <installed reference rules package> [stronger rules [--vacated-file | --king-safety]]');
@@ -107,7 +108,14 @@ for (const [id,p,uci,mutate,decisions] of [
   ['castle-rights-successor',white,'a1a2',s=>{s.after.castling='KQkq';},strongerDenies],
   ['castle-rook-successor',white,'e1g1',s=>{s.after.board.f1='';},strongerDenies],
   ['ep-captured-pawn-successor',ep,'e5d6',s=>{s.after.board.d5='bp';},strongerDenies],
-  ['false-terminal-claim',start,'e2e4',s=>{s.after.status='won';s.after.winner='host';},ok],
+  ['false-terminal-claim',start,'e2e4',s=>{
+    // turn() obtains these fields from the pinned native successor before a
+    // submitting player changes only the reported outcome.
+    assert.equal(s.nativeLegal,true);
+    assert.equal(s.after.status,'playing');
+    assert.equal(s.after.winner,'');
+    s.after.status='won';s.after.winner='host';
+  },checkStatus ? strongerDenies : ok],
   ['move-count',start,'e2e4',s=>{s.after.moveCount++;},allDeny],
   ['previous-board',start,'e2e4',s=>{s.after.prevBoard={};},allDeny],
   ['turn-owner',start,'e2e4',s=>{s.uid='g';},allDeny]

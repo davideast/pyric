@@ -1,0 +1,40 @@
+{
+  "authority": "independent complete Rules simulation",
+  "releases": [
+    {
+      "rulesSha256": "8cb950ccbd1f33b2d68ebb317a45391ac9ffd7416c27bb5e7b801b8493b98f2d",
+      "cases": 150,
+      "profiles": [
+        "stock",
+        "compatibility",
+        "stronger",
+        "referee"
+      ],
+      "decisions": 600,
+      "changed": [
+        [
+          "pinned-slider",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ],
+        [
+          "castle-attacked-transit",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ],
+        [
+          "false-terminal-claim",
+          "stronger",
+          "ALLOW",
+          "DENY"
+        ]
+      ],
+      "peak": {
+        "id": "native-2-a8a1",
+        "evaluatedExpressions": 947
+      }
+    }
+  ]
+}

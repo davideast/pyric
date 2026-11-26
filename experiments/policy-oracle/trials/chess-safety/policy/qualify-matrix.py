@@ -13,12 +13,13 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('reference', type=Path)
     p.add_argument('releases', type=Path, nargs='+')
+    p.add_argument('--terminal', action='store_true', help='also require refusal of the false opening win')
     args = p.parse_args()
     golden = json.loads((BUNDLE / 'local-results.json').read_bytes())
     results = []
     for release in args.releases:
         cmd = ['bun', BUNDLE / 'verify.mjs', '--archived-native', args.reference.resolve(),
-               release.resolve(), '--king-safety']
+               release.resolve(), '--king-safety-status' if args.terminal else '--king-safety']
         observed = json.loads(subprocess.check_output(cmd))
         assert observed['cases'] == golden['cases'] == 150
         assert observed['profiles'] == golden['profiles']
@@ -30,6 +31,8 @@ def main():
                     changed.append([case, profile, control[i], actual])
         expected = [['pinned-slider','stronger','ALLOW','DENY'],
                     ['castle-attacked-transit','stronger','ALLOW','DENY']]
+        if args.terminal:
+            expected.append(['false-terminal-claim','stronger','ALLOW','DENY'])
         assert sorted(changed) == sorted(expected), changed
         results.append({'rulesSha256': hashlib.sha256(release.read_bytes()).hexdigest(),
                         'cases':observed['cases'], 'profiles':observed['profiles'],
