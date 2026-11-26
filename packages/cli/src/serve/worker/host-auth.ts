@@ -58,6 +58,7 @@ import {
   handleAuthBlockingSub,
   handleAuthBlockingUnsub,
 } from './host/auth-blocking.js';
+import { authStateFromServerIdToken } from 'pyric/app/internal';
 import { getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import {
   createBlockedAnonymousUser,
@@ -333,6 +334,69 @@ export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   cleanupPortAuthBlocking(ctx, ctx.auth, port);
 }
 
+function resolveServerTokenProjectId(
+  ctx: HostCtx,
+  rawExpectedProjectId: unknown,
+): { ok: true; projectId: string | undefined } | { ok: false } {
+  const hostProject = hostProjectId(ctx);
+  let clientProject: string | undefined;
+  if (rawExpectedProjectId !== undefined) {
+    if (typeof rawExpectedProjectId !== 'string' || rawExpectedProjectId.length === 0) {
+      return { ok: false };
+    }
+    clientProject = rawExpectedProjectId;
+  }
+  if (hostProject !== undefined && clientProject !== undefined && hostProject !== clientProject) {
+    return { ok: false };
+  }
+  if (hostProject !== undefined) {
+    return { ok: true, projectId: hostProject };
+  }
+  return { ok: true, projectId: clientProject };
+}
+
+function restoreServerIdTokenSession(
+  ctx: HostCtx,
+  port: PortLike,
+  auth: Auth,
+  rawRestore: Record<string, unknown>,
+): MintedSession | null {
+  const rawToken = rawRestore.authIdToken;
+  if (typeof rawToken !== 'string' || rawToken.length === 0) {
+    return null;
+  }
+  const projectResolution = resolveServerTokenProjectId(ctx, rawRestore.expectedProjectId);
+  if (!projectResolution.ok) {
+    return null;
+  }
+  const verifiedState = authStateFromServerIdToken(
+    rawToken,
+    projectResolution.projectId,
+    ctx.sandbox,
+  );
+  if (verifiedState === null) {
+    return null;
+  }
+  const tokenTenantId = verifiedState.tenant ?? null;
+  let verifiedSession: MintedSession | null = null;
+  try {
+    verifiedSession = authSandboxOps.mintSession(auth, {
+      kind: 'uid',
+      uid: verifiedState.uid,
+      tenantId: tokenTenantId,
+      restore: {},
+      ...portOriginScope(port),
+    });
+  } catch (err) {
+    // Unknown, disabled, deleted, or cross-tenant accounts fail closed.
+    void err;
+    return null;
+  }
+  verifiedSession.state.token = verifiedState.token;
+  verifiedSession.state.tenant = verifiedState.tenant;
+  return verifiedSession;
+}
+
 // ─── Auth op handlers ─────────────────────────────────────────────────────
 
 export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
@@ -450,8 +514,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.restorePortSession': {
       try {
-        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const rawRestore = msg as unknown as Record<string, unknown>;
+        if (Object.hasOwn(rawRestore, 'authIdToken') && rawRestore.authIdToken !== undefined) {
+          const verifiedSession = restoreServerIdTokenSession(ctx, port, auth, rawRestore);
+          setPortSession(ctx, port, verifiedSession);
+          let restoredUser = null;
+          if (verifiedSession !== null) {
+            restoredUser = serializeUser(verifiedSession.user);
+          }
+          ok(port, msg.id, restoredUser);
+          break;
+        }
+        const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const hasRecordedClaims =
           (Object.hasOwn(rawRestore, 'customClaims') && rawRestore.customClaims !== undefined)
           || rawRestore.hasCustomClaims === true;
