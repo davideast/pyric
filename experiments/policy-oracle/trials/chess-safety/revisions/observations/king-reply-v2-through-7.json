@@ -1,0 +1,61 @@
+{
+  "archive": "king-reply-v2-through-7.json",
+  "variant": "king-reply-v2",
+  "linkedRulesSha256": "df2c9913820ee62a74f9d818a823e07efa25dfc357654fc464c192ada60c42a5",
+  "standalone": {
+    "match": 93,
+    "false-refusal": 1
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 90,
+    "false-allow": 4
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "match": 6,
+      "false-allow": 4
+    }
+  },
+  "firstDivergence": {
+    "id": "mate-wrong-result",
+    "expected": "DENY",
+    "decision": "ALLOW",
+    "cost": 933,
+    "status": "false-allow"
+  },
+  "historicalPrior": {
+    "scope": "king mobility only",
+    "inputs": [
+      {
+        "file": "exploration/replies-v1/mobility-v2-score.json",
+        "sha256": "74efac18a709299eb4fe37c936520b01b82501889372a14f3a4e6d4be9a9441b",
+        "cases": 378,
+        "decisionsSha256": "24b32fb0c5e1c46e5584e36d55109132103bc2364659a46f9e62f444a0507615"
+      }
+    ]
+  }
+}

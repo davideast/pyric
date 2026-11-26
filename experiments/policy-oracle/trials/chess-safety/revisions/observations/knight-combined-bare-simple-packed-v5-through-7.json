@@ -1,0 +1,54 @@
+{
+  "archive": "knight-combined-bare-simple-packed-v5-through-7.json",
+  "variant": "knight-combined-bare-simple-packed-v5",
+  "linkedRulesSha256": "3d3d4956de96fc0ec4392128a8d215f246e251c6074733f9f66e0d146d21f237",
+  "standalone": {
+    "match": 94
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 94
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "match": 10
+    }
+  },
+  "firstDivergence": null,
+  "historicalHoldout": {
+    "file": "exploration/independent-review/knight.json",
+    "sha256": "70babd03ec22b7cd07ecce8590285656ddf967c96d1ab38af790ad447edabe53",
+    "rulesSha256": "3d3d4956de96fc0ec4392128a8d215f246e251c6074733f9f66e0d146d21f237",
+    "cases": 15413,
+    "outcomes": {
+      "match": 15179,
+      "false-allow": 232,
+      "false-refusal/resource-limit": 1,
+      "evaluation-error/resource-limit": 1
+    },
+    "authority": "independent local modeled Firestore writes"
+  }
+}

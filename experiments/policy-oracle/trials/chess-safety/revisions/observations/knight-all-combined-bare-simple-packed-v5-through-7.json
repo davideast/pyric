@@ -1,0 +1,52 @@
+{
+  "archive": "knight-all-combined-bare-simple-packed-v5-through-7.json",
+  "variant": "knight-all-combined-bare-simple-packed-v5",
+  "linkedRulesSha256": "f2ceefa52435cf386e5f3391d19118315137d541686897034173143f688ba73e",
+  "standalone": {
+    "match": 94
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 94
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "match": 10
+    }
+  },
+  "firstDivergence": null,
+  "historicalHoldout": {
+    "file": "exploration/independent-review/ordinal-knight.json",
+    "sha256": "3f5b55a77a28cf86c30917d0adcd176cfbac02b98b33a5dfa102c57099007640",
+    "rulesSha256": "f2ceefa52435cf386e5f3391d19118315137d541686897034173143f688ba73e",
+    "cases": 15413,
+    "outcomes": {
+      "match": 15181,
+      "false-allow": 232
+    },
+    "authority": "independent local modeled Firestore writes"
+  }
+}

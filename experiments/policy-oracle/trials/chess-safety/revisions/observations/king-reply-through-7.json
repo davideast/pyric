@@ -1,0 +1,72 @@
+{
+  "archive": "king-reply-through-7.json",
+  "variant": "king-reply",
+  "linkedRulesSha256": "62d773c065a81450e045ccd2e2659481dbcb62ff45a257c138d26a0dfceac530",
+  "standalone": {
+    "match": 93,
+    "false-refusal": 1
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 88,
+    "false-refusal": 2,
+    "evaluation-error": 2,
+    "false-allow": 2
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "false-refusal": 2,
+      "evaluation-error": 2,
+      "match": 4,
+      "false-allow": 2
+    }
+  },
+  "firstDivergence": {
+    "id": "mate-correct",
+    "expected": "ALLOW",
+    "decision": "DENY",
+    "cost": 1000,
+    "error": "resource-limit",
+    "detail": {
+      "kind": "expressions",
+      "limit": 1000,
+      "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+      "line": 416,
+      "column": 809
+    },
+    "status": "false-refusal"
+  },
+  "historicalPrior": {
+    "scope": "prior modeled move submissions",
+    "inputs": [
+      {
+        "file": "revisions/recovered-inputs/king-reply/previous-primary.json.gz",
+        "sha256": "be2dea930d4608f47d234de705d4dbbb7ca7e928c47635a0cba7c0747024590d",
+        "cases": 94
+      }
+    ]
+  }
+}

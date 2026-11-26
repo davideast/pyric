@@ -21,3 +21,7 @@ To rerun the original local holdout cohorts as well as the primary cases, add `-
 ```sh
 python3 revisions/verify.py --only king-reply-v2-through-7.json --replay-holdouts
 ```
+
+For the **20 recovered programs**, the package scorer ran 1,880 program/input combinations per plane. The complete standalone board policy agreed on all 1,880. The narrower moving-king verdict agreed on 1,873, with seven false refusals from the original mixed-scope mobility predictors. The complete Rules produced 1,859 matching admissions, 16 false allows, three false refusals and two error-caused denials. The latter received no agreement credit. Thirteen previously archived broader reports reproduced across 188,693 local modeled writes. The four mobility-only records reproduced 2,664 further edge or interior terminal-claim submissions across programs. These counts include repeated positions under different Rules digests.
+
+The pattern program’s remaining primary failure was the legal `long-file-edge-capture-black`. The first mobility program also refused `mate-correct` and `black-mate-correct` at the expression ceiling. Several later programs matched all 94 primary cases and still made incorrect terminal decisions on the broader holdout. [Pattern Rules score](../scores/combined-pattern-packed-v5-through-7.json) · [Early mobility score](../scores/king-reply-through-7.json) · [Recovered observations](observations/)

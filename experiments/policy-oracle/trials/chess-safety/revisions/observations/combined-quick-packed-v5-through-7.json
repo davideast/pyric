@@ -1,0 +1,53 @@
+{
+  "archive": "combined-quick-packed-v5-through-7.json",
+  "variant": "combined-quick-packed-v5",
+  "linkedRulesSha256": "fc20db62e7d08d1ca6984a2c3bf2a878c2a3f3af7ff47835674172575a65a349",
+  "standalone": {
+    "match": 94
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 94
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "match": 10
+    }
+  },
+  "firstDivergence": null,
+  "historicalHoldout": {
+    "file": "exploration/independent-review/combined-quick.json",
+    "sha256": "58252af96842a122fab779b6098a2be76c59e634e2925c4fd9f7f5870ce5c87a",
+    "rulesSha256": "fc20db62e7d08d1ca6984a2c3bf2a878c2a3f3af7ff47835674172575a65a349",
+    "cases": 12371,
+    "outcomes": {
+      "match": 12150,
+      "false-allow": 127,
+      "false-refusal/resource-limit": 94
+    },
+    "authority": "independent local modeled Firestore writes"
+  }
+}

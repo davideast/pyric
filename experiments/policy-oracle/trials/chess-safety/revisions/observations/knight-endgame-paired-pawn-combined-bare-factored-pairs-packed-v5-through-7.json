@@ -1,0 +1,45 @@
+{
+  "archive": "knight-endgame-paired-pawn-combined-bare-factored-pairs-packed-v5-through-7.json",
+  "variant": "knight-endgame-paired-pawn-combined-bare-factored-pairs-packed-v5",
+  "linkedRulesSha256": "d356ca292da0285dfc2a34eac4b082e7e077e67df93024213235ae659fd99004",
+  "standalone": {
+    "match": 94
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 94
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "match": 10
+    }
+  },
+  "firstDivergence": null,
+  "historicalPrior": {
+    "scope": "source emission only; no prior game score",
+    "inputs": []
+  }
+}
