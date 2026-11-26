@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b",
+  "file": "../artefacts/packed-v4.rules",
+  "basis": "Versus packed-v3 the sole changed function is boardTransition. It specializes pawn double-path clearance and checks whether a move or capture can affect current castling rights before computing their change. All public match/allow bindings and remaining helpers are unchanged."
+}

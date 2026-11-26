@@ -1,0 +1,10 @@
+{
+  "rulesSha256": "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b",
+  "inputs": [
+    {
+      "batch": "09-corner-rights",
+      "file": "../exploration/rights-v1/controls/positions.json",
+      "sha256": "6faa986f588aa8058f66249595018e21be9304d93d3361a8364393dfc59c7546"
+    }
+  ]
+}
