@@ -1,0 +1,191 @@
+[
+  {
+    "id": "bare-holdout-sparse-king-move-playing",
+    "fen": "6k1/6B1/5K2/8/8/8/4P3/8 w - -",
+    "uci": "f6g6",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-sparse-king-move-draw",
+    "fen": "6k1/6B1/5K2/8/8/8/4P3/8 w - -",
+    "uci": "f6g6",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-sparse-king-move-won",
+    "fen": "6k1/6B1/5K2/8/8/8/4P3/8 w - -",
+    "uci": "f6g6",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bare-holdout-dense-knight-mate-playing",
+    "fen": "2r5/2p2bp1/p1p5/3nq3/p2pp3/5p2/2k5/b3r1nK b - -",
+    "uci": "g1h3",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-dense-knight-mate-draw",
+    "fen": "2r5/2p2bp1/p1p5/3nq3/p2pp3/5p2/2k5/b3r1nK b - -",
+    "uci": "g1h3",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-dense-knight-mate-won",
+    "fen": "2r5/2p2bp1/p1p5/3nq3/p2pp3/5p2/2k5/b3r1nK b - -",
+    "uci": "g1h3",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "bare-holdout-crowded-quiet-stalemate-playing",
+    "fen": "1k6/1P4K1/3P4/BQ1N2P1/5PN1/4P3/1P2P3/R7 w - -",
+    "uci": "b5b6",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-crowded-quiet-stalemate-draw",
+    "fen": "1k6/1P4K1/3P4/BQ1N2P1/5PN1/4P3/1P2P3/R7 w - -",
+    "uci": "b5b6",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-crowded-quiet-stalemate-won",
+    "fen": "1k6/1P4K1/3P4/BQ1N2P1/5PN1/4P3/1P2P3/R7 w - -",
+    "uci": "b5b6",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bare-holdout-capture-last-defender-playing",
+    "fen": "4r3/8/8/4N3/8/8/K7/1n2k3 b - -",
+    "uci": "e8e5",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-capture-last-defender-draw",
+    "fen": "4r3/8/8/4N3/8/8/K7/1n2k3 b - -",
+    "uci": "e8e5",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-capture-last-defender-won",
+    "fen": "4r3/8/8/4N3/8/8/K7/1n2k3 b - -",
+    "uci": "e8e5",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "bare-holdout-knight-underpromotion-playing",
+    "fen": "7k/1P6/8/8/5B2/3R4/8/K7 w - -",
+    "uci": "b7b8n",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-knight-underpromotion-draw",
+    "fen": "7k/1P6/8/8/5B2/3R4/8/K7 w - -",
+    "uci": "b7b8n",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-knight-underpromotion-won",
+    "fen": "7k/1P6/8/8/5B2/3R4/8/K7 w - -",
+    "uci": "b7b8n",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bare-holdout-black-castle-playing",
+    "fen": "r3k3/1n6/8/8/8/8/8/7K b q -",
+    "uci": "e8c8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-black-castle-draw",
+    "fen": "r3k3/1n6/8/8/8/8/8/7K b q -",
+    "uci": "e8c8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-black-castle-won",
+    "fen": "r3k3/1n6/8/8/8/8/8/7K b q -",
+    "uci": "e8c8",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "bare-holdout-nonbare-knight-evasion-playing",
+    "fen": "4n2k/1P2P3/3PBNPP/2P5/1B1R3Q/K2R3P/5P2/3N4 w - -",
+    "uci": "g6g7",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-nonbare-knight-evasion-draw",
+    "fen": "4n2k/1P2P3/3PBNPP/2P5/1B1R3Q/K2R3P/5P2/3N4 w - -",
+    "uci": "g6g7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bare-holdout-nonbare-knight-evasion-won",
+    "fen": "4n2k/1P2P3/3PBNPP/2P5/1B1R3Q/K2R3P/5P2/3N4 w - -",
+    "uci": "g6g7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  }
+]
