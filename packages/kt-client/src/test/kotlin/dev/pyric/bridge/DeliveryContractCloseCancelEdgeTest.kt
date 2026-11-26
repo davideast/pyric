@@ -10,6 +10,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import dev.pyric.database.ChildEventListener
 import dev.pyric.database.DataSnapshot
 import dev.pyric.database.DatabaseError
 import dev.pyric.database.FirebaseDatabase
@@ -390,5 +391,36 @@ class DeliveryContractCloseCancelEdgeTest {
         appCheck.addAppCheckListener(appCheckB)
         Tasks.await(appCheck.getAppCheckToken(true), 10, TimeUnit.SECONDS)
         assertEquals(0, appCheckBCalls.get(), "AppCheckListener removed by sibling callback must not fire")
+    }
+
+    @Test
+    fun `RtdbSnapshotRegistration delivers initial child snapshot arriving before constructor returns`() = runBlocking {
+        awaitState(BridgeConnectionState.ATTACHED)
+
+        val database = FirebaseDatabase(client, app, "https://pr4-edge-default-rtdb.firebaseio.com")
+        val addedKeys = java.util.concurrent.CopyOnWriteArrayList<String?>()
+        val bothAdded = CountDownLatch(2)
+
+        bridge.onFrame = { frame ->
+            if (frame["type"] == "worker-sub") {
+                val payload = mapOf("a" to 1, "b" to 2)
+                deliverSnap(frame["subId"], mapOf("exists" to true, "value" to payload, "exportValue" to payload))
+                // Force deliveryQueue to run onSnapshot before RtdbSnapshotRegistration() returns.
+                assertTrue(bothAdded.await(10, TimeUnit.SECONDS), "expected child Added callbacks during constructor")
+            }
+        }
+
+        val listener = database.getReference("catalog").addChildEventListener(object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
+                addedKeys.add(snapshot.key)
+                bothAdded.countDown()
+            }
+            override fun onChildChanged(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, previousChildName: String?) {}
+            override fun onCancelled(error: DatabaseError) {}
+        })
+        database.getReference("catalog").removeEventListener(listener)
+        assertEquals(listOf("a", "b"), addedKeys.toList())
     }
 }
