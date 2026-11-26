@@ -6,4 +6,4 @@ The live program and prior stronger baseline each completed 190 matched signed p
 
 The public historical replay from a network-isolated clean clone finished at 18:39:48 UTC. It rebuilt 51 programs, used public evidence only, and left its checkout clean. [Public replay record](exploration/independent-review/clean-public-history.json)
 
-The reserved independent clone began at 18:37:30 UTC. It ran the scorer against frozen commit `8318b65b2` and finished at 18:47:22 UTC with exit code zero and a clean checkout. It authenticated the private journals, rechecked both sealed and public evidence, and reproduced the committed scorecard byte for byte. [Per-batch scorecard](SCORECARD.md)
+The reserved independent clone began at 18:37:30 UTC. It ran the scorer against frozen commit `8318b65b2` and finished at 18:47:22 UTC with exit code zero and a clean checkout. It authenticated the private journals, rechecked both sealed and public evidence, and reproduced the committed scorecard byte for byte. [Final independent receipt](exploration/independent-review/clean-selected-final.json) · [Per-batch scorecard](SCORECARD.md)
