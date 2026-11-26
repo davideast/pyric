@@ -2,15 +2,15 @@
  * ID token lifetime on the in-page plane (#1836): a minted token lasts one
  * hour, as production's does (auth#68c: `exp - iat` is 3600), and a cached
  * token past its refresh point is minted again on read. The refresh point is
- * `exp * 1000 - 30000` on the sandbox clock, `TOKEN_REFRESH_BUFFER_MS` in
- * `@firebase/auth` 1.13.6 (`StsTokenManager.isExpired`).
+ * `exp * 1000 - TOKEN_REFRESH_BUFFER_MS` on the sandbox clock (pinned to
+ * `30_000` ms to match `auth-getidtoken-expiry-buffer-refresh.json`).
  *
  * The worker plane's twin is `packages/cli/test/serve/worker/auth-token-lifetime.test.ts`.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { checkIdToken, getClock } from 'pyric/sandbox/internal';
+import { checkIdToken, getClock, TOKEN_REFRESH_BUFFER_MS } from 'pyric/sandbox/internal';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
 import {
   getAuth,
@@ -23,7 +23,7 @@ import {
 import type { Sandbox } from '../../src/sandbox/index.js';
 
 const HOUR_MS = 60 * 60 * 1000;
-const REFRESH_BUFFER_MS = 30_000;
+const REFRESH_BUFFER_MS = TOKEN_REFRESH_BUFFER_MS;
 
 /** A rule that holds only while the session's token is unexpired at request time. */
 const FIRESTORE_RULES = `rules_version = '2';
@@ -66,7 +66,7 @@ describe('ID tokens last one hour', () => {
 });
 
 describe('getIdToken() past the refresh point returns a fresh token', () => {
-  it('keeps the cached token up to exp - 30 s and mints a new one after it', async () => {
+  it('keeps the cached token up to exp - TOKEN_REFRESH_BUFFER_MS and mints a new one after it', async () => {
     const { sandbox, user } = await signedIn();
     const first = await user.getIdToken();
     const { exp } = await decodedClaims(first);

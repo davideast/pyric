@@ -54,8 +54,16 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
   const listRecords = async (): Promise<AuthUserRecord[]> =>
     (await channel.op({ method: 'auth.listUsers' })) as AuthUserRecord[];
 
-  const sandboxNow = async (): Promise<number> =>
-    ((await channel.op({ method: 'sandbox.clock' })) as { now: number }).now;
+  const sandboxNow = async (): Promise<number> => {
+    const reply = (await channel.op({ method: 'sandbox.clock' })) as { now?: unknown } | null | undefined;
+    if (typeof reply?.now !== 'number' || !Number.isFinite(reply.now)) {
+      throw new FirebaseAuthError(
+        'internal-error',
+        'Remote sandbox returned an invalid clock response for sandbox.clock.',
+      );
+    }
+    return reply.now;
+  };
 
   const relayedStanding = async (uid: string): Promise<AuthAccountStanding> =>
     (await channel.op({ method: 'auth.adminGetAccountStanding', uid })) as AuthAccountStanding;
