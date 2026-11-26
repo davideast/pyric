@@ -25,6 +25,11 @@
       "batch": "07-terminal",
       "file": "../batches/07-terminal/v1/positions.json",
       "sha256": "84b4fbffbddb1de2c7b1d4e0a27e12d1befcaa7c67e0fb8ea38c3ef61e75eadc"
+    },
+    {
+      "batch": "08-minimized",
+      "file": "../exploration/v1/controls/positions.json",
+      "sha256": "3f6996c341fb6550fffe7b2b09bb854dfa6b9a88080f6de1ce2982ca0475b9a0"
     }
   ]
 }

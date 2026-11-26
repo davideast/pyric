@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "fe6ae708a8efb6ab4225108e13783a36067425206b98778b5d176abe100cc33c",
+  "file": "../artefacts/optimized.rules",
+  "basis": "Compared with the measured rank/diagonal checkpoint, identical match/allow clauses and unrelated functions. The 64 pure square predicates expand attack geometry; the dispatcher and safeTransition bind it including castling. Changed existing validators cache old/next in chessMove and calculate castling flags and piece shape in boardTransition and pieceShape. No additional document path or allow clause."
+}

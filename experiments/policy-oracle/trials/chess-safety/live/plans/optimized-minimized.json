@@ -1,0 +1,10 @@
+{
+  "rulesSha256": "fe6ae708a8efb6ab4225108e13783a36067425206b98778b5d176abe100cc33c",
+  "inputs": [
+    {
+      "batch": "08-minimized",
+      "file": "../exploration/v1/controls/positions.json",
+      "sha256": "3f6996c341fb6550fffe7b2b09bb854dfa6b9a88080f6de1ce2982ca0475b9a0"
+    }
+  ]
+}
