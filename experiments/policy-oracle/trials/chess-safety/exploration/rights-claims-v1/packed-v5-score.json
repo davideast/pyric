@@ -1,0 +1,66 @@
+{
+  "rulesSha256": "8d567417e1f6d67de3562b4f55fc7ce1a6591709d2f37239d87206d029ee64e5",
+  "corpusSha256": "69ea989bf775b9d6419a4cd86a5f5c7ae6b29d641c7e23fa10c9afb44919cd51",
+  "moves": 128,
+  "writes": 2048,
+  "scoreSha256": "c3175d7694032f2634d07e82bff38409f9d4aa63a057eaaddff712a7369ed097",
+  "groups": {
+    "corner-to-corner-drop-0": {
+      "cases": 256,
+      "outcomes": {
+        "match": 256
+      },
+      "peakExpressions": 940
+    },
+    "king-step-drop-0": {
+      "cases": 128,
+      "outcomes": {
+        "match": 128
+      },
+      "peakExpressions": 806
+    },
+    "corner-to-corner-drop-1": {
+      "cases": 512,
+      "outcomes": {
+        "match": 512
+      },
+      "peakExpressions": 940
+    },
+    "king-step-drop-1": {
+      "cases": 256,
+      "outcomes": {
+        "match": 256
+      },
+      "peakExpressions": 806
+    },
+    "castle-drop-1": {
+      "cases": 256,
+      "outcomes": {
+        "match": 256
+      },
+      "peakExpressions": 912
+    },
+    "king-step-drop-2": {
+      "cases": 128,
+      "outcomes": {
+        "match": 128
+      },
+      "peakExpressions": 806
+    },
+    "castle-drop-2": {
+      "cases": 256,
+      "outcomes": {
+        "match": 256
+      },
+      "peakExpressions": 912
+    },
+    "corner-to-corner-drop-2": {
+      "cases": 256,
+      "outcomes": {
+        "match": 256
+      },
+      "peakExpressions": 940
+    }
+  },
+  "first": {}
+}
