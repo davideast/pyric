@@ -1,0 +1,42 @@
+[
+  {
+    "id": "king-escapes-check",
+    "fen": "4r2k/8/8/2b5/8/8/8/4K3 w - -",
+    "uci": "e1f1"
+  },
+  {
+    "id": "king-escape-into-attack",
+    "fen": "4r2k/8/8/1b6/8/8/8/4K3 w - -",
+    "uci": "e1f1"
+  },
+  {
+    "id": "capture-single-checker",
+    "fen": "k3r3/8/8/1B6/b7/8/8/4K3 w - -",
+    "uci": "b5e8"
+  },
+  {
+    "id": "capture-one-of-two-checkers",
+    "fen": "k3r3/8/8/1B6/1b6/8/8/4K3 w - -",
+    "uci": "b5e8"
+  },
+  {
+    "id": "interpose-on-file",
+    "fen": "4r1k1/8/8/8/b7/2B5/8/4K3 w - -",
+    "uci": "c3e5"
+  },
+  {
+    "id": "interpose-exposes-diagonal",
+    "fen": "4r1k1/8/8/8/1b6/2B5/8/4K3 w - -",
+    "uci": "c3e5"
+  },
+  {
+    "id": "double-check-king-escape",
+    "fen": "k3r3/8/8/1B6/1b6/8/8/4K3 w - -",
+    "uci": "e1f1"
+  },
+  {
+    "id": "double-check-king-still-attacked",
+    "fen": "k3r3/8/8/1B6/1b6/8/8/4K3 w - -",
+    "uci": "e1d2"
+  }
+]
