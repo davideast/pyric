@@ -18,9 +18,9 @@ import { scenario, sleep, type App, type DevServer, type ScriptResult } from '..
 
 const PROJECT = 'my-web';
 const CONFIG = `${PROJECT}/vite.config.ts`;
-const WAIT_SECONDS = 5;
-/** Well before the wait expires: a refusal decided by one probe, with room for a busy machine. */
-const REFUSAL_LIMIT_MS = 3000;
+const WAIT_SECONDS = 15;
+/** Well before the wait expires: a refusal decided by one probe, with room for a cold Vite transform on a busy runner. */
+const REFUSAL_LIMIT_MS = 8000;
 /** How long the added plugin holds a restart open, so a command starts inside it every time. */
 const RESTART_HOLD_MS = 3000;
 /** A plugin whose configureServer runs after pyric's, holding a restart open. */

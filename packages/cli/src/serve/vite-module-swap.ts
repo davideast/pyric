@@ -184,24 +184,32 @@ export function createViteModuleSwap(
   let routesServerImports = false;
   let serverExternal: string[] = SSR_EXTERNAL;
   let root = process.cwd();
-  let cachedSdkAliasRoot: string | null = null;
+  let cachedInstalledRoot: string | null = null;
+  let cachedInstalledNames: string[] = [];
   let cachedSdkAliases: string[] = [];
   const stops = new Map<string, StopEntry>();
   const stopIds = new Map<string, string>();
   const allowedUrls = new Set<string>();
   const observed = new Set<ServedFirebaseSpecifier>();
 
-  function sdkAliasNames(): readonly string[] {
-    const resolvedDir = path.resolve(root);
-    if (cachedSdkAliasRoot === resolvedDir) return cachedSdkAliases;
-    cachedSdkAliasRoot = resolvedDir;
-    cachedSdkAliases = installedFirebaseSdkNames({ projectDir: resolvedDir }).filter(
+  function installedNamesAt(dir: string): readonly string[] {
+    const resolvedDir = path.resolve(dir);
+    if (cachedInstalledRoot === resolvedDir) return cachedInstalledNames;
+    cachedInstalledRoot = resolvedDir;
+    cachedInstalledNames = installedFirebaseSdkNames({ projectDir: resolvedDir });
+    cachedSdkAliases = cachedInstalledNames.filter(
       (name) => name !== 'firebase' && name !== 'firebase-admin' && !name.startsWith('@firebase/'),
     );
+    return cachedInstalledNames;
+  }
+
+  function sdkAliasNames(): readonly string[] {
+    installedNamesAt(root);
     return cachedSdkAliases;
   }
 
   function isInstalledSdkAlias(bare: string): boolean {
+    if (bare.startsWith('/') || bare.startsWith('.') || bare.startsWith('\0')) return false;
     for (const aliasName of sdkAliasNames()) {
       if (bare === aliasName || bare.startsWith(`${aliasName}/`)) {
         return true;
@@ -496,8 +504,7 @@ export function createViteModuleSwap(
     const hasLiveRows = options?.supplied !== undefined;
     const externalizesEveryDependency = userConfig?.ssr?.external === true;
     if (hasLiveRows || externalizesEveryDependency) return [];
-    const projectDir = path.resolve(userConfig?.root ?? process.cwd());
-    return installedFirebaseSdkNames({ projectDir });
+    return [...installedNamesAt(userConfig?.root ?? process.cwd())];
   }
 
   return {

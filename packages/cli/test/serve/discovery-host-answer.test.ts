@@ -170,6 +170,33 @@ describe('servesViteClient', () => {
     expect(await servesViteClient(url)).toBe(true);
   });
 
+  it('waits past the 1s health-probe deadline for a cold /@vite/env transform', async () => {
+    const url = await serve((req, res) => {
+      if (req.url === '/@vite/env') {
+        setTimeout(() => {
+          res.writeHead(200, { 'content-type': 'text/javascript' }).end('export const env = {};');
+        }, 1_200);
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+    expect(await servesViteClient(url)).toBe(true);
+  });
+
+  it('is false when /@vite/env exceeds its deadline', async () => {
+    const url = await serve((req, res) => {
+      if (req.url === '/@vite/env') {
+        const timer = setTimeout(() => {
+          res.writeHead(200, { 'content-type': 'text/javascript' }).end('export {}');
+        }, 500);
+        req.on('close', () => clearTimeout(timer));
+      } else {
+        res.writeHead(404).end();
+      }
+    });
+    expect(await servesViteClient(url, 80)).toBe(false);
+  });
+
   it('is false for any other server', async () => {
     const url = await serve(answersHealth(404, ''));
     expect(await servesViteClient(url)).toBe(false);

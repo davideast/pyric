@@ -63,6 +63,13 @@ export function basesForPort(port: number, pointerUrl?: string): string[] {
 const HEALTH_PROBE_DEADLINE_MS = 1000;
 
 /**
+ * How long `/@vite/env` may take once a server has already answered `/__pyric/health`.
+ * Unlike the in-memory health route, Vite transforms `/@vite/env` through its plugin
+ * pipeline on first request while background dependency scanning may contend for CPU/disk.
+ */
+const VITE_CLIENT_PROBE_DEADLINE_MS = 5000;
+
+/**
  * What `/__pyric/health` at one base answered. A sandbox host answers 200 with
  * its health reply (`mode: 'sandbox'`), or 503 while its mount is closing
  * (`bridge-mount.ts`). Any other answer comes from a server that is not a
@@ -315,7 +322,10 @@ export async function probeHostUrl(url: string): Promise<AnsweringHost | null> {
 }
 
 /** Whether `base` serves Vite's client environment module, which every Vite dev server serves. */
-export async function servesViteClient(base: string): Promise<boolean> {
-  const response = await boundedRequest(`${base}/@vite/env`, { deadlineMs: HEALTH_PROBE_DEADLINE_MS });
+export async function servesViteClient(
+  base: string,
+  deadlineMs = VITE_CLIENT_PROBE_DEADLINE_MS,
+): Promise<boolean> {
+  const response = await boundedRequest(`${base}/@vite/env`, { deadlineMs });
   return response !== null && response.status === 200;
 }

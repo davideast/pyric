@@ -501,4 +501,26 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
     // Direct application import of @firebase/app remains stopped
     expect(await prodAiSwap.resolvePluginId(prodContext, '@firebase/app', userImporter)).toStartWith(STOP_PREFIX);
   });
+
+  it('skips node_modules alias scanning on root-relative, relative, and virtual specifiers', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'pyric-vite-alias-skip-'));
+    scratch.push(root);
+    const localSwap = createViteModuleSwap(context);
+    localSwap.configResolved({ root } as never);
+
+    expect(localSwap.resolveId('/@vite/env', undefined)).toBeNull();
+    expect(localSwap.resolveId('/src/main.ts', undefined)).toBeNull();
+    expect(localSwap.resolveId('./helper.ts', path.join(root, 'src', 'main.ts'))).toBeNull();
+    expect(localSwap.resolveId('\0virtual:mod', undefined)).toBeNull();
+
+    const aliasDir = path.join(root, 'node_modules', 'admin-alias');
+    mkdirSync(aliasDir, { recursive: true });
+    writeFileSync(
+      path.join(aliasDir, 'package.json'),
+      JSON.stringify({ name: 'firebase-admin', main: 'index.js' }),
+    );
+    writeFileSync(path.join(aliasDir, 'index.js'), 'export {};\n');
+
+    expect(localSwap.resolveId('admin-alias', path.join(root, 'src', 'main.ts'))).toStartWith(STOP_PREFIX);
+  });
 });
