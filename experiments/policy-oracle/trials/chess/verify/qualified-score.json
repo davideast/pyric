@@ -1,0 +1,197 @@
+{
+  "board": {
+    "includeDivides": true,
+    "results": [
+      {
+        "inputDigest": "7eef423dbdfa5ed04b89104ddbe636226a94cf4b51ac054fd3784ad0cca1bd98",
+        "counts": {
+          "namedPositions": 21,
+          "traces": 37,
+          "tracesReplayedFromInitial": 37,
+          "positions": 1611,
+          "successorChecks": 1883,
+          "dividedRoots": 416,
+          "deepestLeafNodes": 369801,
+          "falseAccepts": 0,
+          "falseRefusals": 0,
+          "duplicateMoves": 0,
+          "successorMismatches": 0,
+          "outcomeMismatches": 0,
+          "divideMismatches": 0,
+          "mutatedInputs": 0
+        },
+        "firstDivergence": null
+      },
+      {
+        "inputDigest": "34808f9b4e2269920c7458a3da62e720167492d56e3cb609c27530b0df26ebff",
+        "counts": {
+          "namedPositions": 5,
+          "traces": 32,
+          "tracesReplayedFromInitial": 32,
+          "positions": 1573,
+          "successorChecks": 1590,
+          "dividedRoots": 0,
+          "deepestLeafNodes": 0,
+          "falseAccepts": 0,
+          "falseRefusals": 0,
+          "duplicateMoves": 0,
+          "successorMismatches": 0,
+          "outcomeMismatches": 0,
+          "divideMismatches": 0,
+          "mutatedInputs": 0
+        },
+        "firstDivergence": null
+      }
+    ]
+  },
+  "metadata": {
+    "engine": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+    "metadataPolicy": "e55d5da74410f0424062d9ce92d00b4c3304e8e30c2d7ed84017850ce5067ed9",
+    "results": [
+      {
+        "inputDigest": "7eef423dbdfa5ed04b89104ddbe636226a94cf4b51ac054fd3784ad0cca1bd98",
+        "staticCases": 330,
+        "traceCases": 1553,
+        "metadataChecks": 1883,
+        "admissionChecks": 7532
+      },
+      {
+        "inputDigest": "34808f9b4e2269920c7458a3da62e720167492d56e3cb609c27530b0df26ebff",
+        "staticCases": 54,
+        "traceCases": 1536,
+        "metadataChecks": 1590,
+        "admissionChecks": 6360
+      }
+    ]
+  },
+  "hosted": [
+    {
+      "profile": "compatibility",
+      "cohort": "supplement",
+      "receipt": "d296ba1a2749ee739762c0d819e77d53b206e666dd15b9aaf13533b82d4f82ee",
+      "deployedRules": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+      "candidateRules": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+      "rows": 15,
+      "reads": 31,
+      "unchangedRefusals": 11,
+      "sdkWrites": 15,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "compatibility",
+      "receipt": "f622d09ee0d7c02c82fb9bf92cd812047c8d4ec05a5867bf9e7381ccd1b1bf84",
+      "deployedRules": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+      "candidateRules": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+      "rows": 24,
+      "reads": 61,
+      "unchangedRefusals": 7,
+      "sdkWrites": 24,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "referee",
+      "cohort": "boundary",
+      "receipt": "b99084510b5ef584ba4b9b376c6d22c45589801abe023c4b3f864edc9a6b0e79",
+      "deployedRules": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+      "candidateRules": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+      "rows": 10,
+      "reads": 25,
+      "unchangedRefusals": 8,
+      "sdkWrites": 3,
+      "gatewayRequests": 7,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "referee",
+      "receipt": "4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d",
+      "deployedRules": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+      "candidateRules": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+      "rows": 23,
+      "reads": 47,
+      "unchangedRefusals": 19,
+      "refereeReplay": {
+        "records": 11,
+        "failures": []
+      },
+      "sdkWrites": 23,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "stock",
+      "cohort": "supplement",
+      "receipt": "4f10ae006c3459886d41cdaef3834745eccf66b3f1fb6357ebeccfc82baf81de",
+      "deployedRules": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+      "candidateRules": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+      "rows": 15,
+      "reads": 31,
+      "unchangedRefusals": 11,
+      "sdkWrites": 15,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "stock",
+      "receipt": "e82a5ba4416e235ae047694e6e1e43a3e3b28c29c49d88846a3c1147ffef9b51",
+      "deployedRules": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+      "candidateRules": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+      "rows": 24,
+      "reads": 61,
+      "unchangedRefusals": 7,
+      "sdkWrites": 24,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "stronger",
+      "cohort": "supplement",
+      "receipt": "db1e93ff14cfa944f4f0b8258c03f6140e8ae8e4469a1fd709377d83215c0ae6",
+      "deployedRules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "candidateRules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "rows": 19,
+      "reads": 39,
+      "unchangedRefusals": 15,
+      "sdkWrites": 19,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    },
+    {
+      "profile": "stronger",
+      "receipt": "3fe3492097dcb24b8d280b6a1587342e0b2c983d0a69427c95410698438974ad",
+      "deployedRules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "candidateRules": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "rows": 30,
+      "reads": 73,
+      "unchangedRefusals": 13,
+      "sdkWrites": 30,
+      "gatewayRequests": 0,
+      "falseAllows": 0,
+      "falseDenials": 0,
+      "unresolved": 0,
+      "mismatches": []
+    }
+  ]
+}

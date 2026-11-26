@@ -28,3 +28,5 @@ The ordinary-piece and protocol supplements have separate release keys. They com
 The integrated replay also scores the original gameplay referee's 11 recorded decisions and full match documents against the candidate policy. Seven records came from browser moves. The other four cover two illegal moves and the two writers that read the same version. The race replay uses the witnessed winning write and both recorded preconditions. Suppressing the legal opening move `f2f3` in an otherwise unchanged candidate fails that browser record. The one-command result includes `unchangedRefusals` for the main, supplemental and boundary case rows, separate from this gameplay replay.
 
 [Both completed browser games in PGN](matches.pgn) can be reproduced by running `python3 export-games.py` with the arguments described by `--help` and the pinned python-chess installation from the independent reference suite.
+
+[Qualified candidate replay](qualified-score.json) contains the actual combined result on the public and sealed positions plus eight production releases. The stock discovery capture and the first browser diagnostic remain separate.

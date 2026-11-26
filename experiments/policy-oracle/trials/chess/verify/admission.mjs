@@ -36,7 +36,9 @@ export function replayReferee(receipt,engine,metadata) {
       }
     }
     if(rec.verdict!==requirement || !isDeepStrictEqual(rec.after,after)){
-      failures.push({id:rec.id,uci:rec.uci,expected:rec.verdict,actual:requirement,storedMatch:isDeepStrictEqual(rec.after,after)});
+      failures.push({id:rec.id,uci:rec.uci,expected:rec.verdict==='committed'?'ALLOW':'DENY',
+        actual:requirement==='committed'?'ALLOW':'DENY',hostedRequirement:rec.verdict,
+        candidateRequirement:requirement,storedMatch:isDeepStrictEqual(rec.after,after)});
     }
   }
   return {records:records.length,failures};

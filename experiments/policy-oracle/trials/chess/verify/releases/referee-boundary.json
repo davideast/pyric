@@ -1,0 +1,43 @@
+{
+  "id": "referee-boundary",
+  "receipt": "b99084510b5ef584ba4b9b376c6d22c45589801abe023c4b3f864edc9a6b0e79",
+  "bundle": "../bundle/artifacts/referee.rules",
+  "report": {
+    "mode": "referee",
+    "runId": "b98842de-1456-42eb-9dff-bbd37b8c0c96",
+    "receipt": "b99084510b5ef584ba4b9b376c6d22c45589801abe023c4b3f864edc9a6b0e79",
+    "rulesSha256": "0f9aaf7b5c43f7fa4997150903b66495dbe47f3c1a979f6b6555af561f90213e",
+    "activeRuleset": "projects/digame-mas/rulesets/fb6a93f9-7bd6-41f3-b634-8e3bb1fbaeaa",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "51d67475110c4d7cd3409aaf9b1800e626f4b2a93cd0e1015076e8c4f60f5097",
+    "signedReadersExplicit": true,
+    "exactProtocolIntents": 10,
+    "decisions": {
+      "boundary-signed-out": "DENY",
+      "boundary-wrong-seat": "DENY",
+      "boundary-stale-ply": "DENY",
+      "boundary-castle-through-check": "DENY",
+      "boundary-castle-clear": "ALLOW",
+      "boundary-ep-exposes-king": "DENY",
+      "boundary-ep-clear": "ALLOW",
+      "boundary-occupied-seat-join": "DENY",
+      "boundary-wrong-resign-winner": "DENY",
+      "boundary-unfinished-parent-rematch": "DENY"
+    },
+    "special": {},
+    "sensitivity": null,
+    "cohort": "boundary",
+    "engineSha256": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+    "matchPolicySha256": "e55d5da74410f0424062d9ce92d00b4c3304e8e30c2d7ed84017850ce5067ed9",
+    "requirements": {
+      "boundary-signed-out": "identity",
+      "boundary-wrong-seat": "currentTurn",
+      "boundary-stale-ply": "matchVersion",
+      "boundary-castle-through-check": "legalMove",
+      "boundary-castle-clear": "committed",
+      "boundary-ep-exposes-king": "legalMove",
+      "boundary-ep-clear": "committed"
+    }
+  },
+  "engine": "../policies/chess.mjs"
+}
