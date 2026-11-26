@@ -15,7 +15,7 @@ export default {
   args: z.object({
     uid,
     customClaims: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .describe('The complete claims map. An empty object clears it.'),
   }),
   operation: 'set_auth_claims',

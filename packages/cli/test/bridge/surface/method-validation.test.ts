@@ -142,7 +142,7 @@ describe('validateArguments', () => {
             }),
           )
           .optional(),
-        labels: z.record(z.string()).optional(),
+        labels: z.record(z.string(), z.string()).optional(),
       }),
     });
 

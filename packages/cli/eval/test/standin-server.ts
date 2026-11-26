@@ -71,7 +71,7 @@ const server = new McpServer({ name: 'pyric-standin', version: '1' });
 (server.tool as unknown as Function)(
   'write_firestore_document',
   'Write a document at a path.',
-  { path: z.string(), data: z.record(z.unknown()) },
+  { path: z.string(), data: z.record(z.string(), z.unknown()) },
   async (args: { path: string; data: Record<string, unknown> }) => {
     const startedAt = Date.now();
     await setDoc(doc(db, args.path), args.data);

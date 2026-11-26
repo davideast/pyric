@@ -28,7 +28,7 @@ const storageRecordShape = z.object({
   bucket: z.string().min(1).optional(),
   path: z.string().min(1),
   contentBase64: z.string(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   contentType: z.string().optional(),
   cacheControl: z.string().optional(),
   contentDisposition: z.string().optional(),

@@ -60,11 +60,11 @@ export default {
         'Users to seed into the auth pool. Admin SDK field names: customClaims, tenantId.',
       ),
     firestore: z
-      .record(z.record(z.unknown()))
+      .record(z.string(), z.record(z.string(), z.unknown()))
       .optional()
       .describe('Document path to document data.'),
     firestoreDatabases: z
-      .record(z.record(z.unknown()))
+      .record(z.string(), z.record(z.string(), z.unknown()))
       .optional()
       .describe('Named Firestore database id to document path/data map.'),
     firestoreDeclared: z
@@ -73,7 +73,7 @@ export default {
       .describe('Named Firestore database ids to declare (even when empty).'),
     database: z
       .union([
-        z.record(z.unknown()),
+        z.record(z.string(), z.unknown()),
         z.array(z.unknown()),
         z.string(),
         z.number().finite(),
@@ -83,7 +83,7 @@ export default {
       .describe('Realtime Database tree written at the root.'),
     storage: z.array(storageObjectSeed).optional().describe('Storage objects to seed.'),
     firestoreRules: z
-      .union([z.string(), z.record(z.string())])
+      .union([z.string(), z.record(z.string(), z.string())])
       .optional()
       .describe(
         'Firestore rules source for (default), or database id to rules source map, installed before seeding data.',

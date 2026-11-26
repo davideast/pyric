@@ -25,7 +25,7 @@ export default {
     'Add a document to a collection under a generated id (accepts JSON sentinels).',
   args: z.object({
     path: z.string().describe('Collection path, for example users.'),
-    data: z.record(z.unknown()).describe('The document fields to write.'),
+    data: z.record(z.string(), z.unknown()).describe('The document fields to write.'),
     database: databaseArgument,
   }),
   operation: 'add_firestore_document',

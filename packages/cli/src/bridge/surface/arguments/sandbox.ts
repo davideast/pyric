@@ -54,7 +54,7 @@ export const candidateRules = z
     z.string(),
     z.object({
       firestore: z.string().optional(),
-      database: z.record(z.unknown()).optional(),
+      database: z.record(z.string(), z.unknown()).optional(),
       storage: z.string().optional(),
     }),
   ])

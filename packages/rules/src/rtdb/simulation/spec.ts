@@ -83,7 +83,7 @@ export function simulationQueryProblem(query: unknown): string | null {
 }
 
 const SimulationMockDataSchema = z.union([
-  z.record(z.unknown()),
+  z.record(z.string(), z.unknown()),
   z.array(z.unknown()),
   z.string(),
   z.number().finite(),
@@ -99,7 +99,7 @@ export const SimulationInputSchema = z.object({
       .object({
         uid: z.string(),
         tenant: z.string().optional(),
-        token: z.record(z.unknown()).optional(),
+        token: z.record(z.string(), z.unknown()).optional(),
       })
       .passthrough(),
     z.null(),
@@ -161,7 +161,7 @@ export const RtdbRuleEvaluationSchema = z.object({
    *  evaluate on `UNSUPPORTED`. */
   message: z.string().optional(),
   /** The `$` wildcards bound at this node, keyed with the `$`. */
-  pathVariableBindings: z.record(z.string()),
+  pathVariableBindings: z.record(z.string(), z.string()),
   /** The database instance whose tree the rule read as `root` and `data`.
    *  Set when the case named an instance or the ruleset holds rules per
    *  instance. */
@@ -178,7 +178,7 @@ export const SimulationResultSchema = z.object({
   matchedPath: z.string(),
   matchedRule: z.string(),
   reason: z.string(),
-  pathVariableBindings: z.record(z.string()),
+  pathVariableBindings: z.record(z.string(), z.string()),
   /** Every rule evaluated for the request, in evaluation order. Empty when no
    *  rule of the requested kind exists on the path. */
   trace: z.array(RtdbRuleEvaluationSchema),

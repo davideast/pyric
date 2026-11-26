@@ -75,7 +75,7 @@ export const writeEntry = z
   .object({
     type: z.enum(['set', 'update', 'delete']).describe('The write this entry performs.'),
     path: z.string().describe('Document path the write targets.'),
-    data: z.record(z.unknown()).optional().describe('Fields for set and update.'),
+    data: z.record(z.string(), z.unknown()).optional().describe('Fields for set and update.'),
     options: setOptions,
   })
   .describe('One batched write.');

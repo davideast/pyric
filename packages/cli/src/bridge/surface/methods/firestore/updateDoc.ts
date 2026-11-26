@@ -25,7 +25,7 @@ export default {
     'Merge fields into an existing document (accepts $deleteField and JSON sentinels).',
   args: z.object({
     path: z.string().describe('Document path, for example users/alice.'),
-    data: z.record(z.unknown()).describe('The fields to merge.'),
+    data: z.record(z.string(), z.unknown()).describe('The fields to merge.'),
     database: databaseArgument,
   }),
   operation: 'update_firestore_document',

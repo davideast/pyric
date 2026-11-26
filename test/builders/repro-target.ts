@@ -32,7 +32,7 @@ const keptRunSchema = z.object({
   harness: z.object({
     run: z.string().min(1),
     round: z.string().min(1),
-    provenance: z.object({ commit: z.string(), tarballs: z.record(z.string()) }).passthrough(),
+    provenance: z.object({ commit: z.string(), tarballs: z.record(z.string(), z.string()) }).passthrough(),
     automaticProblems: z.array(z.discriminatedUnion('kind', [refusalAllowed, googleHost])),
   }).passthrough(),
 }).passthrough();

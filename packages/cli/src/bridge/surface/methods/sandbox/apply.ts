@@ -58,7 +58,7 @@ export default {
   args: z.object({
     branch: branchName,
     events: z
-      .array(z.record(z.unknown()))
+      .array(z.record(z.string(), z.unknown()))
       .optional()
       .describe('Sandbox events in the recorded session format, applied in order.'),
     sessionPath: z

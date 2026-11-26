@@ -5,13 +5,13 @@ import { isConsumedAppCheckSnapshot } from '../internal/app-check-token.js';
 import { hasCrashlyticsSnapshotData, isCrashlyticsSnapshot } from '../../crashlytics/persistence.js';
 import { isMessagingSnapshot } from '../../messaging/broker/persistence.js';
 
-const authState = z.object({ users: z.array(seedUserSchema), providers: z.record(z.boolean()) });
+const authState = z.object({ users: z.array(seedUserSchema), providers: z.record(z.string(), z.boolean()) });
 const databaseState = z.object({
   '.pyricRtdbPersistence': z.literal(1),
   data: z.unknown().refine(value => value !== undefined, 'Required'),
-  priorities: z.record(z.union([z.string(), z.number().finite()])),
-  rules: z.object({ rules: z.record(z.unknown()) }).optional(),
-  instances: z.record(z.unknown()).optional(),
+  priorities: z.record(z.string(), z.union([z.string(), z.number().finite()])),
+  rules: z.object({ rules: z.record(z.string(), z.unknown()) }).optional(),
+  instances: z.record(z.string(), z.unknown()).optional(),
 });
 
 export class UnsupportedPersistedServiceError extends Error {}

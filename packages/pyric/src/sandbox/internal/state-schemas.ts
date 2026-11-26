@@ -11,7 +11,7 @@ const userFields = {
   email: z.string().optional(),
   password: z.string().optional(),
   displayName: z.string().optional(),
-  customClaims: z.record(z.unknown()).optional(),
+  customClaims: z.record(z.string(), z.unknown()).optional(),
   photoUrl: z.string().optional(),
   phoneNumber: z.string().optional(),
   emailVerified: z.boolean().optional(),
