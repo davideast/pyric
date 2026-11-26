@@ -78,7 +78,7 @@ export const settableMetadata = z
   .object({
     contentType: z.string().optional().describe('MIME type stored with the object.'),
     customMetadata: z
-      .record(z.string())
+      .record(z.string(), z.string())
       .optional()
       .describe('Custom string metadata, replaced wholesale when supplied.'),
     cacheControl: z.string().optional().describe('Cache-Control header served with the object.'),

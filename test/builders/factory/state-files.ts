@@ -57,7 +57,7 @@ export const captureRecordSchema = z.object({
 
 export type CaptureRecord = z.infer<typeof captureRecordSchema>;
 
-export const knownFailuresSchema = z.record(z.record(z.number().int().positive()));
+export const knownFailuresSchema = z.record(z.string(), z.record(z.string(), z.number().int().positive()));
 
 export const baselineStateSchema = z.object({
   startCommit: z.string(),

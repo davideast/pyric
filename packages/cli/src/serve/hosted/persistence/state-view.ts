@@ -239,8 +239,8 @@ export function createHostedStateView(projectDir: string, directory: string, dat
         !Array.isArray(snapshot.services.auth)
           ? (snapshot.services.auth as Record<string, unknown>)
           : {};
-      const incomingProviders = z.record(z.boolean()).safeParse(incomingExtras.providers);
-      const previousProviders = z.record(z.boolean()).safeParse(existingAuth.providers);
+      const incomingProviders = z.record(z.string(), z.boolean()).safeParse(incomingExtras.providers);
+      const previousProviders = z.record(z.string(), z.boolean()).safeParse(existingAuth.providers);
       let providers: Record<string, boolean> = {};
       if (incomingProviders.success) {
         providers = incomingProviders.data;

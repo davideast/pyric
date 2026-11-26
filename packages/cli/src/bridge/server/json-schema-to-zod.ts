@@ -94,7 +94,7 @@ function jsonSchemaToZod(schema: JsonSchemaObject): ZodTypeAny {
       if (!schema.properties || Object.keys(schema.properties).length === 0) {
         // Open object — pyric tools commonly use `additionalProperties: true`
         // here to mean "free-form payload" (e.g. `data` for a Firestore doc).
-        return z.record(z.any());
+        return z.record(z.string(), z.any());
       }
       const inner = jsonSchemaToZodShape(schema);
       return z.object(inner).passthrough();

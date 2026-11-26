@@ -37,7 +37,7 @@ export const messageArgument = z
       .optional()
       .describe('The display notification, when this message carries one.'),
     data: z
-      .record(z.string())
+      .record(z.string(), z.string())
       .optional()
       .describe('Data-only payload, delivered to the handler as a flat string map.'),
   })

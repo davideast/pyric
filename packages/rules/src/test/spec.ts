@@ -41,7 +41,7 @@ export type FirestoreMethod = (typeof FIRESTORE_METHODS)[number];
 export const TestIdentitySchema = z.object({
   uid: z.string(),
   tenant: z.string().optional(),
-  token: z.record(z.unknown()).optional(),
+  token: z.record(z.string(), z.unknown()).optional(),
 });
 export type TestIdentity = z.infer<typeof TestIdentitySchema>;
 
@@ -50,7 +50,7 @@ export type TestIdentity = z.infer<typeof TestIdentitySchema>;
 export const FunctionMockSchema = z.object({
   function: z.enum(['get', 'exists']).describe('Firestore function to mock'),
   path: z.string().describe('Document path, e.g. "users/alice"'),
-  result: z.union([z.record(z.unknown()), z.boolean()]).describe('Document data for get, boolean for exists'),
+  result: z.union([z.record(z.string(), z.unknown()), z.boolean()]).describe('Document data for get, boolean for exists'),
 });
 
 export type FunctionMock = z.infer<typeof FunctionMockSchema>;
@@ -144,7 +144,7 @@ export const ListQuerySchema = z.object({
   where: z.array(ListQueryWhereConstraintSchema).optional(),
   limit: z.number().optional(),
   offset: z.number().optional(),
-  orderBy: z.union([z.record(ListQueryOrderDirectionSchema), z.string()]).optional(),
+  orderBy: z.union([z.record(z.string(), ListQueryOrderDirectionSchema), z.string()]).optional(),
 });
 
 export type ListQuery = z.infer<typeof ListQuerySchema>;
@@ -170,8 +170,8 @@ export const TestCaseSchema = z.object({
   method: z.enum(FIRESTORE_METHODS).describe('Firestore method to test'),
   path: z.string().describe('Document path, e.g. "users/alice"'),
   auth: z.union([TestIdentitySchema, z.null()]).optional().describe('Auth context; null or omitted for unauthenticated'),
-  data: z.record(z.unknown()).optional().describe('request.resource.data for write operations'),
-  resource: z.record(z.unknown()).optional().describe('Existing document data (resource.data)'),
+  data: z.record(z.string(), z.unknown()).optional().describe('request.resource.data for write operations'),
+  resource: z.record(z.string(), z.unknown()).optional().describe('Existing document data (resource.data)'),
   functionMocks: z.array(FunctionMockSchema).optional().describe('Mock get()/exists() calls in rules'),
   /**
    * Optional `request.query` payload for `list` operations only. Populating
@@ -815,7 +815,7 @@ export interface StorageResourceShape {
 export const StorageFunctionMockSchema = z.object({
   function: z.enum(['get', 'exists']).describe('Cross-service Firestore function to mock'),
   path: z.string().describe('Firestore document path in collection/doc form, e.g. "users/alice"'),
-  result: z.union([z.record(z.unknown()), z.boolean()]).describe('Document fields for get, boolean for exists'),
+  result: z.union([z.record(z.string(), z.unknown()), z.boolean()]).describe('Document fields for get, boolean for exists'),
 });
 export type StorageFunctionMock = z.infer<typeof StorageFunctionMockSchema>;
 

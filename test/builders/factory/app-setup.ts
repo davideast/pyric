@@ -65,7 +65,7 @@ const recordSchema = z.object({
   /** What setup changed in Studio's code to run on the pinned Pyric. */
   adaptations: z.array(z.string()),
   /** Each tool in `tools/` by its sha256. */
-  tools: z.record(z.string().regex(/^[0-9a-f]{64}$/)),
+  tools: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
 }).strict();
 
 export type AppRecord = z.infer<typeof recordSchema>;

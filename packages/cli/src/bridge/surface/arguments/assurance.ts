@@ -91,7 +91,7 @@ export const firebaseOperation = z
       .describe('The request method, from the set the named service evaluates.'),
     path: z.string().min(1).describe('The document, node, or object path.'),
     data: z.unknown().optional().describe('The value written, for a write.'),
-    query: z.record(z.unknown()).optional().describe('The query, for a list.'),
+    query: z.record(z.string(), z.unknown()).optional().describe('The query, for a list.'),
     dataBase64: z.string().optional().describe('The object body, for a storage upload.'),
     contentType: z.string().optional().describe('The object content type, for a storage upload.'),
     cacheControl: z
@@ -111,7 +111,7 @@ export const firebaseOperation = z
       .optional()
       .describe('The object content-language header, for a storage write.'),
     customMetadata: z
-      .record(z.string())
+      .record(z.string(), z.string())
       .optional()
       .describe('The object custom metadata, for a storage upload.'),
   })
@@ -127,7 +127,7 @@ export const actorAcquisition = z
       .string()
       .optional()
       .describe('The user id, for a fixture-user or synthetic acquisition.'),
-    token: z.record(z.unknown()).optional().describe('The token claims, for a synthetic actor.'),
+    token: z.record(z.string(), z.unknown()).optional().describe('The token claims, for a synthetic actor.'),
   })
   .describe('How this identity is acquired.');
 
@@ -185,7 +185,7 @@ export const securityInvariant = z.object({
 });
 
 /** One authored record a run-loop method carries through to the campaign. */
-export const authoredRecord = z.record(z.unknown());
+export const authoredRecord = z.record(z.string(), z.unknown());
 
 /** The candidate rules a replay or a case run evaluates in place of the recorded ones. */
 export const candidateRules = z

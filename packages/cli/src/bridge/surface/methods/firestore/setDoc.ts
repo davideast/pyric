@@ -27,7 +27,7 @@ export default {
     'Write one document, replacing unless options.merge is true or options.mergeFields lists fields to merge. Values accept $serverTimestamp/$increment/$arrayUnion/$arrayRemove sentinels.',
   args: z.object({
     path: z.string().describe('Document path, for example users/alice.'),
-    data: z.record(z.unknown()).describe('The document fields to write.'),
+    data: z.record(z.string(), z.unknown()).describe('The document fields to write.'),
     options: setOptions,
     database: databaseArgument,
   }),

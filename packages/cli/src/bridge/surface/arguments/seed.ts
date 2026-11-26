@@ -34,7 +34,7 @@ export const userSeed = z.object({
     .string()
     .optional()
     .describe('Password the identity can sign in with.'),
-  customClaims: z.record(z.unknown()).optional().describe('Custom claims on the record.'),
+  customClaims: z.record(z.string(), z.unknown()).optional().describe('Custom claims on the record.'),
   tenantId: z.string().optional().describe('Identity Platform tenant the record belongs to.'),
 });
 
@@ -47,7 +47,7 @@ export const storageObjectSeed = z.object({
   contentDisposition: z.string().optional(),
   contentEncoding: z.string().optional(),
   contentLanguage: z.string().optional(),
-  customMetadata: z.record(z.string()).optional(),
+  customMetadata: z.record(z.string(), z.string()).optional(),
 });
 
 /**

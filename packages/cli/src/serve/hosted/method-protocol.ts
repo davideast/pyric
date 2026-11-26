@@ -9,7 +9,7 @@ export const hostedMethodRequest = z.object({
   instanceId: z.string(),
   projectDir: z.string(),
   key: z.string(),
-  args: z.record(z.unknown()),
+  args: z.record(z.string(), z.unknown()),
   allowProduction: z.boolean().default(false),
 }).strict();
 

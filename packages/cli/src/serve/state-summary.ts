@@ -6,10 +6,10 @@ const servicesSchema = z.object({
   auth: z.object({ users: z.array(z.unknown()) }).optional(),
 });
 const controllerSchema = z.object({
-  firestore: z.record(z.unknown()).optional(),
+  firestore: z.record(z.string(), z.unknown()).optional(),
   services: servicesSchema.optional(),
-  records: z.record(z.object({
-    docs: z.record(z.unknown()).optional(),
+  records: z.record(z.string(), z.object({
+    docs: z.record(z.string(), z.unknown()).optional(),
     services: servicesSchema.optional(),
   })).optional(),
 });

@@ -51,10 +51,10 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 const metadataShape = z.object({
   version: z.literal(CHUNK_FORMAT_VERSION),
-  services: z.record(z.unknown()),
+  services: z.record(z.string(), z.unknown()),
   firestoreDeclared: z.unknown().optional(),
 });
-const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
+const bucketShape = z.object({ docs: z.record(z.string(), z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
 const emptyMeta = { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} };
 
 function contains(parent: string, child: string): boolean {

@@ -18,7 +18,7 @@ export default {
   args: z.object({
     path: pathArgument,
     values: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .describe('Child keys to merge into the path. Other children are left alone.'),
     instance: instanceArgument,
   }),

@@ -8,13 +8,13 @@ export const SeedAuthUserSchema = z.object({
   email: z.string().optional(),
   password: z.string().optional(),
   displayName: z.string().optional(),
-  customClaims: z.record(z.unknown()).optional(),
+  customClaims: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const SeedProposalV1Schema = z.object({
   version: z.literal(1),
   summary: z.string().optional(),
-  firestore: z.record(z.union([z.record(z.unknown()), z.array(z.unknown())])),
+  firestore: z.record(z.string(), z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])),
   auth: z.array(SeedAuthUserSchema).optional(),
 });
 

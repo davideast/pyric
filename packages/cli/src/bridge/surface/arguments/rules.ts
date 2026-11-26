@@ -110,7 +110,7 @@ export const uid = z
  * writes.
  */
 export const data = z
-  .union([z.record(z.unknown()), z.array(z.unknown()), z.string(), z.number(), z.boolean(), z.null()])
+  .union([z.record(z.string(), z.unknown()), z.array(z.unknown()), z.string(), z.number(), z.boolean(), z.null()])
   .describe(
     'The value being written. Firestore takes an object. Database takes any JSON value, such as 5 or true. For a database update, an object keyed by the paths written, relative to path.',
   );
@@ -141,7 +141,7 @@ const firestoreWhereClause = z
 
 const firestoreOrderBy = z.union([
   z.string(),
-  z.record(z.enum(['ASC', 'DESC'])),
+  z.record(z.string(), z.enum(['ASC', 'DESC'])),
 ]);
 
 /**

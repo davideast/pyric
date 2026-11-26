@@ -34,7 +34,7 @@ export default {
       .describe('The service whose rules are tested. The hosted API tests firestore only.'),
     rules: z.string().min(1).describe('The rules source the hosted API evaluates.'),
     cases: z
-      .array(z.record(z.unknown()))
+      .array(z.record(z.string(), z.unknown()))
       .min(1)
       .describe(
         'Rules Test API cases, as verifyCases and pyric verify cases derive them from a capture.',

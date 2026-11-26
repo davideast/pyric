@@ -29,7 +29,7 @@ import { recorderEnvironment } from './scratch.ts';
 export const phaseSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()),
-  env: z.record(z.string()),
+  env: z.record(z.string(), z.string()),
   wallClockMs: z.number().int().positive(),
   /** Whether the command gets the model channel. Only a model builder does. */
   modelChannel: z.boolean(),

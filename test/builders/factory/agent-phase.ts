@@ -43,7 +43,7 @@ export const agentPhaseSchema = z.object({
   /** The session's HOME and the directories the agent keeps under it. */
   homeDirs: z.array(z.string().min(1)),
   cwd: z.string().min(1),
-  invocation: z.object({ command: z.string().min(1), args: z.array(z.string()), env: z.record(z.string()) }).strict(),
+  invocation: z.object({ command: z.string().min(1), args: z.array(z.string()), env: z.record(z.string(), z.string()) }).strict(),
 }).strict();
 
 export type AgentPhase = z.infer<typeof agentPhaseSchema>;

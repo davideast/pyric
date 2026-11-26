@@ -24,7 +24,7 @@ const storageFields = {
     .optional(),
   path: z.string().min(1).refine(path => normalizePath(path) === path, 'Expected a canonical object path'),
   contentType: z.string().optional(),
-  customMetadata: z.record(z.string()),
+  customMetadata: z.record(z.string(), z.string()),
   metadata: storedMetadataSchema.omit({ fullPath: true, contentType: true, customMetadata: true }).optional(),
   blobType: z.string().optional(),
 } satisfies Record<keyof StorageObjectState, z.ZodType<unknown>>;
@@ -47,7 +47,7 @@ const storageObjectSchema = z.union([
 const singleDatabaseEnvelopeSchema = z.object({
   '.pyricRtdbPersistence': z.literal(1),
   data: z.unknown().refine(value => value !== undefined, 'Required'),
-  priorities: z.record(z.union([z.string(), z.number().finite()])),
+  priorities: z.record(z.string(), z.union([z.string(), z.number().finite()])),
 });
 
 function hasSupportedSingleDatabaseEnvelope(value: unknown): boolean {
@@ -59,7 +59,7 @@ function hasSupportedSingleDatabaseEnvelope(value: unknown): boolean {
 
 const databaseEnvelopeSchema = singleDatabaseEnvelopeSchema.extend({
   instances: z
-    .record(z.unknown().refine(hasSupportedSingleDatabaseEnvelope, 'Invalid RTDB persistence envelope'))
+    .record(z.string(), z.unknown().refine(hasSupportedSingleDatabaseEnvelope, 'Invalid RTDB persistence envelope'))
     .optional(),
 });
 
@@ -75,25 +75,25 @@ function hasSupportedDatabaseEnvelope(value: unknown): boolean {
 }
 
 const stateFields = {
-  firestore: z.record(z.record(z.unknown())),
+  firestore: z.record(z.string(), z.record(z.string(), z.unknown())),
   firestoreEncoding: z.literal(DOC_VALUE_ENCODING).optional(),
   database: z.unknown().refine(hasSupportedDatabaseEnvelope, 'Invalid RTDB persistence envelope'),
   storage: z.array(storageObjectSchema),
   auth: z.object({
     users: z.array(seedUserSchema),
-    providers: z.record(z.boolean()),
+    providers: z.record(z.string(), z.boolean()),
     // Absent in states written before revocations were captured (#2021).
     history: z.object({
-      tokensValidAfterMs: z.record(z.number().finite()),
+      tokensValidAfterMs: z.record(z.string(), z.number().finite()),
       deletedUids: z.array(z.string()),
     }).optional(),
   }),
   rules: z.object({
     firestore: z.string(),
-    database: z.object({ rules: z.record(z.unknown()) }).nullable(),
-    databaseInstances: z.record(z.object({ rules: z.record(z.unknown()) }).nullable()).optional(),
+    database: z.object({ rules: z.record(z.string(), z.unknown()) }).nullable(),
+    databaseInstances: z.record(z.string(), z.object({ rules: z.record(z.string(), z.unknown()) }).nullable()).optional(),
     storage: z.string().nullable(),
-    storageBuckets: z.record(z.string()).optional(),
+    storageBuckets: z.record(z.string(), z.string()).optional(),
     storageUndeployedPolicy: z.enum(['allow', 'deny']).optional(),
     storageCrossServiceIam: z.enum(['granted', 'denied']).optional(),
   }),

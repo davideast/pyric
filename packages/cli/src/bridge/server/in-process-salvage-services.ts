@@ -32,7 +32,7 @@ const cliRulesStateShape = z
     storage: z
       .object({
         default: persistedRulesEntryShape.optional(),
-        buckets: z.record(persistedRulesEntryShape).optional(),
+        buckets: z.record(z.string(), persistedRulesEntryShape).optional(),
       })
       .strict()
       .optional(),
@@ -50,7 +50,7 @@ const cliUidIdentityShape = z
     mode: z.literal('uid'),
     uid: z.string().min(1),
     tenant: z.string().min(1).optional(),
-    claims: z.record(z.unknown()).optional(),
+    claims: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -73,7 +73,7 @@ const cliScriptMatchShape = z
 
 const cliScriptResponseShape = z.union([
   z.object({ type: z.literal('text'), payload: z.string() }).strict(),
-  z.object({ type: z.literal('json'), payload: z.record(z.unknown()) }).strict(),
+  z.object({ type: z.literal('json'), payload: z.record(z.string(), z.unknown()) }).strict(),
   z
     .object({
       type: z.literal('error'),

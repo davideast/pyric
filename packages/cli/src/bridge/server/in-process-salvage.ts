@@ -55,12 +55,12 @@ const V3_BUNDLE_FORMAT = 'pyric-v3-records';
 
 const metadataShape = z.object({
   version: z.literal(CHUNK_FORMAT_VERSION),
-  services: z.record(z.unknown()),
+  services: z.record(z.string(), z.unknown()),
   firestoreDeclared: z.unknown().optional(),
 });
 
 const bucketShape = z.object({
-  docs: z.record(z.unknown()),
+  docs: z.record(z.string(), z.unknown()),
   encoding: z.string().optional(),
   checksum: z.number().optional(),
 });

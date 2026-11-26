@@ -30,7 +30,7 @@ export const RENAMES: Readonly<Record<string, string>> = {
 export const uid = z.string().describe('The user id.');
 
 export const customClaims = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .optional()
   .describe('Custom claims. Rules read them as request.auth.token.<name>.');
 
@@ -60,7 +60,7 @@ export const signInCredential = z
 
 /** The claims a minted custom token carries, as the Admin SDK names them. */
 export const developerClaims = z
-  .record(z.unknown())
+  .record(z.string(), z.unknown())
   .optional()
   .describe('Claims to sign into the token. Rules read them as request.auth.token.<name>.');
 

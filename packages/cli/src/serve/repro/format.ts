@@ -109,23 +109,23 @@ const reproSchema = z.object({
   base: z.object({
     at: z.number(),
     checkpoint: z.object({ format: z.string(), state: z.unknown() }).passthrough(),
-    databaseInstances: z.record(z.unknown()),
+    databaseInstances: z.record(z.string(), z.unknown()),
     rules: z.object({
       firestore: z.string().nullable(),
-      database: z.record(z.object({ rules: z.record(z.unknown()) }).nullable()),
+      database: z.record(z.string(), z.object({ rules: z.record(z.string(), z.unknown()) }).nullable()),
       storage: z.string().nullable(),
     }),
     defaultInstance: z.string(),
     permissive: z.boolean(),
-    appOptions: z.record(z.unknown()).nullable(),
+    appOptions: z.record(z.string(), z.unknown()).nullable(),
     messaging: z.boolean().optional(),
-    sessions: z.record(z.object({
+    sessions: z.record(z.string(), z.object({
       uid: z.string(),
       tenantId: z.string().nullable(),
       signInProvider: z.string().nullable().optional(),
-      customClaims: z.record(z.unknown()).optional(),
+      customClaims: z.record(z.string(), z.unknown()).optional(),
     })),
-    subscriptions: z.record(z.array(z.object({ t: z.literal('sub') }).passthrough())),
+    subscriptions: z.record(z.string(), z.array(z.object({ t: z.literal('sub') }).passthrough())),
   }),
   entries: z.array(entrySchema),
 });
