@@ -11,8 +11,8 @@
     "storage#51"
   ],
   "description": "firebase-admin File.setMetadata/getMetadata custom metadata, including null removal, and getDownloadURL(file): minting a token for a file without one, its URL form once firebaseStorageDownloadTokens is set, the unauthenticated GET and Range GET it serves, the downloadTokens field the Firebase metadata endpoint reports, and revocation by removing the token.",
-  "observedAt": "2026-09-24T03:58:41.676Z",
-  "adminSdkVersion": "13.10.0",
+  "observedAt": "2026-11-25T16:47:00.387Z",
+  "adminSdkVersion": "14.5.1",
   "behavior": {
     "afterSave": {
       "customMetadata": null,
