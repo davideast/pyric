@@ -1,0 +1,65 @@
+[
+  {
+    "id": "interior-v1-b-mate",
+    "cohort": "interior-v1",
+    "group": "b/mate",
+    "sourceId": "interior-013",
+    "sourceSha256": "43e83d93ec5195624d48ccd2eaa540668d040273a65152318d6b26f92d8687be"
+  },
+  {
+    "id": "interior-v1-w-stalemate",
+    "cohort": "interior-v1",
+    "group": "w/stalemate",
+    "sourceId": "interior-139",
+    "sourceSha256": "43e83d93ec5195624d48ccd2eaa540668d040273a65152318d6b26f92d8687be"
+  },
+  {
+    "id": "interior-v1-b-king-checked",
+    "cohort": "interior-v1",
+    "group": "b/king-checked",
+    "sourceId": "interior-015",
+    "sourceSha256": "43e83d93ec5195624d48ccd2eaa540668d040273a65152318d6b26f92d8687be"
+  },
+  {
+    "id": "interior-v1-w-nonking-checked",
+    "cohort": "interior-v1",
+    "group": "w/nonking-checked",
+    "sourceId": "interior-109",
+    "sourceSha256": "43e83d93ec5195624d48ccd2eaa540668d040273a65152318d6b26f92d8687be"
+  },
+  {
+    "id": "replies-v1-stalemate-pinned-defender",
+    "cohort": "replies-v1",
+    "group": "stalemate-pinned-defender",
+    "sourceId": "stalemate-pinned-defender-0-true",
+    "sourceSha256": "d775e6fa05f27c6afcf3b71baa6b163ba782bb81cb6a1a660d9edbfacfcf4671"
+  },
+  {
+    "id": "replies-v1-only-n-move-in-check",
+    "cohort": "replies-v1",
+    "group": "only-n-move-in-check",
+    "sourceId": "only-n-move-in-check-0-true",
+    "sourceSha256": "d775e6fa05f27c6afcf3b71baa6b163ba782bb81cb6a1a660d9edbfacfcf4671"
+  },
+  {
+    "id": "replies-v1-only-b-move-in-check",
+    "cohort": "replies-v1",
+    "group": "only-b-move-in-check",
+    "sourceId": "only-b-move-in-check-0-true",
+    "sourceSha256": "d775e6fa05f27c6afcf3b71baa6b163ba782bb81cb6a1a660d9edbfacfcf4671"
+  },
+  {
+    "id": "replies-v1-only-p-capture-unchecked",
+    "cohort": "replies-v1",
+    "group": "only-p-capture-unchecked",
+    "sourceId": "only-p-capture-unchecked-0-true",
+    "sourceSha256": "d775e6fa05f27c6afcf3b71baa6b163ba782bb81cb6a1a660d9edbfacfcf4671"
+  },
+  {
+    "id": "replies-v1-only-r-capture-in-check",
+    "cohort": "replies-v1",
+    "group": "only-r-capture-in-check",
+    "sourceId": "only-r-capture-in-check-0-true",
+    "sourceSha256": "d775e6fa05f27c6afcf3b71baa6b163ba782bb81cb6a1a660d9edbfacfcf4671"
+  }
+]

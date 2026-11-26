@@ -1,0 +1,272 @@
+[
+  {
+    "id": "holdout-interior-v1-b-mate-playing",
+    "fen": "4Q3/8/5K2/8/6k1/8/7Q/2rr1Q2 w - -",
+    "uci": "f1g2",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-b-mate-draw",
+    "fen": "4Q3/8/5K2/8/6k1/8/7Q/2rr1Q2 w - -",
+    "uci": "f1g2",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-b-mate-won",
+    "fen": "4Q3/8/5K2/8/6k1/8/7Q/2rr1Q2 w - -",
+    "uci": "f1g2",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-interior-v1-w-stalemate-playing",
+    "fen": "4r3/3r4/6k1/7b/5K2/8/8/8 b - -",
+    "uci": "d7d3",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-w-stalemate-draw",
+    "fen": "4r3/3r4/6k1/7b/5K2/8/8/8 b - -",
+    "uci": "d7d3",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-w-stalemate-won",
+    "fen": "4r3/3r4/6k1/7b/5K2/8/8/8 b - -",
+    "uci": "d7d3",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "holdout-interior-v1-b-king-checked-playing",
+    "fen": "Q7/1B6/7B/8/1R6/8/2k1K3/8 w - -",
+    "uci": "a8a2",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-b-king-checked-draw",
+    "fen": "Q7/1B6/7B/8/1R6/8/2k1K3/8 w - -",
+    "uci": "a8a2",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-b-king-checked-won",
+    "fen": "Q7/1B6/7B/8/1R6/8/2k1K3/8 w - -",
+    "uci": "a8a2",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-interior-v1-w-nonking-checked-playing",
+    "fen": "2kB4/8/1K6/8/8/8/r1qN2r1/5q2 b - -",
+    "uci": "g2g6",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-w-nonking-checked-draw",
+    "fen": "2kB4/8/1K6/8/8/8/r1qN2r1/5q2 b - -",
+    "uci": "g2g6",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-interior-v1-w-nonking-checked-won",
+    "fen": "2kB4/8/1K6/8/8/8/r1qN2r1/5q2 b - -",
+    "uci": "g2g6",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "holdout-replies-v1-stalemate-pinned-defender-playing",
+    "fen": "kn6/8/1K1Q4/8/8/8/1R6/8 w - -",
+    "uci": "d6d8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-stalemate-pinned-defender-draw",
+    "fen": "kn6/8/1K1Q4/8/8/8/1R6/8 w - -",
+    "uci": "d6d8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-stalemate-pinned-defender-won",
+    "fen": "kn6/8/1K1Q4/8/8/8/1R6/8 w - -",
+    "uci": "d6d8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-n-move-in-check-playing",
+    "fen": "k7/n7/1K6/8/8/8/8/5Q2 w - -",
+    "uci": "f1f8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-n-move-in-check-draw",
+    "fen": "k7/n7/1K6/8/8/8/8/5Q2 w - -",
+    "uci": "f1f8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-n-move-in-check-won",
+    "fen": "k7/n7/1K6/8/8/8/8/5Q2 w - -",
+    "uci": "f1f8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-b-move-in-check-playing",
+    "fen": "k7/1b6/1K4p1/1Q6/8/8/8/8 w - -",
+    "uci": "b5e8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-b-move-in-check-draw",
+    "fen": "k7/1b6/1K4p1/1Q6/8/8/8/8 w - -",
+    "uci": "b5e8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-b-move-in-check-won",
+    "fen": "k7/1b6/1K4p1/1Q6/8/8/8/8 w - -",
+    "uci": "b5e8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-p-capture-unchecked-playing",
+    "fen": "7k/8/7K/8/1Q1p4/6R1/8/8 w - -",
+    "uci": "b4c3",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-p-capture-unchecked-draw",
+    "fen": "7k/8/7K/8/1Q1p4/6R1/8/8 w - -",
+    "uci": "b4c3",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-p-capture-unchecked-won",
+    "fen": "7k/8/7K/8/1Q1p4/6R1/8/8 w - -",
+    "uci": "b4c3",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-r-capture-in-check-playing",
+    "fen": "1k6/5Q2/1K6/8/6r1/8/5p2/8 w - -",
+    "uci": "f7g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-r-capture-in-check-draw",
+    "fen": "1k6/5Q2/1K6/8/6r1/8/5p2/8 w - -",
+    "uci": "f7g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-replies-v1-only-r-capture-in-check-won",
+    "fen": "1k6/5Q2/1K6/8/6r1/8/5p2/8 w - -",
+    "uci": "f7g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "holdout-black-queen-corner-playing",
+    "fen": "8/8/8/8/8/1k6/3q4/K7 b - -",
+    "uci": "d2b2",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-black-queen-corner-draw",
+    "fen": "8/8/8/8/8/1k6/3q4/K7 b - -",
+    "uci": "d2b2",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "holdout-black-queen-corner-won",
+    "fen": "8/8/8/8/8/1k6/3q4/K7 b - -",
+    "uci": "d2b2",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  }
+]
