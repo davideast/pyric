@@ -1,0 +1,14 @@
+{
+  "archiveSha256": "c2a0ee05ec81ce32998cb58281363a3a96cdee07b950fb697df204283d6e6d71",
+  "source": "python-chess 1.11.2",
+  "traces": 37,
+  "uniquePositions": 1538,
+  "legalSuccessors": 47087,
+  "recordedMoves": 1553,
+  "endings": {
+    "playing": 35,
+    "checkmate": 1,
+    "stalemate": 1
+  },
+  "successorDigest": "de6ea33e52d1b047791aa58e94b7896fecb66de5698e142fafe722a0471ae6ef"
+}

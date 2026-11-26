@@ -1,0 +1,44 @@
+[
+  {
+    "control": "always-allow",
+    "kingSafety": "false-allow",
+    "firstKingCase": "rook-exposed",
+    "linkedWrites": "false-allow",
+    "firstWrite": "rook-exposed"
+  },
+  {
+    "control": "always-deny",
+    "kingSafety": "false-refusal",
+    "firstKingCase": "rook-safe",
+    "linkedWrites": "false-refusal",
+    "firstWrite": "rook-safe"
+  },
+  {
+    "control": "standalone-throws",
+    "kingSafety": "standalone-error",
+    "firstKingCase": "rook-safe",
+    "linkedWrites": "false-allow",
+    "firstWrite": "rook-exposed"
+  },
+  {
+    "control": "cannot-compile",
+    "kingSafety": "false-allow",
+    "firstKingCase": "rook-exposed",
+    "linkedWrites": "cannot-compile",
+    "firstWrite": "rook-safe"
+  },
+  {
+    "control": "malformed-rules",
+    "kingSafety": "false-allow",
+    "firstKingCase": "rook-exposed",
+    "linkedWrites": "link-error",
+    "firstWrite": "rook-safe"
+  },
+  {
+    "control": "wrong-package",
+    "kingSafety": "install-error",
+    "firstKingCase": "rook-safe",
+    "linkedWrites": "install-error",
+    "firstWrite": "rook-safe"
+  }
+]
