@@ -14,11 +14,16 @@ import {
 } from './guard-policy.js';
 import { hostingRewrites } from '../functions/http/rewrites.js';
 import {
+  attachFunctionsRequestGuard,
+  createFunctionsGuardPolicy,
+  mergeAllowedHostEntries,
+  parseGuardRequestUrl,
+} from '../functions/http/request-guard.js';
+import {
   getHeader,
   isAllowedHost,
   isAllowedOriginOnPorts,
   isForeignFetchSite,
-  isSameOrigin,
   requestSocketScheme,
 } from './server.js';
 import type {
@@ -116,15 +121,20 @@ export function attachViteGenerationFunctions(input: {
   const host =
     (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
   const registerUrl = registerModuleUrl();
-  const mergedAllowedHosts: string[] = [];
+  let viteAllowedHostEntries: readonly string[] | undefined;
   if (Array.isArray(server.config.server.allowedHosts)) {
-    for (const entry of server.config.server.allowedHosts) {
-      if (!mergedAllowedHosts.includes(entry)) mergedAllowedHosts.push(entry);
-    }
+    viteAllowedHostEntries = server.config.server.allowedHosts;
   }
-  for (const entry of input.allowedHosts ?? []) {
-    if (!mergedAllowedHosts.includes(entry)) mergedAllowedHosts.push(entry);
-  }
+  const mergedAllowedHosts = mergeAllowedHostEntries(
+    mergeAllowedHostEntries(viteAllowedHostEntries, input.allowedHosts),
+    input.remoteAccess?.allowedHosts,
+  );
+  const functionsGuardPolicy = createFunctionsGuardPolicy({
+    boundHost: host,
+    allowedHosts: mergedAllowedHosts,
+    remoteAccess: input.remoteAccess,
+    sessionToken: bridge.sessionToken,
+  });
   const attachmentOptions: ViteFunctionsDevelopmentOptions = {
     cwd: projectDir,
     project: resolved.project,
@@ -140,26 +150,32 @@ export function attachViteGenerationFunctions(input: {
     trustProxy,
     isAllowedRequest: (req) => {
       const serverOptions = server.config.server;
-      if (serverOptions.allowedHosts === true) return true;
-      const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
-      return isAllowedHost(req.headers.host, boundHost, mergedAllowedHosts);
+      let boundHost = 'localhost';
+      if (typeof serverOptions.host === 'string' && serverOptions.host.length > 0) {
+        boundHost = serverOptions.host;
+      }
+      if (!isAllowedHost(req.headers.host, boundHost, mergedAllowedHosts)) {
+        return false;
+      }
+      attachFunctionsRequestGuard(req, {
+        policy: functionsGuardPolicy,
+        url: parseGuardRequestUrl(req),
+      });
+      return true;
     },
     // The page Vite serves names Vite's own port and scheme, the socket the request came in on.
     allowsAppOrigin: (req) => {
       const serverOptions = server.config.server;
       const origin = getHeader(req, 'origin');
-      const fallbackScheme = serverOptions.https ? 'https:' : 'http:';
+      let fallbackScheme: 'http:' | 'https:' = 'http:';
+      if (serverOptions.https) fallbackScheme = 'https:';
       let expectedScheme = effectiveRequestScheme(req, trustProxy);
       if (expectedScheme === undefined) expectedScheme = requestSocketScheme(req);
       if (expectedScheme === undefined) expectedScheme = fallbackScheme;
-      const allowsAnyHost = serverOptions.allowedHosts === true;
-      if (allowsAnyHost) {
-        return (
-          isSameOrigin(origin, getHeader(req, 'host'), host, expectedScheme) &&
-          !isForeignFetchSite(req, host, undefined, expectedScheme)
-        );
+      let ports: number[] = [];
+      if (req.socket.localPort !== undefined) {
+        ports = [req.socket.localPort];
       }
-      const ports = req.socket.localPort === undefined ? [] : [req.socket.localPort];
       return (
         isAllowedOriginOnPorts(origin, host, mergedAllowedHosts, ports, expectedScheme) &&
         !isForeignFetchSite(req, host, ports, expectedScheme, mergedAllowedHosts)

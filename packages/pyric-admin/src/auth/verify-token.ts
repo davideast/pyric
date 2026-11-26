@@ -153,6 +153,16 @@ export function assertIdTokenArgument(idToken: unknown): void {
  */
 export function verifySandboxIdToken(idToken: string, expected: IdTokenExpectation): Promise<DecodedIdToken> {
   assertIdTokenArgument(idToken);
+  if (typeof expected.projectId !== 'string' || expected.projectId.length === 0) {
+    return Promise.reject(
+      new FirebaseAuthError('internal-error', 'verifySandboxIdToken expected a non-empty projectId.'),
+    );
+  }
+  if (typeof expected.nowMs !== 'number' || !Number.isFinite(expected.nowMs)) {
+    return Promise.reject(
+      new FirebaseAuthError('internal-error', 'verifySandboxIdToken expected a finite epoch timestamp in milliseconds.'),
+    );
+  }
   const nowSec = Math.floor(expected.nowMs / 1000);
   return checkClientIdToken(idToken, expected.projectId, nowSec, sandboxLabel()).then((verdict) => {
     if (verdict.ok) return verdict.token;

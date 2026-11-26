@@ -32,6 +32,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { avatarSeed } from 'pyric/auth/internal';
 import { getHeader } from '../server.js';
+import {
+  UNTRUSTED_CONTENT_TYPE_OPTIONS,
+  untrustedContentHeaders,
+} from '../untrusted-content-headers.js';
 import { AVATAR_ROUTE_PREFIX } from './avatar-url.js';
 import type { AssetOrigin, AssetRequest, AssetResolver } from './resolver.js';
 
@@ -117,12 +121,18 @@ export async function handleAvatar(
 ): Promise<void> {
   const uid = avatarUidFromPath(url.pathname);
   if (uid === null) {
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
+    res.writeHead(404, {
+      'content-type': 'text/plain; charset=utf-8',
+      'x-content-type-options': UNTRUSTED_CONTENT_TYPE_OPTIONS,
+    }).end('not found');
     return;
   }
   if (req.method !== 'GET') {
-    res.writeHead(405, { allow: 'GET', 'content-type': 'text/plain; charset=utf-8' })
-      .end('method not allowed');
+    res.writeHead(405, {
+      allow: 'GET',
+      'content-type': 'text/plain; charset=utf-8',
+      'x-content-type-options': UNTRUSTED_CONTENT_TYPE_OPTIONS,
+    }).end('method not allowed');
     return;
   }
   const assetRequest: AssetRequest = {
@@ -142,17 +152,23 @@ export async function handleAvatar(
   let asset;
   try {
     asset = await resolver.resolve(assetRequest);
-  } catch {
-    // Unreachable by design — the resolver contains its own failures and
+  } catch (error: unknown) {
+    // Unreachable by design -- the resolver contains its own failures and
     // degrades to the fallback. Fail safe rather than crash the dev server.
-    res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }).end('avatar resolution failed');
+    void error;
+    res.writeHead(500, {
+      'content-type': 'text/plain; charset=utf-8',
+      'x-content-type-options': UNTRUSTED_CONTENT_TYPE_OPTIONS,
+    }).end('avatar resolution failed');
     return;
   }
 
+  const safetyHeaders = untrustedContentHeaders(asset.contentType);
   res.writeHead(200, {
     'content-type': asset.contentType,
     'content-length': String(asset.data.byteLength),
     'cache-control': cacheControlFor(asset.origin),
+    ...safetyHeaders,
     // Lets a client tell a placeholder apart from the final image without
     // reading bytes: `interim` means a slow source is still generating and a
     // later request will upgrade; every other value is already final for

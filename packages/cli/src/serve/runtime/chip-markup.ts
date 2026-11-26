@@ -22,6 +22,7 @@ export function iconHtml(name: string): string {
     minimize: '<path d="M5 12h14"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/>',
     eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+    'eye-off': '<path d="M10.7 5.1A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.4 4.3M6.6 6.6A18.2 18.2 0 0 0 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M2 2l20 20"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
     password: '<rect x="4" y="9" width="16" height="12" rx="2"/><path d="M8 9V6a4 4 0 0 1 8 0v3M12 14v3"/>',
@@ -104,9 +105,50 @@ export function buttonRowHtml(cells: RowCells & { label: string; pressed?: boole
   return `<button class="${classes}" type="button" aria-label="${escapeAttribute(cells.label)}"${cells.pressed === undefined ? '' : ` aria-pressed="${cells.pressed}"`}${cells.expanded === undefined ? '' : ` aria-expanded="${cells.expanded}"`}${title} ${cells.attributes ?? ''}>${body}</button>`;
 }
 
+export function introHtml(
+  title: string,
+  hint: string,
+  detail = '',
+  headingTag: 'span' | 'h1' = 'span',
+): string {
+  return `<div class="intro-rail"><div class="intro"><${headingTag} class="section-title">${escapeAttribute(title)}</${headingTag}><span class="hint">${escapeAttribute(hint)}</span>${detail}</div></div>`;
+}
+
+/** A compact status badge with a divided icon cell and right-aligned label. */
+export function verdictHtml(options: {
+  label: string;
+  icon: string;
+  tone?: string;
+  title?: string;
+  attributes?: string;
+}): string {
+  let classes = 'verdict';
+  if (options.tone !== undefined && options.tone !== '') {
+    classes = `verdict ${options.tone}`;
+  }
+  const attrs = options.attributes ? ` ${options.attributes}` : '';
+  let titleAttr = '';
+  if (options.title !== undefined && options.title !== '') {
+    const escaped = escapeAttribute(options.title);
+    titleAttr = ` title="${escaped}" aria-label="${escaped}"`;
+  }
+  return `<span class="${classes}"${attrs}${titleAttr}><span class="verdict-icon">${iconHtml(options.icon)}</span><span class="verdict-label">${escapeAttribute(options.label)}</span></span>`;
+}
+
 /** The one button, wherever it sits. */
-export function buttonHtml(attributes: string, label: string, title?: string): string {
-  return `<button class="btn" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
+export function buttonHtml(
+  attributes: string,
+  label: string,
+  title?: string,
+  options?: { type?: 'button' | 'submit'; className?: string },
+): string {
+  let classes = 'btn';
+  if (options?.className !== undefined && options.className !== '') {
+    classes = `btn ${options.className}`;
+  }
+  const buttonType = options?.type ?? 'button';
+  const titleAttr = title ? ` title="${escapeAttribute(title)}"` : '';
+  return `<button class="${classes}" type="${buttonType}" ${attributes}${titleAttr}>${escapeAttribute(label)}</button>`;
 }
 
 /** The action bar: up to three buttons against R, the primary one rightmost. */

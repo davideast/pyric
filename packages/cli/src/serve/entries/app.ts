@@ -1,10 +1,13 @@
-/** Served `firebase/app`: the exact Pyric client registry over the page runtime. */
+/** Served `firebase/app`: the exact Pyric client and server app registries over the page/worker runtime. */
 import { bindAppRegistrySandbox } from 'pyric/app/internal';
 import {
   initializeApp as initializeRegistryApp,
+  initializeServerApp as initializeRegistryServerApp,
   type FirebaseApp,
   type FirebaseAppSettings,
   type FirebaseOptions,
+  type FirebaseServerApp,
+  type FirebaseServerAppSettings,
 } from 'pyric/app';
 import { sandbox } from './app-backend.js';
 
@@ -18,6 +21,21 @@ export function initializeApp(
 ): FirebaseApp {
   bindAppRegistrySandbox(sandbox);
   return initializeRegistryApp(options, rawSettings);
+}
+
+export function initializeServerApp(
+  options: FirebaseOptions | FirebaseApp | undefined,
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp;
+export function initializeServerApp(
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp;
+export function initializeServerApp(
+  optionsOrConfig?: FirebaseOptions | FirebaseApp | FirebaseServerAppSettings,
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp {
+  bindAppRegistrySandbox(sandbox);
+  return initializeRegistryServerApp(optionsOrConfig as FirebaseOptions, config);
 }
 
 export {
@@ -34,6 +52,8 @@ export type {
   FirebaseApp,
   FirebaseAppSettings,
   FirebaseOptions,
+  FirebaseServerApp,
+  FirebaseServerAppSettings,
   LogCallback,
   LogEntry,
   LogLevel,

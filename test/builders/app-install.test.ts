@@ -87,4 +87,17 @@ describe('the builder\'s .npmrc', () => {
     expect(existsSync(join(dirs.app, '.npmrc'))).toBe(false);
     expect(readFileSync(outside, 'utf8')).toBe('host\n');
   }, 60_000);
+
+  test('layOutReproApp skips .pyric/state from older archives while extracting app sources (#1767)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'repro-state-'));
+    const archive = await appArchive(root, (app) => {
+      mkdirSync(join(app, '.pyric', 'state'), { recursive: true });
+      writeFileSync(join(app, '.pyric', 'state', 'huge.db'), 'state\n');
+      writeFileSync(join(app, 'main.js'), 'export const x = 1;\n');
+    });
+    const dirs = createRunDirs(join(root, 'try'));
+    await layOutReproApp({ dirs, appArchive: archive, tarballs: new Map(), run: 'r1-1', script });
+    expect(existsSync(join(dirs.app, 'main.js'))).toBe(true);
+    expect(existsSync(join(dirs.app, '.pyric', 'state'))).toBe(false);
+  }, 60_000);
 });

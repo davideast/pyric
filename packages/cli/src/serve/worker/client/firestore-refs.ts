@@ -28,6 +28,7 @@ import {
 import { generateAutoId } from 'pyric/sandbox/internal';
 import type { DocumentData, FieldPath, FirestoreDataConverter, QueryConstraintType } from 'pyric/firestore';
 import { validateResolvedQueryConstraint } from './firestore-query-validation.js';
+import { assertNoSentinelInWorkerQueryOperand } from './firestore-sentinels.js';
 import { rawClientSnapshotForCursor, type RawCursorSnapshot } from './snapshots.js';
 
 // ─── Path factories (client-side only — no RPC) ──────────────────────────
@@ -291,6 +292,7 @@ function isDocumentSnapshotArg(args: readonly unknown[]): args is [object & { da
 
 function makeCursorConstraint(kind: CursorConstraintKind, args: readonly unknown[]): QueryConstraintHandle {
   if (!isDocumentSnapshotArg(args)) {
+    assertNoSentinelInWorkerQueryOperand(kind, args);
     return {
       type: kind,
       _descriptor: { kind, values: args.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING },
@@ -396,6 +398,7 @@ function resolveQueryConstraints(
 }
 
 export function where(field: string | FieldPath, op: string, value: unknown): QueryConstraintHandle {
+  assertNoSentinelInWorkerQueryOperand('where', value);
   const encoded = encodeDocValue(value);
   const encodedField = encodeConstraintField(field);
   const descriptor: Extract<QueryConstraintDescriptor, { kind: 'where' }> = {
@@ -578,5 +581,7 @@ export {
   arrayUnion,
   deleteField,
   increment,
+  maximum,
+  minimum,
   serverTimestamp,
 } from './firestore-sentinels.js';

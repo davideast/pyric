@@ -14,6 +14,7 @@
 import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import {
+  bindFidRegistrationListener,
   defaultRegistration,
   deliverToMessaging,
   resolveMessaging,
@@ -79,6 +80,28 @@ export function onBackgroundMessage(
       }
       nextOrObserver.next(message);
     }));
+}
+
+/**
+ * Subscribe in a service worker to Firebase Installation ID registration
+ * events (`@firebase/messaging/sw` 0.13.3).
+ */
+export function onRegistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  return bindFidRegistrationListener(messaging, 'registered', nextOrObserver);
+}
+
+/**
+ * Subscribe in a service worker to Firebase Installation ID unregistration
+ * events (`@firebase/messaging/sw` 0.13.3).
+ */
+export function onUnregistered(
+  messaging: Messaging,
+  nextOrObserver: NextFn<string> | Observer<string>,
+): Unsubscribe {
+  return bindFidRegistrationListener(messaging, 'unregistered', nextOrObserver);
 }
 
 const bigQueryExport = new WeakMap<Messaging, boolean>();

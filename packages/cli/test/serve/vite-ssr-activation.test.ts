@@ -479,3 +479,111 @@ describe('Vite SSR worker-thread activation and port handover (#1144, #1145)', (
     });
   }, 60_000);
 });
+
+const APP_CHECK_VERIFIER = Symbol.for('pyric.admin.appCheck.firebaseVerifier');
+const VITE_PROCESS_STOP = Symbol.for('pyric.viteProcessStop');
+
+describe('Vite SSR App Check verifier lifecycle (#1561)', () => {
+  afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[APP_CHECK_VERIFIER];
+    delete (globalThis as Record<symbol, unknown>)[VITE_PROCESS_STOP];
+  });
+
+  it('installs the firebaseVerifier symbol in production AI mode (env and passthrough) and clears it on close', () => {
+    const holder = globalThis as Record<symbol, unknown>;
+    const prod = attach(fakeServer(ipv4('127.0.0.1', 5180)), true, { PYRIC_AI_MODE: 'production' });
+    expect(typeof holder[APP_CHECK_VERIFIER]).toBe('function');
+    prod.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+
+    const passthrough = attach(fakeServer(ipv4('127.0.0.1', 5181)), true, { PYRIC_AI_PASSTHROUGH: '1' });
+    expect(typeof holder[APP_CHECK_VERIFIER]).toBe('function');
+    passthrough.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+  });
+
+  it('does not install the verifier in sandbox AI mode', () => {
+    const holder = globalThis as Record<symbol, unknown>;
+    attach(fakeServer(ipv4('127.0.0.1', 5182)), true, {});
+    expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+  });
+
+  it('tracks restarts across production and sandbox AI modes without letting an old close clear a newer server', () => {
+    const holder = globalThis as Record<symbol, unknown>;
+    const first = attach(fakeServer(ipv4('127.0.0.1', 5183)), true, { PYRIC_AI_MODE: 'production' });
+    const firstVerifier = holder[APP_CHECK_VERIFIER];
+    expect(typeof firstVerifier).toBe('function');
+
+    const second = attach(fakeServer(ipv4('127.0.0.1', 5184)), true, {});
+    expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+    first.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+
+    const third = attach(fakeServer(ipv4('127.0.0.1', 5185)), true, { PYRIC_AI_MODE: 'production' });
+    const thirdVerifier = holder[APP_CHECK_VERIFIER];
+    expect(typeof thirdVerifier).toBe('function');
+    second.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBe(thirdVerifier);
+
+    const fourth = attach(fakeServer(ipv4('127.0.0.1', 5186)), true, { PYRIC_AI_MODE: 'production' });
+    const fourthVerifier = holder[APP_CHECK_VERIFIER];
+    expect(typeof fourthVerifier).toBe('function');
+    third.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBe(fourthVerifier);
+    fourth.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+  });
+
+  it('reads the active Vite process-stop sandbox lease when env is process.env and ignores live leases', () => {
+    const holder = globalThis as Record<symbol, unknown>;
+    const savedSandbox = process.env.PYRIC_SANDBOX;
+    delete process.env.PYRIC_SANDBOX;
+    try {
+      holder[VITE_PROCESS_STOP] = {
+        leases: [{ kind: 'sandbox', getAiMode: () => 'production' }],
+      };
+      const prod = attach(fakeServer(ipv4('127.0.0.1', 5187)), true, process.env);
+      expect(typeof holder[APP_CHECK_VERIFIER]).toBe('function');
+      prod.close();
+      expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+
+      holder[VITE_PROCESS_STOP] = {
+        leases: [{ kind: 'live' }],
+      };
+      const live = attach(fakeServer(ipv4('127.0.0.1', 5188)), true, process.env);
+      expect(holder[APP_CHECK_VERIFIER]).toBeUndefined();
+      live.close();
+    } finally {
+      if (savedSandbox === undefined) {
+        delete process.env.PYRIC_SANDBOX;
+      } else {
+        process.env.PYRIC_SANDBOX = savedSandbox;
+      }
+    }
+  });
+
+  it('preserves externally installed verifiers when PYRIC_SANDBOX activates the process or when replaced before close', () => {
+    const holder = globalThis as Record<symbol, unknown>;
+    const external = async () => ({ appId: 'external', token: {} });
+    holder[APP_CHECK_VERIFIER] = external;
+
+    const outside = attach(fakeServer(ipv4('127.0.0.1', 5189)), true, {
+      PYRIC_SANDBOX: 'remote:http://127.0.0.1:9000',
+      PYRIC_AI_MODE: 'production',
+    });
+    expect(holder[APP_CHECK_VERIFIER]).toBe(external);
+    outside.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBe(external);
+
+    const sandboxServer = attach(fakeServer(ipv4('127.0.0.1', 5190)), true, {});
+    expect(holder[APP_CHECK_VERIFIER]).toBe(external);
+    sandboxServer.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBe(external);
+
+    const prodServer = attach(fakeServer(ipv4('127.0.0.1', 5191)), true, { PYRIC_AI_MODE: 'production' });
+    expect(holder[APP_CHECK_VERIFIER]).not.toBe(external);
+    holder[APP_CHECK_VERIFIER] = external;
+    prodServer.close();
+    expect(holder[APP_CHECK_VERIFIER]).toBe(external);
+  });
+});

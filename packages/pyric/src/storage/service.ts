@@ -18,7 +18,11 @@ import {
 import { createStorageRetryHandle } from './handle-retry-times.js';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
 import { deployStorageBucketRules } from './sandbox/bucket-rules.js';
-import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
+import {
+  StorageService,
+  type CrossServiceIam,
+  type StorageDefaultPolicy,
+} from './sandbox/running-service.js';
 import {
   DEFAULT_STORAGE_BUCKET,
   serviceCaches,
@@ -28,8 +32,14 @@ import {
   type StorageOptions,
 } from './sandbox/service-caches.js';
 
-export { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 export {
+  StorageService,
+  type CrossServiceIam,
+  type StorageDefaultPolicy,
+} from './sandbox/running-service.js';
+export {
+  addressesDefaultBucket,
+  DEFAULT_STORAGE_BUCKET,
   getStorageService,
   TARGET_SYMBOL,
   targetOf,
@@ -44,6 +54,7 @@ export {
   deployStorageBucketRules,
   getStorageRulesResolution,
   lockUndeployedStorageBuckets,
+  noticeUndeployedStorageBucket,
   storageBucketsWithRules,
   storageRulesInForce,
   type StorageRulesInForce,
@@ -89,7 +100,13 @@ function getOrCreateScopedService(
       if (rootService.backend.scoped !== undefined) {
         backend = rootService.backend.scoped(bucket);
       }
-      return new StorageService(backend, rootService.rules, rootService.crossServiceIam);
+      const policy = OPEN_SERVICES.get(sandbox)?.defaultPolicy ?? rootService.defaultPolicy;
+      return new StorageService(
+        backend,
+        rootService.rules,
+        rootService.crossServiceIam,
+        policy,
+      );
     });
     bucketMap.set(bucket, existing);
   }
@@ -153,8 +170,10 @@ export async function replaceStorageRules(
     compiledRules: compiled.rules,
     rulesResolution: compiled.resolution,
     crossServiceIam: open.crossServiceIam,
+    defaultPolicy: open.defaultPolicy,
     rulesLocked: true,
     crossServiceIamLocked: open.crossServiceIamLocked,
+    defaultPolicyLocked: open.defaultPolicyLocked,
   });
   const root = await open.service;
   root.rules = compiled.rules;
@@ -185,14 +204,50 @@ export async function replaceCrossServiceIam(
     compiledRules: open.compiledRules,
     rulesResolution: open.rulesResolution,
     crossServiceIam: mode,
+    defaultPolicy: open.defaultPolicy,
     rulesLocked: open.rulesLocked,
     crossServiceIamLocked: true,
+    defaultPolicyLocked: open.defaultPolicyLocked,
   });
   const root = await open.service;
   root.crossServiceIam = mode;
   for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
     const scoped = await scopedPromise;
     scoped.crossServiceIam = mode;
+  }
+}
+
+/** The default policy a sandbox's storage service enforces when no rules are configured. */
+export function getStorageDefaultPolicy(sandbox: Sandbox): StorageDefaultPolicy {
+  return OPEN_SERVICES.get(sandbox)?.defaultPolicy ?? 'deny';
+}
+
+/** Move a sandbox's storage service between `'deny'` and permissive `'allow'` default policies. */
+export async function setStorageDefaultPolicy(
+  sandbox: Sandbox,
+  policy: StorageDefaultPolicy,
+): Promise<void> {
+  const open = OPEN_SERVICES.get(sandbox);
+  if (open === undefined) {
+    await ensureService(sandbox, { defaultPolicy: policy }, 'setStorageDefaultPolicy');
+    return;
+  }
+  OPEN_SERVICES.set(sandbox, {
+    service: open.service,
+    rulesSource: open.rulesSource,
+    compiledRules: open.compiledRules,
+    rulesResolution: open.rulesResolution,
+    crossServiceIam: open.crossServiceIam,
+    defaultPolicy: policy,
+    rulesLocked: open.rulesLocked,
+    crossServiceIamLocked: open.crossServiceIamLocked,
+    defaultPolicyLocked: true,
+  });
+  const root = await open.service;
+  root.defaultPolicy = policy;
+  for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
+    const scoped = await scopedPromise;
+    scoped.defaultPolicy = policy;
   }
 }
 
@@ -222,20 +277,35 @@ function ensureService(
         caller,
       );
     }
+    if (existing.defaultPolicyLocked) {
+      rejectDifferingLateConfig(
+        'defaultPolicy',
+        'defaultPolicy mode',
+        options.defaultPolicy,
+        existing.defaultPolicy,
+        caller,
+      );
+    }
 
     const suppliedRules = options.rules;
     const suppliedIam = options.crossServiceIam;
+    const suppliedPolicy = options.defaultPolicy;
     const adoptRules = !existing.rulesLocked && suppliedRules !== undefined;
     const adoptIam = !existing.crossServiceIamLocked && suppliedIam !== undefined;
+    const adoptPolicy = !existing.defaultPolicyLocked && suppliedPolicy !== undefined;
     const nextRulesLocked = existing.rulesLocked || !isAdminCaller || suppliedRules !== undefined;
     const nextIamLocked =
       existing.crossServiceIamLocked || !isAdminCaller || suppliedIam !== undefined;
+    const nextPolicyLocked =
+      existing.defaultPolicyLocked || !isAdminCaller || suppliedPolicy !== undefined;
 
     if (
       !adoptRules &&
       !adoptIam &&
+      !adoptPolicy &&
       nextRulesLocked === existing.rulesLocked &&
-      nextIamLocked === existing.crossServiceIamLocked
+      nextIamLocked === existing.crossServiceIamLocked &&
+      nextPolicyLocked === existing.defaultPolicyLocked
     ) {
       return existing.service;
     }
@@ -258,12 +328,17 @@ function ensureService(
     if (adoptIam && suppliedIam !== undefined) {
       nextIam = suppliedIam;
     }
+    let nextPolicy = existing.defaultPolicy;
+    if (adoptPolicy && suppliedPolicy !== undefined) {
+      nextPolicy = suppliedPolicy;
+    }
 
     let nextService = existing.service;
-    if (adoptRules || adoptIam) {
+    if (adoptRules || adoptIam || adoptPolicy) {
       nextService = existing.service.then((root) => {
         root.rules = nextRules;
         root.crossServiceIam = nextIam;
+        root.defaultPolicy = nextPolicy;
         return root;
       });
       const bucketMap = SCOPED_SERVICES.get(sandbox);
@@ -274,6 +349,7 @@ function ensureService(
             Promise.all([nextService, scopedPromise]).then(([, scoped]) => {
               scoped.rules = nextRules;
               scoped.crossServiceIam = nextIam;
+              scoped.defaultPolicy = nextPolicy;
               return scoped;
             }),
           );
@@ -287,8 +363,10 @@ function ensureService(
       compiledRules: nextRules,
       rulesResolution: nextResolution,
       crossServiceIam: nextIam,
+      defaultPolicy: nextPolicy,
       rulesLocked: nextRulesLocked,
       crossServiceIamLocked: nextIamLocked,
+      defaultPolicyLocked: nextPolicyLocked,
     });
     return nextService;
   }
@@ -303,6 +381,7 @@ function ensureService(
   }
 
   const crossServiceIam = options.crossServiceIam ?? 'granted';
+  const defaultPolicy = options.defaultPolicy ?? 'deny';
   const injectedBackend = HOST_BACKENDS.get(sandbox);
   let backendPromise: Promise<StorageBackend>;
   if (injectedBackend !== undefined) {
@@ -317,17 +396,20 @@ function ensureService(
       defaultBucket,
     );
   }
-  const servicePromise = backendPromise.then(
-    (backend) => new StorageService(backend, rules, crossServiceIam),
-  );
+  const servicePromise = backendPromise.then((backend) => {
+    const currentPolicy = OPEN_SERVICES.get(sandbox)?.defaultPolicy ?? defaultPolicy;
+    return new StorageService(backend, rules, crossServiceIam, currentPolicy);
+  });
   OPEN_SERVICES.set(sandbox, {
     service: servicePromise,
     rulesSource: options.rules ?? null,
     compiledRules: rules,
     rulesResolution: resolution,
     crossServiceIam,
+    defaultPolicy,
     rulesLocked: !isAdminCaller || options.rules !== undefined,
     crossServiceIamLocked: !isAdminCaller || options.crossServiceIam !== undefined,
+    defaultPolicyLocked: !isAdminCaller || options.defaultPolicy !== undefined,
   });
   sandbox.registerPersistableService('storage', {
     snapshot: () => null,

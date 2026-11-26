@@ -295,7 +295,7 @@ describe('Identity blocking timeoutSeconds enforcement, unsub cancellation, and 
     const entered = new Promise<void>((resolve) => {
       markEntered = resolve;
     });
-    const wedgedCreate = beforeUserCreated({ timeoutSeconds: 60 }, async () => {
+    const wedgedCreate = beforeUserCreated({ timeoutSeconds: 7 }, async () => {
       markEntered?.();
       await new Promise(() => {});
     });

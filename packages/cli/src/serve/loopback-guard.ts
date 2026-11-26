@@ -400,20 +400,25 @@ export function isAllowedSessionToken(
 }
 
 /**
- * True when the request presents a non-empty `x-pyric-session-token` header
- * or matching `__pyric_session` / `__pyric_session_<port>` cookie (whether or
- * not it matches `expectedToken`).
+ * Distinguish how an unauthenticated request attempted to present a session
+ * capability token: via explicit `x-pyric-session-token` header, via a
+ * matching `__pyric_session` / `__pyric_session_<port>` cookie, or neither.
+ *
+ * Explicit headers always take precedence so a client presenting a wrong
+ * `x-pyric-session-token` header is rejected without triggering browser unlock
+ * prompts, whereas a browser carrying only a stale cookie from an earlier
+ * server boot can still be guided back to `/__pyric/unlock`.
  */
-export function hasPresentedSessionToken(
+export function presentedSessionTokenKind(
   req: {
     headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
     socket?: { localPort?: number } | null;
   },
   url?: URL,
-): boolean {
+): 'none' | 'header' | 'cookie' {
   const headerToken = getHeader(req, 'x-pyric-session-token');
   if (headerToken !== undefined && headerToken.length > 0) {
-    return true;
+    return 'header';
   }
   const socketPort = req?.socket?.localPort;
   let urlPort: number | undefined;
@@ -424,7 +429,11 @@ export function hasPresentedSessionToken(
   if (socketPort !== undefined && socketPort > 0) {
     expectedPort = socketPort;
   }
-  return extractSessionCookies(getHeader(req, 'cookie'), expectedPort).length > 0;
+  const cookies = extractSessionCookies(getHeader(req, 'cookie'), expectedPort);
+  if (cookies.length > 0) {
+    return 'cookie';
+  }
+  return 'none';
 }
 
 /**
