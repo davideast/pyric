@@ -35,3 +35,9 @@ cmp "$archive/holdout.json.gz" /tmp/chess-held-out.json.gz
 ## Evidence
 
 The complete native score has 3,184 snapshots and 3,473 complete successor checks. Five initial positions contributed 416 root counts across depths and 369,801 legal continuations when counting only the deepest level of each position. Seven altered implementations each produced a first divergence. Their changes cover turn, sliding range, rook rights, en passant expiry, promotion, pinned pieces and terminal classification. A separate claim in the oracle registry captures exact legal move sets and results for the 21 public named positions. Its default replay compares Arcade's pinned native implementation against the independent observations. Set `ARCADE_CHESS_CANDIDATE` to an absolute engine path to score another implementation on that claim. The full-match protocol, mutation of rematch behavior and hosted Firestore decisions have their own evidence outside this chess-engine comparison. [Native score](native-score.json) · [Mutation details](sensitivity.json)
+
+The placement under `scores/` names the exact generated module hash for each locked submission. The metadata score additionally exercises the emitted match policy's field derivation and admission decisions for the same 3,473 successor cases. For named child positions the independently frozen full board is adjudicated with the pinned Arcade engine. Every traced result is frozen directly by python-chess. Replay with the referee's sealed path as an optional second corpus.
+
+```sh
+bun score-metadata.mjs /absolute/path/to/chess.mjs /absolute/path/to/chess-match.mjs public.json.gz
+```

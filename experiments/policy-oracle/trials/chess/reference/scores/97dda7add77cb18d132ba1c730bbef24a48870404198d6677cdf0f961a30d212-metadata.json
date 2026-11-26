@@ -1,0 +1,20 @@
+{
+  "engine": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "metadataPolicy": "e55d5da74410f0424062d9ce92d00b4c3304e8e30c2d7ed84017850ce5067ed9",
+  "results": [
+    {
+      "inputDigest": "7eef423dbdfa5ed04b89104ddbe636226a94cf4b51ac054fd3784ad0cca1bd98",
+      "staticCases": 330,
+      "traceCases": 1553,
+      "metadataChecks": 1883,
+      "admissionChecks": 7532
+    },
+    {
+      "inputDigest": "34808f9b4e2269920c7458a3da62e720167492d56e3cb609c27530b0df26ebff",
+      "staticCases": 54,
+      "traceCases": 1536,
+      "metadataChecks": 1590,
+      "admissionChecks": 6360
+    }
+  ]
+}

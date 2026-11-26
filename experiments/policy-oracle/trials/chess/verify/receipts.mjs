@@ -52,8 +52,11 @@ export async function verify(archive,digest,bundle,enginePath) {
   let browser;
   if(mode==='referee') {
     assert.equal(sha(readFileSync(enginePath)),receipt.browser.engineSha256,'deployed referee code bytes');
+    const metadataPath=join(dirname(realpathSync(enginePath)),'chess-match.mjs');
+    assert.equal(sha(readFileSync(metadataPath)),receipt.browser.matchPolicySha256,'deployed metadata policy bytes');
     const engine=await import(pathToFileURL(realpathSync(enginePath)));
-    browser=await browserProof(receipt,j,history,engine);
+    const matchPolicy=await import(pathToFileURL(metadataPath));
+    browser=await browserProof(receipt,j,history,engine,matchPolicy);
   } else assert.equal(receipt.browser,undefined);
   const report={mode,runId,receipt:digest,rulesSha256,activeRuleset:j.release,restoredRuleset:j.restored,
     journalSha256:j.journalSha256,signedReadersExplicit:receipt.rows.every(r=>r.reader===j.actors.observer),

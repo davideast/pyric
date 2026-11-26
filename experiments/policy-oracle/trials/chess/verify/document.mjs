@@ -18,12 +18,17 @@ export function fresh(host, createdAt, rematchOf) {
     lastMove:{from:'',to:'',promotion:'',extra:[]},createdAt,...(rematchOf && {rematchOf})};
 }
 
-export function afterMove(prior, uci, engine=native, checkLegality=true) {
+export function priorPosition(prior) {
   const board = Array.from({length:64}, (_,i) => prior.board[square(i)]);
   const enPassant = prior.enPassant ? (8 - Number(prior.enPassant[1])) * 8 + 'abcdefgh'.indexOf(prior.enPassant[0]) : -1;
-  const pos = {board,turn:prior.currentTurn === 'host' ? 'w' : 'b',enPassant,castling:prior.castling};
+  return {board,turn:prior.currentTurn === 'host' ? 'w' : 'b',enPassant,castling:prior.castling};
+}
+
+export function afterMove(prior, uci, engine=native, checkLegality=true, matchPolicy) {
+  const pos=priorPosition(prior), {board}=pos;
   if (checkLegality) assert.ok([...engine.legalMoves(pos)].includes(uci), 'reference rejected move ' + uci);
   const next = engine.apply(pos,uci), result = engine.outcome(next), from = uci.slice(0,2), to = uci.slice(2,4);
+  if (matchPolicy) return {...prior,...matchPolicy.metadata(prior,uci,pos,next,result),board:boardMap(next.board),prevBoard:prior.board};
   const changed = board.flatMap((piece,i) => piece === next.board[i] ? [] : [square(i)]);
   return {...prior,board:boardMap(next.board),prevBoard:prior.board,
     castling:next.castling,prevCastling:prior.castling,enPassant:next.enPassant === -1 ? '' : square(next.enPassant),
