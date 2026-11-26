@@ -3,10 +3,11 @@ import * as base from '../pawns/v1/adapter.mjs';
 import {packedSources,attackPattern} from '../policy/packed.mjs';
 import {squares} from '../policy/geometry.mjs';
 import {pairSources,pairHelper,pairStandalone} from './knight-pairs.mjs';
+import {specializeAdmission} from './knight-budget.mjs';
 
 const leaps=[8,12,19,21,-8,-12,-19,-21];
 const starts=variant=>variant.startsWith('knight-');
-const parent=variant=>variant.replace(/^knight-(?:quiet-|pair-|all-)?/,'');
+const parent=variant=>variant.replace(/^knight-(?:quiet-|pair-|all-|budget-|endgame-)?/,'');
 
 function projection(color,offset,first) {
   const enemy=color==='w'?'b':'w', knight=color+'n,',target='(?:'+enemy+'[prnbq])?,';
@@ -105,7 +106,7 @@ export function compileKnight(api,{mode='both',quiet=false,pair=false,all=false}
 export function compile(api,variant,options={mode:'both'}) {
   if(!starts(variant))return base.compile(api,variant,options);
   const out=base.compile(api,parent(variant),options);
-  const all=variant.startsWith('knight-all-'),pair=all||variant.startsWith('knight-pair-');
+  const all=(variant.startsWith('knight-all-')||/^knight-(?:budget|endgame)-/.test(variant)),pair=all||variant.startsWith('knight-pair-');
   const knights=compileKnight(api,{...options,quiet:variant.startsWith('knight-quiet-'),pair,all});
   Object.assign(out.modules,knights.modules);
   out.knightMoves=knights.witnesses;
@@ -143,10 +144,11 @@ export function linkOnto(rules,modules,resolveModules,{quiet=false,pair=false,al
 export async function link(modules,resolveModules,{variant}) {
   if(!starts(variant))return base.link(modules,resolveModules,{variant});
   const quiet=variant.startsWith('knight-quiet-');
-  const all=variant.startsWith('knight-all-'),pair=all||variant.startsWith('knight-pair-');
+  const all=(variant.startsWith('knight-all-')||/^knight-(?:budget|endgame)-/.test(variant)),pair=all||variant.startsWith('knight-pair-');
   const names=new Set(Object.keys(pair?pairSources(all):knightSources(quiet)));
   const original=Object.fromEntries(Object.entries(modules).filter(([key])=>!names.has(key)));
   const extra=Object.fromEntries(Object.entries(modules).filter(([key])=>names.has(key)));
   const rules=await base.link(original,resolveModules,{variant:parent(variant)});
-  return linkOnto(rules,extra,resolveModules,{quiet,pair,all});
+  const linked=linkOnto(rules,extra,resolveModules,{quiet,pair,all});
+  return /^knight-(?:budget|endgame)-/.test(variant) ? specializeAdmission(linked,{pawnPriority:variant.startsWith('knight-endgame-')}) : linked;
 }
