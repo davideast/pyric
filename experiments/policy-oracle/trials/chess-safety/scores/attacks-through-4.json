@@ -1,0 +1,1095 @@
+{
+  "candidateSha256": "c96a1f08a6808901f14e810bf31564d7f7a0c893126f99d9b8d18747e486a932",
+  "variant": "attacks",
+  "referenceSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "linkedRulesSha256": "d12d76ec83c0d5078600c5912887383b99c2b7b692dfa5f0a75b7070fdece756",
+  "diagnostics": {},
+  "batches": {
+    "00-legacy-file": {
+      "kingSafety": {
+        "counts": {
+          "match": 10
+        },
+        "cases": 10,
+        "firstDivergence": null
+      },
+      "linkedWrites": {
+        "counts": {
+          "false-refusal": 4,
+          "match": 6
+        },
+        "cases": 10,
+        "firstDivergence": {
+          "id": "rook-safe",
+          "expected": "ALLOW",
+          "decision": "DENY",
+          "cost": 1000,
+          "error": "resource-limit",
+          "detail": {
+            "kind": "expressions",
+            "limit": 1000,
+            "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+            "line": 690,
+            "column": 12
+          },
+          "status": "false-refusal"
+        }
+      }
+    },
+    "01-rank-diagonal": {
+      "kingSafety": {
+        "counts": {
+          "match": 19
+        },
+        "cases": 19,
+        "firstDivergence": null
+      },
+      "linkedWrites": {
+        "counts": {
+          "false-refusal": 11,
+          "match": 8
+        },
+        "cases": 19,
+        "firstDivergence": {
+          "id": "rank-rook-safe",
+          "expected": "ALLOW",
+          "decision": "DENY",
+          "cost": 1000,
+          "error": "resource-limit",
+          "detail": {
+            "kind": "expressions",
+            "limit": 1000,
+            "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+            "line": 690,
+            "column": 178
+          },
+          "status": "false-refusal"
+        }
+      }
+    },
+    "02-king-destinations": {
+      "kingSafety": {
+        "counts": {
+          "match": 12
+        },
+        "cases": 12,
+        "firstDivergence": null
+      },
+      "linkedWrites": {
+        "counts": {
+          "false-refusal": 6,
+          "match": 6
+        },
+        "cases": 12,
+        "firstDivergence": {
+          "id": "king-capture-undefended",
+          "expected": "ALLOW",
+          "decision": "DENY",
+          "cost": 1000,
+          "error": "resource-limit",
+          "detail": {
+            "kind": "expressions",
+            "limit": 1000,
+            "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+            "line": 690,
+            "column": 464
+          },
+          "status": "false-refusal"
+        }
+      }
+    },
+    "03-check-evasions": {
+      "kingSafety": {
+        "counts": {
+          "match": 8
+        },
+        "cases": 8,
+        "firstDivergence": null
+      },
+      "linkedWrites": {
+        "counts": {
+          "false-refusal": 4,
+          "match": 4
+        },
+        "cases": 8,
+        "firstDivergence": {
+          "id": "king-escapes-check",
+          "expected": "ALLOW",
+          "decision": "DENY",
+          "cost": 1000,
+          "error": "resource-limit",
+          "detail": {
+            "kind": "expressions",
+            "limit": 1000,
+            "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+            "line": 682,
+            "column": 69
+          },
+          "status": "false-refusal"
+        }
+      }
+    },
+    "04-en-passant": {
+      "kingSafety": {
+        "counts": {
+          "match": 5
+        },
+        "cases": 5,
+        "firstDivergence": null
+      },
+      "linkedWrites": {
+        "counts": {
+          "false-refusal": 3,
+          "match": 2
+        },
+        "cases": 5,
+        "firstDivergence": {
+          "id": "ep-surviving-rank-blocker",
+          "expected": "ALLOW",
+          "decision": "DENY",
+          "cost": 1000,
+          "error": "resource-limit",
+          "detail": {
+            "kind": "expressions",
+            "limit": 1000,
+            "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+            "line": 533,
+            "column": 230
+          },
+          "status": "false-refusal"
+        }
+      }
+    }
+  },
+  "kingSafety": [
+    {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rook-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "mirrored-file",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "black-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "black-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "long-safe-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "long-slide-blocked-sixth",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "long-slide-left-blocked",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rank-rook-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rank-rook-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "rank-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rank-queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "rank-surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rank-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rank-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rising-bishop-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rising-bishop-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "rising-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rising-queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "rising-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "rising-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "falling-bishop-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "falling-bishop-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "falling-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "falling-queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "falling-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "falling-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "king-capture-undefended",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "king-capture-defended",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "knight-screen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "knight-jumps-screen",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "black-pawn-away",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "black-pawn-attacks",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "white-pawn-away",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "white-pawn-attacks",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "opposing-king-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "opposing-king-adjacent",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "pinned-knight-away",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "pinned-knight-defends",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "king-escapes-check",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "king-escape-into-attack",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "capture-single-checker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "capture-one-of-two-checkers",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "interpose-on-file",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "interpose-exposes-diagonal",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "double-check-king-escape",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "double-check-king-still-attacked",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "ep-surviving-rank-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "ep-two-pawns-leave-rank",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    },
+    {
+      "id": "ep-rook-on-neighboring-rank",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "black-ep-surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "status": "match"
+    },
+    {
+      "id": "black-ep-opens-rank",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    }
+  ],
+  "linkedWrites": [
+    {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 12
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rook-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 752,
+      "status": "match"
+    },
+    {
+      "id": "mirrored-file",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 742,
+      "status": "match"
+    },
+    {
+      "id": "surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 12
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "black-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 790,
+      "status": "match"
+    },
+    {
+      "id": "black-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 676
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 752,
+      "status": "match"
+    },
+    {
+      "id": "long-safe-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 967
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "long-slide-blocked-sixth",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 457,
+      "status": "match"
+    },
+    {
+      "id": "long-slide-left-blocked",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 371,
+      "status": "match"
+    },
+    {
+      "id": "rank-rook-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 178
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rank-rook-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 848,
+      "status": "match"
+    },
+    {
+      "id": "rank-queen-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 178
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rank-queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 848,
+      "status": "match"
+    },
+    {
+      "id": "rank-surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 178
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rank-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 282
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rank-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 41,
+        "column": 73
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rising-bishop-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 997,
+      "status": "match"
+    },
+    {
+      "id": "rising-bishop-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 751,
+      "status": "match"
+    },
+    {
+      "id": "rising-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 997,
+      "status": "match"
+    },
+    {
+      "id": "rising-queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 751,
+      "status": "match"
+    },
+    {
+      "id": "rising-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 20,
+        "column": 12
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "rising-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 707
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "falling-bishop-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 28
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "falling-bishop-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 813,
+      "status": "match"
+    },
+    {
+      "id": "falling-queen-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 28
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "falling-queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 813,
+      "status": "match"
+    },
+    {
+      "id": "falling-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 66
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "falling-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 12
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "king-capture-undefended",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 464
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "king-capture-defended",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 739,
+      "status": "match"
+    },
+    {
+      "id": "knight-screen-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 512
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "knight-jumps-screen",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 864,
+      "status": "match"
+    },
+    {
+      "id": "black-pawn-away",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 512
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "black-pawn-attacks",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 903,
+      "status": "match"
+    },
+    {
+      "id": "white-pawn-away",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 397
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "white-pawn-attacks",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 910,
+      "status": "match"
+    },
+    {
+      "id": "opposing-king-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 484
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "opposing-king-adjacent",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 893,
+      "status": "match"
+    },
+    {
+      "id": "pinned-knight-away",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 428
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "pinned-knight-defends",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 870,
+      "status": "match"
+    },
+    {
+      "id": "king-escapes-check",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 69
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "king-escape-into-attack",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 799,
+      "status": "match"
+    },
+    {
+      "id": "capture-single-checker",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 422
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "capture-one-of-two-checkers",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 863,
+      "status": "match"
+    },
+    {
+      "id": "interpose-on-file",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 690,
+        "column": 704
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "interpose-exposes-diagonal",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 837,
+      "status": "match"
+    },
+    {
+      "id": "double-check-king-escape",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 682,
+        "column": 69
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "double-check-king-still-attacked",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 812,
+      "status": "match"
+    },
+    {
+      "id": "ep-surviving-rank-blocker",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 533,
+        "column": 230
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "ep-two-pawns-leave-rank",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 988,
+      "status": "match"
+    },
+    {
+      "id": "ep-rook-on-neighboring-rank",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 533,
+        "column": 230
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "black-ep-surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit",
+      "detail": {
+        "kind": "expressions",
+        "limit": 1000,
+        "message": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.",
+        "line": 493,
+        "column": 313
+      },
+      "status": "false-refusal"
+    },
+    {
+      "id": "black-ep-opens-rank",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 977,
+      "status": "match"
+    }
+  ],
+  "passed": false
+}

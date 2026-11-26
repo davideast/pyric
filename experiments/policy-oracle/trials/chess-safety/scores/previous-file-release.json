@@ -1,0 +1,771 @@
+{
+  "authority": "independent local evaluator",
+  "rulesSha256": "1d3e7e79f0f1301e5f8170c8e8a52cf4c8dc35904b5d155f24bcce3df56176c5",
+  "batches": {
+    "00-legacy-file": {
+      "counts": {
+        "match": 10
+      },
+      "cases": 10,
+      "firstDivergence": null
+    },
+    "01-rank-diagonal": {
+      "counts": {
+        "match": 13,
+        "false-allow": 6
+      },
+      "cases": 19,
+      "firstDivergence": {
+        "id": "rank-rook-exposed",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 767,
+        "status": "false-allow"
+      }
+    },
+    "02-king-destinations": {
+      "counts": {
+        "match": 6,
+        "false-allow": 6
+      },
+      "cases": 12,
+      "firstDivergence": {
+        "id": "king-capture-defended",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 823,
+        "status": "false-allow"
+      }
+    },
+    "03-check-evasions": {
+      "counts": {
+        "match": 4,
+        "false-allow": 4
+      },
+      "cases": 8,
+      "firstDivergence": {
+        "id": "king-escape-into-attack",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 811,
+        "status": "false-allow"
+      }
+    },
+    "04-en-passant": {
+      "counts": {
+        "match": 3,
+        "false-allow": 2
+      },
+      "cases": 5,
+      "firstDivergence": {
+        "id": "ep-two-pawns-leave-rank",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 826,
+        "status": "false-allow"
+      }
+    },
+    "05-castling": {
+      "counts": {
+        "match": 8,
+        "false-allow": 12
+      },
+      "cases": 20,
+      "firstDivergence": {
+        "id": "white-short-start-attacked",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 787,
+        "status": "false-allow"
+      }
+    },
+    "06-composition": {
+      "counts": {
+        "match": 9,
+        "false-allow": 1
+      },
+      "cases": 10,
+      "firstDivergence": {
+        "id": "edge-ray-seventh-square",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 760,
+        "status": "false-allow"
+      }
+    },
+    "07-terminal": {
+      "counts": {
+        "match": 5,
+        "false-allow": 5
+      },
+      "cases": 10,
+      "firstDivergence": {
+        "id": "mate-wrong-result",
+        "expected": "DENY",
+        "decision": "ALLOW",
+        "cost": 798,
+        "status": "false-allow"
+      }
+    }
+  },
+  "rows": [
+    {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 844,
+      "status": "match"
+    },
+    {
+      "id": "rook-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 645,
+      "status": "match"
+    },
+    {
+      "id": "mirrored-file",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 641,
+      "status": "match"
+    },
+    {
+      "id": "surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 853,
+      "status": "match"
+    },
+    {
+      "id": "black-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 661,
+      "status": "match"
+    },
+    {
+      "id": "black-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 867,
+      "status": "match"
+    },
+    {
+      "id": "queen-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 645,
+      "status": "match"
+    },
+    {
+      "id": "long-safe-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 900,
+      "status": "match"
+    },
+    {
+      "id": "long-slide-blocked-sixth",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 457,
+      "status": "match"
+    },
+    {
+      "id": "long-slide-left-blocked",
+      "expected": "DENY",
+      "decision": "DENY",
+      "cost": 371,
+      "status": "match"
+    },
+    {
+      "id": "rank-rook-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 767,
+      "status": "match"
+    },
+    {
+      "id": "rank-rook-exposed",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 767,
+      "status": "false-allow"
+    },
+    {
+      "id": "rank-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 767,
+      "status": "match"
+    },
+    {
+      "id": "rank-queen-exposed",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 767,
+      "status": "false-allow"
+    },
+    {
+      "id": "rank-surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 767,
+      "status": "match"
+    },
+    {
+      "id": "rank-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 828,
+      "status": "match"
+    },
+    {
+      "id": "rank-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 866,
+      "status": "match"
+    },
+    {
+      "id": "rising-bishop-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "match"
+    },
+    {
+      "id": "rising-bishop-exposed",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "false-allow"
+    },
+    {
+      "id": "rising-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "match"
+    },
+    {
+      "id": "rising-queen-exposed",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "false-allow"
+    },
+    {
+      "id": "rising-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 766,
+      "status": "match"
+    },
+    {
+      "id": "rising-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 854,
+      "status": "match"
+    },
+    {
+      "id": "falling-bishop-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 766,
+      "status": "match"
+    },
+    {
+      "id": "falling-bishop-exposed",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 766,
+      "status": "false-allow"
+    },
+    {
+      "id": "falling-queen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 766,
+      "status": "match"
+    },
+    {
+      "id": "falling-queen-exposed",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 766,
+      "status": "false-allow"
+    },
+    {
+      "id": "falling-pinned-slide",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "match"
+    },
+    {
+      "id": "falling-pinned-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 848,
+      "status": "match"
+    },
+    {
+      "id": "king-capture-undefended",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 823,
+      "status": "match"
+    },
+    {
+      "id": "king-capture-defended",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 823,
+      "status": "false-allow"
+    },
+    {
+      "id": "knight-screen-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 809,
+      "status": "match"
+    },
+    {
+      "id": "knight-jumps-screen",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 809,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-pawn-away",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 809,
+      "status": "match"
+    },
+    {
+      "id": "black-pawn-attacks",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 809,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-pawn-away",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 824,
+      "status": "match"
+    },
+    {
+      "id": "white-pawn-attacks",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 824,
+      "status": "false-allow"
+    },
+    {
+      "id": "opposing-king-safe",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 809,
+      "status": "match"
+    },
+    {
+      "id": "opposing-king-adjacent",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 809,
+      "status": "false-allow"
+    },
+    {
+      "id": "pinned-knight-away",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 823,
+      "status": "match"
+    },
+    {
+      "id": "pinned-knight-defends",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 823,
+      "status": "false-allow"
+    },
+    {
+      "id": "king-escapes-check",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 811,
+      "status": "match"
+    },
+    {
+      "id": "king-escape-into-attack",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 811,
+      "status": "false-allow"
+    },
+    {
+      "id": "capture-single-checker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 828,
+      "status": "match"
+    },
+    {
+      "id": "capture-one-of-two-checkers",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 828,
+      "status": "false-allow"
+    },
+    {
+      "id": "interpose-on-file",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 788,
+      "status": "match"
+    },
+    {
+      "id": "interpose-exposes-diagonal",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 788,
+      "status": "false-allow"
+    },
+    {
+      "id": "double-check-king-escape",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 811,
+      "status": "match"
+    },
+    {
+      "id": "double-check-king-still-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 803,
+      "status": "false-allow"
+    },
+    {
+      "id": "ep-surviving-rank-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 826,
+      "status": "match"
+    },
+    {
+      "id": "ep-two-pawns-leave-rank",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 826,
+      "status": "false-allow"
+    },
+    {
+      "id": "ep-rook-on-neighboring-rank",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 826,
+      "status": "match"
+    },
+    {
+      "id": "black-ep-surviving-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 848,
+      "status": "match"
+    },
+    {
+      "id": "black-ep-opens-rank",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 848,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-short-clear",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 787,
+      "status": "match"
+    },
+    {
+      "id": "white-short-start-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 787,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-short-transit-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 787,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-short-destination-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 787,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-short-rook-attacked",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 787,
+      "status": "match"
+    },
+    {
+      "id": "white-long-clear",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 806,
+      "status": "match"
+    },
+    {
+      "id": "white-long-start-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 806,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-long-transit-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 806,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-long-destination-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 806,
+      "status": "false-allow"
+    },
+    {
+      "id": "white-long-rook-attacked",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 806,
+      "status": "match"
+    },
+    {
+      "id": "black-short-clear",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 812,
+      "status": "match"
+    },
+    {
+      "id": "black-short-start-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 812,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-short-transit-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 812,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-short-destination-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 812,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-short-rook-attacked",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 812,
+      "status": "match"
+    },
+    {
+      "id": "black-long-clear",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 831,
+      "status": "match"
+    },
+    {
+      "id": "black-long-start-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 831,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-long-transit-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 831,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-long-destination-attacked",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 831,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-long-rook-attacked",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 831,
+      "status": "match"
+    },
+    {
+      "id": "edge-ray-clear",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "match"
+    },
+    {
+      "id": "edge-ray-seventh-square",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "false-allow"
+    },
+    {
+      "id": "edge-ray-residual-blocker",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 760,
+      "status": "match"
+    },
+    {
+      "id": "long-diagonal-edge-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 932,
+      "status": "match"
+    },
+    {
+      "id": "long-rank-edge-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 914,
+      "status": "match"
+    },
+    {
+      "id": "long-file-edge-capture-black",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 948,
+      "status": "match"
+    },
+    {
+      "id": "dense-source-file-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 948,
+      "status": "match"
+    },
+    {
+      "id": "far-rank-pinned-edge-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 882,
+      "status": "match"
+    },
+    {
+      "id": "crowded-kiwipete-castle",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 811,
+      "status": "match"
+    },
+    {
+      "id": "crowded-kiwipete-edge-capture",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 888,
+      "status": "match"
+    },
+    {
+      "id": "mate-correct",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 798,
+      "status": "match"
+    },
+    {
+      "id": "mate-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 798,
+      "status": "false-allow"
+    },
+    {
+      "id": "stalemate-correct",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 776,
+      "status": "match"
+    },
+    {
+      "id": "stalemate-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 776,
+      "status": "false-allow"
+    },
+    {
+      "id": "one-king-reply-correct",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 774,
+      "status": "match"
+    },
+    {
+      "id": "one-king-reply-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 774,
+      "status": "false-allow"
+    },
+    {
+      "id": "one-rook-reply-correct",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 798,
+      "status": "match"
+    },
+    {
+      "id": "one-rook-reply-wrong-result",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 798,
+      "status": "false-allow"
+    },
+    {
+      "id": "black-mate-correct",
+      "expected": "ALLOW",
+      "decision": "ALLOW",
+      "cost": 819,
+      "status": "match"
+    },
+    {
+      "id": "black-mate-reported-playing",
+      "expected": "DENY",
+      "decision": "ALLOW",
+      "cost": 819,
+      "status": "false-allow"
+    }
+  ]
+}
