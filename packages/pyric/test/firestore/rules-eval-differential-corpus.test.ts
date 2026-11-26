@@ -179,9 +179,9 @@ describe('Firestore rules evaluation differential corpus', () => {
     const db = getFirestore(sb.withAuth({ uid: 'u1', token: {} }));
 
     const batch = writeBatch(db);
-    batch.set(doc(db, 'items', 'b-set-del'), { ownerId: 'u1', stage: 'intermediate' });
+    batch.set(doc(db, 'items', 'b-set-del'), { ownerId: 'u1', stage: 'final' });
     batch.delete(doc(db, 'items', 'b-set-del'));
-    batch.update(doc(db, 'items', 'b-upd-del'), { stage: 'intermediate' });
+    batch.update(doc(db, 'items', 'b-upd-del'), { stage: 'final' });
     batch.delete(doc(db, 'items', 'b-upd-del'));
     batch.set(doc(db, 'items', 'b-create-upd'), { ownerId: 'u1', stage: 'intermediate' });
     batch.update(doc(db, 'items', 'b-create-upd'), { stage: 'final' });
@@ -192,7 +192,7 @@ describe('Firestore rules evaluation differential corpus', () => {
     await runTransaction(db, async (tx) => {
       const r = doc(db, 'items', 'tx-upd-del');
       await tx.get(r);
-      tx.update(r, { stage: 'intermediate' });
+      tx.update(r, { stage: 'final' });
       tx.delete(r);
     });
 
@@ -201,6 +201,33 @@ describe('Firestore rules evaluation differential corpus', () => {
     expect((await getDoc(doc(db, 'items', 'tx-upd-del'))).exists()).toBe(false);
     expect((await getDoc(doc(db, 'items', 'b-create-upd'))).data()).toEqual({ ownerId: 'u1', stage: 'final' });
     expect((await getDoc(doc(db, 'items', 'b-upd-upd'))).data()).toEqual({ ownerId: 'u1', stage: 'final' });
+
+    // #1382: writes followed by delete still enforce allow update / allow create
+    // rather than collapsing into delete-only evaluation.
+    seedDocuments(sb, {
+      'items/b-set-del-denied': { ownerId: 'u1', stage: 'draft' },
+      'items/b-upd-del-denied': { ownerId: 'u1', stage: 'draft' },
+      'items/tx-upd-del-denied': { ownerId: 'u1', stage: 'draft' },
+    });
+
+    const deniedSetDel = writeBatch(db);
+    deniedSetDel.set(doc(db, 'items', 'b-set-del-denied'), { ownerId: 'u1', stage: 'intermediate' });
+    deniedSetDel.delete(doc(db, 'items', 'b-set-del-denied'));
+    await expect(deniedSetDel.commit()).rejects.toMatchObject({ code: 'permission-denied' });
+
+    const deniedUpdDel = writeBatch(db);
+    deniedUpdDel.update(doc(db, 'items', 'b-upd-del-denied'), { stage: 'intermediate' });
+    deniedUpdDel.delete(doc(db, 'items', 'b-upd-del-denied'));
+    await expect(deniedUpdDel.commit()).rejects.toMatchObject({ code: 'permission-denied' });
+
+    await expect(
+      runTransaction(db, async (tx) => {
+        const r = doc(db, 'items', 'tx-upd-del-denied');
+        await tx.get(r);
+        tx.update(r, { stage: 'intermediate' });
+        tx.delete(r);
+      }),
+    ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 
   test('SD:FS-RULES-EVAL standing corpus: lookup and Reference path normalization boundaries agree across simulate() and Sandbox', async () => {
