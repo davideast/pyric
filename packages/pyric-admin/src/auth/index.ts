@@ -14,6 +14,7 @@ export type {
   CreateRequest,
   DecodedIdToken,
   ListUsersResult,
+  SessionCookieOptions,
   UpdateRequest,
 } from './types.js';
 export { UserInfo } from './user-info.js';

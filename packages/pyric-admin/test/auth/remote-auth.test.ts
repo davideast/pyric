@@ -305,4 +305,93 @@ describe('remote sandbox Auth arm', () => {
       stackB.dispose();
     }
   });
+
+  it('mints and verifies session cookies with checkRevoked over hosted worker-bridge RemoteSandbox', async () => {
+    const stack = await createWorkerBridgeRemoteAuth('remote-session-cookie');
+    try {
+      const clock = getClock(stack.sandbox);
+      const startMs = Date.UTC(2026, 6, 15, 8, 0, 0);
+      clock.set(startMs);
+      const nowSec = Math.floor(startMs / 1000);
+
+      await stack.auth.createUser({
+        uid: 'remote-ssr-1',
+        email: 'remote-ssr@example.com',
+        password: 'secret-password',
+      });
+      const idToken = mintIdToken({
+        ...idTokenAudience(SANDBOX_PROJECT_ID),
+        sub: 'remote-ssr-1',
+        user_id: 'remote-ssr-1',
+        email: 'remote-ssr@example.com',
+        role: 'admin',
+        iat: nowSec,
+        auth_time: nowSec,
+        exp: nowSec + 3600,
+        firebase: { identities: {}, sign_in_provider: 'password' },
+      });
+
+      const sessionCookie = await stack.auth.createSessionCookie(idToken, {
+        expiresIn: 60 * 60 * 1000,
+      });
+      const decoded = await stack.auth.verifySessionCookie(sessionCookie, true);
+      expect(decoded.uid).toBe('remote-ssr-1');
+      expect(decoded.email).toBe('remote-ssr@example.com');
+      expect(decoded.role).toBe('admin');
+      expect(decoded.iss).toBe(`https://session.firebase.google.com/${SANDBOX_PROJECT_ID}`);
+
+      // Cross-token isolation on remote arm.
+      await expect(stack.auth.verifyIdToken(sessionCookie)).rejects.toMatchObject({
+        code: 'auth/argument-error',
+      });
+      await expect(stack.auth.verifySessionCookie(idToken)).rejects.toMatchObject({
+        code: 'auth/argument-error',
+      });
+
+      // Revocation on remote arm rejects checkRevoked=true and createSessionCookie.
+      clock.advance(2000);
+      await stack.auth.revokeRefreshTokens('remote-ssr-1');
+      await expect(stack.auth.verifySessionCookie(sessionCookie)).resolves.toMatchObject({
+        uid: 'remote-ssr-1',
+      });
+      await expect(stack.auth.verifySessionCookie(sessionCookie, true)).rejects.toMatchObject({
+        code: 'auth/session-cookie-revoked',
+      });
+      await expect(
+        stack.auth.createSessionCookie(idToken, { expiresIn: 300_000 }),
+      ).rejects.toMatchObject({ code: 'auth/id-token-expired' });
+
+      // Disabled user rejects checkRevoked=true and createSessionCookie.
+      await stack.auth.updateUser('remote-ssr-1', { disabled: true });
+      await expect(stack.auth.verifySessionCookie(sessionCookie, true)).rejects.toMatchObject({
+        code: 'auth/user-disabled',
+      });
+      await expect(
+        stack.auth.createSessionCookie(idToken, { expiresIn: 300_000 }),
+      ).rejects.toMatchObject({ code: 'auth/user-disabled' });
+
+      // Deleted user rejects checkRevoked=true and createSessionCookie.
+      await stack.auth.deleteUser('remote-ssr-1');
+      await expect(stack.auth.verifySessionCookie(sessionCookie, true)).rejects.toMatchObject({
+        code: 'auth/user-not-found',
+      });
+
+      // Clock past expiry rejects with auth/session-cookie-expired.
+      clock.set(startMs + 60 * 60 * 1000);
+      await expect(stack.auth.verifySessionCookie(sessionCookie)).rejects.toMatchObject({
+        code: 'auth/session-cookie-expired',
+      });
+
+      // Deleted app rejects both methods.
+      await deleteApp(stack.app);
+      expect(() => stack.auth.createSessionCookie(idToken, { expiresIn: 300_000 })).toThrow(
+        /has already been deleted/,
+      );
+      expect(() => stack.auth.verifySessionCookie(sessionCookie)).toThrow(
+        /has already been deleted/,
+      );
+    } finally {
+      stack.dispose();
+    }
+  });
 });

@@ -53,7 +53,7 @@ export type IdTokenFailureCode = 'argument-error' | 'id-token-expired';
 const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH';
 
 export type IdTokenVerdict =
-  | { ok: true; token: DecodedIdToken }
+  | { ok: true; token: DecodedIdToken; rawClaims: Claims }
   | { ok: false; code: IdTokenFailureCode; message: string; pyricCode?: typeof MODE_MISMATCH };
 
 type Claims = Readonly<Record<string, unknown>>;
@@ -137,5 +137,5 @@ export async function checkClientIdToken(idToken: string, projectId: string, now
   const expired = expiryVerdict(check.claims.exp, nowSec);
   if (expired !== undefined) return expired;
   const token = { ...check.claims, uid: check.claims.sub } as DecodedIdToken;
-  return { ok: true, token };
+  return { ok: true, token, rawClaims: check.claims };
 }

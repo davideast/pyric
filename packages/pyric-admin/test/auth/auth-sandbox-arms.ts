@@ -15,7 +15,6 @@ import {
   getClock,
   idTokenAudience,
   mintIdToken,
-  signSandboxJwtSync,
 } from 'pyric/sandbox/internal';
 import {
   getAuth as getClientAuth,
@@ -217,18 +216,9 @@ export function createAuthArm(kind: 'local' | 'remote'): AuthSandboxArm {
         firebase: { identities: {}, sign_in_provider: 'password' },
       });
       const customToken = await svc.createCustomToken(existingUid, { role: 'member' });
-      const validSessionCookieJwt = signSandboxJwtSync(
-        'session-cookie-test-key',
-        { alg: 'RS256', kid: 'session-key-1', typ: 'JWT' },
-        {
-          aud: AUTH_DIFF_PROJECT_ID,
-          iss: `https://session.firebase.google.com/${AUTH_DIFF_PROJECT_ID}`,
-          sub: existingUid,
-          iat: nowSec,
-          auth_time: nowSec,
-          exp: nowSec + 3600,
-        },
-      );
+      const validSessionCookieJwt = await svc.createSessionCookie(validIdToken, {
+        expiresIn: 60 * 60 * 1000,
+      });
       const firstPage = await svc.listUsers(1);
       const validPageToken = firstPage.pageToken ?? 'fallback-token';
       return {

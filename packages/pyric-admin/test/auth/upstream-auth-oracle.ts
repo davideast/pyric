@@ -42,7 +42,8 @@ import {
   getAuth as getUpstreamAuth,
   type Auth as UpstreamAuth,
 } from 'firebase-admin/auth';
-import { checkIdToken } from 'pyric/sandbox/internal';
+import { checkIdToken, type SandboxJwtCheck } from 'pyric/sandbox/internal';
+import { checkSandboxSessionCookieJwt } from '../../src/auth/session-cookie.js';
 
 const requireFromHere = createRequire(import.meta.url);
 const firebaseAdminLibDir = dirname(requireFromHere.resolve('firebase-admin'));
@@ -428,6 +429,35 @@ export function createOfflineUpstreamAuthHarness(): OfflineUpstreamAuthHarness {
     }
 
     if (parsedUrl.pathname.endsWith(':createSessionCookie')) {
+      const rawToken = typeof body.idToken === 'string' ? body.idToken : '';
+      const checked = await checkIdToken(rawToken);
+      const expectedIss = 'https://securetoken.google.com/demo-project';
+      const validShape =
+        checked.ok &&
+        checked.header.alg === 'RS256' &&
+        checked.claims.aud === 'demo-project' &&
+        checked.claims.iss === expectedIss &&
+        typeof checked.claims.sub === 'string' &&
+        checked.claims.sub.length > 0 &&
+        checked.claims.sub.length <= 128;
+      if (!validShape) {
+        return identityToolkitError(400, 'INVALID_ID_TOKEN');
+      }
+      const exp = checked.claims.exp;
+      if (typeof exp === 'number' && currentNowSec >= exp) {
+        return identityToolkitError(400, 'TOKEN_EXPIRED');
+      }
+      const account = usersByUid.get(checked.claims.sub as string);
+      if (account === undefined) {
+        return identityToolkitError(400, 'USER_NOT_FOUND');
+      }
+      if (account.disabled) {
+        return identityToolkitError(400, 'USER_DISABLED');
+      }
+      const authTime = checked.claims.auth_time;
+      if (typeof authTime === 'number' && authTime < account.validSinceSec) {
+        return identityToolkitError(400, 'TOKEN_EXPIRED');
+      }
       return jsonHttpResponse(200, { sessionCookie: 'stub-session-cookie' });
     }
 
@@ -465,47 +495,41 @@ export function createOfflineUpstreamAuthHarness(): OfflineUpstreamAuthHarness {
     }
   );
 
+  function createSandboxSignatureVerifier(
+    checkToken: (jwtToken: string) => Promise<SandboxJwtCheck>,
+  ): { verify: (jwtToken: string) => Promise<void> } {
+    return {
+      async verify(jwtToken: string): Promise<void> {
+        reachedTransport = true;
+        const checked = await checkToken(jwtToken);
+        if (!checked.ok && checked.reason === 'kid') {
+          throw Object.assign(new Error('No matching kid'), { code: 'no-matching-kid' });
+        }
+        if (!checked.ok) {
+          throw Object.assign(new Error('Invalid signature'), { code: 'invalid-signature' });
+        }
+        const nbf = checked.claims.nbf;
+        if (nbf !== undefined && (typeof nbf !== 'number' || nbf > currentNowSec)) {
+          throw Object.assign(new Error('Invalid signature'), { code: 'invalid-signature' });
+        }
+        const exp = checked.claims.exp;
+        if (exp !== undefined) {
+          if (typeof exp !== 'number') {
+            throw Object.assign(new Error('Invalid signature'), { code: 'invalid-signature' });
+          }
+          if (currentNowSec >= exp) {
+            throw Object.assign(new Error('Token expired'), { code: 'token-expired' });
+          }
+        }
+      },
+    };
+  }
+
   requestHandler.authRequestHandler.httpClient.send = handleHttpSend;
-  requestHandler.idTokenVerifier.signatureVerifier = {
-    async verify(jwtToken: string): Promise<void> {
-      reachedTransport = true;
-      const checked = await checkIdToken(jwtToken);
-      if (!checked.ok && checked.reason === 'kid') {
-        const kidErr = new Error('No matching kid') as Error & { code: string };
-        kidErr.code = 'no-matching-kid';
-        throw kidErr;
-      }
-      if (!checked.ok) {
-        const sigErr = new Error('Invalid signature') as Error & { code: string };
-        sigErr.code = 'invalid-signature';
-        throw sigErr;
-      }
-      const nbf = checked.claims.nbf;
-      if (nbf !== undefined && (typeof nbf !== 'number' || nbf > currentNowSec)) {
-        const nbfErr = new Error('Invalid signature') as Error & { code: string };
-        nbfErr.code = 'invalid-signature';
-        throw nbfErr;
-      }
-      const exp = checked.claims.exp;
-      if (exp !== undefined) {
-        if (typeof exp !== 'number') {
-          const expTypeErr = new Error('Invalid signature') as Error & { code: string };
-          expTypeErr.code = 'invalid-signature';
-          throw expTypeErr;
-        }
-        if (currentNowSec >= exp) {
-          const expiredErr = new Error('Token expired') as Error & { code: string };
-          expiredErr.code = 'token-expired';
-          throw expiredErr;
-        }
-      }
-    },
-  };
-  requestHandler.sessionCookieVerifier.signatureVerifier = {
-    async verify(): Promise<void> {
-      reachedTransport = true;
-    },
-  };
+  requestHandler.idTokenVerifier.signatureVerifier = createSandboxSignatureVerifier(checkIdToken);
+  requestHandler.sessionCookieVerifier.signatureVerifier = createSandboxSignatureVerifier(
+    checkSandboxSessionCookieJwt,
+  );
 
   return {
     app,
@@ -527,8 +551,6 @@ const UNMODELED_BACKEND_AUTH_METHODS = new Set([
   'getUserByPhoneNumber',
   'getUsers',
   'deleteUsers',
-  'createSessionCookie',
-  'verifySessionCookie',
   'generatePasswordResetLink',
   'generateEmailVerificationLink',
   'generateSignInWithEmailLink',
