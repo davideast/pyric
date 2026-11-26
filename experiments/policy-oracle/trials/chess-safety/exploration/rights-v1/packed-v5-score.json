@@ -1,0 +1,53 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "8d567417e1f6d67de3562b4f55fc7ce1a6591709d2f37239d87206d029ee64e5",
+  "corpusSha256": "f9575a83cda9bdb89d17d2245b213b966801416ac72867f259a227c952773feb",
+  "caseCount": 1736,
+  "scoreSha256": "cb25523149871b88c5a1340c135c36547d0d89dc0a242dde6e92f88b6c99c765",
+  "groups": {
+    "departure-straight-sparse": {
+      "cases": 288,
+      "outcomes": {
+        "match": 288
+      },
+      "peakExpressions": 925
+    },
+    "departure-straight-dense": {
+      "cases": 232,
+      "outcomes": {
+        "match": 232
+      },
+      "peakExpressions": 925
+    },
+    "capture-diagonal-sparse": {
+      "cases": 352,
+      "outcomes": {
+        "match": 352
+      },
+      "peakExpressions": 949
+    },
+    "capture-straight-sparse": {
+      "cases": 384,
+      "outcomes": {
+        "match": 384
+      },
+      "peakExpressions": 958
+    },
+    "capture-straight-dense": {
+      "cases": 312,
+      "outcomes": {
+        "match": 312
+      },
+      "peakExpressions": 958
+    },
+    "capture-diagonal-dense": {
+      "cases": 168,
+      "outcomes": {
+        "match": 168
+      },
+      "peakExpressions": 949
+    }
+  },
+  "reachableByMove": {},
+  "divergences": {}
+}
