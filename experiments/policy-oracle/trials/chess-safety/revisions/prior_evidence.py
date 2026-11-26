@@ -57,4 +57,3 @@ def verify_prior(record, report, reference=None):
     if record['scope'].startswith('source emission only') != (not checked):
         raise ValueError('Prior game evidence does not agree with the recorded scope')
     return {'scope': record['scope'], 'inputs': checked}
-
