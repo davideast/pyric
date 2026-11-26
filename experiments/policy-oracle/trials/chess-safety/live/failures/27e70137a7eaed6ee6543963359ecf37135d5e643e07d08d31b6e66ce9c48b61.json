@@ -1,0 +1,17 @@
+{
+  "plan": "preliminary-pins",
+  "intendedRulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
+  "journalBoundRulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
+  "journalSha256": "27e70137a7eaed6ee6543963359ecf37135d5e643e07d08d31b6e66ce9c48b61",
+  "failureTime": "2026-11-26T15:14:44.721Z",
+  "operation": "activate-release",
+  "httpStatus": 503,
+  "serviceCode": "UNAVAILABLE",
+  "caseWrites": 0,
+  "originalClosed": true,
+  "leaseReleased": true,
+  "signedPhases": [
+    "initially-closed",
+    "restored-closed"
+  ]
+}

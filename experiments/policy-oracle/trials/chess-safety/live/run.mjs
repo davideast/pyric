@@ -6,6 +6,7 @@ import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
 import {checkRows,comparable,qualify} from '../../for-of/live/evidence.mjs';
 import {retain} from '../../for-of/live/retain.mjs';
 import {reviewedPlan} from './fixtures.mjs';
+import {failureObservations} from './failures.mjs';
 
 const roles={host:'host',guest:'guest',observer:'observer'};
 
@@ -72,6 +73,7 @@ function report(archive, allowUnmeasured) {
   const replayed=oldInputs.filter(row=>answers.has(row.id));
   for(const row of replayed) assert.deepEqual(answers.get(row.id),row,'legacy signed inputs '+row.id);
   return {authority:'live Firestore',privateJournalChecked:Boolean(archive),
+    managementFailures:failureObservations(archive),
     legacyInputsReplayed:replayed.length,repeatedInputs:repeat.size, releases:[...captures].map(([rulesSha256,rows])=>({
       rulesSha256,status:'measured',distinctCases:rows.outcomes.size,captures:rows.reports}))};
 }

@@ -7,6 +7,8 @@ import {fileURLToPath} from 'node:url';
 import {manifest} from '../../../arcade/corpus.mjs';
 import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
 import {read as immutableJson} from '../../chess/verify/journal.mjs';
+import {record} from './failures.mjs';
+import {reviewedPlan} from './fixtures.mjs';
 
 const cli=fileURLToPath(new URL('run.mjs',import.meta.url));
 
@@ -47,7 +49,9 @@ export async function measure(name,archive) {
     if(child.status!==0) {
       const started=lines.find(l=>l.startsWith('Private run '));
       const id=started?.split(' ')[2];
-      if(!id || attempt===3 || !retryable(archive,id)) throw Error('Capture incomplete; no observations admitted');
+      if(!id || !retryable(archive,id)) throw Error('Capture incomplete; no observations admitted');
+      record(archive,id,name,reviewedPlan(name).plan.rulesSha256);
+      if(attempt===3) throw Error('Three management failures; no observations admitted');
       console.log('Retrying temporary management failure after verified closure and zero scored writes',attempt);
       await delay(30000*attempt);
       continue;
