@@ -1,0 +1,260 @@
+{
+  "scope": "local frozen complete signed writes and independent four-ply replay; hosted static outcomes reported separately",
+  "controls": {
+    "knight-endgame-paired-pawn-combined-bare-projections-packed-v5": {
+      "rulesSha256": "ef1a9a20902c228227567277e8acc8cb38936a8c64789ca16d993da2de1e5343",
+      "sourceBytes": 89300,
+      "scoreDigests": {
+        "holdouts-summary.json": "9b9f210abf4bd041f8d1aca0947cacc3ac274d94f74471b6a4319e2b734fe367",
+        "lifecycle.json": "7eac9260fac247c20713eecb8f03f92f6968330662dcd075a40f4104a0ad01ca",
+        "mate-cost.json": "73faa196005f1df3060af55f0acc7c3612f089c83e4f2ffe9afa6e8c840268dc"
+      },
+      "frozenPanel": {
+        "cases": 15905,
+        "outcomes": {
+          "match": 15678,
+          "false-allow": 223,
+          "false-refusal/resource-limit": 4
+        },
+        "promotion": {
+          "cases": 904,
+          "outcomes": {
+            "match": 900,
+            "false-refusal/resource-limit": 4
+          },
+          "decisionsSha256": "3e1d7693c074a0bf3a5ed0f150bd466fe0643e9e2c17b5a6ff2811fd770ff558"
+        }
+      },
+      "lifecycle": {
+        "traces": 37,
+        "positiveWrites": 1621,
+        "negativeProbes": 7966,
+        "outcomes": {
+          "match": 9584,
+          "false-allow": 3
+        },
+        "completePrefixes": 37,
+        "decisionsSha256": "7729334446cead75f1c19c4c2f5874235ab7408f7c2e7d9e54bad5bc86ab7eb9"
+      },
+      "honestCheckmate": {
+        "uci": "d8h4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "afterFen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 982,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "claims": {
+          "won": {
+            "decision": "ALLOW",
+            "expressions": 982,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "playing": {
+            "decision": "ALLOW",
+            "expressions": 839,
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow"
+          },
+          "draw": {
+            "decision": "DENY",
+            "expressions": 713,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "wrongWinner": {
+            "decision": "DENY",
+            "expressions": 110,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        "atPly16": {
+          "decision": "ALLOW",
+          "expressions": 982,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    },
+    "knight-endgame-paired-pawn-combined-bare-fixed-packed-v5": {
+      "rulesSha256": "28a1783008b1d212be7a386e3db2aced79adb0a4f4b185a0b47d61a9afc673fa",
+      "sourceBytes": 118355,
+      "scoreDigests": {
+        "holdouts-summary.json": "082c65d1927df7c9f911ec147c62990b423e49665f6d7533d46e92549d8fd065",
+        "lifecycle.json": "d101ea10f667c4252d338fb6c01d5aa63065fdfac90bf702b2527a5ff8ab0809",
+        "mate-cost.json": "2594df24002f0a40bb3d74be3f49fd35eae0b37bb53b08f04850711e23710dce"
+      },
+      "frozenPanel": {
+        "cases": 15905,
+        "outcomes": {
+          "match": 15674,
+          "false-allow": 223,
+          "false-refusal/resource-limit": 8
+        },
+        "promotion": {
+          "cases": 904,
+          "outcomes": {
+            "match": 896,
+            "false-refusal/resource-limit": 8
+          },
+          "decisionsSha256": "d4ab31ce5bb6c716a469219140be0000ff9bfc94ab87a24a28871714ba18743c"
+        }
+      },
+      "lifecycle": {
+        "traces": 37,
+        "positiveWrites": 1621,
+        "negativeProbes": 7966,
+        "outcomes": {
+          "match": 9584,
+          "false-allow": 3
+        },
+        "completePrefixes": 37,
+        "decisionsSha256": "c8a0cd5e47b7846a3864f101b057da84491d6ca1df825190fa734ea4b9ef245f"
+      },
+      "honestCheckmate": {
+        "uci": "d8h4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "afterFen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 993,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "claims": {
+          "won": {
+            "decision": "ALLOW",
+            "expressions": 993,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "playing": {
+            "decision": "ALLOW",
+            "expressions": 839,
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow"
+          },
+          "draw": {
+            "decision": "DENY",
+            "expressions": 713,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "wrongWinner": {
+            "decision": "DENY",
+            "expressions": 110,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        "atPly16": {
+          "decision": "ALLOW",
+          "expressions": 993,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    },
+    "knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5": {
+      "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+      "sourceBytes": 118285,
+      "scoreDigests": {
+        "holdouts-summary.json": "f2de5692fc5bcaff0d7f263d1ea8f75c99c778cf25e81e06183e9867c5137fe7",
+        "lifecycle.json": "f5ce4d27d63e3a3bf8a0cab432088c58eb757090db83a67bf8d815dd1be934e9",
+        "mate-cost.json": "f745027302d58676fcc10dfeb1a17497468e20c0bbfb87115b7108c1d60f5e7d"
+      },
+      "frozenPanel": {
+        "cases": 15905,
+        "outcomes": {
+          "match": 15678,
+          "false-allow": 223,
+          "false-refusal/resource-limit": 4
+        },
+        "promotion": {
+          "cases": 904,
+          "outcomes": {
+            "match": 900,
+            "false-refusal/resource-limit": 4
+          },
+          "decisionsSha256": "9838e25d6e9e6ca386b8c60d71ca05f2b7fc2124759c05a9ba6481e9963cf03e"
+        }
+      },
+      "lifecycle": {
+        "traces": 37,
+        "positiveWrites": 1621,
+        "negativeProbes": 7966,
+        "outcomes": {
+          "match": 9584,
+          "false-allow": 3
+        },
+        "completePrefixes": 37,
+        "decisionsSha256": "84b41d16ded326020c5a4aad7673f014ffbd797c9fa498f2ef975a61a13fe144"
+      },
+      "honestCheckmate": {
+        "uci": "d8h4",
+        "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+        "afterFen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+        "honest": {
+          "decision": "ALLOW",
+          "expressions": 987,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        },
+        "claims": {
+          "won": {
+            "decision": "ALLOW",
+            "expressions": 987,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "playing": {
+            "decision": "ALLOW",
+            "expressions": 839,
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow"
+          },
+          "draw": {
+            "decision": "DENY",
+            "expressions": 713,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          },
+          "wrongWinner": {
+            "decision": "DENY",
+            "expressions": 110,
+            "status": "match",
+            "cause": null,
+            "kind": "match"
+          }
+        },
+        "atPly16": {
+          "decision": "ALLOW",
+          "expressions": 987,
+          "status": "match",
+          "cause": null,
+          "kind": "match"
+        }
+      }
+    }
+  }
+}
