@@ -3,11 +3,12 @@ import * as terminal from '../terminal/table-v2/policy.mjs';
 import {compileMobility,linkOnto} from './adapter.mjs';
 import {groupedSources} from './grouped.mjs';
 import {threeSources,compileThree,wholeBinding} from './three-piece.mjs';
+import {bareBinding,compileBare} from './bare.mjs';
 import {replySource} from '../terminal/v1/reply.mjs';
 
-const variants=new Set(['combined-whole-packed-v5','combined-whole-fast-packed-v5','combined-quick-packed-v5','combined-pattern-packed-v5','combined-pattern-fast-packed-v5']);
+const variants=new Set(['combined-bare-packed-v5','combined-whole-packed-v5','combined-whole-fast-packed-v5','combined-whole-lazy-packed-v5','combined-quick-packed-v5','combined-pattern-packed-v5','combined-pattern-fast-packed-v5']);
 
-const backend=variant=>variant.slice(9).replace('pattern-fast-','pattern-').replace(/^whole-(?:fast-)?/,'');
+const backend=variant=>variant.slice(9).replace('pattern-fast-','pattern-').replace(/^whole-(?:(?:fast|lazy)-)?/,'').replace('bare-','');
 
 export function compile(compileFunction,variant,options={mode:'both'}) {
   if (!variants.has(variant)) return terminal.compile(compileFunction,variant,options);
@@ -20,6 +21,11 @@ export function compile(compileFunction,variant,options={mode:'both'}) {
     const reply=compileFunction(replySource());
     if(options.mode!=='standalone')out.modules.replyCapture=reply.firestoreModule();
     out.threePieceStatus=three.threePieceStatus;
+  }
+  if(variant==='combined-bare-packed-v5') {
+    const reply=compileFunction(replySource());
+    if(options.mode!=='standalone')out.modules.replyCapture=reply.firestoreModule();
+    out.bareDefenderStatus=compileBare(compileFunction,mobility);
   }
   return out;
 }
@@ -58,14 +64,33 @@ function fuseTerminal(source,fast=false) {
   return {test,helpers};
 }
 
+// Reuse the original en-passant path only when a pawn actually captures en
+// passant. Ordinary moves require the same empty extra-square list directly.
+function trimMoveWork(source) {
+  function edit(before,after) {
+    assert.equal(source.split(before).length,2,'unexpected binding '+before);
+    source=source.replace(before,after);
+  }
+  edit('safeTransition(old, next, color, kingMove, castle, xTo, yTo)',
+       'safeTransition(old, next, color, castle, xTo)');
+  edit("safeTransition(old, next, color, kind == 'k', castle, x + dx, y + dy)",
+       'safeTransition(old, next, color, castle, x + dx)');
+  const original="specialSquares(old, next, kind, color, mv.to[0:1], mv.from[1:2], ep)";
+  edit(original,'(ep ? '+original+' : mv.extra == [])');
+  return source;
+}
+
 export async function link(modules,resolveModules,{variant}) {
   if (!variants.has(variant)) return terminal.link(modules,resolveModules,{variant});
   const whole=variant.startsWith('combined-whole-');
-  const extra=whole?[...Object.keys(threeSources()),'replyCapture']:[];
+  const bare=variant==='combined-bare-packed-v5';
+  const extra=whole?[...Object.keys(threeSources()),'replyCapture']:bare?['replyCapture']:[];
   const names=new Set([...Object.keys(groupedSources()),...extra]);
   const group=Object.fromEntries(Object.entries(modules).filter(([key])=>names.has(key)));
   const original=Object.fromEntries(Object.entries(modules).filter(([key])=>!names.has(key)));
   let source=await terminal.link(original,resolveModules,{variant:backend(variant)});
+  const lazy=variant==='combined-whole-lazy-packed-v5';
+  if(lazy||bare)source=trimMoveWork(source);
   const fast=variant==='combined-pattern-fast-packed-v5';
   if(fast) {
     const old="let stripped = text.split('#|[wb][qrnb]|k').join('');";
@@ -76,6 +101,6 @@ export async function link(modules,resolveModules,{variant}) {
       .replace(swap,()=>"stripped.replace('([wb])(,*)([wb])','$3$2$1')");
   }
   return linkOnto(source,group,resolveModules,{specialized:true,grouped:true,
-    extra,fuseTerminal:whole ? source=>wholeBinding(source,variant.includes('whole-fast-')) : source=>fuseTerminal(source,fast)});
+    extra,fuseTerminal:bare ? bareBinding : whole ? source=>wholeBinding(source,lazy||variant.includes('whole-fast-')) : source=>fuseTerminal(source,fast)});
 
 }

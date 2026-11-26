@@ -50,3 +50,11 @@ The whole-board variants derive the exact playing, mate or stalemate status when
 | combined-whole-fast-packed-v5 | 1c54afb25341a008e08b831e0cfd1b8a489dab8681e7d917d384fd77b8018b36 | 161,446 | 12,239 | 288/288 |
 
 The fast variant encountered five resource limits on legal writes and three on incorrect declarations. Its 124 incorrect allows involved broader terminal claims. Among another 762 complementary claims it matched 618 and allowed 144 incorrect results. Its complete-write observations and exhaustive pure geometry proof answer different questions.
+
+## Bare defender with arbitrary attackers
+
+The table-free `combined-bare-packed-v5` accepts an ongoing bare-king position exactly when that king has a legal move. When the king cannot move, its current check status distinguishes checkmate from stalemate. A single castling-right declaration cannot change the result because castling also requires a particular legal adjacent king step. A defender with another piece falls outside this exact standalone contract. `bareDefenderStatus(board,movingColor)` returns null there.
+
+The frozen [standalone replay](qualify-bare.mjs) matched all 328 distinct eligible successor boards and returned null for 16 neighboring positions with other defenders. The [standalone score](bare-standalone.json) and independent full-write score measure different operations. Of 1,896 eligible complete writes in this corpus, 1,893 agreed and three legal castles exceeded the local expression budget. Across 15,413 signed local writes, the candidate agreed on 15,003, admitted 260 incorrect broader claims and exceeded the budget on 150 legal moves. Its 81,411-byte release has SHA-256 `9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f`.
+
+The separate `combined-whole-lazy-packed-v5` retains the narrower whole-board three-piece classifier and computes the en-passant capture square only on that branch. Its 161,432-byte release has SHA-256 `246042791e2798ee8b04a822210ffacce9c61a4f5f337c4311718c785b183dc7`. It agreed on 14,850 of the same 15,413 writes, permitting 563 incorrect terminal declarations, with no runtime or budget denials.

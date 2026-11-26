@@ -1,0 +1,12 @@
+{
+  "nativeCorpus": "daad023b62917d4ccce4e758268bfea82b97c3ba525bf2d12f987dc10d5bb0e6",
+  "submissions": 1992,
+  "uniqueSuccessors": 344,
+  "eligible": 328,
+  "outside": 16,
+  "states": {
+    "won": 92,
+    "draw": 48,
+    "playing": 188
+  }
+}
