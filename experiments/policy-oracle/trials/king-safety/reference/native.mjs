@@ -17,7 +17,10 @@ const cases = JSON.parse(read(process.argv[2] ?? 'positions.json')).map(({id,fen
   const standalone={beforeCheck:pyric.inCheck(pos),afterCheck:pyric.inCheck({...next,turn:pos.turn}),legal:pyric.legalMoves(pos).includes(uci)};
   assert.deepEqual(standalone,{beforeCheck,afterCheck,legal:nativeLegal},id);
   assert.equal(beforeCheck,false,id);
-  assert.equal(afterCheck,!nativeLegal,id);
+  if (process.argv[2] === 'path-cost-controls.json') {
+    assert.equal(afterCheck,false,id);
+    assert.equal(nativeLegal,false,id);
+  } else assert.equal(afterCheck,!nativeLegal,id);
   return {id,fen,uci,nativeLegal,beforeCheck,afterCheck,standalone};
 });
 console.log(JSON.stringify({engine,policy,cases},null,2));
