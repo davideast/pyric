@@ -1,0 +1,16 @@
+{
+  "plan": "final-chess-safety-full",
+  "intendedRulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "journalBoundRulesSha256": null,
+  "journalSha256": "696a7898aee71c9f6e8275cb4251d60931b713c85a32fdb0b28f17a2b23324e1",
+  "failureTime": "2026-11-26T16:44:31.648Z",
+  "operation": "create-ruleset",
+  "httpStatus": 400,
+  "serviceCode": "INVALID_ARGUMENT",
+  "caseWrites": 0,
+  "originalClosed": true,
+  "leaseReleased": true,
+  "signedPhases": [
+    "initially-closed"
+  ]
+}

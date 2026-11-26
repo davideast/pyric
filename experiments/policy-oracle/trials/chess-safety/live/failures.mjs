@@ -39,7 +39,8 @@ function inspect(archive,runId,intendedRulesSha256) {
     assert.deepEqual(control.controls.slice(-2).map(c=>[c.beforeRead,c.write,c.afterRead]),
       [['DENY','DENY','DENY'],['DENY','DENY','DENY']]);
   }
-  assert.ok([429,503].includes(fail.status));
+  const invalidCompiler=fail.status===400 && fail.method==='POST' && fail.path.endsWith('/rulesets') && fail.serviceCode==='INVALID_ARGUMENT';
+  assert.ok(invalidCompiler || [429,503].includes(fail.status));
   const operation=fail.path.endsWith('/rulesets')?'create-ruleset':'activate-release';
   assert.equal(fail.method,operation==='create-ruleset'?'POST':'PATCH');
   return {intendedRulesSha256,journalBoundRulesSha256:activation[0]?.digest??null,

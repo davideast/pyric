@@ -1,0 +1,56 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "fallback-paired-pawn",
+  "rulesSha256": "12c714bb2c32abc6ec3ffc41e15227370829c5313458d4638ab130d764ce475f",
+  "requestSha256": "03348166b54992dd77ceb59992d01a9b39c3b1305e4e75a6dbb3b4ea44c281df",
+  "httpStatus": 200,
+  "state": "compile-error",
+  "issues": [
+    {
+      "severity": "ERROR",
+      "line": 14,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7093,
+      "literalSha256": "717bf7615c0482a08dc41beb7274fdfb906affc251a343c7a9f02ab2c6442eb2"
+    },
+    {
+      "severity": "ERROR",
+      "line": 17,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7379,
+      "literalSha256": "0861fd0fe8dae909b3cd033f9e69d3fb2112d102e8890698fabf94385e4365ce"
+    },
+    {
+      "severity": "ERROR",
+      "line": 20,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7163,
+      "literalSha256": "16e0e0caee931726b44c5a8f0404a6d4f05bac9241bf2e5b4fcaa76d4c549de1"
+    },
+    {
+      "severity": "ERROR",
+      "line": 23,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7477,
+      "literalSha256": "f9e10e107c375f391f2e16e9dc29051f2b7ef1d71e0f62dfd8521d82b94f901a"
+    },
+    {
+      "severity": "WARNING",
+      "line": 367,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 379,
+      "column": 12,
+      "message": "Unused function: nextEp."
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "0848b1fc87cac5d0e2933a6dd2d8136933a5d2005a10ca877de292b1eeb3d4d8"
+}

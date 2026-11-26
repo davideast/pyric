@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "ac1cbff2f3a8db47adf2869dcd7569e4e7d15dd46565d988569c122e199b1b75",
+  "file": "../artefacts/knight-endgame-paired-pawn-combined-bare-pairs-packed-v5.rules",
+  "basis": "116,187-byte repair of the four overlength king-reply patterns rejected by Google. Compared exact complete source to a5a549b9: four allRefused functions change, four are added, and hasKingReply joins the new ordered tests. Every other function, signed-player and field guard, match and allow clause is identical."
+}

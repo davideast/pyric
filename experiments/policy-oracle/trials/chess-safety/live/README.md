@@ -28,3 +28,9 @@ If a new upload succeeded and its activation failed temporarily, the bounded ret
 Use `node opening.mjs replay PLAN` to check the public receipt or add `PRIVATE_ARCHIVE` to verify the original release, complete journal and signed closure controls. Opening receipts are separate from the fresh-position score because all four writes depend on the same stored match.
 
 The chess safety capture records its local proof times using elapsed monotonic time anchored once to UTC at process startup. Firestore supplies all document and release versions. A prior 115-write run encountered three backward jumps in the host clock. Its immutable transcript and authenticated restoration are listed under `unqualified/`. It contributes zero decisions. Archive-backed replay reproduces the three time inversions and confirms the release closure independently.
+
+### Compiler diagnostics from Google
+
+`node compile-diagnostic.mjs SUBJECT PRIVATE_ARCHIVE` sends one synthetic signed-out read and the exact source to the read-only Google Rules Test API. The private digest pins the response and complete request hash. Each public observation identifies its Rules bytes, source position, compiler message and the length and SHA-256 of any rejected literal. `literal-4096`, `literal-4097`, `groups-100` and `groups-101` use one fixed source envelope. The grouping controls repeat `(?:a)` side by side. These checks perform zero writes and create no Rulesets.
+
+Lookup reports `compilerRejections` for an actual named-database Ruleset creation rejected by the service and `compileDiagnostics` for the independent read-only service check. An upload rejected before a Ruleset exists retains the intended SHA from the invocation. The read-only request binds the complete bytes to their SHA separately. `managementFailures` contains transient availability outcomes. Candidate write verdicts come exclusively from completed signed SDK captures.

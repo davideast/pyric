@@ -1,0 +1,11 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "literal-4096",
+  "rulesSha256": "4b4eaf4564fdac2a6348bb5e61fa8f7c213129c6a4f9febec19b8d74f2e7bbbd",
+  "requestSha256": "17ca89bdd60a7d0e74f4022e92b9fa2a46715befd93fd2e88a904fc31a98bcfa",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [],
+  "caseWrites": 0,
+  "receipt": "d66fd3f43ab5dbd7d1ec4b8f0bfc9822fff2b73f9a10f1da8d902ae32c82dd8b"
+}

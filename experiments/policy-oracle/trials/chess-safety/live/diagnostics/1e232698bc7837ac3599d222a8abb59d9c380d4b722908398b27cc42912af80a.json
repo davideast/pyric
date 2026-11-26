@@ -1,0 +1,20 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "literal-4097",
+  "rulesSha256": "1e232698bc7837ac3599d222a8abb59d9c380d4b722908398b27cc42912af80a",
+  "requestSha256": "845ed1d229db67e252f033a7317fb539df8fba7da2d101ee8e34053bcc364847",
+  "httpStatus": 200,
+  "state": "compile-error",
+  "issues": [
+    {
+      "severity": "ERROR",
+      "line": 5,
+      "column": 57,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 4097,
+      "literalSha256": "4e369b5618643c3abddd027b650bfa54810be3b418028a7c9d82299a59d008e8"
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "cbc85e21c623c2f5fdcf1eb0b159550b0270f3c144df11bea9b1b126cb856175"
+}

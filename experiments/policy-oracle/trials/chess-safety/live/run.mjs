@@ -8,6 +8,7 @@ import {retain} from '../../for-of/live/retain.mjs';
 import {reviewedPlan} from './fixtures.mjs';
 import {failureObservations} from './failures.mjs';
 import {unqualified} from './exclusions.mjs';
+import {compileDiagnostics} from './compile-diagnostic.mjs';
 
 const roles={host:'host',guest:'guest',observer:'observer'};
 
@@ -41,13 +42,16 @@ function verify(name, profile, archive) {
 
 function report(archive, allowUnmeasured) {
   const answers=new Map(), captures=new Map(), repeat=new Set();
+  const diagnostics=compileDiagnostics(archive);
+  const compileErrors=new Set(diagnostics.filter(d=>d.state==='compile-error').map(d=>d.rulesSha256));
   const files=readdirSync(new URL('plans/',import.meta.url)).filter(f=>f.endsWith('.json')).sort();
   for(const file of files) {
     const name=file.slice(0,-5);
-    if(allowUnmeasured) {
+    {
       const {rulesSha256}=JSON.parse(readFileSync(new URL('plans/'+file,import.meta.url)));
       assert.match(rulesSha256,/^[0-9a-f]{64}$/);
-      if(!existsSync(new URL('receipts/'+rulesSha256+'/'+name+'.pin.json',import.meta.url))) continue;
+      if((allowUnmeasured || compileErrors.has(rulesSha256)) &&
+        !existsSync(new URL('receipts/'+rulesSha256+'/'+name+'.pin.json',import.meta.url))) continue;
     }
     const profile=reviewedPlan(name), sha=profile.plan.rulesSha256;
     const {measurements,operands}=verify(name,profile,archive);
@@ -73,8 +77,10 @@ function report(archive, allowUnmeasured) {
   assert.equal(oldInputs.length,10);
   const replayed=oldInputs.filter(row=>answers.has(row.id));
   for(const row of replayed) assert.deepEqual(answers.get(row.id),row,'legacy signed inputs '+row.id);
+  const failures=failureObservations(archive);
   return {authority:'live Firestore',privateJournalChecked:Boolean(archive),
-    managementFailures:failureObservations(archive),unqualified:unqualified(archive),
+    managementFailures:failures.filter(f=>f.httpStatus!==400),compilerRejections:failures.filter(f=>f.httpStatus===400),
+    compileDiagnostics:diagnostics,unqualified:unqualified(archive),
     legacyInputsReplayed:replayed.length,repeatedInputs:repeat.size, releases:[...captures].map(([rulesSha256,rows])=>({
       rulesSha256,status:'measured',distinctCases:rows.outcomes.size,captures:rows.reports}))};
 }
@@ -118,6 +124,8 @@ if(operation==='measure') {
   const measured=digest && result.releases.find(r=>r.rulesSha256===digest);
   const data=digest ? {...(measured ?? {rulesSha256:digest,status:'unmeasured',distinctCases:0,captures:[]}),
     managementFailures:result.managementFailures.filter(f=>f.intendedRulesSha256===digest),
-    unqualified:result.unqualified.filter(f=>f.rulesSha256===digest)} : result;
+    unqualified:result.unqualified.filter(f=>f.rulesSha256===digest),
+    compilerRejections:result.compilerRejections.filter(f=>f.intendedRulesSha256===digest),
+    compileDiagnostics:result.compileDiagnostics.filter(f=>f.rulesSha256===digest)} : result;
   console.log(JSON.stringify(data,null,2));
 }

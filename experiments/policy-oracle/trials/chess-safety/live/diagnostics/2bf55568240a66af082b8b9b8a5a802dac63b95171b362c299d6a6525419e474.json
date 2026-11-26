@@ -1,0 +1,20 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "groups-101",
+  "rulesSha256": "2bf55568240a66af082b8b9b8a5a802dac63b95171b362c299d6a6525419e474",
+  "requestSha256": "6a68d8a40f70f98f6342038a3da76baa1de36947624bfaff36665fa43f75a993",
+  "httpStatus": 200,
+  "state": "compile-error",
+  "issues": [
+    {
+      "severity": "ERROR",
+      "line": 5,
+      "column": 57,
+      "message": "Regular expression too many groupings. Maximum allowed groupings: 100",
+      "literalLength": 505,
+      "literalSha256": "55c3f26f24e52c74fcee49ee676311e087d3946b22feb81eb346ec19273afbb0"
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "3ddccc405ca7391d7617c39f017cc1fe804d57998e61ee8b797fcadb6b70eb9f"
+}

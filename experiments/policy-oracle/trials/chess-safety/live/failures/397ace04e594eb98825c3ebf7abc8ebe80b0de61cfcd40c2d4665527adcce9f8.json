@@ -1,0 +1,16 @@
+{
+  "plan": "optimized-minimized",
+  "intendedRulesSha256": "fe6ae708a8efb6ab4225108e13783a36067425206b98778b5d176abe100cc33c",
+  "journalBoundRulesSha256": null,
+  "journalSha256": "397ace04e594eb98825c3ebf7abc8ebe80b0de61cfcd40c2d4665527adcce9f8",
+  "failureTime": "2026-11-26T16:47:15.830Z",
+  "operation": "create-ruleset",
+  "httpStatus": 503,
+  "serviceCode": "UNAVAILABLE",
+  "caseWrites": 0,
+  "originalClosed": true,
+  "leaseReleased": true,
+  "signedPhases": [
+    "initially-closed"
+  ]
+}

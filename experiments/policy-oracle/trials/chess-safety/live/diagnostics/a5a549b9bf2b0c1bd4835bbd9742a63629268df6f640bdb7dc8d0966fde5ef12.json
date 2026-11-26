@@ -1,0 +1,62 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "final-chess-safety-full",
+  "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "requestSha256": "0b49363cda6f77884cab16b2036ff7703af5ec58fe8e324946784beea421976b",
+  "httpStatus": 200,
+  "state": "compile-error",
+  "issues": [
+    {
+      "severity": "ERROR",
+      "line": 28,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7093,
+      "literalSha256": "717bf7615c0482a08dc41beb7274fdfb906affc251a343c7a9f02ab2c6442eb2"
+    },
+    {
+      "severity": "ERROR",
+      "line": 31,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7379,
+      "literalSha256": "0861fd0fe8dae909b3cd033f9e69d3fb2112d102e8890698fabf94385e4365ce"
+    },
+    {
+      "severity": "ERROR",
+      "line": 34,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7163,
+      "literalSha256": "16e0e0caee931726b44c5a8f0404a6d4f05bac9241bf2e5b4fcaa76d4c549de1"
+    },
+    {
+      "severity": "ERROR",
+      "line": 37,
+      "column": 28,
+      "message": "Regular expression too long. Maximum allowed length: 4096",
+      "literalLength": 7477,
+      "literalSha256": "f9e10e107c375f391f2e16e9dc29051f2b7ef1d71e0f62dfd8521d82b94f901a"
+    },
+    {
+      "severity": "WARNING",
+      "line": 94,
+      "column": 12,
+      "message": "Unused function: knightWitness."
+    },
+    {
+      "severity": "WARNING",
+      "line": 420,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 432,
+      "column": 12,
+      "message": "Unused function: nextEp."
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "43e2b5025e445f4eef5aa76333a4c3d7ab0833d8f41872f22bb47e5d364f6b85"
+}
