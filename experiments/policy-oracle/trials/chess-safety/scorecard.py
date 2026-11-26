@@ -71,6 +71,7 @@ def render(report):
         rest=', '.join(f'{v} {k}' for k,v in rows.items() if k!='match' and v)
         output.append(f"| {label} | {sum(rows.values())} | {rows.get('match',0)} | {rest or '—'} |")
     for group,data in report['discovery']['cohorts'].items():append(group,data['outcomes'])
+    append('Pinned knight and safe twin on every slider ray',report['absolutePinRays']['stats'])
     for group,h in report['history'].items():append('Recorded traces, '+group,{'match':h['allow'],'false refusal':h['falseRefusals']})
     append('Consecutive saved match histories and refusal probes',report['lifecycle']['outcomes'])
     ep=report['enPassantContinuations']; counts=Counter()

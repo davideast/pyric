@@ -17,7 +17,7 @@ from receipt_comparison import compare
 
 REFERENCE = runpy.run_path(str(HERE.parent / 'for-of/replay.py'))
 DISCOVERY = runpy.run_path(str(HERE / 'exploration/replay.py'))
-DEFAULT = 'combined-pattern-fast-packed-v5'
+DEFAULT = 'knight-endgame-paired-pawn-combined-bare-simple-packed-v5'
 
 
 def read(path):
@@ -143,6 +143,10 @@ def replay(args, temp):
     sdk = REFERENCE['install_rules'](REFERENCE['VENDOR']/'pyric-rules-0.1.0.tgz',temp/'ref')/'@pyric/rules'
     discovery = DISCOVERY['run'](bundle,sdk,True,extended_endings=True,bare_defender=True,knight_replies=True)
     result['discovery'] = {k:v for k,v in discovery.items() if k != 'reports'}
+    rays = HERE/'exploration/absolute-rays-v1'
+    equal(observed('bun',rays/'freeze.mjs'),read(rays/'freeze.json'),'absolute pin ray geometry and successors')
+    result['absolutePinRays'] = observed('bun','exploration/self-check-v1/measure.mjs',sdk,bundle,'absolute-rays-v1')
+    equal(result['absolutePinRays']['rulesSha256'],digest,'absolute pin ray release')
     result['supplementalControls'] = score_controls(native,sdk,bundle,digest,control_files)
     ep = HERE/'exploration/en-passant-evasions-v1'
     equal(observed('bun',ep/'freeze.mjs'),read(ep/'freeze.json'),'en passant double-push predecessors')
@@ -170,6 +174,8 @@ def replay(args, temp):
         held = observed('bun',folder/'measure.mjs',args.sealed_referee,sdk,bundle)
         equal(held['rulesSha256'],digest,'sealed tested Rules')
         result['sealedReferee'] = {'status':'scored',**held}
+        ray_proof = observed(sys.executable,rays/'independent.py',args.sealed_referee/'chess-1.11.2.tar.gz')
+        equal(ray_proof,read(rays/'third-referee.json'),'independent chess reference on every absolute pin twin')
         sealed_pass = not held['first']
     journal_args = ['--archive',args.archive] if args.archive else []
     observations = observed('bun','live/run.mjs','observed',*journal_args)
@@ -186,7 +192,8 @@ def replay(args, temp):
         # exist before a receipt if an activation failed before Firestore saw any writes.
         result['releaseComparisons'] = compare(native,sdk,captures)
     target = result['hosted']
-    local_pass = (sealed_pass and run['matchedAll'] and core['passed'] and discovery['allMatch'] and not result['enPassantContinuations']['first']
+    local_pass = (sealed_pass and run['matchedAll'] and core['passed'] and discovery['allMatch']
+                  and result['absolutePinRays']['stats']=={'match':read(rays/'freeze.json')['writes']} and not result['enPassantContinuations']['first']
                   and all(r['counts']=={'match':r['cases']} for r in result['supplementalControls'].values())
                   and all(x['allow']==x['writes'] for x in history.values()))
     matches = all(set(counts) <= {'match'} for counts in target['comparison'].values()) if target['distinctCases'] else None

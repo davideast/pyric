@@ -1,0 +1,18 @@
+{
+  "authority": "pinned local evaluator",
+  "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "inputsSha256": "8ec6e0a5899323b3da5b046e0ada2f1975373ce0e3893ca5e8ff797889dff29d",
+  "groups": {
+    "last-blocker": {
+      "match": 10304
+    },
+    "safe-twin": {
+      "match": 10304
+    }
+  },
+  "stats": {
+    "match": 20608
+  },
+  "first": {},
+  "decisionsSha256": "e986f9ef117e65ae3da83cafcf6fe230f4da76e53913f8820e027ac1e3353efc"
+}

@@ -1,0 +1,8 @@
+{
+  "authority": "pinned python-chess",
+  "inputsSha256": "8ec6e0a5899323b3da5b046e0ada2f1975373ce0e3893ca5e8ff797889dff29d",
+  "sourceValid": 20608,
+  "successors": 20608,
+  "safe": 10304,
+  "pinned": 10304
+}

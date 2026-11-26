@@ -1,0 +1,31 @@
+{
+  "authority": "pinned local evaluator",
+  "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "inputsSha256": "8ec6e0a5899323b3da5b046e0ada2f1975373ce0e3893ca5e8ff797889dff29d",
+  "groups": {
+    "last-blocker": {
+      "false-allow": 10304
+    },
+    "safe-twin": {
+      "match": 10304
+    }
+  },
+  "stats": {
+    "false-allow": 10304,
+    "match": 10304
+  },
+  "first": {
+    "false-allow": {
+      "id": "ray-0-pinned",
+      "fen": "KNrk4/8/8/8/8/8/8/8 w - -",
+      "uci": "b8c6",
+      "group": "last-blocker",
+      "nativeAdmission": false,
+      "successor": "K1rk4/8/2N5/8/8/8/8/8 b - -",
+      "actual": "ALLOW",
+      "error": null,
+      "localExpressions": 658
+    }
+  },
+  "decisionsSha256": "03bb0097db682fffdb8fcd21309f7bd07c60e7efd329ccce0d4c95125dba1e12"
+}
