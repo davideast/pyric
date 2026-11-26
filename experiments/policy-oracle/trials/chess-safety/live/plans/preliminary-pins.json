@@ -2,7 +2,7 @@
   "rulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
   "inputs": [
     {
-      "batch": "00-file-pin",
+      "batch": "00-legacy-file",
       "file": "../../king-safety/reference/positions.json",
       "sha256": "e094b8218691bf7efe0070db356ab88bace68680fa23dc06e58cf4607e0f2588",
       "ids": [

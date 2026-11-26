@@ -2,17 +2,17 @@
   "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
   "inputs": [
     {
-      "batch": "00-file-pin",
+      "batch": "00-legacy-file",
       "file": "../../king-safety/reference/positions.json",
       "sha256": "e094b8218691bf7efe0070db356ab88bace68680fa23dc06e58cf4607e0f2588"
     },
     {
-      "batch": "00-file-pin",
+      "batch": "00-legacy-file",
       "file": "../../king-safety/reference/cost-position.json",
       "sha256": "05000731394a8baa188a865025e8e4d454fa797e3d962ffba77ccd5e842c1226"
     },
     {
-      "batch": "00-file-pin",
+      "batch": "00-legacy-file",
       "file": "../../king-safety/reference/path-cost-controls.json",
       "sha256": "66c9099711d70a87d78bece84c550b55566976ddd78045d7bd438ecfb8156eb1"
     },
