@@ -12,6 +12,7 @@
  *     and each account's revocation time and the deleted uids
  *   the three rule sources: Firestore, Realtime Database, and Storage
  *   Messaging broker state: tokens, tombstones, and topic subscriptions
+ *   Crashlytics broker state: per-app reports, unsent queues, logs, keys, and userId
  *
  * {@link captureFullState} is a pure read: it reaches each service's backend
  * through the same seams persistence already uses, and leaves every one of
@@ -33,7 +34,8 @@ import { getOrCreateBackend, heldDatabaseInstances } from '../database/sandbox/b
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
 import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
-import { resetCrashlyticsBroker } from '../crashlytics/internal.js';
+import { getCrashlyticsBroker, type CrashlyticsSnapshot } from '../crashlytics/internal.js';
+import { hasCrashlyticsAppStateData, isCrashlyticsSnapshot } from '../crashlytics/persistence.js';
 import { getMessagingBroker } from '../messaging/internal.js';
 import { isMessagingSnapshot, type MessagingSnapshot } from '../messaging/broker/persistence.js';
 import { SandboxImpl, getInternalEnv } from './internal/sandbox-impl.js';
@@ -147,6 +149,12 @@ export interface FullSandboxState {
    */
   messaging?: MessagingSnapshot;
   /**
+   * Durable Crashlytics broker state: per-app reports, unsent report queues,
+   * logs, custom keys, userId, and collection gates. Optional: omitted when
+   * empty or in states captured before Crashlytics was included.
+   */
+  crashlytics?: CrashlyticsSnapshot;
+  /**
    * The sandbox clock's state at capture. A checkpoint restore and a branch
    * fork both carry it, so a forked branch reaches the same `request.time`
    * verdict its base reached and a restored checkpoint stamps the same
@@ -227,6 +235,47 @@ export function applyMessaging(sandbox: LocalSandbox, captured: MessagingSnapsho
   broker.restore(structuredClone(normalized));
 }
 
+function normalizeCrashlyticsSnapshot(raw: unknown): CrashlyticsSnapshot | undefined {
+  if (!isCrashlyticsSnapshot(raw)) return undefined;
+  const apps = raw.apps
+    .filter(([, state]) => hasCrashlyticsAppStateData(state))
+    .map(([appId, state]): [string, typeof state] => [appId, structuredClone(state)])
+    .sort((left, right) => compareText(left[0], right[0]));
+  const nextSequence = Math.max(1, Math.floor(raw.nextSequence));
+  if (apps.length === 0 && nextSequence === 1) return undefined;
+  return { version: 1, nextSequence, apps };
+}
+
+/** Pure read of the sandbox's durable Crashlytics state, if any app data exists. */
+function captureCrashlytics(sandbox: LocalSandbox): CrashlyticsSnapshot | undefined {
+  if (!(sandbox instanceof SandboxImpl)) return undefined;
+  const registered = sandbox.getServiceRegistry().get('crashlytics');
+  if (registered !== undefined) return normalizeCrashlyticsSnapshot(registered.snapshot());
+  const pending = sandbox.getPendingSnapshotServices().get('crashlytics');
+  if (pending !== undefined) return normalizeCrashlyticsSnapshot(pending);
+  return undefined;
+}
+
+/** Replace or clear the sandbox's Crashlytics broker state without leaving stale reports behind. */
+function applyCrashlytics(sandbox: LocalSandbox, captured: CrashlyticsSnapshot | undefined): void {
+  const normalized = normalizeCrashlyticsSnapshot(captured);
+  if (normalized === undefined) {
+    if (!(sandbox instanceof SandboxImpl)) return;
+    const registered = sandbox.getServiceRegistry().get('crashlytics');
+    if (registered !== undefined) {
+      registered.reset?.();
+      return;
+    }
+    if (sandbox.getPendingSnapshotServices().has('crashlytics')) {
+      getCrashlyticsBroker(sandbox).reset();
+    }
+    return;
+  }
+  const broker = getCrashlyticsBroker(sandbox);
+  broker.reset();
+  broker.restore(structuredClone(normalized));
+}
+
 /**
  * Read one sandbox's entire state.
  *
@@ -291,6 +340,7 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
   }
 
   const messaging = captureMessaging(sandbox);
+  const crashlytics = captureCrashlytics(sandbox);
   const fullState: FullSandboxState = {
     firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
     firestoreEncoding: DOC_VALUE_ENCODING,
@@ -301,6 +351,7 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     clock: getClock(sandbox).capture(),
   };
   if (messaging !== undefined) fullState.messaging = messaging;
+  if (crashlytics !== undefined) fullState.crashlytics = crashlytics;
   return fullState;
 }
 
@@ -404,7 +455,7 @@ export async function applyFullState(
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);
   applyMessaging(sandbox, state.messaging);
-  resetCrashlyticsBroker(sandbox);
+  applyCrashlytics(sandbox, state.crashlytics);
   await applyStorageObjects(sandbox, state.storage);
   await applyStorageRulesState(sandbox, state.rules);
 }

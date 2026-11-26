@@ -5,6 +5,7 @@
  */
 import { getClock } from '../sandbox/clock.js';
 import type { Sandbox } from '../sandbox/types/service.js';
+import { isCrashlyticsSnapshot } from './persistence.js';
 import type {
   CrashlyticsAppState,
   CrashlyticsBreadcrumb,
@@ -150,17 +151,7 @@ function pushRing<T>(buffer: T[], entry: T, cap: number): void {
   }
 }
 
-function isCrashlyticsSnapshot(raw: unknown): raw is CrashlyticsSnapshot {
-  if (typeof raw !== 'object' || raw === null) {
-    return false;
-  }
-  const candidate = raw as Record<string, unknown>;
-  return (
-    candidate.version === 1 &&
-    typeof candidate.nextSequence === 'number' &&
-    Array.isArray(candidate.apps)
-  );
-}
+export { isCrashlyticsSnapshot } from './persistence.js';
 
 /**
  * In-memory Crashlytics broker managing per-app error reports, unsent report
@@ -335,7 +326,11 @@ export class CrashlyticsBroker {
   }
 
   flush(appId?: string): CrashlyticsFlushResult {
-    const { state } = this.stateFor(appId);
+    const key = resolveAppKey(appId);
+    const state = this.apps.get(key);
+    if (state === undefined) {
+      return { flushedCount: 0 };
+    }
     let flushedCount = 0;
     for (const report of state.reports) {
       if (!report.flushed) {
@@ -391,13 +386,21 @@ export class CrashlyticsBroker {
   }
 
   checkForUnsentReports(appId?: string): CrashlyticsCheckForUnsentReportsResult {
-    const { state } = this.stateFor(appId);
+    const key = resolveAppKey(appId);
+    const state = this.apps.get(key);
+    if (state === undefined) {
+      return { hasUnsentReports: false, count: 0 };
+    }
     const count = state.unsentReports.length;
     return { hasUnsentReports: count > 0, count };
   }
 
   sendUnsentReports(appId?: string): CrashlyticsSendUnsentReportsResult {
-    const { state } = this.stateFor(appId);
+    const key = resolveAppKey(appId);
+    const state = this.apps.get(key);
+    if (state === undefined) {
+      return { sentCount: 0 };
+    }
     const pending = state.unsentReports.splice(0);
     for (const report of pending) {
       report.flushed = true;
@@ -410,7 +413,11 @@ export class CrashlyticsBroker {
   }
 
   deleteUnsentReports(appId?: string): CrashlyticsDeleteUnsentReportsResult {
-    const { state } = this.stateFor(appId);
+    const key = resolveAppKey(appId);
+    const state = this.apps.get(key);
+    if (state === undefined) {
+      return { deletedCount: 0 };
+    }
     const deletedCount = state.unsentReports.length;
     state.unsentReports.length = 0;
     if (deletedCount > 0) {
@@ -420,7 +427,11 @@ export class CrashlyticsBroker {
   }
 
   getState(appId?: string): CrashlyticsAppState {
-    const { state } = this.stateFor(appId);
+    const key = resolveAppKey(appId);
+    const state = this.apps.get(key);
+    if (state === undefined) {
+      return createEmptyAppState();
+    }
     return cloneAppState(state);
   }
 
@@ -438,9 +449,13 @@ export class CrashlyticsBroker {
   }
 
   restore(raw: unknown): void {
+    const hadState = this.apps.size > 0 || this.nextSequence > 1;
     this.apps.clear();
     this.nextSequence = 1;
     if (!isCrashlyticsSnapshot(raw)) {
+      if (hadState) {
+        this.notify();
+      }
       return;
     }
     this.nextSequence = Math.max(1, Math.floor(raw.nextSequence));

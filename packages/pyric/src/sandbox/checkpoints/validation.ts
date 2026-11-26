@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
+import { isCrashlyticsSnapshot } from '../../crashlytics/persistence.js';
 import { isMessagingSnapshot } from '../../messaging/broker/persistence.js';
 import { rulesSourceRejection } from '../../rules/internal/index.js';
 import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
@@ -97,6 +98,7 @@ const stateFields = {
     storageCrossServiceIam: z.enum(['granted', 'denied']).optional(),
   }),
   messaging: z.unknown().refine(isMessagingSnapshot, 'Invalid Messaging snapshot').optional(),
+  crashlytics: z.unknown().refine(isCrashlyticsSnapshot, 'Invalid Crashlytics snapshot').optional(),
   clock: z.object({ mode: z.enum(['wall', 'fixed', 'offset']),
     fixedAt: z.number().finite(), offsetMs: z.number().finite() }).optional(),
 } satisfies Record<keyof FullSandboxState, z.ZodType<unknown>>;
