@@ -93,6 +93,7 @@ class FirebaseFirestore(
         return ListenerRegistration {
             entry.active.set(false)
             rulesDenialListeners.remove(entry)
+            synchronized(entry) {}
         }
     }
 
@@ -102,6 +103,7 @@ class FirebaseFirestore(
         }
         if (entry != null) {
             rulesDenialListeners.remove(entry)
+            synchronized(entry) {}
         }
     }
 
@@ -110,10 +112,12 @@ class FirebaseFirestore(
             @Suppress("UNCHECKED_CAST")
             val contextMap = (exception.denialContext as? Map<String, Any?>) ?: emptyMap()
             for (entry in rulesDenialListeners) {
-                if (!entry.active.get()) continue
-                try {
-                    entry.listener.onDenial(exception, contextMap)
-                } catch (_: Throwable) {}
+                synchronized(entry) {
+                    if (!entry.active.get()) return@synchronized
+                    try {
+                        entry.listener.onDenial(exception, contextMap)
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }

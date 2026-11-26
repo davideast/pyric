@@ -33,11 +33,15 @@ internal class FirebaseAuthBridgeSync(
     private val authStateLock = Any()
     private var authStateEpoch = 0L
     private var lastAuthoritativeWireSeq = 0L
+    private var lastTokenWireSeq = 0L
     private var initialBridgeSnapshotReceived = false
     private var initialIdTokenSnapshotReceived = false
 
     private fun isStaleInboundWireSeq(wireSeq: Long): Boolean =
         wireSeq <= lastAuthoritativeWireSeq && (wireSeq > 0L || lastAuthoritativeWireSeq > 0L)
+
+    private fun isStaleTokenWireSeq(wireSeq: Long): Boolean =
+        wireSeq <= lastTokenWireSeq && (wireSeq > 0L || lastTokenWireSeq > 0L)
 
     @Volatile
     private var sessionState = SessionState()
@@ -138,7 +142,7 @@ internal class FirebaseAuthBridgeSync(
         val snapUid = rawSnap["uid"] as? String
         val (targetUser, epochBeforeFetch) = synchronized(authStateLock) {
             initialIdTokenSnapshotReceived = true
-            if (isStaleInboundWireSeq(wireSeq)) {
+            if (isStaleTokenWireSeq(wireSeq)) {
                 return
             }
             sessionState.user to authStateEpoch
@@ -160,13 +164,13 @@ internal class FirebaseAuthBridgeSync(
         if (snapClaims != null) {
             val stillCurrent = synchronized(authStateLock) {
                 val current = sessionState.user
-                if (current?.uid == targetUser.uid && !isStaleInboundWireSeq(wireSeq)) {
+                if (current?.uid == targetUser.uid && !isStaleTokenWireSeq(wireSeq)) {
                     val extracted = FirebaseUser.extractCustomClaims(snapClaims)
                     current.customClaims = extracted
                     if (targetUser !== current) {
                         targetUser.customClaims = extracted
                     }
-                    lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+                    lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
                     commitSessionStateLocked()
                     true
                 } else {
@@ -180,7 +184,7 @@ internal class FirebaseAuthBridgeSync(
                 is BridgeTokenEnrichment.Resolved -> {
                     val stillCurrent = synchronized(authStateLock) {
                         val current = sessionState.user
-                        if (current?.uid != targetUser.uid || isStaleInboundWireSeq(wireSeq)) {
+                        if (current?.uid != targetUser.uid || isStaleTokenWireSeq(wireSeq)) {
                             false
                         } else {
                             if (authStateEpoch == epochBeforeFetch) {
@@ -197,7 +201,7 @@ internal class FirebaseAuthBridgeSync(
                                         targetUser.customClaims = extracted
                                     }
                                 }
-                                lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+                                lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
                                 if (enrichment.signInProvider != null || enrichment.claims != null) {
                                     commitSessionStateLocked()
                                 }
@@ -232,22 +236,74 @@ internal class FirebaseAuthBridgeSync(
     fun signOutLocal() {
         synchronized(authStateLock) {
             authStateEpoch += 1
-            lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, auth.bridgeClient.currentInboundWireSeq())
+            val currentSeq = auth.bridgeClient.currentInboundWireSeq()
+            lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, currentSeq)
+            lastTokenWireSeq = maxOf(lastTokenWireSeq, currentSeq)
             commitSessionStateLocked(user = null, lensOverride = null)
         }
         auth.notifyAuthStateChanged()
         auth.notifyIdTokenChanged()
     }
 
-    fun commitUserMutation(user: FirebaseUser, wireSeq: Long = 0L, mutate: () -> Unit): Boolean {
+    fun commitTokenMutation(
+        user: FirebaseUser,
+        wireSeq: Long = 0L,
+        customClaims: Map<String, Any?>,
+        signInProvider: String?
+    ): Boolean {
         val updated = synchronized(authStateLock) {
-            if (sessionState.user?.uid != user.uid || isStaleInboundWireSeq(wireSeq)) {
+            val current = sessionState.user
+            if (current?.uid != user.uid || isStaleTokenWireSeq(wireSeq)) {
                 false
             } else {
-                mutate()
+                if (!signInProvider.isNullOrBlank()) {
+                    current.signInProviderOverride = signInProvider
+                    if (user !== current) user.signInProviderOverride = signInProvider
+                }
+                current.customClaims = customClaims
+                if (user !== current) user.customClaims = customClaims
+                authStateEpoch += 1
+                lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
+                commitSessionStateLocked(user = current)
+                true
+            }
+        }
+        if (updated) {
+            auth.notifyIdTokenChanged()
+        }
+        return updated
+    }
+
+    fun commitUserProfileMutation(
+        user: FirebaseUser,
+        wireSeq: Long = 0L,
+        rawData: Map<String, Any?>? = null,
+        customClaims: Map<String, Any?>? = null,
+        signInProvider: String? = null
+    ): Boolean {
+        val updated = synchronized(authStateLock) {
+            val current = sessionState.user
+            if (current?.uid != user.uid || isStaleInboundWireSeq(wireSeq)) {
+                false
+            } else {
+                if (rawData != null) {
+                    current.rawData = rawData
+                    if (user !== current) user.rawData = rawData
+                }
+                if (!isStaleTokenWireSeq(wireSeq)) {
+                    if (customClaims != null) {
+                        current.customClaims = customClaims
+                        if (user !== current) user.customClaims = customClaims
+                    }
+                    if (!signInProvider.isNullOrBlank()) {
+                        current.signInProviderOverride = signInProvider
+                        if (user !== current) user.signInProviderOverride = signInProvider
+                    }
+                }
                 authStateEpoch += 1
                 lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
-                commitSessionStateLocked(user = user)
+                lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
+                commitSessionStateLocked(user = current)
                 true
             }
         }
@@ -258,11 +314,11 @@ internal class FirebaseAuthBridgeSync(
     }
 
     fun notifyTokenRefreshed(user: FirebaseUser, wireSeq: Long = 0L) {
-        commitUserMutation(user, wireSeq) {}
+        commitTokenMutation(user, wireSeq, user.customClaims, user.signInProviderOverride)
     }
 
     fun notifyUserUpdated(user: FirebaseUser, wireSeq: Long = 0L) {
-        commitUserMutation(user, wireSeq) {}
+        commitUserProfileMutation(user, wireSeq)
     }
 
     fun clearCurrentUserIfInvalidated(error: Exception, targetUid: String) {
@@ -289,6 +345,7 @@ internal class FirebaseAuthBridgeSync(
             } else if (sessionState.user?.uid == targetUid) {
                 authStateEpoch += 1
                 lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+                lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
                 commitSessionStateLocked(user = null)
                 true
             } else {
@@ -323,6 +380,7 @@ internal class FirebaseAuthBridgeSync(
             } else {
                 authStateEpoch += 1
                 lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+                lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
                 commitSessionStateLocked(user = user)
                 true
             }
@@ -380,6 +438,7 @@ internal class FirebaseAuthBridgeSync(
                 if (prevUid != null) {
                     authStateEpoch += 1
                     lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+                    lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
                     commitSessionStateLocked(user = null)
                     true
                 } else {
@@ -432,13 +491,16 @@ internal class FirebaseAuthBridgeSync(
             }
             val user = FirebaseUser(auth, userMap, signInProviderOverride = inheritedProvider)
             val enrichedClaims = enrichment?.claims
-            if (enrichedClaims != null && user.customClaims.isEmpty()) {
+            if (existingUser != null && existingUser.uid == user.uid && isStaleTokenWireSeq(wireSeq)) {
+                user.customClaims = existingUser.customClaims
+            } else if (enrichedClaims != null && user.customClaims.isEmpty()) {
                 user.customClaims = FirebaseUser.extractCustomClaims(enrichedClaims)
             } else if (existingUser != null && existingUser.uid == user.uid && user.customClaims.isEmpty() && existingUser.customClaims.isNotEmpty()) {
                 user.customClaims = existingUser.customClaims
             }
             authStateEpoch += 1
             lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+            lastTokenWireSeq = maxOf(lastTokenWireSeq, wireSeq)
             commitSessionStateLocked(user = user)
             sessionState.user?.uid != prevUid
         }

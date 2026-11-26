@@ -265,6 +265,7 @@ internal class DocumentSnapshotRegistration(
     }
 
     override fun remove() {
+        ended.set(true)
         cleanupResources()
     }
 
@@ -448,6 +449,7 @@ internal class QuerySnapshotRegistration(
     }
 
     override fun remove() {
+        ended.set(true)
         cleanupResources()
     }
 

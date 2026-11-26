@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 open class FirebaseAppCheck internal constructor(
     val app: FirebaseApp,
@@ -45,7 +46,11 @@ open class FirebaseAppCheck internal constructor(
     val bridgeClient: PyricBridgeClient
         get() = explicitBridgeClient ?: app.getOrCreateBridgeClient()
 
-    private val appCheckListeners = CopyOnWriteArrayList<AppCheckListener>()
+    private class AppCheckListenerEntry(val listener: AppCheckListener) {
+        val active = AtomicBoolean(true)
+    }
+
+    private val appCheckListeners = CopyOnWriteArrayList<AppCheckListenerEntry>()
 
     init {
         if (explicitBridgeClient != null) {
@@ -88,8 +93,9 @@ open class FirebaseAppCheck internal constructor(
     }
 
     open fun addAppCheckListener(listener: AppCheckListener) {
-        if (!appCheckListeners.contains(listener)) {
-            appCheckListeners.add(listener)
+        val entry = synchronized(stateLock) {
+            appCheckListeners.firstOrNull { it.listener == listener && it.active.get() }
+                ?: AppCheckListenerEntry(listener).also { appCheckListeners.add(it) }
         }
         val currentValid = synchronized(stateLock) {
             scheduleAutoRefreshLocked()
@@ -97,14 +103,23 @@ open class FirebaseAppCheck internal constructor(
             if (current != null && isValidToken(current)) current else null
         }
         if (currentValid != null) {
-            try {
-                listener.onAppCheckTokenChanged(currentValid)
-            } catch (_: Throwable) {}
+            synchronized(entry) {
+                if (!entry.active.get()) return@synchronized
+                try {
+                    entry.listener.onAppCheckTokenChanged(currentValid)
+                } catch (_: Throwable) {}
+            }
         }
     }
 
     open fun removeAppCheckListener(listener: AppCheckListener) {
-        appCheckListeners.remove(listener)
+        val entry = appCheckListeners.firstOrNull {
+            it.listener == listener && it.active.compareAndSet(true, false)
+        }
+        if (entry != null) {
+            appCheckListeners.remove(entry)
+            synchronized(entry) {}
+        }
         synchronized(stateLock) {
             scheduleAutoRefreshLocked()
         }
@@ -241,10 +256,13 @@ open class FirebaseAppCheck internal constructor(
         token.expireTimeMillis > clockMillis()
 
     private fun notifyTokenChanged(token: AppCheckToken) {
-        for (listener in appCheckListeners) {
-            try {
-                listener.onAppCheckTokenChanged(token)
-            } catch (_: Throwable) {}
+        for (entry in appCheckListeners) {
+            synchronized(entry) {
+                if (!entry.active.get()) return@synchronized
+                try {
+                    entry.listener.onAppCheckTokenChanged(token)
+                } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -285,6 +303,7 @@ open class FirebaseAppCheck internal constructor(
             installedProvider = null
             installedProviderFactory = null
         }
+        appCheckListeners.forEach { it.active.set(false) }
         appCheckListeners.clear()
         scope.cancel()
     }

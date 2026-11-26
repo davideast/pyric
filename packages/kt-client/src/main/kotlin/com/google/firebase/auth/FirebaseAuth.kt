@@ -257,8 +257,10 @@ class FirebaseAuth internal constructor(
     fun addAuthStateListener(listener: AuthStateListener) {
         val entry = ActiveListenerEntry(listener)
         authStateListeners.add(entry)
-        if (entry.active.get()) {
-            listener.onAuthStateChanged(this)
+        synchronized(entry) {
+            if (entry.active.get()) {
+                listener.onAuthStateChanged(this)
+            }
         }
     }
 
@@ -268,14 +270,17 @@ class FirebaseAuth internal constructor(
         }
         if (entry != null) {
             authStateListeners.remove(entry)
+            synchronized(entry) {}
         }
     }
 
     fun addIdTokenListener(listener: IdTokenListener) {
         val entry = ActiveListenerEntry(listener)
         idTokenListeners.add(entry)
-        if (entry.active.get()) {
-            listener.onIdTokenChanged(this)
+        synchronized(entry) {
+            if (entry.active.get()) {
+                listener.onIdTokenChanged(this)
+            }
         }
     }
 
@@ -285,11 +290,24 @@ class FirebaseAuth internal constructor(
         }
         if (entry != null) {
             idTokenListeners.remove(entry)
+            synchronized(entry) {}
         }
     }
 
-    internal fun commitUserMutation(user: FirebaseUser, wireSeq: Long = 0L, mutate: () -> Unit): Boolean =
-        sync.commitUserMutation(user, wireSeq, mutate)
+    internal fun commitTokenMutation(
+        user: FirebaseUser,
+        wireSeq: Long = 0L,
+        customClaims: Map<String, Any?>,
+        signInProvider: String?
+    ): Boolean = sync.commitTokenMutation(user, wireSeq, customClaims, signInProvider)
+
+    internal fun commitUserProfileMutation(
+        user: FirebaseUser,
+        wireSeq: Long = 0L,
+        rawData: Map<String, Any?>? = null,
+        customClaims: Map<String, Any?>? = null,
+        signInProvider: String? = null
+    ): Boolean = sync.commitUserProfileMutation(user, wireSeq, rawData, customClaims, signInProvider)
 
     internal fun notifyTokenRefreshed(user: FirebaseUser, wireSeq: Long = 0L) {
         sync.notifyTokenRefreshed(user, wireSeq)
@@ -309,13 +327,17 @@ class FirebaseAuth internal constructor(
 
     internal fun notifyAuthStateChanged() {
         for (entry in authStateListeners) {
-            if (entry.active.get()) entry.listener.onAuthStateChanged(this)
+            synchronized(entry) {
+                if (entry.active.get()) entry.listener.onAuthStateChanged(this)
+            }
         }
     }
 
     internal fun notifyIdTokenChanged() {
         for (entry in idTokenListeners) {
-            if (entry.active.get()) entry.listener.onIdTokenChanged(this)
+            synchronized(entry) {
+                if (entry.active.get()) entry.listener.onIdTokenChanged(this)
+            }
         }
     }
 

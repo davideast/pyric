@@ -249,6 +249,7 @@ class BridgeSubscriptionManager internal constructor(
         jsonSerializer: (Any?) -> String
     ): Flow<BridgeSequencedSnapshot> = flow {
         val channel = Channel<BridgeSequencedSnapshot>(Channel.UNLIMITED)
+        val closeCause = AtomicReference<Throwable?>(null)
         val record = registerRecord(
             target = target,
             actAs = null,
@@ -257,15 +258,20 @@ class BridgeSubscriptionManager internal constructor(
             appCheckToken = null,
             sequenced = true,
             sequencedChannel = channel,
-            onCloseError = { err -> closeAndDrain(channel, err) }
+            onCloseError = { err ->
+                closeCause.compareAndSet(null, err)
+                closeAndDrain(channel, err)
+            }
         )
         try {
             if (!dispatchInitialSend(record, isAttached, keepsSubscriptionOnConnectFailure, sendJson, jsonSerializer)) {
                 ensureConnectedOrFail(record, ensureConnected, keepsSubscriptionOnConnectFailure)
             }
             for (item in channel) {
+                closeCause.get()?.let { throw it }
                 emit(item)
             }
+            closeCause.get()?.let { throw it }
         } finally {
             cancelRecord(record, isAttached, sendJson, jsonSerializer)
             closeAndDrain(channel)

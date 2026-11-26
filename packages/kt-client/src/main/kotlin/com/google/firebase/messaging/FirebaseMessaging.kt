@@ -56,7 +56,9 @@ class FirebaseMessaging internal constructor(
 
     private inline fun forEachActiveService(block: (FirebaseMessagingService) -> Unit) {
         for (entry in registeredServices) {
-            if (entry.active.get()) block(entry.service)
+            synchronized(entry) {
+                if (entry.active.get()) block(entry.service)
+            }
         }
     }
     private val _newTokenFlow = MutableSharedFlow<String>(extraBufferCapacity = 1 shl 20)
@@ -280,6 +282,7 @@ class FirebaseMessaging internal constructor(
         }
         if (entry != null) {
             registeredServices.remove(entry)
+            synchronized(entry) {}
         }
         if (registeredServices.isEmpty()) {
             stopServiceSubscriptions()
@@ -403,10 +406,13 @@ class FirebaseMessaging internal constructor(
                 }
                 if (shouldAnnounce) {
                     _newTokenFlow.tryEmit(minted)
-                    forEachActiveService { service ->
-                        runCatching { service.onNewToken(minted) }
-                        if (registeredServices.any { it.service == service && it.active.get() }) {
-                            runCatching { service.onRegistered(minted) }
+                    for (entry in registeredServices) {
+                        synchronized(entry) {
+                            if (!entry.active.get()) return@synchronized
+                            runCatching { entry.service.onNewToken(minted) }
+                            if (entry.active.get()) {
+                                runCatching { entry.service.onRegistered(minted) }
+                            }
                         }
                     }
                 }

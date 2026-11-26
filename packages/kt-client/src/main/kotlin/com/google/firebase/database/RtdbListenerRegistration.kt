@@ -120,12 +120,12 @@ internal class RtdbSnapshotRegistration(
                 },
                 onWireError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    cancel()
+                    cleanupResources()
                     deliverErrorOnce(err)
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    cancel()
+                    cleanupResources()
                     onImmediateClose?.invoke(err)
                     query.database.bridgeClient.deliveryQueue.enqueue {
                         deliverErrorOnce(err)
@@ -133,7 +133,7 @@ internal class RtdbSnapshotRegistration(
                 }
             )
         } catch (e: FirebaseFirestoreException) {
-            cancel()
+            cleanupResources()
             onImmediateClose?.invoke(e)
             query.database.bridgeClient.deliveryQueue.enqueue {
                 deliverErrorOnce(e)
@@ -155,13 +155,18 @@ internal class RtdbSnapshotRegistration(
     }
 
     private fun deliverErrorOnce(error: Throwable) {
-        cancel()
+        cleanupResources()
         if (ended.compareAndSet(false, true)) {
             onError(error)
         }
     }
 
     fun cancel() {
+        ended.set(true)
+        cleanupResources()
+    }
+
+    private fun cleanupResources() {
         val handleToCancel: BridgeSubscriptionHandle?
         val infoToCancel: InfoListenerHandle?
         val jobToCancel: Job?
