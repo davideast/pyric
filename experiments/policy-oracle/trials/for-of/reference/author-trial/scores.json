@@ -1,0 +1,121 @@
+{
+  "current": {
+    "packageSha256": "6509672646c48bf7ee6206b9648ed8cd40520dece055cae12724e9b94fff8d5b",
+    "scores": {
+      "current/first": {
+        "sourceSha256": "8b7ba70a2af1cf2dba8e53eb0ffb1882fd645a86e77b7b79479d68255882cff9",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "module",
+        "compileError": null,
+        "cases": 256,
+        "matches": 256,
+        "firstDivergence": null,
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 0
+      },
+      "current/locked": {
+        "sourceSha256": "8b7ba70a2af1cf2dba8e53eb0ffb1882fd645a86e77b7b79479d68255882cff9",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "module",
+        "compileError": null,
+        "cases": 256,
+        "matches": 256,
+        "firstDivergence": null,
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 0
+      }
+    }
+  },
+  "loop": {
+    "packageSha256": "d1b3fb579687faba1ce2841551432916955bb7376f9825f61bf5214825a7e095",
+    "scores": {
+      "loop/first": {
+        "sourceSha256": "be308877884422ea30634a2ec02187ab541ddf88ef7259bdfb0e7b5faae6c114",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "function",
+        "compileError": "Line 9, col 5:\n   8 |     if (i * sx == dx && i * sy == dy) return true;\n>  9 |     if (board[files[x + i * sx] + ranks[y + i * sy]] != '') return false;\n           ^\n  10 |   }\nExpected \"}\"",
+        "cases": 256,
+        "matches": 0,
+        "firstDivergence": {
+          "id": "held-001",
+          "expected": true,
+          "compileError": "Line 9, col 5:\n   8 |     if (i * sx == dx && i * sy == dy) return true;\n>  9 |     if (board[files[x + i * sx] + ranks[y + i * sy]] != '') return false;\n           ^\n  10 |   }\nExpected \"}\""
+        },
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 256
+      },
+      "loop/locked": {
+        "sourceSha256": "29f7d63a5da3a497b305511656868d80fd99af9f65c1b2c5d33028671ffa5a1f",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "function",
+        "compileError": null,
+        "cases": 256,
+        "matches": 256,
+        "firstDivergence": null,
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 0
+      }
+    }
+  },
+  "reviewed": {
+    "packageSha256": "819b3e7a12cf852be6933484b72ce235ac23f7d5e8f09a7e0230b3aa4b20c190",
+    "scores": {
+      "current/first": {
+        "sourceSha256": "8b7ba70a2af1cf2dba8e53eb0ffb1882fd645a86e77b7b79479d68255882cff9",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "module",
+        "compileError": null,
+        "cases": 256,
+        "matches": 256,
+        "firstDivergence": null,
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 0
+      },
+      "current/locked": {
+        "sourceSha256": "8b7ba70a2af1cf2dba8e53eb0ffb1882fd645a86e77b7b79479d68255882cff9",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "module",
+        "compileError": null,
+        "cases": 256,
+        "matches": 256,
+        "firstDivergence": null,
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 0
+      },
+      "loop/first": {
+        "sourceSha256": "be308877884422ea30634a2ec02187ab541ddf88ef7259bdfb0e7b5faae6c114",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "function",
+        "compileError": "Line 9, col 5:\n   8 |     if (i * sx == dx && i * sy == dy) return true;\n>  9 |     if (board[files[x + i * sx] + ranks[y + i * sy]] != '') return false;\n           ^\n  10 |   }\nExpected \"}\"",
+        "cases": 256,
+        "matches": 0,
+        "firstDivergence": {
+          "id": "held-001",
+          "expected": true,
+          "compileError": "Line 9, col 5:\n   8 |     if (i * sx == dx && i * sy == dy) return true;\n>  9 |     if (board[files[x + i * sx] + ranks[y + i * sy]] != '') return false;\n           ^\n  10 |   }\nExpected \"}\""
+        },
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 256
+      },
+      "loop/locked": {
+        "sourceSha256": "29f7d63a5da3a497b305511656868d80fd99af9f65c1b2c5d33028671ffa5a1f",
+        "corpusSha256": "cf1bda50091f5e2a3f5c6f42159117ca4340e7d7962b4afc0b879540aaa79766",
+        "compilerKind": "function",
+        "compileError": null,
+        "cases": 256,
+        "matches": 256,
+        "firstDivergence": null,
+        "falseAllows": 0,
+        "falseRefusals": 0,
+        "unsupported": 0
+      }
+    }
+  }
+}
