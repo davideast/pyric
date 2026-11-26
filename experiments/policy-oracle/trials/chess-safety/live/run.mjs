@@ -41,8 +41,13 @@ function report(archive, allowUnmeasured) {
   const answers=new Map(), captures=new Map(), repeat=new Set();
   const files=readdirSync(new URL('plans/',import.meta.url)).filter(f=>f.endsWith('.json')).sort();
   for(const file of files) {
-    const name=file.slice(0,-5), profile=reviewedPlan(name), sha=profile.plan.rulesSha256;
-    if(allowUnmeasured && !existsSync(new URL(name+'.pin.json',profile.receipts))) continue;
+    const name=file.slice(0,-5);
+    if(allowUnmeasured) {
+      const {rulesSha256}=JSON.parse(readFileSync(new URL('plans/'+file,import.meta.url)));
+      assert.match(rulesSha256,/^[0-9a-f]{64}$/);
+      if(!existsSync(new URL('receipts/'+rulesSha256+'/'+name+'.pin.json',import.meta.url))) continue;
+    }
+    const profile=reviewedPlan(name), sha=profile.plan.rulesSha256;
     const {measurements,operands}=verify(name,profile,archive);
     if(!captures.has(sha)) captures.set(sha,{outcomes:new Map(),reports:[]});
     const {outcomes:known,reports}=captures.get(sha);
