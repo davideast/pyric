@@ -18,3 +18,15 @@ bun exploration/v1/score.mjs "$installed_reference_package" "$complete_rules" --
 ```
 
 For each local divergence class, the score retains the first example in corpus order and a reduced representative. The reduction repeatedly removes one piece, verifies the resulting source and rechecks both the native and compiled outcomes. It preserves the actor, origin, destination occupant, special-move rights, initial check state, king safety, legal move and write decisions, legal terminal result and any lone reply. The multi-piece terminal corpus additionally preserves the defending material, sole reply and reply family. The final witness is minimal under tested single-piece deletions.
+
+The [promotion corpus](promotions-v1/freeze.json) has 113 pre-move positions with a quiet or capturing promotion. Each contributes all four promotion choices and two submitted results. A queen or rook promotion that leaves the opposing side with its king alone enters the same terminal proof domain as an ordinary slider move. The outcome can change when only the choice of piece changes. [Three-piece promotion witnesses](promotions-v1/controls/native.json)
+
+The [interior-king corpus](interior-v1/freeze.json) adds 192 paired positions where the defender's king starts off the edge. It balances both colors across mate, stalemate, king-only responses, and nonking-only responses with and without check. The [rights-claim audit](rights-claims-v1/freeze.json) varies all sixteen canonical proposed castling-right masks on each of 128 legal moves. This includes corner-to-corner captures that revoke both the departing rook's right and the captured rook's right in one write.
+
+Run all the local holdouts on complete Rules emitted by any candidate from the trial directory:
+
+```sh
+python3 exploration/replay.py --rules candidate-complete.rules --report discovery.json
+```
+
+The command uses a fresh offline install of the pinned independent referee. The summary identifies each cohort, its actual outcome counts and its decision digest. The optional report retains the first divergences and reduced examples. Add `--rebuild-native` to regenerate the frozen native evidence, `--strict` to return a failure exit code on any mismatch, or `--reference` to use an existing byte-verified install. The assembled campaign includes the additional self-check holdout when its independently frozen files are present.
