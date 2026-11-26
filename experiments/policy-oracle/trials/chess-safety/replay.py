@@ -26,7 +26,8 @@ def read(path):
 
 
 def observed(*args):
-    return json.loads(subprocess.check_output(args, cwd=HERE))
+    command = ('bun','--no-install',*args[1:]) if args[0]=='bun' else args
+    return json.loads(subprocess.check_output(command, cwd=HERE))
 
 
 def equal(result, expected, label):

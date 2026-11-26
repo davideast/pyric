@@ -26,7 +26,7 @@ def render(report):
         return '\n'.join(lines)+'\n'
     releases = [r for r in report['releaseComparisons'] if r['productionCases']]
     releases.sort(key=lambda r:(0 if r['sha256'].startswith('523c4c') else 1,r['rules']))
-    labels={'523c4c13':'Prior stronger baseline','2d793f90':'Quick status','a53c2fed':'Three-piece status',
+    labels={'5365dc51':'Selected fixed-width policy','911e4b24':'Packed v4','fa5ed317':'Pawn witness','523c4c13':'Prior stronger baseline','2d793f90':'Quick status','a53c2fed':'Three-piece status',
             '9b31d40d':'Bare king','d0a6af91':'Packed v3','fe6ae708':'Long-ray optimization'}
     names=[labels.get(r['sha256'][:8], 'Selected' if r['sha256']==report['hosted'].get('rulesSha256') else Path(r['rules']).stem) for r in releases]
     output = ['# Cumulative chess oracle scorecard','',
@@ -64,6 +64,15 @@ def render(report):
         for status in ('playing','draw','won'):
             key='holdout-black-queen-corner-'+status
             output.append('| '+' | '.join([status,queen[0][1]['examples'][key]['native'],*[r['examples'][key]['production'] for _,r in queen]])+' |')
+    if report.get('namedSnapshots'):
+        keys={r['id']:r for r in report['namedSnapshots']}
+        names_for_cases=[(n,r) for n,r in zip(names,releases,strict=True) if any(k in r['examples'] for k in keys)]
+        output+=['','## Same move, different result claim or defender','',
+            'The first two submissions use the genuine fourth-ply match snapshot after 1.f3 e5 2.g4. The last two both submit Ra8–h8 and claim a draw. Taking the white queen off b4 frees a black knight. [Complete inputs and independently frozen native replies](reachable/lifecycle-v1/named/v1/)',
+            '', '| Case | Native | Selected local | '+' | '.join(n for n,_ in names_for_cases)+' |',
+            '| --- | --- | --- | '+' | '.join('---' for _ in names_for_cases)+' |']
+        for key,v in keys.items():
+            output.append('| '+' | '.join([key,v['expected'],v['decision'],*[r['examples'].get(key,{}).get('production','—') for _,r in names_for_cases]])+' |')
     output += ['','## Sensitivity to faulty implementations','',
         '| Batch | Fault | First case | Native | Faulty |','| --- | --- | --- | --- | --- |']
     for record in sorted((HERE/'batches').glob('*/v1/mutations.json')):

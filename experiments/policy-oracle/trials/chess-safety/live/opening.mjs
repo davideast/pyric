@@ -5,16 +5,10 @@ import {setTimeout as wait} from 'node:timers/promises';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import {manifest,sha} from '../../../arcade/corpus.mjs';
 import {startJournal,errorDetails,privateArchive,withMonotonicEvidenceClock} from '../../../arcade/live/controller/archive.mjs';
-import {clientsFor,lite} from '../../../arcade/live/controller/clients.mjs';
-import {counterPropagation} from '../../../arcade/live/controller/counter-controls.mjs';
-import {initializeApp,deleteApp} from '../../../arcade/live/controller/chess-sdk.mjs';
-import {withPreparedRuleset,withRelease} from '../../../arcade/live/controller/release.mjs';
-import {decision,snapshot} from '../../chess/live/snapshots.mjs';
 import {fresh,afterMove,movePatch,transition} from '../../chess/verify/document.mjs';
 import {journal,retained} from '../../chess/verify/journal.mjs';
 import {fixedCreatedAt} from '../../for-of/live/fixtures.mjs';
 import {reviewedPlan} from './fixtures.mjs';
-import {previouslyUploaded} from './measure.mjs';
 
 // Project the two ordinary moves from the frozen control. No alternative
 // terminal assertion or conditional write is submitted in the live lifecycle.
@@ -62,6 +56,13 @@ function checkOpening(rows,roles,path,checkProof=()=>{}) {
 }
 
 async function capture(name,archive,priorRun) {
+  // Credentials and the live SDK are needed only to perform a new capture.
+  const {clientsFor,lite}=await import('../../../arcade/live/controller/clients.mjs');
+  const {counterPropagation}=await import('../../../arcade/live/controller/counter-controls.mjs');
+  const {initializeApp,deleteApp}=await import('../../../arcade/live/controller/chess-sdk.mjs');
+  const {withPreparedRuleset,withRelease}=await import('../../../arcade/live/controller/release.mjs');
+  const {decision,snapshot}=await import('../../chess/live/snapshots.mjs');
+  const {previouslyUploaded}=await import('./measure.mjs');
   const {plan,bundle}=reviewedPlan(name);
   const digest=plan.rulesSha256, mode='honest-opening-'+name, source=readFileSync(bundle,'utf8');
   const prepared=previouslyUploaded(archive,priorRun,digest), runId=randomUUID();

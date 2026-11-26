@@ -1,0 +1,56 @@
+[
+  {
+    "id": "rook-c5-after-queen-playing",
+    "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "rook-c5-after-queen-draw",
+    "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "rook-c5-after-queen-won",
+    "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "rook-h5-after-queen-playing",
+    "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "rook-h5-after-queen-draw",
+    "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "rook-h5-after-queen-won",
+    "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  }
+]
