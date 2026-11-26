@@ -80,6 +80,7 @@ public final class Database: NSObject, @unchecked Sendable {
     public let url: String
     internal let wireInstance: String?
     internal let viewCoordinator = DatabaseViewCoordinator()
+    internal let connectionInfoHub: ConnectionInfoHub
     private let usesAppBridge: Bool
 
     private let stateLock = NSLock()
@@ -137,7 +138,9 @@ public final class Database: NSObject, @unchecked Sendable {
         self.app = app
         self.url = normalizedURL
         self.usesAppBridge = (bridgeClient == nil)
-        self._bridgeClient = bridgeClient ?? app.sharedBridgeClient()
+        let resolvedClient = bridgeClient ?? app.sharedBridgeClient()
+        self._bridgeClient = resolvedClient
+        self.connectionInfoHub = ConnectionInfoHub(bridgeClient: resolvedClient, networkOnline: true)
         self.wireInstance = DatabaseInstanceResolver.resolveInstanceName(
             from: normalizedURL,
             projectID: app.options.projectID
@@ -197,10 +200,9 @@ public final class Database: NSObject, @unchecked Sendable {
 
     private func adoptObservedAppBridge(_ client: PyricBridgeClient) {
         stateLock.lock()
-        if !_hasUsed {
-            _bridgeClient = client
-        }
+        _bridgeClient = client
         stateLock.unlock()
+        connectionInfoHub.attach(to: client)
     }
 
     private func adoptBridgeClient(_ client: PyricBridgeClient, emulatorHostPort: String?) {
@@ -210,6 +212,7 @@ public final class Database: NSObject, @unchecked Sendable {
             _emulatorHostAndPort = emulatorHostPort
         }
         stateLock.unlock()
+        connectionInfoHub.attach(to: client)
     }
 
     private static func propagateAppBridge(
@@ -230,11 +233,10 @@ public final class Database: NSObject, @unchecked Sendable {
         }()
         for sibling in siblings {
             sibling.stateLock.lock()
-            if !sibling._hasUsed {
-                sibling._bridgeClient = client
-                sibling._emulatorHostAndPort = emulatorHostPort
-            }
+            sibling._bridgeClient = client
+            sibling._emulatorHostAndPort = emulatorHostPort
             sibling.stateLock.unlock()
+            sibling.connectionInfoHub.attach(to: client)
         }
     }
 
@@ -249,6 +251,7 @@ public final class Database: NSObject, @unchecked Sendable {
 
     internal func detachBridgeObserver() {
         viewCoordinator.shutdown()
+        connectionInfoHub.detach()
         let idToRemove: UUID? = {
             stateLock.lock()
             defer { stateLock.unlock() }
@@ -391,29 +394,32 @@ public final class Database: NSObject, @unchecked Sendable {
         guard _networkOnline != online else { return }
         _networkOnline = online
         for continuation in networkContinuations.values { continuation.yield(online) }
+        connectionInfoHub.updateNetworkOnline(online)
     }
 
     public func goOffline() async throws {
         markUsed()
+        let turn = takeTurn()
         setNetworkOnline(false)
-        try await send(turn: takeTurn(), method: "rtdb.goOffline", params: [:])
+        try await send(turn: turn, method: "rtdb.goOffline", params: [:])
     }
 
     public func goOffline() {
         markUsed()
-        setNetworkOnline(false)
         sendInCallOrder(method: "rtdb.goOffline", params: [:]) { _ in }
+        setNetworkOnline(false)
     }
 
     public func goOnline() async throws {
         markUsed()
+        let turn = takeTurn()
         setNetworkOnline(true)
-        try await send(turn: takeTurn(), method: "rtdb.goOnline", params: [:])
+        try await send(turn: turn, method: "rtdb.goOnline", params: [:])
     }
 
     public func goOnline() {
         markUsed()
-        setNetworkOnline(true)
         sendInCallOrder(method: "rtdb.goOnline", params: [:]) { _ in }
+        setNetworkOnline(true)
     }
 }

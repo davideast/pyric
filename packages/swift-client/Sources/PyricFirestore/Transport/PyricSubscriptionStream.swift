@@ -67,6 +67,10 @@ public struct PyricSubscriptionStream: AsyncSequence, Sendable {
             }
             return nil
         }
+
+        package func cancel() {
+            inner.cancel()
+        }
     }
 }
 
@@ -127,31 +131,20 @@ public struct PyricSubscriptionEventStream: AsyncSequence, Sendable {
             let (stream, continuation) = AsyncThrowingStream<BridgeSubscriptionEvent, Error>.makeStream()
             self.streamIterator = stream.makeAsyncIterator()
 
-            self.registrationTask = Task { [weak self] in
-                do {
-                    let id = try await client.registerSubscription(
-                        target: target,
-                        actAs: actAs,
-                        includeMetadataChanges: includeMetadataChanges,
-                        listenSource: listenSource,
-                        continuation: continuation
-                    )
-
-                    guard let self else {
-                        Task { [client] in
-                            await client.unregisterSubscription(subId: id)
-                        }
-                        return
-                    }
-
-                    let shouldUnregister = self.recordSubIdOrCheckCleanup(id)
-                    if shouldUnregister {
-                        await client.unregisterSubscription(subId: id)
-                    }
-                } catch {
-                    continuation.finish(throwing: error)
-                }
+            if let opened = client.openSubscription(
+                target: target,
+                actAs: actAs,
+                includeMetadataChanges: includeMetadataChanges,
+                listenSource: listenSource,
+                continuation: continuation
+            ) {
+                self.subId = opened.subId
+                self.registrationTask = opened.task
             }
+        }
+
+        package func cancel() {
+            cleanup()
         }
 
         public func next() async throws -> BridgeSubscriptionEvent? {
@@ -176,17 +169,6 @@ public struct PyricSubscriptionEventStream: AsyncSequence, Sendable {
             }
         }
 
-        private func recordSubIdOrCheckCleanup(_ id: String) -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            if Task.isCancelled || isCleanedUp {
-                return true
-            } else {
-                self.subId = id
-                return false
-            }
-        }
-
         private func cleanup() {
             lock.lock()
             if isCleanedUp {
@@ -194,14 +176,15 @@ public struct PyricSubscriptionEventStream: AsyncSequence, Sendable {
                 return
             }
             isCleanedUp = true
-            registrationTask?.cancel()
             let idToUnregister = self.subId
             self.subId = nil
             lock.unlock()
 
             if let idToUnregister {
-                Task { [client] in
-                    await client.unregisterSubscription(subId: idToUnregister)
+                if !client.cancelPendingSubscription(subId: idToUnregister) {
+                    Task { [client] in
+                        await client.unregisterSubscription(subId: idToUnregister)
+                    }
                 }
             }
         }

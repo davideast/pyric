@@ -7,7 +7,7 @@ import Combine
 /// Main entry point for the Firebase Authentication SDK.
 public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
-    // ── Static Registry ──────────────────────────────────────────────────────
+    // -- Static Registry --
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var instances: [String: Auth] = [:]
 
@@ -56,15 +56,15 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         defer { stateLock.unlock() }
         return _bridgeClient
     }
-    private var _bridgeClient: PyricBridgeClient
+    var _bridgeClient: PyricBridgeClient
     private let usesSharedAppBridge: Bool
-    private var bridgeObserverId: UUID?
-    private let stateLock = NSLock()
+    var bridgeObserverId: UUID?
+    let stateLock = NSLock()
 
-    private var _currentUser: User?
+    var _currentUser: User?
     private var _tenantId: String?
     private var _impersonatedLens: AuthLens?
-    private var _lastEmittedLens: AuthLens = .anon
+    var _lastEmittedLens: AuthLens = .anon
 
     public var currentUser: User? {
         stateLock.lock(); defer { stateLock.unlock() }; return _currentUser
@@ -91,20 +91,21 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     }
 
     // Listeners & Streams
-    private var stateListeners: [AuthStateDidChangeListenerHandle: @Sendable (Auth, User?) -> Void] = [:]
-    private var idTokenListeners: [AuthStateDidChangeListenerHandle: @Sendable (Auth, User?) -> Void] = [:]
+    var stateListeners: [AuthStateDidChangeListenerHandle: @Sendable (Auth, User?) -> Void] = [:]
+    var idTokenListeners: [AuthStateDidChangeListenerHandle: @Sendable (Auth, User?) -> Void] = [:]
 
-    private var authStateContinuations: [UUID: AsyncStream<User?>.Continuation] = [:]
-    private var idTokenContinuations: [UUID: AsyncStream<User?>.Continuation] = [:]
+    var authStateContinuations: [UUID: AsyncStream<User?>.Continuation] = [:]
+    var idTokenContinuations: [UUID: AsyncStream<User?>.Continuation] = [:]
     private var authLensContinuations: [UUID: AsyncStream<AuthLens>.Continuation] = [:]
 
     #if canImport(Combine)
-    private let authStateSubject = CurrentValueSubject<User?, Never>(nil)
-    private let idTokenSubject = CurrentValueSubject<User?, Never>(nil)
+    let authStateSubject = CurrentValueSubject<User?, Never>(nil)
+    let idTokenSubject = CurrentValueSubject<User?, Never>(nil)
     #endif
 
-    private var subTask: Task<Void, Never>?
-    private var remoteLensTask: Task<Void, Never>?
+    var subTask: Task<Void, Never>?
+    var remoteSyncIterators: [PyricSubscriptionStream.Iterator] = []
+    var remoteLensTask: Task<Void, Never>?
 
     // -- Initialization --
     public init(app: FirebaseApp, bridgeClient: PyricBridgeClient? = nil) {
@@ -126,78 +127,18 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         installAuthRestorer()
     }
 
-    private func applyBridgeClient(_ nextClient: PyricBridgeClient) {
-        let hadRemoteSync: Bool = {
-            stateLock.lock()
-            defer { stateLock.unlock() }
-            _bridgeClient = nextClient
-            let activeSync = subTask != nil
-            subTask?.cancel()
-            subTask = nil
-            remoteLensTask?.cancel()
-            remoteLensTask = nil
-            return activeSync
-        }()
-        startRemoteLensSync()
-        installAuthRestorer()
-        if hadRemoteSync {
-            startRemoteSync()
-        }
-    }
-
-    private func detachFromApp() {
-        let observerId: UUID? = {
-            stateLock.lock()
-            defer { stateLock.unlock() }
-            let id = bridgeObserverId
-            bridgeObserverId = nil
-            subTask?.cancel()
-            subTask = nil
-            remoteLensTask?.cancel()
-            remoteLensTask = nil
-            return id
-        }()
-        if let observerId {
-            app.removeBridgeObserver(observerId)
-        }
-    }
-
-    /// A replaced bridge host holds no user for this session. Sign the session
-    /// back in before subscriptions are re-sent.
-    private func installAuthRestorer() {
-        let client = bridgeClient
-        Task { [weak self] in
-            await client.setAuthRestorer { [weak self] op in
-                guard let user = self?.currentUser else { return }
-                _ = try await op("auth.restorePortSession", [
-                    "uid": .string(user.uid),
-                    "tenantId": user.tenantId.map { .string($0) } ?? .null,
-                ])
-            }
-        }
-    }
-
     deinit {
         if let observerId = bridgeObserverId {
             app.removeBridgeObserver(observerId)
         }
         subTask?.cancel()
-        remoteLensTask?.cancel()
-    }
-
-    private func startRemoteLensSync() {
-        remoteLensTask?.cancel()
-        let client = bridgeClient
-        remoteLensTask = Task { [weak self] in
-            for await remoteLens in client.remoteLensStream {
-                guard !Task.isCancelled else { break }
-                guard let self else { break }
-                self.switchLens(remoteLens)
-            }
+        for iterator in remoteSyncIterators {
+            iterator.cancel()
         }
+        remoteLensTask?.cancel()
     }
 
-    // ── Impersonation & AuthLens (Multi-tenancy Priority) ─────────────────────
+    // -- Impersonation & AuthLens (Multi-tenancy Priority) --
 
     public func switchLens(_ lens: AuthLens?) {
         stateLock.lock()
@@ -214,7 +155,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         return computeCurrentLensLocked()
     }
 
-    private func computeCurrentLensLocked() -> AuthLens {
+    func computeCurrentLensLocked() -> AuthLens {
         if let lens = _impersonatedLens {
             return lens
         }
@@ -227,7 +168,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     /// Delivers a lens to every lens subscriber. Callers hold `stateLock`, so
     /// two lens changes on different threads reach subscribers in the order
     /// they changed the lens, and each stream's last value is the current lens.
-    private func yieldLensLocked(_ lens: AuthLens) {
+    func yieldLensLocked(_ lens: AuthLens) {
         for cont in authLensContinuations.values {
             cont.yield(lens)
         }
@@ -250,6 +191,54 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         }
     }
 
+    // -- Listeners & Sequences --
+
+    public func addStateDidChangeListener(
+        _ listener: @escaping @Sendable (Auth, User?) -> Void
+    ) -> AuthStateDidChangeListenerHandle {
+        let handle = AuthStateDidChangeListenerHandle()
+        stateLock.lock()
+        stateListeners[handle] = listener
+        let current = _currentUser
+        stateLock.unlock()
+
+        listener(self, current)
+        return handle
+    }
+
+    public func removeStateDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        stateListeners.removeValue(forKey: handle)
+    }
+
+    public func addIDTokenDidChangeListener(
+        _ listener: @escaping @Sendable (Auth, User?) -> Void
+    ) -> AuthStateDidChangeListenerHandle {
+        let handle = AuthStateDidChangeListenerHandle()
+        stateLock.lock()
+        idTokenListeners[handle] = listener
+        let current = _currentUser
+        stateLock.unlock()
+
+        listener(self, current)
+        return handle
+    }
+
+    public func removeIDTokenDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        idTokenListeners.removeValue(forKey: handle)
+    }
+
+    public var authStateChanges: AuthStateChangesSequence {
+        AuthStateChangesSequence(self)
+    }
+
+    public var idTokenChanges: IDTokenChangesSequence {
+        IDTokenChangesSequence(self)
+    }
+
     // -- Emulation --
 
     public func useEmulator(withHost host: String, port: Int) {
@@ -269,7 +258,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         applyBridgeClient(standalone)
     }
 
-    // ── Operations ───────────────────────────────────────────────────────────
+    // -- Operations --
 
     public func signIn(withEmail email: String, password: String) async throws -> AuthDataResult {
         try await signIn(turn: takeTurn(), withEmail: email, password: password)
@@ -447,7 +436,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         }
     }
 
-    // ── Call Order ───────────────────────────────────────────────────────────
+    // -- Call Order --
 
     /// Takes the next place in the order operations reach the bridge. An Auth
     /// or User call takes it where the app makes the call: a completion-block
@@ -495,7 +484,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         return result
     }
 
-    private func enrichUserClaimsIfLive(_ user: User) async {
+    func enrichUserClaimsIfLive(_ user: User) async {
         let client = bridgeClient
         guard !client.hasInjectedChannel, user.claims["firebase"] == nil else {
             return
@@ -511,245 +500,5 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                 user.replaceClaims(merged)
             }
         }
-    }
-
-    // ── Listeners & Modern Concurrency Streams ────────────────────────────────
-
-    public func addStateDidChangeListener(
-        _ listener: @escaping @Sendable (Auth, User?) -> Void
-    ) -> AuthStateDidChangeListenerHandle {
-        let handle = AuthStateDidChangeListenerHandle()
-        stateLock.lock()
-        stateListeners[handle] = listener
-        let current = _currentUser
-        stateLock.unlock()
-
-        listener(self, current)
-        return handle
-    }
-
-    public func removeStateDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        stateListeners.removeValue(forKey: handle)
-    }
-
-    public func addIDTokenDidChangeListener(
-        _ listener: @escaping @Sendable (Auth, User?) -> Void
-    ) -> AuthStateDidChangeListenerHandle {
-        let handle = AuthStateDidChangeListenerHandle()
-        stateLock.lock()
-        idTokenListeners[handle] = listener
-        let current = _currentUser
-        stateLock.unlock()
-
-        listener(self, current)
-        return handle
-    }
-
-    public func removeIDTokenDidChangeListener(_ handle: AuthStateDidChangeListenerHandle) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        idTokenListeners.removeValue(forKey: handle)
-    }
-
-    public var authStateDidChangeStream: AsyncStream<User?> {
-        AsyncStream { continuation in
-            let id = UUID()
-            stateLock.lock()
-            authStateContinuations[id] = continuation
-            let current = _currentUser
-            stateLock.unlock()
-
-            continuation.yield(current)
-
-            continuation.onTermination = { [weak self] _ in
-                guard let self else { return }
-                self.stateLock.lock()
-                self.authStateContinuations.removeValue(forKey: id)
-                self.stateLock.unlock()
-            }
-        }
-    }
-
-    public var idTokenDidChangeStream: AsyncStream<User?> {
-        AsyncStream { continuation in
-            let id = UUID()
-            stateLock.lock()
-            idTokenContinuations[id] = continuation
-            let current = _currentUser
-            stateLock.unlock()
-
-            continuation.yield(current)
-
-            continuation.onTermination = { [weak self] _ in
-                guard let self else { return }
-                self.stateLock.lock()
-                self.idTokenContinuations.removeValue(forKey: id)
-                self.stateLock.unlock()
-            }
-        }
-    }
-
-    public var authStateChanges: AuthStateChangesSequence {
-        AuthStateChangesSequence(self)
-    }
-
-    public var idTokenChanges: IDTokenChangesSequence {
-        IDTokenChangesSequence(self)
-    }
-
-    #if canImport(Combine)
-    public var authStatePublisher: AnyPublisher<User?, Never> {
-        authStateSubject.eraseToAnyPublisher()
-    }
-
-    public var idTokenPublisher: AnyPublisher<User?, Never> {
-        idTokenSubject.eraseToAnyPublisher()
-    }
-    #endif
-
-    // ── Internal State Fan-Out ───────────────────────────────────────────────
-
-    internal func applyUserTransition(_ newUser: User?) {
-        stateLock.lock()
-        let previousUid = _currentUser?.uid
-        let newUid = newUser?.uid
-        _currentUser = newUser
-
-        let currentLens = computeCurrentLensLocked()
-        let lensChanged = (_lastEmittedLens != currentLens)
-        if lensChanged {
-            _lastEmittedLens = currentLens
-            yieldLensLocked(currentLens)
-        }
-
-        let stateCallbacks = Array(stateListeners.values)
-        let tokenCallbacks = Array(idTokenListeners.values)
-        let stateConts = Array(authStateContinuations.values)
-        let tokenConts = Array(idTokenContinuations.values)
-        stateLock.unlock()
-
-        #if canImport(Combine)
-        if previousUid != newUid {
-            authStateSubject.send(newUser)
-        }
-        idTokenSubject.send(newUser)
-        #endif
-
-        if previousUid != newUid {
-            for callback in stateCallbacks {
-                callback(self, newUser)
-            }
-            for cont in stateConts {
-                cont.yield(newUser)
-            }
-        }
-
-        for callback in tokenCallbacks {
-            callback(self, newUser)
-        }
-        for cont in tokenConts {
-            cont.yield(newUser)
-        }
-    }
-
-    internal func notifyIdTokenChanged(user: User? = nil) {
-        stateLock.lock()
-        let targetUser = user ?? _currentUser
-        stateLock.unlock()
-        applyUserTransition(targetUser)
-    }
-
-    internal func refreshAuthLensIfNeeded() {
-        stateLock.lock()
-        let currentLens = computeCurrentLensLocked()
-        if _lastEmittedLens != currentLens {
-            _lastEmittedLens = currentLens
-            yieldLensLocked(currentLens)
-        }
-        stateLock.unlock()
-    }
-
-    internal func notifyUserUpdated(_ user: User) {
-        applyUserTransition(user)
-    }
-
-    internal func handleSessionInvalidationIfNeeded(for user: User, error: AuthError) {
-        switch error.code {
-        case .userDisabled, .userTokenExpired, .userNotFound:
-            if currentUser?.uid == user.uid {
-                applyUserTransition(nil)
-            }
-        default:
-            break
-        }
-    }
-
-    private func applyRemoteUserWire(_ userWire: AnySendable) async {
-        guard let wireDict = userWire.dictionaryValue,
-              let incomingUid = wireDict["uid"]?.stringValue else {
-            return
-        }
-        if let existing = currentUser, existing.uid == incomingUid {
-            existing.update(from: wireDict)
-            applyUserTransition(existing)
-            return
-        }
-        if let user = User.fromWire(auth: self, wire: userWire) {
-            await enrichUserClaimsIfLive(user)
-            applyUserTransition(user)
-        }
-    }
-
-    public func startRemoteSync() {
-        stateLock.lock()
-        guard subTask == nil else {
-            stateLock.unlock()
-            return
-        }
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { [weak self] in
-                    guard let self else { return }
-                    let authSubStream = self.bridgeClient.subscribe(target: .string("authState"))
-                    do {
-                        for try await event in authSubStream {
-                            guard !Task.isCancelled else { break }
-                            let userWire = event["user"] ?? event
-                            if event.isNull || userWire.isNull {
-                                self.applyUserTransition(nil)
-                            } else {
-                                await self.applyRemoteUserWire(userWire)
-                            }
-                        }
-                    } catch {
-                        // Subscription terminated or bridge disconnected
-                    }
-                }
-                group.addTask { [weak self] in
-                    guard let self else { return }
-                    let idTokenSubStream = self.bridgeClient.subscribe(target: .string("idToken"))
-                    do {
-                        for try await event in idTokenSubStream {
-                            guard !Task.isCancelled else { break }
-                            let userWire = event["user"] ?? event
-                            if event.isNull || userWire.isNull {
-                                self.applyUserTransition(nil)
-                            } else if userWire.dictionaryValue?["uid"]?.stringValue != nil {
-                                await self.applyRemoteUserWire(userWire)
-                            } else {
-                                self.notifyIdTokenChanged()
-                            }
-                        }
-                    } catch {
-                        // Subscription terminated or bridge disconnected
-                    }
-                }
-            }
-        }
-        subTask = task
-        stateLock.unlock()
     }
 }

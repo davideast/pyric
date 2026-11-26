@@ -6,12 +6,11 @@ import PyricFirestore
 /// never reaches the host and is never replayed on re-attach.
 ///
 /// `connected` is true while the bridge client is `attached` and the database
-/// is online. It is derived from the existing `attached` state: an operation
-/// issued when it turns true is held behind the restore and the held queue.
+/// is online. Both `currentlyConnected` and `connectedValues` read from
+/// `database.connectionInfoHub`, a single lock-protected snapshot (D9, S26).
 enum ConnectionInfo {
 
-    /// Whether the first segment of `path` is `.info`, the test `isInfoPath`
-    /// in `packages/rules/src/rtdb/data/writable-path.ts` applies.
+    /// Whether the first segment of `path` is `.info`.
     static func isInfoPath(_ path: String) -> Bool {
         segments(of: path).first == ".info"
     }
@@ -26,31 +25,15 @@ enum ConnectionInfo {
         return .dictionary(["exists": .bool(!served.isNull), "value": served])
     }
 
-    /// The current value of `connected` for `database`.
-    static func currentlyConnected(_ database: Database) async -> Bool {
-        let state = await database.bridgeClient.connectionState
-        return isConnected(state, online: database.isNetworkOnline)
+    /// The current value of `connected` for `database`, read synchronously from
+    /// the same snapshot that drives `.info/connected` listeners.
+    static func currentlyConnected(_ database: Database) -> Bool {
+        database.connectionInfoHub.isConnected
     }
 
     /// The `connected` values of `database`: the current one first, then each change.
     static func connectedValues(of database: Database) -> AsyncStream<Bool> {
-        AsyncStream { continuation in
-            let tracker = ConnectedTracker(continuation: continuation)
-            let states = Task {
-                for await state in database.bridgeClient.connectionStates {
-                    tracker.update(state: state)
-                }
-            }
-            let flags = Task {
-                for await online in database.networkOnlineStream {
-                    tracker.update(online: online)
-                }
-            }
-            continuation.onTermination = { _ in
-                states.cancel()
-                flags.cancel()
-            }
-        }
+        database.connectionInfoHub.valuesStream()
     }
 
     private static func segments(of path: String) -> [String] {
@@ -71,39 +54,152 @@ enum ConnectionInfo {
     }
 }
 
-/// Combines the connection state and the network flag, and yields `connected`
-/// once both are known and then only when it changes.
-private final class ConnectedTracker: @unchecked Sendable {
+/// Single lock-protected source of truth for a `Database`'s `.info/connected`
+/// state (ADR-0019 D7, D9: S15, S26).
+///
+/// Lock hierarchy: `BridgeLocalStreams.lock` -> `ConnectionInfoHub.lock` ->
+/// `DatabaseViewCoordinator.ActiveView.lock`. `attach(to:)` and `detach()`
+/// never hold `ConnectionInfoHub.lock` while calling into `PyricBridgeClient`.
+internal final class ConnectionInfoHub: @unchecked Sendable {
     private let lock = NSLock()
-    private let continuation: AsyncStream<Bool>.Continuation
-    private var state: BridgeConnectionState?
-    private var online: Bool?
-    private var last: Bool?
+    private var attachGeneration: UInt64 = 0
+    private var attachedClient: PyricBridgeClient?
+    private var bridgeObserverId: UUID?
+    private var bridgeState: BridgeConnectionState = .connecting
+    private var networkOnline: Bool = true
+    private var _connected: Bool = false
+    private var continuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
+    private var observers: [UUID: @Sendable (Bool) -> Void] = [:]
 
-    init(continuation: AsyncStream<Bool>.Continuation) {
-        self.continuation = continuation
+    init(bridgeClient: PyricBridgeClient, networkOnline: Bool) {
+        self.networkOnline = networkOnline
+        attach(to: bridgeClient)
     }
 
-    func update(state next: BridgeConnectionState) {
+    var isConnected: Bool {
         lock.lock()
         defer { lock.unlock() }
-        state = next
-        yieldIfChanged()
+        return _connected
     }
 
-    func update(online next: Bool) {
+    func attach(to client: PyricBridgeClient) {
+        let (shouldAttach, gen, previous): (Bool, UInt64, (PyricBridgeClient, UUID)?) = {
+            lock.lock()
+            defer { lock.unlock() }
+            guard attachedClient !== client else { return (false, attachGeneration, nil) }
+            attachGeneration &+= 1
+            let currentGen = attachGeneration
+            let old = attachedClient.flatMap { oldClient in
+                bridgeObserverId.map { (oldClient, $0) }
+            }
+            attachedClient = nil
+            bridgeObserverId = nil
+            return (true, currentGen, old)
+        }()
+        guard shouldAttach else { return }
+        if let (oldClient, oldId) = previous {
+            oldClient.removeConnectionStateObserver(oldId)
+        }
+
+        // `addConnectionStateObserver` invokes the closure synchronously with the
+        // current bridge state under `BridgeLocalStreams.lock`.
+        let newId = client.addConnectionStateObserver { [weak self] state in
+            self?.updateBridgeState(state, generation: gen)
+        }
+        let superseded: Bool = {
+            lock.lock()
+            defer { lock.unlock() }
+            guard attachGeneration == gen else { return true }
+            attachedClient = client
+            bridgeObserverId = newId
+            return false
+        }()
+        if superseded {
+            client.removeConnectionStateObserver(newId)
+        }
+    }
+
+    func detach() {
+        let previous: (PyricBridgeClient, UUID)? = {
+            lock.lock()
+            defer { lock.unlock() }
+            attachGeneration &+= 1
+            let old = attachedClient.flatMap { oldClient in
+                bridgeObserverId.map { (oldClient, $0) }
+            }
+            attachedClient = nil
+            bridgeObserverId = nil
+            return old
+        }()
+        if let (oldClient, oldId) = previous {
+            oldClient.removeConnectionStateObserver(oldId)
+        }
+    }
+
+    private func updateBridgeState(_ next: BridgeConnectionState, generation: UInt64) {
         lock.lock()
-        defer { lock.unlock() }
-        online = next
-        yieldIfChanged()
+        guard attachGeneration == generation else {
+            lock.unlock()
+            return
+        }
+        bridgeState = next
+        propagateIfChangedLocked()
+        lock.unlock()
     }
 
-    /// Call with the lock held, so two updates never yield out of order.
-    private func yieldIfChanged() {
-        guard let state, let online else { return }
-        let connected = ConnectionInfo.isConnected(state, online: online)
-        guard connected != last else { return }
-        last = connected
-        continuation.yield(connected)
+    func updateNetworkOnline(_ online: Bool) {
+        lock.lock()
+        networkOnline = online
+        propagateIfChangedLocked()
+        lock.unlock()
+    }
+
+    func valuesStream() -> AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let id = UUID()
+            lock.lock()
+            continuations[id] = continuation
+            continuation.yield(_connected)
+            lock.unlock()
+
+            continuation.onTermination = { [weak self] _ in
+                self?.removeContinuation(id)
+            }
+        }
+    }
+
+    /// Registers a synchronous observer and immediately delivers the current
+    /// `connected` value under the lock.
+    func addObserver(_ observer: @escaping @Sendable (Bool) -> Void) -> UUID {
+        let id = UUID()
+        lock.lock()
+        observers[id] = observer
+        observer(_connected)
+        lock.unlock()
+        return id
+    }
+
+    func removeObserver(_ id: UUID) {
+        lock.lock()
+        observers.removeValue(forKey: id)
+        lock.unlock()
+    }
+
+    private func removeContinuation(_ id: UUID) {
+        lock.lock()
+        continuations.removeValue(forKey: id)
+        lock.unlock()
+    }
+
+    private func propagateIfChangedLocked() {
+        let nextConnected = ConnectionInfo.isConnected(bridgeState, online: networkOnline)
+        guard nextConnected != _connected else { return }
+        _connected = nextConnected
+        for continuation in continuations.values {
+            continuation.yield(nextConnected)
+        }
+        for observer in observers.values {
+            observer(nextConnected)
+        }
     }
 }

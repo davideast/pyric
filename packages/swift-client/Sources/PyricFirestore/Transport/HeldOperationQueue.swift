@@ -25,6 +25,7 @@ struct HeldOperationQueue {
 
     var isEmpty: Bool { ops.isEmpty }
     var count: Int { ops.count }
+    var firstSequence: Int? { ops.first?.sequence }
 
     mutating func insert(_ op: HeldOp) {
         let index = ops.firstIndex { $0.sequence > op.sequence } ?? ops.endIndex
