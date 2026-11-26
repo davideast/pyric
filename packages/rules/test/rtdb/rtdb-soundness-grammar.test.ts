@@ -212,23 +212,33 @@ describe('RTDB Soundness & Grammar Alignment (Track A)', () => {
       expect(evaluateRtdbExpression("!data.child('boolFalse').val()", ctx)).toBe(true);
     });
 
-    test('!null evaluates to false (fail-closed, never true)', () => {
-      expect(evaluateRtdbExpression('!null', ctx)).toBe(false);
-      expect(evaluateRtdbExpression("!data.child('missing').val()", ctx)).toBe(false);
+    test('!null raises RtdbRuleRuntimeError (matching production oracle)', () => {
+      expect(() => evaluateRtdbExpression('!null', ctx)).toThrow('! only operates on booleans.');
+      expect(() => evaluateRtdbExpression("!data.child('missing').val()", ctx)).toThrow(
+        '! only operates on booleans.',
+      );
     });
 
-    test('negation of non-boolean primitives evaluates to false (fail-closed)', () => {
-      // Numbers: !0 and !1 must both evaluate to false
-      expect(evaluateRtdbExpression('!0', ctx)).toBe(false);
-      expect(evaluateRtdbExpression('!1', ctx)).toBe(false);
-      expect(evaluateRtdbExpression("!data.child('zero').val()", ctx)).toBe(false);
-      expect(evaluateRtdbExpression("!data.child('one').val()", ctx)).toBe(false);
+    test('negation of non-boolean primitives raises RtdbRuleRuntimeError (matching production oracle)', () => {
+      // Numbers: !0 and !1 must throw instead of returning false
+      expect(() => evaluateRtdbExpression('!0', ctx)).toThrow('! only operates on booleans.');
+      expect(() => evaluateRtdbExpression('!1', ctx)).toThrow('! only operates on booleans.');
+      expect(() => evaluateRtdbExpression("!data.child('zero').val()", ctx)).toThrow(
+        '! only operates on booleans.',
+      );
+      expect(() => evaluateRtdbExpression("!data.child('one').val()", ctx)).toThrow(
+        '! only operates on booleans.',
+      );
 
-      // Strings: !"" and !"hello" must both evaluate to false
-      expect(evaluateRtdbExpression('!""', ctx)).toBe(false);
-      expect(evaluateRtdbExpression('!"hello"', ctx)).toBe(false);
-      expect(evaluateRtdbExpression("!data.child('emptyStr').val()", ctx)).toBe(false);
-      expect(evaluateRtdbExpression("!data.child('str').val()", ctx)).toBe(false);
+      // Strings: !"" and !"hello" must throw instead of returning false
+      expect(() => evaluateRtdbExpression('!""', ctx)).toThrow('! only operates on booleans.');
+      expect(() => evaluateRtdbExpression('!"hello"', ctx)).toThrow('! only operates on booleans.');
+      expect(() => evaluateRtdbExpression("!data.child('emptyStr').val()", ctx)).toThrow(
+        '! only operates on booleans.',
+      );
+      expect(() => evaluateRtdbExpression("!data.child('str').val()", ctx)).toThrow(
+        '! only operates on booleans.',
+      );
     });
 
     test('negation on boolean method returns functions correctly', () => {
