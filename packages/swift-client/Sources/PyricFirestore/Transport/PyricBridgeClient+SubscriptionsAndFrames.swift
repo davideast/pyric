@@ -82,12 +82,61 @@ extension PyricBridgeClient {
         return (subId: subId, task: task)
     }
 
+    /// Synchronously opens a subscription whose events and terminal completion
+    /// execute on `deliveryQueue` in exact socket frame arrival order (D7, D8, D10).
+    package nonisolated func openOrderedSubscription(
+        target: AnySendable,
+        actAs: AnySendable? = nil,
+        includeMetadataChanges: Bool = false,
+        listenSource: String? = nil,
+        onEvent: @escaping @Sendable (BridgeSubscriptionEvent) -> Void,
+        onFinish: @escaping @Sendable (Error?) -> Void
+    ) -> OrderedSubscriptionHandle {
+        let queue = deliveryQueue
+        if localStreams.isDisposed {
+            let err = PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
+            queue.async { onFinish(err) }
+            return OrderedSubscriptionHandle(subId: "", onCancel: nil)
+        }
+        let turn = turnCounter.take()
+        let subId = pendingSubs.reserve(
+            target: target,
+            actAs: actAs,
+            includeMetadataChanges: includeMetadataChanges,
+            listenSource: listenSource,
+            onEvent: { event in
+                queue.async { onEvent(event) }
+            },
+            onFinish: { error in
+                queue.async { onFinish(error) }
+            }
+        )
+        Task { [weak self] in
+            await self?.admitSubscription(id: subId, turn: turn)
+        }
+        return OrderedSubscriptionHandle(subId: subId) { [weak self] in
+            guard let self else { return }
+            if !self.cancelPendingSubscription(subId: subId) {
+                Task { [weak self] in
+                    await self?.unregisterSubscription(subId: subId)
+                }
+            }
+        }
+    }
+
     nonisolated func cancelPendingSubscription(subId: String) -> Bool {
-        pendingSubs.cancelIfPending(id: subId)
+        pendingSubs.cancel(id: subId)
+    }
+
+    nonisolated func isSubscriptionCancelled(_ subId: String) -> Bool {
+        pendingSubs.isCancelled(id: subId)
     }
 
     func drainPendingSubscriptions() {
         for (subId, sub) in pendingSubs.drainAllSorted() {
+            if pendingSubs.isCancelled(id: subId) {
+                continue
+            }
             if activeSubs[subId] == nil {
                 activeSubs[subId] = sub
             }
@@ -98,7 +147,7 @@ extension PyricBridgeClient {
         await waitForTurn(turn)
         if isDisposed {
             if let pending = pendingSubs.take(id: subId) {
-                pending.continuation.finish(
+                pending.finish(
                     throwing: PyricBridgeError.unavailable("PyricBridgeClient has been disposed.")
                 )
             }
@@ -106,9 +155,12 @@ extension PyricBridgeClient {
             return
         }
         if let pending = pendingSubs.take(id: subId) {
-            activeSubs[subId] = pending
+            if !pendingSubs.isCancelled(id: subId) {
+                activeSubs[subId] = pending
+            }
         }
-        guard let sub = activeSubs[subId] else {
+        guard !pendingSubs.isCancelled(id: subId), let sub = activeSubs[subId] else {
+            activeSubs.removeValue(forKey: subId)
             releaseTurn(turn)
             return
         }
@@ -135,7 +187,7 @@ extension PyricBridgeClient {
         if hasEverAttached && canReopen {
             if connectionState == .closed {
                 activeSubs.removeValue(forKey: subId)
-                sub.continuation.finish(throwing: PyricBridgeError.unavailable(connectionLostMessage))
+                sub.finish(throwing: PyricBridgeError.unavailable(connectionLostMessage))
             }
             releaseTurn(turn)
             return
@@ -150,7 +202,7 @@ extension PyricBridgeClient {
             try await connect()
         } catch {
             if let removed = activeSubs.removeValue(forKey: subId) {
-                removed.continuation.finish(throwing: error)
+                removed.finish(throwing: error)
             }
         }
     }
@@ -165,6 +217,10 @@ extension PyricBridgeClient {
 
     func sendSubFrame(id subId: String, generation: Int) async {
         guard isCurrent(generation), isConnected, !restoringSubscriptions, !socketRefusing else {
+            return
+        }
+        if pendingSubs.isCancelled(id: subId) {
+            activeSubs.removeValue(forKey: subId)
             return
         }
         guard var sub = activeSubs[subId], sub.sentInGeneration != generation else {
@@ -185,16 +241,18 @@ extension PyricBridgeClient {
         } catch {
             if activeSubs[subId]?.sentInGeneration == generation,
                let removed = activeSubs.removeValue(forKey: subId) {
-                removed.continuation.finish(throwing: error)
+                removed.finish(throwing: error)
             }
         }
     }
 
     func unregisterSubscription(subId: String) async {
-        if pendingSubs.cancelIfPending(id: subId) {
+        let wasPending = pendingSubs.cancel(id: subId)
+        pendingSubs.clearCancelled(id: subId)
+        deferredSubsDuringDrain.removeAll { $0.subId == subId }
+        if wasPending {
             return
         }
-        deferredSubsDuringDrain.removeAll { $0.subId == subId }
         guard let removed = activeSubs.removeValue(forKey: subId) else { return }
         if removed.sentInGeneration == connectionGeneration && isConnected && !isDisposed {
             try? await sendRaw(WorkerUnsubFrame(subId: subId))
@@ -328,6 +386,7 @@ extension PyricBridgeClient {
 
     private func handleWorkerSnap(_ msg: AnySendable) {
         guard let subId = msg["subId"]?.stringValue,
+              !pendingSubs.isCancelled(id: subId),
               var sub = activeSubs[subId],
               let value = msg["value"] ?? msg["res"] else {
             return
@@ -353,7 +412,7 @@ extension PyricBridgeClient {
             if denialContext != nil || error.code == .permissionDenied {
                 localStreams.yieldDenial(error)
             }
-            sub.continuation.finish(throwing: error)
+            sub.finish(throwing: error)
             return
         }
 
@@ -367,7 +426,7 @@ extension PyricBridgeClient {
         }
         sub.lastValue = value
         activeSubs[subId] = sub
-        sub.continuation.yield(.value(value))
+        sub.deliver(.value(value))
     }
 
     private func handlePing(_ msg: AnySendable) {
@@ -381,7 +440,7 @@ extension PyricBridgeClient {
         let subs = activeSubs
         activeSubs.removeAll()
         for (_, sub) in subs {
-            sub.continuation.finish(throwing: PyricBridgeError(code: code, message: message))
+            sub.finish(throwing: PyricBridgeError(code: code, message: message))
         }
     }
 

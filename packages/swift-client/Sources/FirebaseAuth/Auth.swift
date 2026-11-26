@@ -60,6 +60,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private let usesSharedAppBridge: Bool
     var bridgeObserverId: UUID?
     let stateLock = NSLock()
+    let transitionLock = NSRecursiveLock()
 
     var _currentUser: User?
     private var _tenantId: String?
@@ -104,7 +105,8 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     #endif
 
     var subTask: Task<Void, Never>?
-    var remoteSyncIterators: [PyricSubscriptionStream.Iterator] = []
+    var remoteSyncHandles: [OrderedSubscriptionHandle] = []
+    var remoteSyncContinuation: AsyncStream<RemoteAuthEvent>.Continuation?
     var remoteLensTask: Task<Void, Never>?
 
     // -- Initialization --
@@ -132,8 +134,9 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             app.removeBridgeObserver(observerId)
         }
         subTask?.cancel()
-        for iterator in remoteSyncIterators {
-            iterator.cancel()
+        remoteSyncContinuation?.finish()
+        for handle in remoteSyncHandles {
+            handle.cancel()
         }
         remoteLensTask?.cancel()
     }
@@ -197,6 +200,8 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         _ listener: @escaping @Sendable (Auth, User?) -> Void
     ) -> AuthStateDidChangeListenerHandle {
         let handle = AuthStateDidChangeListenerHandle()
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
         stateLock.lock()
         stateListeners[handle] = listener
         let current = _currentUser
@@ -216,6 +221,8 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         _ listener: @escaping @Sendable (Auth, User?) -> Void
     ) -> AuthStateDidChangeListenerHandle {
         let handle = AuthStateDidChangeListenerHandle()
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
         stateLock.lock()
         idTokenListeners[handle] = listener
         let current = _currentUser

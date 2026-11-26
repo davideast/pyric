@@ -72,6 +72,9 @@ public actor PyricBridgeClient {
 
     let localStreams = BridgeLocalStreams()
     let pendingSubs = BridgePendingSubscriptions()
+    /// Single serial dispatcher delivering subscription events in socket frame
+    /// arrival order across all listeners on this client (ADR-0019 D8, S20).
+    package nonisolated let deliveryQueue = DispatchQueue(label: "dev.pyric.bridge.delivery")
 
     /// Instance-scoped callback invoked whenever a Security Rules denial is intercepted.
     public nonisolated var onDenial: (@Sendable (PyricBridgeError) -> Void)? {
@@ -407,6 +410,10 @@ public actor PyricBridgeClient {
             var refused = false
             for (subId, sub) in batch {
                 guard isCurrent(generation), isConnected, !socketRefusing else { break }
+                if pendingSubs.isCancelled(id: subId) {
+                    activeSubs.removeValue(forKey: subId)
+                    continue
+                }
                 guard var current = activeSubs[subId], current.sentInGeneration != generation else { continue }
                 current.sentInGeneration = generation
                 activeSubs[subId] = current
@@ -517,8 +524,9 @@ public actor PyricBridgeClient {
     }
 
     private func reportGap() {
-        for sub in activeSubs.values where sub.includeMetadataChanges && sub.lastValue != nil {
-            sub.continuation.yield(.gap)
+        for (subId, sub) in activeSubs where sub.includeMetadataChanges && sub.lastValue != nil {
+            guard !pendingSubs.isCancelled(id: subId) else { continue }
+            sub.deliver(.gap)
         }
     }
 

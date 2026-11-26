@@ -34,8 +34,9 @@ extension Query {
             target = try QueryCompiler.compile(query: self)
         } catch {
             db.settings.dispatchCallback {
-                guard !stateBox.isCancelled else { return }
-                box.callback(nil, error)
+                stateBox.runIfActive {
+                    box.callback(nil, error)
+                }
             }
             return SimpleListenerRegistration {
                 stateBox.markCancelled()
@@ -70,7 +71,9 @@ extension Query {
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
                 ) {
-                    box.callback(snapshot, nil)
+                    stateBox.runIfActive {
+                        box.callback(snapshot, nil)
+                    }
                 }
             },
             onOffline: {
@@ -89,7 +92,9 @@ extension Query {
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
                 ) {
-                    box.callback(snapshot, nil)
+                    stateBox.runIfActive {
+                        box.callback(snapshot, nil)
+                    }
                 }
             },
             onGap: {
@@ -108,13 +113,16 @@ extension Query {
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
                 ) {
-                    box.callback(snapshot, nil)
+                    stateBox.runIfActive {
+                        box.callback(snapshot, nil)
+                    }
                 }
             },
             onError: { error in
                 db.settings.dispatchCallback {
-                    guard !stateBox.isCancelled else { return }
-                    box.callback(nil, error)
+                    stateBox.runIfActive {
+                        box.callback(nil, error)
+                    }
                 }
             }
         )
@@ -169,6 +177,7 @@ private final class QueryCallbackBox<T: Sendable>: @unchecked Sendable {
 }
 
 private final class QuerySnapshotStateBox: @unchecked Sendable {
+    private let callbackLock = NSRecursiveLock()
     private let lock = NSLock()
     private var cancelled = false
     private var previousDocs: [QueryDocumentSnapshot]?
@@ -188,9 +197,18 @@ private final class QuerySnapshotStateBox: @unchecked Sendable {
     }
 
     func markCancelled() {
+        callbackLock.lock()
+        defer { callbackLock.unlock() }
         lock.lock()
         cancelled = true
         lock.unlock()
+    }
+
+    func runIfActive(_ block: () -> Void) {
+        callbackLock.lock()
+        defer { callbackLock.unlock() }
+        guard !isCancelled else { return }
+        block()
     }
 
     func snapshotPrevious() -> ([QueryDocumentSnapshot]?, Bool) {
