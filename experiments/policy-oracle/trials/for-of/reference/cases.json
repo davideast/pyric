@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "rook": [
+    {"id":"rook-empty-path","from":"a1","to":"a2","occupied":{"a1":"wr","h1":"wk","h8":"bk"},"fen":"7k/8/8/8/8/8/8/R6K w - -","expected":true},
+    {"id":"rook-six-clear","from":"a1","to":"a8","occupied":{"a1":"wr","h1":"wk","h8":"bk"},"fen":"7k/8/8/8/8/8/8/R6K w - -","expected":true},
+    {"id":"rook-first-blocked","from":"a1","to":"a8","occupied":{"a1":"wr","h1":"wk","h8":"bk","a2":"bp"},"fen":"7k/8/8/8/8/8/p7/R6K w - -","expected":false},
+    {"id":"rook-sixth-blocked","from":"a1","to":"a8","occupied":{"a1":"wr","h1":"wk","h8":"bk","a7":"bp"},"fen":"7k/p7/8/8/8/8/8/R6K w - -","expected":false}
+  ],
+  "tally": [
+    {"id":"empty-turn","start":73,"moves":[],"nativeFinal":73,"expected":{"value":73}},
+    {"id":"strike-then-erase-at-cap","start":90,"moves":[{"kind":"strike"},{"kind":"erase"}],"nativeFinal":89,"expected":{"value":89}},
+    {"id":"erase-then-strike-at-cap","start":90,"moves":[{"kind":"erase"},{"kind":"strike"}],"nativeFinal":90,"expected":{"value":90}},
+    {"id":"erase-all-then-strike","start":73,"moves":[{"kind":"erase","all":true},{"kind":"strike"}],"nativeFinal":1,"expected":{"value":1}},
+    {"id":"strike-then-erase-all","start":73,"moves":[{"kind":"strike"},{"kind":"erase","all":true}],"nativeFinal":0,"expected":{"value":0}},
+    {"id":"400-strikes","start":0,"moves":[{"kind":"strike"}],"repeat":400,"nativeFinal":90,"expected":{"value":90}},
+    {"id":"401-strikes","start":0,"moves":[{"kind":"strike"}],"repeat":401,"nativeFinal":90,"expected":{"error":"bound"}}
+  ],
+  "proposed": [
+    {"id":"skip-later-error","operation":"reject truthy cells in key order","limit":2,"keys":["a","missing"],"board":{"a":true},"expected":{"value":false}},
+    {"id":"reach-later-error","operation":"reject truthy cells in key order","limit":2,"keys":["a","missing"],"board":{"a":false},"expected":{"error":"expression"}},
+    {"id":"error-before-blocker","operation":"reject truthy cells in key order","limit":2,"keys":["missing","a"],"board":{"a":true},"expected":{"error":"expression"}},
+    {"id":"over-bound-before-return","operation":"reject truthy cells in key order","limit":2,"keys":["a","b","c"],"board":{"a":true,"b":false,"c":false},"expected":{"error":"bound"}},
+    {"id":"over-bound-never-truncate","operation":"reject truthy cells in key order","limit":2,"keys":["a","b","c"],"board":{"a":false,"b":false,"c":true},"expected":{"error":"bound"}},
+    {"id":"unproved-source","operation":"compile unbounded dynamic parameter traversal to Firestore","expected":{"error":"unproved"}}
+  ],
+  "sensitivity": {
+    "ignore-sixth-square":{"first":"rook-sixth-blocked","expected":false,"mutant":true},
+    "reverse-actions":{"first":"strike-then-erase-at-cap","expected":89,"mutant":90}
+  }
+}

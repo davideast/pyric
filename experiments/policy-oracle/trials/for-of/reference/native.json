@@ -1,0 +1,110 @@
+{
+  "arcade": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+  "sources": {
+    "../../chess/reference/arcade-reference.ts": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+    "../../chess/bundle/source/rayEmpty.rules": "c6bf6ac25aa4f43eec46d8fa2b7da50b71f2d752b1700ed45ec717de10098851",
+    "../../chess/bundle/source/path.rules": "b22afc47ab63477c04ec3083a6748e32f1a5eede693cb745383b19d07f159cf7"
+  },
+  "satisfy": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+  "rook": [
+    {
+      "id": "rook-empty-path",
+      "uci": "a1a2",
+      "nativeLegal": true,
+      "handwrittenPathClear": true
+    },
+    {
+      "id": "rook-six-clear",
+      "uci": "a1a8",
+      "nativeLegal": true,
+      "handwrittenPathClear": true
+    },
+    {
+      "id": "rook-first-blocked",
+      "uci": "a1a8",
+      "nativeLegal": false,
+      "handwrittenPathClear": false
+    },
+    {
+      "id": "rook-sixth-blocked",
+      "uci": "a1a8",
+      "nativeLegal": false,
+      "handwrittenPathClear": false
+    }
+  ],
+  "tally": [
+    {
+      "id": "empty-turn",
+      "actions": 0,
+      "singleMoveModel": 73,
+      "turnParser": {
+        "accepted": false,
+        "issues": [
+          {
+            "path": "moves",
+            "message": "Too small: expected array to have >=1 items"
+          }
+        ]
+      }
+    },
+    {
+      "id": "strike-then-erase-at-cap",
+      "actions": 2,
+      "singleMoveModel": 89,
+      "turnParser": {
+        "accepted": true,
+        "value": 89
+      }
+    },
+    {
+      "id": "erase-then-strike-at-cap",
+      "actions": 2,
+      "singleMoveModel": 90,
+      "turnParser": {
+        "accepted": true,
+        "value": 90
+      }
+    },
+    {
+      "id": "erase-all-then-strike",
+      "actions": 2,
+      "singleMoveModel": 1,
+      "turnParser": {
+        "accepted": true,
+        "value": 1
+      }
+    },
+    {
+      "id": "strike-then-erase-all",
+      "actions": 2,
+      "singleMoveModel": 0,
+      "turnParser": {
+        "accepted": true,
+        "value": 0
+      }
+    },
+    {
+      "id": "400-strikes",
+      "actions": 400,
+      "singleMoveModel": 90,
+      "turnParser": {
+        "accepted": true,
+        "value": 90
+      }
+    },
+    {
+      "id": "401-strikes",
+      "actions": 401,
+      "singleMoveModel": 90,
+      "turnParser": {
+        "accepted": false,
+        "issues": [
+          {
+            "path": "moves",
+            "message": "Too big: expected array to have <=400 items"
+          }
+        ]
+      }
+    }
+  ]
+}
