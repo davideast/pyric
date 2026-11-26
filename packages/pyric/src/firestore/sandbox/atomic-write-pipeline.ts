@@ -22,12 +22,6 @@ import { WriteRuntime } from './write-runtime.js';
 export type AtomicRuleMethod = 'create' | 'update' | 'delete';
 export type AtomicOrigin = 'batch' | 'transaction';
 
-const FINAL_DELETED_PATHS_KEY = Symbol.for('pyric.firestore.batchFinalDeletedPaths');
-
-type BatchProjectionWithDeleted = Map<string, DocumentData | null> & {
-  [FINAL_DELETED_PATHS_KEY]?: ReadonlySet<string>;
-};
-
 export interface AtomicWriteInput {
   method: BatchOperation['method'];
   ruleMethod: AtomicRuleMethod;
@@ -161,27 +155,33 @@ export class AtomicWritePipeline {
     existingProjection?: Map<string, DocumentData | null>,
   ): AtomicDecision {
     const { context, resolvedOps, serverTime } = prepared;
-    const stepProjection = new Map<string, DocumentData | null>(existingProjection);
     const projection = this.runtime.buildBatchProjection(resolvedOps, existingProjection);
     const intraBatchExists = new Map<string, boolean>();
     const inputs = prepared.inputs.map((input) => {
       const existedPreCommit = this.runtime.state.get(input.path) !== null;
       const existsBeforeOp = intraBatchExists.get(input.path) ?? existedPreCommit;
+      const deletesDocument = projection.get(input.path) === null;
 
       let ruleMethod = input.ruleMethod;
       if (input.method === 'set') {
-        if (existedPreCommit) {
+        if (deletesDocument) {
+          ruleMethod = 'delete';
+        } else if (existedPreCommit) {
           ruleMethod = 'update';
         } else {
           ruleMethod = 'create';
         }
         intraBatchExists.set(input.path, true);
       } else if (input.method === 'create') {
-        if (!existsBeforeOp) {
+        if (deletesDocument) {
+          ruleMethod = 'delete';
+        } else if (!existsBeforeOp) {
           intraBatchExists.set(input.path, true);
         }
       } else if (input.method === 'update') {
-        if (existsBeforeOp && !existedPreCommit) {
+        if (deletesDocument) {
+          ruleMethod = 'delete';
+        } else if (existsBeforeOp && !existedPreCommit) {
           ruleMethod = 'create';
         }
       } else if (input.method === 'delete') {
@@ -190,40 +190,17 @@ export class AtomicWritePipeline {
       if (ruleMethod === input.ruleMethod) return input;
       return { ...input, ruleMethod };
     });
-    const stepPayloads: Array<DocumentData | undefined> = [];
     const testCases = resolvedOps.map((operation, index) => {
-      this.runtime.buildBatchProjection([operation], stepProjection);
-      const stepData = stepProjection.get(operation.path) ?? undefined;
-      stepPayloads.push(stepData);
       const testCase = this.runtime.buildTestCase({
         method: inputs[index].ruleMethod,
         path: operation.path,
         auth: context.auth,
         data: operation.data,
       }, serverTime);
-      // Atomic request.resource and getAfter both describe the final document,
-      // except when a later operation deletes the path: earlier writes still
-      // evaluate under their own rule method with their projected payload while
-      // getAfter observes the final deleted state.
-      const finalState = projection.get(operation.path);
-      if (finalState !== null && finalState !== undefined) {
-        testCase.data = finalState;
-      } else if (inputs[index].ruleMethod !== 'delete') {
-        testCase.data = stepData;
-      } else {
-        testCase.data = undefined;
-      }
+      // Atomic request.resource and getAfter both describe the final document.
+      testCase.data = projection.get(operation.path) ?? undefined;
       return testCase;
     });
-    const finalDeletedPaths = new Set<string>();
-    for (const [path, value] of projection.entries()) {
-      if (value === null) {
-        finalDeletedPaths.add(path.replace(/^\/+|\/+$/g, ''));
-      }
-    }
-    if (finalDeletedPaths.size > 0) {
-      (projection as BatchProjectionWithDeleted)[FINAL_DELETED_PATHS_KEY] = finalDeletedPaths;
-    }
     const outcomes: AtomicWriteOutcome[] = [];
     let allowed = true;
 
@@ -232,10 +209,8 @@ export class AtomicWritePipeline {
       const prior = context.snapshot[input.path] ?? null;
       const evalAt = this.runtime.clock.now();
       const evalStart = performance.now();
-      const simulation = this.simulateOperation(
-        testCases[index],
-        input,
-        stepPayloads[index],
+      const simulation = this.runtime.runSimulate(
+        [testCases[index]],
         context.bypassRules,
         projection,
       );
@@ -435,29 +410,6 @@ export class AtomicWritePipeline {
         const hasProvenance = context.provenance !== undefined;
         if (hasProvenance) write.provenance = context.provenance;
         this.runtime.emitWrite(write);
-      }
-    }
-  }
-
-  private simulateOperation(
-    testCase: ReturnType<WriteRuntime['buildTestCase']>,
-    input: AtomicWriteInput,
-    stepPayload: DocumentData | undefined,
-    bypassRules: boolean | undefined,
-    projection: Map<string, DocumentData | null>,
-  ): ReturnType<WriteRuntime['runSimulate']> {
-    const restoresDeletedProjection =
-      input.ruleMethod !== 'delete'
-      && projection.get(input.path) === null
-      && stepPayload !== undefined;
-    if (restoresDeletedProjection) {
-      projection.set(input.path, stepPayload);
-    }
-    try {
-      return this.runtime.runSimulate([testCase], bypassRules, projection);
-    } finally {
-      if (restoresDeletedProjection) {
-        projection.set(input.path, null);
       }
     }
   }
