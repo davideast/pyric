@@ -1,0 +1,16 @@
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {compile,link} from './adapter.mjs';
+import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
+import {sha} from '../../../arcade/corpus.mjs';
+const [pkg,bundler,out,variant='castle']=process.argv.slice(2);
+if (!pkg || !bundler || !out) throw Error('Usage: bun build.mjs INSTALLED_PACKAGE RESOLVER_JS OUTDIR [VARIANT]');
+const {compileFunction}=await loadPolicyApi(pkg);
+const {modules}=compile(compileFunction,variant,{mode:'emit'});
+const {resolveModules}=await import(pathToFileURL(resolve(bundler)));
+const rules=await link(modules,resolveModules,{variant});
+mkdirSync(out,{recursive:true});
+writeFileSync(join(out,'complete.rules'),rules);
+writeFileSync(join(out,'modules.json'),JSON.stringify(modules));
+console.log(JSON.stringify({variant,bytes:Buffer.byteLength(rules),sha256:sha(rules),modules:Object.keys(modules).length}));
