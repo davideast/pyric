@@ -1,0 +1,256 @@
+{
+  "source": "private controller receipts and journals; public native answers verified with independently pinned python-chess",
+  "signedInputsInCommon": 190,
+  "payloadsSha256": "95a81ddc4132f6b8b3c0d681f9c7ab28f19ea7e11aaeb7ae2cd04286b28fe954",
+  "snapshots": {
+    "stock": {
+      "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "journals": [
+        {
+          "controller": "c2ca3fa9f6db239cf7ff8efd5ee277e92ca64e1f7b82b356171f850cbdf00504",
+          "journal": "fcf27d6e458bab40a2a3f570e284556cf9306ae30a29ef50dfb90941e8a72c27",
+          "writes": 58
+        },
+        {
+          "controller": "3132f6d7cc90d8a7fee4b456ef3512687c729c0b93903513ce037fece32ac56b",
+          "journal": "a6bfeb76a926cf8839b7e1f505e8d7beb58f3c7e75c3bd7cc4072ef0cc31e2ec",
+          "writes": 16
+        },
+        {
+          "controller": "d0eef128f7f630558dd6fc70bf15bafd1c00684c941589f7c2573073ed972da0",
+          "journal": "831e3b07bcd3b628c091a7f1429f3332feaee02097b1d704b253e6855c4fc8c0",
+          "writes": 12
+        },
+        {
+          "controller": "2ab400c6367fb9364d0ddf468339b5a3cef73adbfe1de94c78495b35a3909f7c",
+          "journal": "ce58b785f74d10f093d3b76eae3c39997844dfe1b057ef2e9925aa9fded97bc9",
+          "writes": 41
+        },
+        {
+          "controller": "e09f9c2dc312d8047cebf6e82419fd389933d811a615c93a480c568fb724b13c",
+          "journal": "53aae88ce95911f56db8ec203a68723aa92c6352f48c81768762d7933631a3a5",
+          "writes": 33
+        },
+        {
+          "controller": "d02aa943169ff22fbdc93c2250bf16b4c8475ed26796a87078762d7002778b0b",
+          "journal": "949c686afa5a98ab9e56251d11c49cc29dade6247d38ca8398c4d2c337db0cb8",
+          "writes": 30
+        }
+      ],
+      "decisions": {
+        "ALLOW": 185,
+        "DENY": 5
+      }
+    },
+    "selected": {
+      "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+      "journals": [
+        {
+          "controller": "3c27c2b193e3da0d17fcdac36a92e1cb838fdd91d14c5c0525689d173ec10397",
+          "journal": "4a53d8daf1a560a0788e751fc61af1ad382289ab3f216d6d6abeabf32e2e582a",
+          "writes": 182
+        },
+        {
+          "controller": "960c0635effd3466d96fd46fceac92d42ed70f8339ec29868403e921f11cecea",
+          "journal": "ea61d779da3158704fc729ef3e85d6efecb0fb6e045779e1a38a4dd31b1fe825",
+          "writes": 8
+        }
+      ],
+      "decisions": {
+        "ALLOW": 98,
+        "DENY": 92
+      }
+    }
+  },
+  "native": {
+    "promote-capturing-rook-right-held": {
+      "fen": "8/8/8/8/8/4k3/6p1/4K2R b K -",
+      "move": "g2h1q",
+      "replyMoves": [],
+      "correctStatus": "won",
+      "submittedStatus": "won",
+      "admit": true
+    },
+    "promote-capturing-rook-right-expired": {
+      "fen": "8/8/8/8/8/4k3/6p1/4K2R b - -",
+      "move": "g2h1q",
+      "replyMoves": [],
+      "correctStatus": "won",
+      "submittedStatus": "won",
+      "admit": true
+    },
+    "rook-c5-after-queen-playing": {
+      "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "replyMoves": [
+        "c5c8"
+      ],
+      "correctStatus": "playing",
+      "submittedStatus": "playing",
+      "admit": true
+    },
+    "rook-c5-after-queen-draw": {
+      "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "replyMoves": [
+        "c5c8"
+      ],
+      "correctStatus": "playing",
+      "submittedStatus": "draw",
+      "admit": false
+    },
+    "rook-c5-after-queen-won": {
+      "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "replyMoves": [
+        "c5c8"
+      ],
+      "correctStatus": "playing",
+      "submittedStatus": "won",
+      "admit": false
+    },
+    "rook-h5-after-queen-playing": {
+      "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "replyMoves": [],
+      "correctStatus": "won",
+      "submittedStatus": "playing",
+      "admit": false
+    },
+    "rook-h5-after-queen-draw": {
+      "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "replyMoves": [],
+      "correctStatus": "won",
+      "submittedStatus": "draw",
+      "admit": false
+    },
+    "rook-h5-after-queen-won": {
+      "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "replyMoves": [],
+      "correctStatus": "won",
+      "submittedStatus": "won",
+      "admit": true
+    }
+  },
+  "signed": {
+    "stock": {
+      "promote-capturing-rook-right-held": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:27:48.260645Z",
+        "versionAfter": "2026-11-26T17:27:48.443311Z",
+        "beforeFullMatchSha256": "70d8f893e9d186ab7b7dee05413ad6ddcca79d73ea46e013c5a50f7899a1ad1e",
+        "afterFullMatchSha256": "a24992e93c026f09568c0fc0a02e06da4d7b79d71e6d34e90daeedb561726b21"
+      },
+      "promote-capturing-rook-right-expired": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:27:55.047422Z",
+        "versionAfter": "2026-11-26T17:27:55.203501Z",
+        "beforeFullMatchSha256": "800bf9b056bd4fe8b491da53e9cd66e4e889da67f05f3645f48fa3e14695517b",
+        "afterFullMatchSha256": "b058794ff14ae76fe5c4dba882ce97aa46722477c668c942618b509731b040cb"
+      },
+      "rook-c5-after-queen-playing": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:28:01.835570Z",
+        "versionAfter": "2026-11-26T17:28:02.021144Z",
+        "beforeFullMatchSha256": "a54bc6cca539ea8f677fa5cbd9891510226b3f21e514b7ca5e0fa158402dbd51",
+        "afterFullMatchSha256": "9d1b68a31d0b975bbf6aecabf7d09db7c86f9f944947329bf92fa7172daaeffb"
+      },
+      "rook-c5-after-queen-draw": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:28:08.716793Z",
+        "versionAfter": "2026-11-26T17:28:08.873009Z",
+        "beforeFullMatchSha256": "a54bc6cca539ea8f677fa5cbd9891510226b3f21e514b7ca5e0fa158402dbd51",
+        "afterFullMatchSha256": "a2c93a67a319e0c2fbe6e620e42ac4aa641f3ce86d9d09bc0dea07cf5bb02aa2"
+      },
+      "rook-c5-after-queen-won": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:28:15.451062Z",
+        "versionAfter": "2026-11-26T17:28:15.629958Z",
+        "beforeFullMatchSha256": "a54bc6cca539ea8f677fa5cbd9891510226b3f21e514b7ca5e0fa158402dbd51",
+        "afterFullMatchSha256": "acf11557279e7d17fcc6f2cae371d5fb6883921414e82991588dc5b76b969dca"
+      },
+      "rook-h5-after-queen-playing": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:28:22.254114Z",
+        "versionAfter": "2026-11-26T17:28:22.408572Z",
+        "beforeFullMatchSha256": "d8c90140fb7c6a411049090eb7133429561a7ef296bf91724c5d786b17517fbd",
+        "afterFullMatchSha256": "2fc8541b2801fd7c09a5a126826bbca001b6b24a5898c986c6067bbaf4f541e5"
+      },
+      "rook-h5-after-queen-draw": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:28:29.034644Z",
+        "versionAfter": "2026-11-26T17:28:29.223617Z",
+        "beforeFullMatchSha256": "d8c90140fb7c6a411049090eb7133429561a7ef296bf91724c5d786b17517fbd",
+        "afterFullMatchSha256": "7af9ba988f65e7a9b65b066fa4548eb4df6cbcb79203c1f34bf424b0f6787dc1"
+      },
+      "rook-h5-after-queen-won": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:28:35.821084Z",
+        "versionAfter": "2026-11-26T17:28:35.980903Z",
+        "beforeFullMatchSha256": "d8c90140fb7c6a411049090eb7133429561a7ef296bf91724c5d786b17517fbd",
+        "afterFullMatchSha256": "a49c27b9d62d072680eefd0ac9df565c8be7909f18ea47729541b8165859362a"
+      }
+    },
+    "selected": {
+      "promote-capturing-rook-right-held": {
+        "decision": "DENY",
+        "versionBefore": "2026-11-26T17:24:30.293259Z",
+        "versionAfter": "2026-11-26T17:24:30.293259Z",
+        "beforeFullMatchSha256": "d7fdf94d0063ce2bd2cb657d23b6afb7467b1c41723564067eb74deaaa1a4bb9",
+        "afterFullMatchSha256": "d7fdf94d0063ce2bd2cb657d23b6afb7467b1c41723564067eb74deaaa1a4bb9"
+      },
+      "promote-capturing-rook-right-expired": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:24:37.120828Z",
+        "versionAfter": "2026-11-26T17:24:37.305796Z",
+        "beforeFullMatchSha256": "0d45a4056516589a1783d6c4c9a732e2abbdcef925d9826de73e170abda02360",
+        "afterFullMatchSha256": "23d043e9dec6c3db425274cefc5893d8ac98185d1a959b5954f6f8697fc59e81"
+      },
+      "rook-c5-after-queen-playing": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:24:43.868116Z",
+        "versionAfter": "2026-11-26T17:24:44.043211Z",
+        "beforeFullMatchSha256": "f95824faf2db525cdd579d0ff542e0d3dcb35972e1f757a646d98a602bf7b3cb",
+        "afterFullMatchSha256": "a77a2c37247c9b9fe2891e7ef4e7379255b608ce8efb5e9b726d541d2db80d28"
+      },
+      "rook-c5-after-queen-draw": {
+        "decision": "DENY",
+        "versionBefore": "2026-11-26T17:24:50.744732Z",
+        "versionAfter": "2026-11-26T17:24:50.744732Z",
+        "beforeFullMatchSha256": "f95824faf2db525cdd579d0ff542e0d3dcb35972e1f757a646d98a602bf7b3cb",
+        "afterFullMatchSha256": "f95824faf2db525cdd579d0ff542e0d3dcb35972e1f757a646d98a602bf7b3cb"
+      },
+      "rook-c5-after-queen-won": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:24:57.447963Z",
+        "versionAfter": "2026-11-26T17:24:57.622460Z",
+        "beforeFullMatchSha256": "f95824faf2db525cdd579d0ff542e0d3dcb35972e1f757a646d98a602bf7b3cb",
+        "afterFullMatchSha256": "b27aa6d5885030d2388cf0ccaa47aeaef9b5d319719a8d603208b8ae732fde14"
+      },
+      "rook-h5-after-queen-playing": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:25:04.269662Z",
+        "versionAfter": "2026-11-26T17:25:04.421432Z",
+        "beforeFullMatchSha256": "ceafa8daf4f7611a80cd5c4a4b486c55c1e8e6a93c88aff168afaa62aafa87f7",
+        "afterFullMatchSha256": "b1237e20409a5f02a47eed7fcad724ad1ca297a05aff3f6b2c727d5346a9bca2"
+      },
+      "rook-h5-after-queen-draw": {
+        "decision": "DENY",
+        "versionBefore": "2026-11-26T17:25:11.045405Z",
+        "versionAfter": "2026-11-26T17:25:11.045405Z",
+        "beforeFullMatchSha256": "ceafa8daf4f7611a80cd5c4a4b486c55c1e8e6a93c88aff168afaa62aafa87f7",
+        "afterFullMatchSha256": "ceafa8daf4f7611a80cd5c4a4b486c55c1e8e6a93c88aff168afaa62aafa87f7"
+      },
+      "rook-h5-after-queen-won": {
+        "decision": "ALLOW",
+        "versionBefore": "2026-11-26T17:25:17.872659Z",
+        "versionAfter": "2026-11-26T17:25:18.040727Z",
+        "beforeFullMatchSha256": "ceafa8daf4f7611a80cd5c4a4b486c55c1e8e6a93c88aff168afaa62aafa87f7",
+        "afterFullMatchSha256": "6da0b86ef1db5eba0bb3e96fc6296231db0508bfe76aad72bcca9c167affaf86"
+      }
+    }
+  },
+  "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39"
+}
