@@ -4,6 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {basename,join} from 'node:path';
 import {sha} from '../../../arcade/corpus.mjs';
 import {sample} from '../reference/fixtures.mjs';
+import {sampleRights} from '../exploration/rights-claims-v1/fixture.mjs';
 
 const read = url => readFileSync(url,'utf8');
 const here = new URL('./',import.meta.url);
@@ -41,6 +42,7 @@ export function reviewedPlan(name) {
     assert.match(input.sha256,digest);
     const bytes = readFileSync(new URL(input.file,here));
     assert.equal(sha(bytes),input.sha256,'frozen positions changed for '+input.batch);
+    assert.ok(input.adapter === undefined || input.adapter === 'successor-rights');
     let selected=JSON.parse(bytes);
     if(input.ids) {
       const byId=new Map(selected.map(c=>[c.id,c]));
@@ -49,17 +51,24 @@ export function reviewedPlan(name) {
     }
     for (const raw of selected) {
       const {id,fen,uci,claim} = raw;
-      assert.match(id,slug);
+      assert.match(id,/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/);
       assert.ok(!batches.has(id),'duplicate case '+id);
       batches.set(id,input.batch);
-      cases.push({id,fen,uci,...(claim && {claim})});
+      const c={id,fen,uci,...(claim && {claim})};
+      if(input.adapter === 'successor-rights') {
+        assert.equal(typeof raw.claimedRights,'string');
+        assert.match(raw.claimedRights,/^K?Q?k?q?$/);
+        c.claimedRights=raw.claimedRights;
+      } else assert.ok(!Object.hasOwn(raw,'claimedRights'));
+      cases.push(c);
     }
   }
   assert.ok(cases.length);
   function profile(mode) {
     assert.equal(mode,name);
-    return {collection:'chess',measureAdmission:true,cases,sample,
-      probe:({fen,uci,claim})=>({fen,uci,...(claim && {claim})})};
+    return {collection:'chess',measureAdmission:true,cases,
+      sample:(c,writer,other)=>Object.hasOwn(c,'claimedRights') ? sampleRights(c,writer,other) : sample(c,writer,other),
+      probe:({id,...submitted})=>submitted};
   }
   return {plan,bundle,batches,fixtures:{checkBundle,profile},
     receipts:new URL('receipts/'+plan.rulesSha256+'/',here)};

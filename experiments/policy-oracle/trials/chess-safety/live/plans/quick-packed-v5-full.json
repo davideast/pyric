@@ -65,6 +65,12 @@
       "batch": "10-promotion-claims",
       "file": "../exploration/promotions-v1/controls/positions.json",
       "sha256": "a1fb0984fb735d0d1409a2a9863301421fd9f833a62f2256757515a5f12c4461"
+    },
+    {
+      "batch": "11-successor-rights",
+      "file": "../exploration/rights-claims-v1/controls.json",
+      "sha256": "50085f44ff081b92b8f198543cb5669052ae0a9e93cf6f7a3ff51bc088042424",
+      "adapter": "successor-rights"
     }
   ]
 }
