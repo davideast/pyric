@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-const [mode, pkgDir, ...encoded] = process.argv.slice(2);
+const [mode, pkgDir, variant, ...encoded] = process.argv.slice(2);
 const pkg = JSON.parse(readFileSync(join(pkgDir,'package.json'),'utf8'));
 const entry = pkg.exports['./experimental/policy'].import;
 const {compileFunction} = await import(pathToFileURL(resolve(pkgDir,entry)));
@@ -11,7 +11,12 @@ const invoke = compileFunction(source);
 if (mode === 'emit') {
   const fileSafety = invoke.firestoreModule();
   if (typeof fileSafety !== 'string') throw Error('compiler returned a non-string module');
-  console.log(JSON.stringify({fileSafety}));
+  const modules = {fileSafety};
+  if (variant === 'v2') {
+    const pathSource = readFileSync(new URL('policy/horizontal-path.policy',import.meta.url),'utf8');
+    modules.horizontalPath = compileFunction(pathSource).firestoreModule();
+  }
+  console.log(JSON.stringify(modules));
 } else if (mode === 'standalone') {
   const inputs = JSON.parse(Buffer.from(encoded.join(''),'base64').toString());
   const rows = inputs.map(({id,args}) => {

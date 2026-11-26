@@ -3,24 +3,50 @@
     "control": "allow",
     "standaloneFirst": "false-allow",
     "linkedFirst": "false-allow",
-    "linkedCase": "rook-exposed"
+    "linkedCase": "rook-exposed",
+    "pathOutcomes": [
+      "false-allow",
+      "false-allow"
+    ]
   },
   {
     "control": "deny",
     "standaloneFirst": "false-refusal",
     "linkedFirst": "false-refusal",
-    "linkedCase": "rook-safe"
+    "linkedCase": "rook-safe",
+    "pathOutcomes": [
+      "match",
+      "match"
+    ]
   },
   {
     "control": "cannot-emit",
     "standaloneFirst": "false-allow",
     "linkedFirst": "cannot-compile",
-    "linkedCase": "rook-safe"
+    "linkedCase": "rook-safe",
+    "pathOutcomes": [
+      "cannot-compile",
+      "cannot-compile"
+    ]
   },
   {
     "control": "standalone-error",
     "standaloneFirst": "standalone-error",
     "linkedFirst": "false-allow",
-    "linkedCase": "rook-exposed"
+    "linkedCase": "rook-exposed",
+    "pathOutcomes": [
+      "false-allow",
+      "false-allow"
+    ]
+  },
+  {
+    "control": "rules-error",
+    "standaloneFirst": "false-allow",
+    "linkedFirst": "false-refusal",
+    "linkedCase": "rook-safe",
+    "pathOutcomes": [
+      "evaluation-error",
+      "evaluation-error"
+    ]
   }
 ]

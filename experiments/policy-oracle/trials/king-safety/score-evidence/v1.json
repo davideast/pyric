@@ -1,0 +1,204 @@
+{
+  "candidateSha256": "c96a1f08a6808901f14e810bf31564d7f7a0c893126f99d9b8d18747e486a932",
+  "referenceSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "nativeSha256": "ebf93cbebf1c8a2d05ae37e04de4fde06e4422924a2263c17afe3b7efe0938d2",
+  "costNativeSha256": "dd44a06c4dbc04679d29a9746ed978252d39875c869d292ff093c3d3ab6bb369",
+  "pathNativeSha256": "1c660f6e5be7de0c5ec344acd403f8a709b8a3793f6beec5a0d88eca413ae7ce",
+  "variant": "v1",
+  "policies": {
+    "fileSafety": "4fa7f4eccb1fb5a2130c6af728f3901458962b4f2909834e3223f3010c81a888"
+  },
+  "binding": "after-board",
+  "standalone": {
+    "expectedFrom": "native post-move king safety on these fixtures",
+    "matches": 10,
+    "firstDivergence": null,
+    "cases": [
+      {
+        "id": "rook-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "rook-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "mirrored-file",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "surviving-blocker",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "black-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "black-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "queen-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match"
+      },
+      {
+        "id": "long-safe-slide",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "long-slide-blocked-sixth",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      },
+      {
+        "id": "long-slide-left-blocked",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match"
+      }
+    ]
+  },
+  "compilation": {
+    "status": "emitted",
+    "modules": {
+      "fileSafety": "3f8b7d6d9f3ec63ccca916837b87556d13960b7bb91af6594d943b8a7304fcd6"
+    }
+  },
+  "linkedRulesSha256": "d16ec3f40dc8df4120cfc9aaa56a1def251da8f64cd9de7e43b6869620669004",
+  "linkedRules": {
+    "expectedFrom": "native move legality",
+    "matches": 9,
+    "firstDivergence": {
+      "id": "long-safe-slide",
+      "native": "ALLOW",
+      "status": "false-refusal",
+      "diagnostic": "{\"kind\":\"expressions\",\"limit\":1000,\"message\":\"Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.\",\"line\":20,\"column\":12}",
+      "observed": "DENY",
+      "cause": "resource-limit",
+      "localExpressions": 1000
+    },
+    "cases": [
+      {
+        "id": "rook-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match",
+        "localExpressions": 852
+      },
+      {
+        "id": "rook-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 653
+      },
+      {
+        "id": "mirrored-file",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 659
+      },
+      {
+        "id": "surviving-blocker",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match",
+        "localExpressions": 861
+      },
+      {
+        "id": "black-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 669
+      },
+      {
+        "id": "black-safe",
+        "native": "ALLOW",
+        "observed": "ALLOW",
+        "status": "match",
+        "localExpressions": 875
+      },
+      {
+        "id": "queen-exposed",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 653
+      },
+      {
+        "id": "long-safe-slide",
+        "native": "ALLOW",
+        "status": "false-refusal",
+        "diagnostic": "{\"kind\":\"expressions\",\"limit\":1000,\"message\":\"Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.\",\"line\":20,\"column\":12}",
+        "observed": "DENY",
+        "cause": "resource-limit",
+        "localExpressions": 1000
+      },
+      {
+        "id": "long-slide-blocked-sixth",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 567
+      },
+      {
+        "id": "long-slide-left-blocked",
+        "native": "DENY",
+        "observed": "DENY",
+        "status": "match",
+        "localExpressions": 561
+      }
+    ]
+  },
+  "cohorts": {
+    "primary": {
+      "cases": [
+        "rook-safe",
+        "rook-exposed",
+        "mirrored-file",
+        "surviving-blocker",
+        "black-exposed",
+        "black-safe",
+        "queen-exposed"
+      ],
+      "standalone": 7,
+      "linkedRules": 7
+    },
+    "costFollowUp": {
+      "cases": [
+        "long-safe-slide"
+      ],
+      "standalone": 1,
+      "linkedRules": 0
+    },
+    "pathControls": {
+      "cases": [
+        "long-slide-blocked-sixth",
+        "long-slide-left-blocked"
+      ],
+      "standalone": 2,
+      "linkedRules": 2
+    }
+  },
+  "passed": false
+}

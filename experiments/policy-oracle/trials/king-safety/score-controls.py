@@ -13,9 +13,12 @@ HERE = Path(__file__).resolve().parent
 def compiler_tar(output, *, runtime, emitted):
     manifest = {"name": "@pyric/rules", "type":"module", "version":"0.0.0",
                 "exports":{"./experimental/policy":{"import":"./index.mjs"}}}
-    source = f"""export function compileFunction() {{
+    source = f"""export function compileFunction(source) {{
   const invoke = () => {{ {runtime} }};
-  invoke.firestoreModule = () => {{ {emitted} }};
+  invoke.firestoreModule = () => {{
+    if (source.includes('function horizontalPathClear(')) return "rules_version = '2+modules';\\nexport function horizontalPathClear(board,rank,x,toX) {{ return true; }}";
+    {emitted}
+  }};
   return invoke;
 }}"""
     with tarfile.open(output, "w:gz") as archive:
@@ -39,6 +42,8 @@ def main():
          "false-allow", "cannot-compile", "rook-safe"),
         ("standalone-error", "throw Error('unsupported policy input')", emit("true"),
          "standalone-error", "false-allow", "rook-exposed"),
+        ("rules-error", "return true", emit("board['absent'] == 'wk'"),
+         "false-allow", "false-refusal", "rook-safe"),
     ]
     rows = []
     with tempfile.TemporaryDirectory(prefix="king-score-controls-") as temp:
@@ -48,10 +53,19 @@ def main():
             result = subprocess.run([sys.executable, HERE/"score.py", "--candidate-package", archive], capture_output=True)
             assert result.returncode == 1, (name, result)
             score = json.loads(result.stdout)
+            assert sum(len(c["cases"]) for c in score["cohorts"].values()) == 10
             assert score["standalone"]["firstDivergence"]["status"] == standalone, score
             row = score["linkedRules"]["firstDivergence"]
             assert (row["status"], row["id"]) == (expected, first), score
-            rows.append({"control":name, "standaloneFirst":standalone, "linkedFirst":expected, "linkedCase":first})
+            path_ids = score["cohorts"]["pathControls"]["cases"]
+            path_outcomes = [r["status"] for r in score["linkedRules"]["cases"] if r["id"] in path_ids]
+            if name == "allow":
+                assert path_outcomes == ["false-allow", "false-allow"], score
+            if name == "rules-error":
+                exposed = next(r for r in score["linkedRules"]["cases"] if r["id"] == "rook-exposed")
+                assert exposed["status"] == "evaluation-error" and exposed["cause"] == "rule-error", exposed
+            rows.append({"control":name, "standaloneFirst":standalone, "linkedFirst":expected,
+                         "linkedCase":first,"pathOutcomes":path_outcomes})
     print(json.dumps(rows, indent=2))
 
 
