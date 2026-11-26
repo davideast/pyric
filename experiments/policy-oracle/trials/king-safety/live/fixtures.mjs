@@ -15,7 +15,23 @@ export function checkBundle(mode, source, digest) {
   assert.equal(typeof releases[mode],'string','release requires a reviewed SHA-256 pin');
   assert.equal(digest,releases[mode]);
   assert.equal(sha(source),digest);
-  if (mode==='handwritten') assert.equal(source,handwritten);
+  if (mode==='handwritten') {
+    assert.equal(source,handwritten);
+    return;
+  }
+  const executable = text => {
+    const lines = text.trimEnd().split('\n');
+    assert.ok(lines.pop().startsWith('// @pyric-source-map: '));
+    return lines.join('\n');
+  };
+  const code = executable(source);
+  const helper = code.match(/^  function fileSafe\(board, file, color\) \{[^{}]*^  \}\n/gm) ?? [];
+  assert.equal(helper.length,1);
+  assert.equal(sha(helper[0]),releases.linkedHelper);
+  const guard = " && (kind != 'r' || dx == 0 || fileSafe(next.board, mv.from[0:1], color))";
+  assert.equal(code.split(guard).length,2);
+  assert.equal(code.replace(helper[0],'').replace(guard,''),executable(handwritten),
+    'only the reviewed pure helper and its restrictive move guard may differ');
 }
 
 export function profile(mode) {
