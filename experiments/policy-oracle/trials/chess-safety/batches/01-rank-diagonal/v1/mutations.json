@@ -1,0 +1,48 @@
+{
+  "batch": "01-rank-diagonal",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "forbid-any-move-by-absolutely-pinned-piece",
+      "sourceDigest": "910514387e5d7471d194224453367acb706d56dfd6c7b4f33983e10233c19920",
+      "cases": 19,
+      "firstDivergence": {
+        "id": "rank-pinned-slide",
+        "native": true,
+        "mutant": false
+      },
+      "mistakes": [
+        {
+          "id": "rank-pinned-slide",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "rank-pinned-capture",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "rising-pinned-slide",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "rising-pinned-capture",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "falling-pinned-slide",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "falling-pinned-capture",
+          "native": true,
+          "mutant": false
+        }
+      ]
+    }
+  ]
+}

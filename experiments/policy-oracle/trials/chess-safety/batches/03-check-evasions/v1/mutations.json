@@ -1,0 +1,28 @@
+{
+  "batch": "03-check-evasions",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "accept-eliminating-one-checker-in-double-check",
+      "sourceDigest": "9f1b31e56c47923803a0380a675c25c17482b0f6690863af2eb5b845895eec7d",
+      "cases": 8,
+      "firstDivergence": {
+        "id": "capture-one-of-two-checkers",
+        "native": false,
+        "mutant": true
+      },
+      "mistakes": [
+        {
+          "id": "capture-one-of-two-checkers",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "double-check-king-still-attacked",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    }
+  ]
+}

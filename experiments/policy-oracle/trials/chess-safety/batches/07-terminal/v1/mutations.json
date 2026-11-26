@@ -1,0 +1,65 @@
+{
+  "batch": "07-terminal",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "accept-client-declared-result-for-legal-move",
+      "sourceDigest": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+      "cases": 10,
+      "firstDivergence": {
+        "id": "mate-wrong-result",
+        "native": false,
+        "mutant": true
+      },
+      "mistakes": [
+        {
+          "id": "mate-wrong-result",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "stalemate-wrong-result",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "one-king-reply-wrong-result",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "one-rook-reply-wrong-result",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "black-mate-reported-playing",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    },
+    {
+      "name": "inspect-only-king-replies-for-terminal-position",
+      "sourceDigest": "20db6c03c094b61f3fb9c69764840335ecfd88006031d4defdda79fe238d61d5",
+      "cases": 10,
+      "firstDivergence": {
+        "id": "one-rook-reply-correct",
+        "native": true,
+        "mutant": false
+      },
+      "mistakes": [
+        {
+          "id": "one-rook-reply-correct",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "one-rook-reply-wrong-result",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    }
+  ]
+}

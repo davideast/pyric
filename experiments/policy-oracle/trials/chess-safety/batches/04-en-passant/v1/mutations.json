@@ -1,0 +1,28 @@
+{
+  "batch": "04-en-passant",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "leave-captured-en-passant-pawn-on-board",
+      "sourceDigest": "a37f6ae110cf5c94dfb7465467c06503617d923b14be87c0a92cbe3eb230dfdc",
+      "cases": 5,
+      "firstDivergence": {
+        "id": "ep-two-pawns-leave-rank",
+        "native": false,
+        "mutant": true
+      },
+      "mistakes": [
+        {
+          "id": "ep-two-pawns-leave-rank",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "black-ep-opens-rank",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    }
+  ]
+}

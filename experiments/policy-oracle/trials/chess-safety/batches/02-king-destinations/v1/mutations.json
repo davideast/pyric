@@ -1,0 +1,23 @@
+{
+  "batch": "02-king-destinations",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "use-legal-captures-to-detect-attacked-king-destination",
+      "sourceDigest": "e4577ad8c974150de409815023d447786d7ed409472dad1cd87fd69c13079824",
+      "cases": 12,
+      "firstDivergence": {
+        "id": "pinned-knight-defends",
+        "native": false,
+        "mutant": true
+      },
+      "mistakes": [
+        {
+          "id": "pinned-knight-defends",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "batch": "05-castling",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "test-only-final-king-square-when-castling",
+      "sourceDigest": "65b13e38c2dec5ae8696a41d25d885d01bdf43e83de8d157d57d2387702ad79b",
+      "cases": 20,
+      "firstDivergence": {
+        "id": "white-short-start-attacked",
+        "native": false,
+        "mutant": true
+      },
+      "mistakes": [
+        {
+          "id": "white-short-start-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "white-short-transit-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "white-long-start-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "white-long-transit-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "black-short-start-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "black-short-transit-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "black-long-start-attacked",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "black-long-transit-attacked",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    }
+  ]
+}

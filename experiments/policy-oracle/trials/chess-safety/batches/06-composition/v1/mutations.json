@@ -1,0 +1,23 @@
+{
+  "batch": "06-composition",
+  "authority": "offline mutation sensitivity",
+  "results": [
+    {
+      "name": "truncate-slider-attack-ray-before-seventh-square",
+      "sourceDigest": "dcd5faf25fd93b3c1163cf378a382bcb4f15e80c69ef060f9b47042af6cf5e35",
+      "cases": 10,
+      "firstDivergence": {
+        "id": "edge-ray-seventh-square",
+        "native": false,
+        "mutant": true
+      },
+      "mistakes": [
+        {
+          "id": "edge-ray-seventh-square",
+          "native": false,
+          "mutant": true
+        }
+      ]
+    }
+  ]
+}
