@@ -1,0 +1,48 @@
+{
+  "id": "compatibility",
+  "receipt": "f622d09ee0d7c02c82fb9bf92cd812047c8d4ec05a5867bf9e7381ccd1b1bf84",
+  "bundle": "../bundle/artifacts/compatibility.rules",
+  "report": {
+    "mode": "compatibility",
+    "runId": "0aa64254-3edc-40a6-864e-58b718e65103",
+    "receipt": "f622d09ee0d7c02c82fb9bf92cd812047c8d4ec05a5867bf9e7381ccd1b1bf84",
+    "rulesSha256": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+    "activeRuleset": "projects/digame-mas/rulesets/fc3bc4fa-dcf0-4393-bf63-6690326c46d5",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "63ced282a325493f152695a5b092dd23c62c197095fc67473d1d29fdf857f554",
+    "signedReadersExplicit": false,
+    "exactProtocolIntents": 18,
+    "decisions": {
+      "opening-counter": "DENY",
+      "create": "ALLOW",
+      "cancel-by-guest": "DENY",
+      "cancel-by-host": "ALLOW",
+      "open-match": "ALLOW",
+      "join": "ALLOW",
+      "wrong-turn": "DENY",
+      "wrong-counter": "DENY",
+      "f2f3": "ALLOW",
+      "e7e5": "ALLOW",
+      "g2g4": "ALLOW",
+      "d8h4": "ALLOW",
+      "terminal-move": "DENY",
+      "pointer-alone": "DENY",
+      "offer-rematch": "ALLOW",
+      "duplicate-offer": "DENY",
+      "join-rematch": "ALLOW",
+      "resign-rematch": "ALLOW"
+    },
+    "special": {
+      "special-castle-black-queenside": "ALLOW",
+      "special-capture-corner-rights": "ALLOW",
+      "special-en-passant": "ALLOW",
+      "special-underpromotion-capture": "ALLOW",
+      "special-long-clear-ray": "ALLOW",
+      "special-stalemate": "ALLOW"
+    },
+    "sensitivity": {
+      "changedMoveCount": "f2f3",
+      "missingAtomicPointer": "offer-rematch"
+    }
+  }
+}

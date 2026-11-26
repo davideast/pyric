@@ -1,0 +1,141 @@
+{
+  "profile": "compatibility",
+  "receipt": "f622d09ee0d7c02c82fb9bf92cd812047c8d4ec05a5867bf9e7381ccd1b1bf84",
+  "deployedRules": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+  "candidateRules": "636887a153e6a7af1a163ca27ecaab170f57db74ccfd178866793cfee821e6dc",
+  "change": "The compiled moveIncremented() returns prior count plus two instead of plus one.",
+  "mismatches": [
+    {
+      "id": "wrong-counter",
+      "expected": "DENY",
+      "actual": "ALLOW",
+      "operations": [
+        {
+          "decision": "ALLOW",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "f2f3",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "e7e5",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "g2g4",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "d8h4",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "special-castle-black-queenside",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "special-capture-corner-rights",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "special-en-passant",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "special-underpromotion-capture",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "special-long-clear-ray",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    },
+    {
+      "id": "special-stalemate",
+      "expected": "ALLOW",
+      "actual": "DENY",
+      "operations": [
+        {
+          "decision": "DENY",
+          "unsupported": false,
+          "budget": null
+        }
+      ]
+    }
+  ]
+}

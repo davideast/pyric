@@ -9,11 +9,12 @@ import subprocess
 HERE = Path(__file__).resolve().parent
 
 
-def retain(archive, name, digest, bundle, engine=None):
+def retain(archive, name, digest, bundle, engine=None, inputs=None):
     # bundle/engine are relative to this verification directory in the integrated worktree.
-    command = ["bun", str(HERE / "receipts.mjs"), str(archive.resolve()), "verify", digest, str(HERE / bundle)]
+    inputs = (inputs or HERE).resolve()
+    command = ["bun", str(HERE / "receipts.mjs"), str(archive.resolve()), "verify", digest, str(inputs / bundle)]
     if engine:
-        command.append(str(HERE / engine))
+        command.append(str(inputs / engine))
     report = json.loads(subprocess.check_output(command))
     raw = (archive / (digest + ".json")).read_bytes()
     if hashlib.sha256(raw).hexdigest() != digest:
@@ -39,5 +40,6 @@ if __name__ == "__main__":
     parser.add_argument("digest")
     parser.add_argument("bundle")
     parser.add_argument("engine", nargs="?")
+    parser.add_argument("--inputs", type=Path, help="qualifying checkout's verification directory when registering from the separate verifier checkout")
     args = parser.parse_args()
-    retain(args.archive, args.name, args.digest, args.bundle, args.engine)
+    retain(args.archive, args.name, args.digest, args.bundle, args.engine, args.inputs)
