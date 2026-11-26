@@ -1,0 +1,401 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "24d4a4ed9f0238122e23636cb472f6ff03cc59ed32fade408be59f5144e7b8e4",
+  "corpusSha256": "285a5dda9dcdd99570a68ae68c9499b2a31700fa94806b09609f4f6d4bc2e7f0",
+  "caseCount": 2481,
+  "scoreSha256": "c9f629dd41b2a2193e043d9f624693ec768cd8770599ed41124076958e149e98",
+  "groups": {
+    "01-rank-diagonal": {
+      "cases": 409,
+      "outcomes": {
+        "match": 408,
+        "false-refusal/resource-limit": 1
+      },
+      "peakExpressions": 1000
+    },
+    "02-king-destinations": {
+      "cases": 249,
+      "outcomes": {
+        "match": 249
+      },
+      "peakExpressions": 792
+    },
+    "03-check-evasions": {
+      "cases": 193,
+      "outcomes": {
+        "match": 193
+      },
+      "peakExpressions": 902
+    },
+    "04-en-passant": {
+      "cases": 74,
+      "outcomes": {
+        "match": 74
+      },
+      "peakExpressions": 821
+    },
+    "05-castling": {
+      "cases": 196,
+      "outcomes": {
+        "match": 196
+      },
+      "peakExpressions": 948
+    },
+    "06-composition": {
+      "cases": 180,
+      "outcomes": {
+        "match": 174,
+        "false-refusal/resource-limit": 6
+      },
+      "peakExpressions": 1000
+    },
+    "07-terminal": {
+      "cases": 239,
+      "outcomes": {
+        "match": 166,
+        "false-allow": 73
+      },
+      "peakExpressions": 992
+    },
+    "reachable-traces": {
+      "cases": 941,
+      "outcomes": {
+        "match": 941
+      },
+      "peakExpressions": 965
+    }
+  },
+  "reachableByMove": {
+    "p-2-quiet": {
+      "cases": 68,
+      "outcomes": {
+        "match": 68
+      }
+    },
+    "r-1-quiet": {
+      "cases": 82,
+      "outcomes": {
+        "match": 82
+      }
+    },
+    "p-1-quiet": {
+      "cases": 157,
+      "outcomes": {
+        "match": 157
+      }
+    },
+    "b-1-quiet": {
+      "cases": 93,
+      "outcomes": {
+        "match": 93
+      }
+    },
+    "b-2-quiet": {
+      "cases": 38,
+      "outcomes": {
+        "match": 38
+      }
+    },
+    "n-2-quiet": {
+      "cases": 148,
+      "outcomes": {
+        "match": 148
+      }
+    },
+    "b-long-quiet": {
+      "cases": 7,
+      "outcomes": {
+        "match": 7
+      }
+    },
+    "r-2-quiet": {
+      "cases": 32,
+      "outcomes": {
+        "match": 32
+      }
+    },
+    "b-1-capture": {
+      "cases": 13,
+      "outcomes": {
+        "match": 13
+      }
+    },
+    "b-3-quiet": {
+      "cases": 11,
+      "outcomes": {
+        "match": 11
+      }
+    },
+    "p-1-capture": {
+      "cases": 34,
+      "outcomes": {
+        "match": 34
+      }
+    },
+    "k-1-quiet": {
+      "cases": 57,
+      "outcomes": {
+        "match": 57
+      }
+    },
+    "r-2-capture": {
+      "cases": 5,
+      "outcomes": {
+        "match": 5
+      }
+    },
+    "q-1-quiet": {
+      "cases": 65,
+      "outcomes": {
+        "match": 65
+      }
+    },
+    "b-long-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "q-3-capture": {
+      "cases": 4,
+      "outcomes": {
+        "match": 4
+      }
+    },
+    "r-3-quiet": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      }
+    },
+    "r-long-quiet": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      }
+    },
+    "n-2-capture": {
+      "cases": 17,
+      "outcomes": {
+        "match": 17
+      }
+    },
+    "r-3-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "b-3-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "q-3-quiet": {
+      "cases": 7,
+      "outcomes": {
+        "match": 7
+      }
+    },
+    "q-long-quiet": {
+      "cases": 10,
+      "outcomes": {
+        "match": 10
+      }
+    },
+    "q-2-quiet": {
+      "cases": 30,
+      "outcomes": {
+        "match": 30
+      }
+    },
+    "r-1-capture": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      }
+    },
+    "k-1-capture": {
+      "cases": 4,
+      "outcomes": {
+        "match": 4
+      }
+    },
+    "b-2-capture": {
+      "cases": 7,
+      "outcomes": {
+        "match": 7
+      }
+    },
+    "q-1-capture": {
+      "cases": 8,
+      "outcomes": {
+        "match": 8
+      }
+    },
+    "q-long-capture": {
+      "cases": 2,
+      "outcomes": {
+        "match": 2
+      }
+    },
+    "q-2-capture": {
+      "cases": 6,
+      "outcomes": {
+        "match": 6
+      }
+    },
+    "r-long-capture": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      }
+    }
+  },
+  "divergences": {
+    "01-rank-diagonal/false-refusal/resource-limit": {
+      "first": {
+        "case": {
+          "id": "rank-pinned-capture-1-1-0",
+          "fen": "8/8/8/R4r1k/8/8/8/1K6 b - -",
+          "uci": "f5a5",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "8/8/8/r6k/8/8/8/1K6 w - -",
+          "outcome": "playing",
+          "replyCount": 3
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 0,
+        "case": {
+          "id": "rank-pinned-capture-1-1-0",
+          "fen": "8/8/8/R4r1k/8/8/8/1K6 b - -",
+          "uci": "f5a5",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "8/8/8/r6k/8/8/8/1K6 w - -",
+          "outcome": "playing",
+          "replyCount": 3
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      }
+    },
+    "06-composition/false-refusal/resource-limit": {
+      "first": {
+        "case": {
+          "id": "long-rank-edge-capture-0-1-0",
+          "fen": "8/8/8/3k4/8/8/r6R/7K w - -",
+          "uci": "h2a2",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "8/8/8/3k4/8/8/R7/7K b - -",
+          "outcome": "playing",
+          "replyCount": 8
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 0,
+        "case": {
+          "id": "long-rank-edge-capture-0-1-0",
+          "fen": "8/8/8/3k4/8/8/r6R/7K w - -",
+          "uci": "h2a2",
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "8/8/8/3k4/8/8/R7/7K b - -",
+          "outcome": "playing",
+          "replyCount": 8
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "expressions": 1000
+        }
+      }
+    },
+    "07-terminal/false-allow": {
+      "first": {
+        "case": {
+          "id": "mate-correct-1-1-6",
+          "fen": "3Q2q1/8/1p6/B3RP2/N4Q1N/1kB2R2/3q4/KQ6 b - -",
+          "uci": "d2b2",
+          "claim": {
+            "status": "won",
+            "winner": "guest"
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "3Q2q1/8/1p6/B3RP2/N4Q1N/1kB2R2/1q6/KQ6 w - -",
+          "outcome": "playing",
+          "replyCount": 3
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 844
+        }
+      },
+      "minimized": {
+        "beforePieces": 4,
+        "afterPieces": 4,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "mate-wrong-result-0-0-1",
+          "fen": "7k/4Q3/6K1/8/8/8/8/6R1 w - -",
+          "uci": "e7g7",
+          "claim": {
+            "status": "draw",
+            "winner": ""
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": false,
+          "successor": "7k/6Q1/6K1/8/8/8/8/6R1 b - -",
+          "outcome": "checkmate",
+          "replyCount": 0
+        },
+        "result": {
+          "actual": "ALLOW",
+          "status": "false-allow",
+          "cause": null,
+          "expressions": 816
+        }
+      }
+    }
+  }
+}

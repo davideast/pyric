@@ -1,0 +1,86 @@
+{
+  "v1": {
+    "outside-subset": {
+      "cases": 1617,
+      "outcomes": {
+        "match": 1544,
+        "false-allow": 73
+      },
+      "first": {
+        "false-allow": "mate-correct-1-1-6"
+      }
+    },
+    "nonking-can-take-last-slider": {
+      "cases": 36,
+      "outcomes": {
+        "match": 36
+      },
+      "first": {}
+    },
+    "illegal-move": {
+      "cases": 799,
+      "outcomes": {
+        "match": 799
+      },
+      "first": {}
+    },
+    "bare-king-slider-last-move": {
+      "cases": 29,
+      "outcomes": {
+        "match": 22,
+        "false-refusal/resource-limit": 7
+      },
+      "first": {
+        "false-refusal/resource-limit": "rank-pinned-capture-1-1-0"
+      }
+    }
+  },
+  "rights-v1": {
+    "bare-king-slider-last-move": {
+      "cases": 112,
+      "outcomes": {
+        "false-refusal/resource-limit": 101,
+        "match": 11
+      },
+      "first": {
+        "false-refusal/resource-limit": "rights-00001"
+      }
+    },
+    "outside-subset": {
+      "cases": 1576,
+      "outcomes": {
+        "match": 1196,
+        "false-refusal/resource-limit": 380
+      },
+      "first": {
+        "false-refusal/resource-limit": "rights-00019"
+      }
+    },
+    "nonking-can-take-last-slider": {
+      "cases": 48,
+      "outcomes": {
+        "match": 48
+      },
+      "first": {}
+    }
+  },
+  "replies-v1": {
+    "outside-subset": {
+      "cases": 298,
+      "outcomes": {
+        "match": 149,
+        "false-allow": 149
+      },
+      "first": {
+        "false-allow": "only-k-move-in-check-0-false"
+      }
+    },
+    "nonking-can-take-last-slider": {
+      "cases": 80,
+      "outcomes": {
+        "match": 80
+      },
+      "first": {}
+    }
+  }
+}

@@ -6,13 +6,16 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 import {sha} from '../../../../arcade/corpus.mjs';
 import {position} from '../../../chess/reference/score.mjs';
-import {inCheck,squareOf} from '../../../chess/reference/arcade-reference.ts';
+import * as native from '../../../chess/reference/native.mjs';
+import {inCheck,squareName,squareOf} from '../../../chess/reference/arcade-reference.ts';
 import {nativeEvidence} from '../../reference/native.mjs';
 import {sample} from '../../reference/fixtures.mjs';
 import {bucket} from '../replies-v1/family.mjs';
 import {encode,plausible} from './corpus.mjs';
 
-const [simulator,bundle,cohort]=process.argv.slice(2);
+const args=process.argv.slice(2);
+const scopeReport=args.includes('--scope-report');
+const [simulator,bundle,cohort]=args.filter(a=>a!=='--scope-report');
 const locations=new Map([[undefined,'./'],['--terminal-replies','../replies-v1/'],['--rights','../rights-v1/']]);
 assert.ok(locations.has(cohort),'unknown discovery cohort');
 const base=new URL(locations.get(cohort),import.meta.url);
@@ -26,7 +29,7 @@ execFileSync('python3',[fileURLToPath(new URL('verify-simulator.py',import.meta.
 const {firestoreRules}=await import(pathToFileURL(join(resolve(simulator),'dist/index.js')));
 const code=readFileSync(bundle,'utf8'),sim=firestoreRules(code);
 const order=[];
-const groups={},reachableByMove={},seeds=new Map();
+const groups={},reachableByMove={},coverage={},seeds=new Map();
 const occupied=c=>position(c.fen).board.filter(Boolean).length;
 const compact=c=>Object.fromEntries(['id','fen','uci','claim','nativeLegal','kingSafe','nativeAdmission','successor','outcome','replyCount'].filter(k=>k in c).map(k=>[k,c[k]]));
 
@@ -42,9 +45,28 @@ function decision(c) {
     :actual===c.nativeAdmission?'match':actual?'false-allow':'false-refusal';
   return {actual:r.decision,status,cause,expressions:r.evaluatedExpressions};
 }
+// Independent subset membership uses native chess material and legal replies.
+function terminalScope(c) {
+  if(!c.nativeLegal) return 'illegal-move';
+  const next=position(c.successor), defending=next.turn, mover=defending==='w'?'b':'w';
+  const pieces=next.board.filter(v=>v[0]===mover),slider=next.board.findIndex(v=>v===mover+'r'||v===mover+'q');
+  if(slider<0||pieces.length!==2) return 'outside-subset';
+  const defenders=next.board.filter(v=>v[0]===defending);
+  if(defenders.length===1 && squareName(slider)===c.uci.slice(2,4)) return 'bare-king-slider-last-move';
+  if(native.legalMoves(next).some(m=>m.slice(2,4)===squareName(slider) && next.board[squareOf(m.slice(0,2))][1]!=='k'))
+    return 'nonking-can-take-last-slider';
+  return 'outside-subset';
+}
 for(const c of rows) {
   const result=decision(c), group=groups[c.group]??={cases:0,outcomes:{},peakExpressions:0};
   group.cases++;
+  if(scopeReport) {
+    const label=terminalScope(c), sub=coverage[label]??={cases:0,outcomes:{},first:{}};
+    sub.cases++;
+    const outcome=[result.status,result.cause].filter(Boolean).join('/');
+    sub.outcomes[outcome]=(sub.outcomes[outcome]??0)+1;
+    if(result.status!=='match') sub.first[outcome]??=c.id;
+  }
   const kind=[result.status,result.cause].filter(Boolean).join('/');
   group.outcomes[kind]=(group.outcomes[kind]??0)+1;
   group.peakExpressions=Math.max(group.peakExpressions,result.expressions);
@@ -116,4 +138,4 @@ const divergences=Object.fromEntries([...seeds].map(([group,{first,smallest}])=>
   first:{case:compact(first.c),result:first.result},minimized:minimize(smallest),
 }]));
 console.log(JSON.stringify({authority:'pinned local full Firestore Rules simulator',rulesSha256:sha(code),
-  corpusSha256:manifest.sha256,caseCount:rows.length,scoreSha256:sha(JSON.stringify(order)),groups,reachableByMove,divergences},null,2));
+  corpusSha256:manifest.sha256,caseCount:rows.length,scoreSha256:sha(JSON.stringify(order)),groups,reachableByMove,divergences,...(scopeReport&&{coverage})},null,2));
