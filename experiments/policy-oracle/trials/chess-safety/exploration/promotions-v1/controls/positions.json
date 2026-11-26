@@ -1,0 +1,74 @@
+[
+  {
+    "id": "queen-promotion-correct-mate",
+    "fen": "8/8/8/8/8/5k2/7p/5K2 b - -",
+    "uci": "h2h1q",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "queen-promotion-wrong-playing",
+    "fen": "8/8/8/8/8/5k2/7p/5K2 b - -",
+    "uci": "h2h1q",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "rook-promotion-correct-mate",
+    "fen": "8/8/8/8/8/5k2/7p/5K2 b - -",
+    "uci": "h2h1r",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "rook-promotion-wrong-playing",
+    "fen": "8/8/8/8/8/5k2/7p/5K2 b - -",
+    "uci": "h2h1r",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-promotion-correct-playing",
+    "fen": "8/8/8/8/8/5k2/7p/5K2 b - -",
+    "uci": "h2h1n",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-promotion-wrong-mate",
+    "fen": "8/8/8/8/8/5k2/7p/5K2 b - -",
+    "uci": "h2h1n",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "queen-move-correct-mate",
+    "fen": "8/8/8/8/8/1k6/3q4/K7 b - -",
+    "uci": "d2b2",
+    "claim": {
+      "status": "won",
+      "winner": "guest"
+    }
+  },
+  {
+    "id": "queen-move-wrong-playing",
+    "fen": "8/8/8/8/8/1k6/3q4/K7 b - -",
+    "uci": "d2b2",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  }
+]
