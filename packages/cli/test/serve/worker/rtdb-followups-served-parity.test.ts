@@ -8,7 +8,6 @@ import * as fbApp from 'firebase/app';
 import * as fbDb from 'firebase/database';
 import { deleteApp, getApps } from 'pyric/app';
 import { createAppForSandbox, resetAppRegistryForTests } from 'pyric/app/internal';
-import * as databaseSurface from '../../../src/serve/entries/database-surface.js';
 import { handleMessage, type PortLike } from '../../../src/serve/worker/host.js';
 import type { InboundMessage, OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import * as client from '../../../src/serve/worker/index.js';
@@ -434,15 +433,20 @@ describe('Served host defense-in-depth (RP-3 #1224) and entries/database.js (#14
         this.port = clientPort;
       }
     };
-    const app = createAppForSandbox(
-      ctx.sandbox,
-      { projectId: 'p1', databaseURL: 'https://p1-default-rtdb.firebaseio.com' },
-      `served-1472-${Date.now()}`,
-    );
-    const db = databaseSurface.getDatabase(app);
-    databaseSurface.connectDatabaseEmulator(db, '127.0.0.1', 9000);
-    const r = databaseSurface.refFromURL(db, 'http://localhost:9000/a?ns=p1-default-rtdb');
-    expect(r.key).toBe('a');
-    expect(r.toString()).toBe('http://127.0.0.1:9000/a');
+    try {
+      const databaseSurface = await import('../../../src/serve/entries/database-surface.js');
+      const app = createAppForSandbox(
+        ctx.sandbox,
+        { projectId: 'p1', databaseURL: 'https://p1-default-rtdb.firebaseio.com' },
+        `served-1472-${Date.now()}`,
+      );
+      const db = databaseSurface.getDatabase(app);
+      databaseSurface.connectDatabaseEmulator(db, '127.0.0.1', 9000);
+      const r = databaseSurface.refFromURL(db, 'http://localhost:9000/a?ns=p1-default-rtdb');
+      expect(r.key).toBe('a');
+      expect(r.toString()).toBe('http://127.0.0.1:9000/a');
+    } finally {
+      ctx.sandbox.dispose();
+    }
   });
 });

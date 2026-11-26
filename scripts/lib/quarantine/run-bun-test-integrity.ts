@@ -12,10 +12,11 @@ import { repoPath, type ConsoleTotals } from './junit.ts';
 
 const ANSI = /\u001b\[[0-9;]*m/g;
 const BUN_RAN = /^Ran (\d+) tests? across (\d+) files?\./gm;
-const BUN_TEST_FILE = /(\.test|_test|\.spec|_spec)\.(c|m)?(j|t)sx?$/;
+export const BUN_TEST_FILE_PATTERN = /(\.test|_test|\.spec|_spec)\.(c|m)?(j|t)sx?$/;
+const BUN_TEST_FILE = BUN_TEST_FILE_PATTERN;
 const MUST_REGISTER_TEST_FILE = /(\.test|_test)\.(c|m)?(j|t)sx?$/;
 
-const VALUE_FLAGS = new Set([
+export const VALUE_FLAGS = new Set([
   '--cwd',
   '-t',
   '--test-name-pattern',

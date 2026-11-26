@@ -96,6 +96,44 @@ describe('reading the failures from a job log', () => {
     expect(namedFailedJobs([TESTS_JOB, 'CI / required'])).toEqual([TESTS_JOB]);
     expect(namedFailedJobs(['CI / required'])).toEqual(['CI / required']);
   });
+
+  test('reads failing tests from every bun test batch in one job log without duplicating summary lines', () => {
+    const log = [
+      '##[group]test/first.test.ts:',
+      'error: expect(received).toBe(expected)',
+      '      at <anonymous> (/home/runner/work/pyric/pyric/packages/cli/test/first.test.ts:12:5)',
+      '(fail) first suite > fails in batch one [3.00ms]',
+      '##[endgroup]',
+      '1 tests failed:',
+      '(fail) first suite > fails in batch one [3.00ms]',
+      ' 0 pass',
+      ' 1 fail',
+      'Ran 1 test across 1 file. [10.00ms]',
+      '##[group]test/second.test.ts:',
+      'error: expect(received).toEqual(expected)',
+      '      at <anonymous> (/home/runner/work/pyric/pyric/packages/cli/test/second.test.ts:28:7)',
+      '(fail) second suite > fails in batch two [4.00ms]',
+      '##[endgroup]',
+      '1 tests failed:',
+      '(fail) second suite > fails in batch two [4.00ms]',
+      ' 0 pass',
+      ' 1 fail',
+      'Ran 1 test across 1 file. [12.00ms]',
+    ].join('\n');
+    const resolveFile = (file: string) => `packages/cli/${file}`;
+    expect(parseFailures(TESTS_JOB, log, resolveFile)).toEqual([
+      {
+        job: TESTS_JOB,
+        test: 'packages/cli/test/first.test.ts > first suite > fails in batch one',
+        assertion: 'error: expect(received).toBe(expected) (at packages/cli/test/first.test.ts:12:5)',
+      },
+      {
+        job: TESTS_JOB,
+        test: 'packages/cli/test/second.test.ts > second suite > fails in batch two',
+        assertion: 'error: expect(received).toEqual(expected) (at packages/cli/test/second.test.ts:28:7)',
+      },
+    ]);
+  });
 });
 
 describe('reading the failing apps from an App scenarios job log', () => {

@@ -29,6 +29,7 @@ const FAIL_LINE = /^\(fail\) (.+?)(?: \[[\d.]+m?s\])?$/;
 const ERROR_LINE = /^(?:error|[A-Za-z]*Error)(?::\s|:$)/;
 const STACK_LOCATION = /^at .*?\(?(?:file:\/\/)?\/home\/runner\/work\/[^/]+\/[^/]+\/([^)\s]+:\d+:\d+)\)?$/;
 const FAILED_SUMMARY = /^\d+ tests? failed:$/;
+const RAN_SUMMARY = /^Ran \d+ tests? across \d+ files?\./;
 const HOOK_NOTE = /^\^ (.+)$/;
 const ACTIONS_ERROR = /^##\[error\](.+)$/;
 /** test/apps/run.ts heads each failing app's report with this line, then
@@ -163,9 +164,24 @@ export function parseFailures(job: string, log: string, resolveFile: FileResolve
   const lines = logLines(log);
   const failures = new Map<string, Failure>();
   const state: ParseState = {};
+  let inFailedSummary = false;
 
   for (const line of lines) {
-    if (FAILED_SUMMARY.test(line)) break;
+    if (FAILED_SUMMARY.test(line)) {
+      clearGroup(state);
+      inFailedSummary = true;
+      continue;
+    }
+    if (inFailedSummary) {
+      if (RAN_SUMMARY.test(line)) {
+        inFailedSummary = false;
+        continue;
+      }
+      if (!TEST_GROUP.test(line) && !APP_FAILED.test(line)) {
+        continue;
+      }
+      inFailedSummary = false;
+    }
     const group = TEST_GROUP.exec(line);
     if (group) {
       clearGroup(state);

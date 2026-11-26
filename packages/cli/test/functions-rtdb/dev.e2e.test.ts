@@ -58,6 +58,16 @@ async function waitFor<T>(read: () => T | null | Promise<T | null>, timeoutMs = 
   throw new Error('timed out waiting for pyric dev Functions outcome');
 }
 
+function readPositivePid(filePath: string): number | null {
+  if (!existsSync(filePath)) return null;
+  try {
+    const parsed = Number(readFileSync(filePath, 'utf8').trim());
+    return Number.isInteger(parsed) && parsed > 1 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 afterAll(async () => {
   observer?.close();
   if (peer) await peer.close();
@@ -405,8 +415,11 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
       type: 'commonjs',
       main: 'index.cjs',
     }));
+    const fnChildPidPath = join(cwd, 'functions-child.pid');
     writeFileSync(join(cwd, 'functions/index.cjs'), `
-require('node:fs').writeFileSync(${JSON.stringify(join(cwd, 'functions-child.pid'))}, String(process.pid));
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(`${fnChildPidPath}.tmp`)}, String(process.pid));
+fs.renameSync(${JSON.stringify(`${fnChildPidPath}.tmp`)}, ${JSON.stringify(fnChildPidPath)});
 require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(() => {}, 60_000)']);
 `);
 
@@ -435,10 +448,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
         { cwd },
       );
-      childPid = await waitFor(() => {
-        const path = join(cwd, 'functions-child.pid');
-        return existsSync(path) ? Number(readFileSync(path, 'utf8')) : null;
-      });
+      childPid = await waitFor(() => readPositivePid(fnChildPidPath));
 
       blockedCommand.kill('SIGTERM');
       const code = await Promise.race([
@@ -459,7 +469,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
     } finally {
       await blockedPeer?.close().catch(() => {});
       if (blockedCommand.exitCode === null) blockedCommand.kill('SIGKILL');
-      if (childPid !== undefined) {
+      if (childPid !== undefined && childPid > 1) {
         try {
           process.kill(childPid, 'SIGKILL');
         } catch {
@@ -478,7 +488,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
     writeFileSync(join(cwd, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
     writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' }, functions: { source: 'functions' } }));
     writeFileSync(join(cwd, 'pyric.json'), JSON.stringify({
-      command: `node -e "require('node:fs').writeFileSync('dev-child.pid', String(process.pid)); setTimeout(() => {}, 60000)"`,
+      command: `node -e "const fs = require('node:fs'); fs.writeFileSync('dev-child.pid.tmp', String(process.pid)); fs.renameSync('dev-child.pid.tmp', 'dev-child.pid'); setTimeout(() => {}, 60000)"`,
     }));
     writeFileSync(join(cwd, 'functions/package.json'), JSON.stringify({
       name: 'crash-restart-functions', private: true, type: 'commonjs', main: 'index.cjs',
@@ -521,11 +531,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
         { cwd },
       );
-      devPid = await waitFor(() => {
-        const pidPath = join(cwd, 'dev-child.pid');
-        if (!existsSync(pidPath)) return null;
-        return Number(readFileSync(pidPath, 'utf8'));
-      });
+      devPid = await waitFor(() => readPositivePid(join(cwd, 'dev-child.pid')));
 
       const fnUrl = `${pointer.url.replace(/\/$/, '')}/demo-project/us-central1/crashOrServe`;
       const initial = await waitFor(async () => {
@@ -581,7 +587,7 @@ require('node:child_process').execFileSync(process.execPath, ['-e', 'setTimeout(
         }, 5_000);
         expect(orphanCleared).toBe(true);
       }
-      if (devPid !== undefined) {
+      if (devPid !== undefined && devPid > 1) {
         try {
           process.kill(devPid, 'SIGKILL');
         } catch {
