@@ -1,0 +1,231 @@
+{
+  "scope": "Canonical archived programs and identified pre-existing local chess experiments; immutable inventory at the completion audit. Newly measured primary game results for the source-emission probe are recorded separately.",
+  "canonical": [
+    {
+      "archive": "attacks-through-4.json",
+      "linkedRulesSha256": "d12d76ec83c0d5078600c5912887383b99c2b7b692dfa5f0a75b7070fdece756"
+    },
+    {
+      "archive": "castle-through-7.json",
+      "linkedRulesSha256": "2d5b56dce1e4b76d5557efeba6a8a3ee350e8266a61af51c01a12412face1758"
+    },
+    {
+      "archive": "combined-bare-packed-v5-through-7.json",
+      "linkedRulesSha256": "9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f"
+    },
+    {
+      "archive": "combined-pattern-fast-packed-v5-through-7.json",
+      "linkedRulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b"
+    },
+    {
+      "archive": "combined-whole-lazy-packed-v5-through-7.json",
+      "linkedRulesSha256": "246042791e2798ee8b04a822210ffacce9c61a4f5f337c4311718c785b183dc7"
+    },
+    {
+      "archive": "ending-packed-v3-through-7.json",
+      "linkedRulesSha256": "005a47b967bad42a06157ced178ddbb7c79b222477168b7080aaba3bce5574fc"
+    },
+    {
+      "archive": "ending-packed-v4-through-7.json",
+      "linkedRulesSha256": "687c85f97ed48109152823ad2718d13661df9c730a7486b330a0fa8e5df498df"
+    },
+    {
+      "archive": "guarded-pawn-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4"
+    },
+    {
+      "archive": "indexed-packed-v5-through-7.json",
+      "linkedRulesSha256": null
+    },
+    {
+      "archive": "indexed-tiles-through-7.json",
+      "linkedRulesSha256": "4b5333d408f6a5edc01b24884e7c9bc247a6734bd960f557c941082bb93ba98d"
+    },
+    {
+      "archive": "knight-all-guarded-pawn-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "862d81b4c65b7f7bb6f6a642804e4e0c356840e70c264126849e7f1cf12871b5"
+    },
+    {
+      "archive": "knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5-through-7.json",
+      "linkedRulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380"
+    },
+    {
+      "archive": "knight-endgame-paired-pawn-combined-bare-fixed-packed-v5-through-7.json",
+      "linkedRulesSha256": "28a1783008b1d212be7a386e3db2aced79adb0a4f4b185a0b47d61a9afc673fa"
+    },
+    {
+      "archive": "knight-endgame-paired-pawn-combined-bare-pairs-packed-v5-through-7.json",
+      "linkedRulesSha256": "ac1cbff2f3a8db47adf2869dcd7569e4e7d15dd46565d988569c122e199b1b75"
+    },
+    {
+      "archive": "knight-endgame-paired-pawn-combined-bare-projections-packed-v5-through-7.json",
+      "linkedRulesSha256": "ef1a9a20902c228227567277e8acc8cb38936a8c64789ca16d993da2de1e5343"
+    },
+    {
+      "archive": "knight-endgame-paired-pawn-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12"
+    },
+    {
+      "archive": "optimized-through-7.json",
+      "linkedRulesSha256": "fe6ae708a8efb6ab4225108e13783a36067425206b98778b5d176abe100cc33c"
+    },
+    {
+      "archive": "packed-through-7.json",
+      "linkedRulesSha256": "8414e274ae0fa054f437091e904b451a5a563759507bd064d67e6b1041c7f8cc"
+    },
+    {
+      "archive": "packed-v2-through-7.json",
+      "linkedRulesSha256": "59aa7767d09dd01026ab061a0b6f0ce5e9c1429b4485073a45ae8903cd72f63e"
+    },
+    {
+      "archive": "packed-v3-through-7.json",
+      "linkedRulesSha256": "d0a6af913d73c2d4a870d0349135288c1ec719bdb129f8e8b7219712402e3da1"
+    },
+    {
+      "archive": "packed-v4-through-7.json",
+      "linkedRulesSha256": "911e4b24d6f744f7995aab7bbb40ace8ce26b145a7f6fb1a51530faebe38636b"
+    },
+    {
+      "archive": "packed-v5-through-7.json",
+      "linkedRulesSha256": "8d567417e1f6d67de3562b4f55fc7ce1a6591709d2f37239d87206d029ee64e5"
+    },
+    {
+      "archive": "paired-pawn-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "12c714bb2c32abc6ec3ffc41e15227370829c5313458d4638ab130d764ce475f"
+    },
+    {
+      "archive": "pattern-packed-v5-through-7.json",
+      "linkedRulesSha256": "1eb49420f7d479cfb4dc31667fa9085e617077e2ed426de403bda6f53552c699"
+    },
+    {
+      "archive": "pawn-combined-bare-packed-v5-through-7.json",
+      "linkedRulesSha256": "fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34"
+    },
+    {
+      "archive": "pawn-combined-pattern-fast-packed-v5-through-7.json",
+      "linkedRulesSha256": "f34103660c30d15a0a2b74a80ec2c31210844d3bd19229c04cc0034a8c2569ef"
+    },
+    {
+      "archive": "pins-through-1.json",
+      "linkedRulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696"
+    },
+    {
+      "archive": "quick-packed-v5-through-7.json",
+      "linkedRulesSha256": "2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0"
+    },
+    {
+      "archive": "reply-packed-v4-through-7.json",
+      "linkedRulesSha256": "24d4a4ed9f0238122e23636cb472f6ff03cc59ed32fade408be59f5144e7b8e4"
+    },
+    {
+      "archive": "reply-packed-v5-through-7.json",
+      "linkedRulesSha256": "8139edc6f4a5cd791500855c8602d575b8c2a7e422de7c1bbcf75a580855b880"
+    },
+    {
+      "archive": "table-packed-v4-through-7.json",
+      "linkedRulesSha256": "238fc02bd4f95c24d74e74b12f7a6e973e336e35a6d97413efb6e9f5b0f4bf14"
+    }
+  ],
+  "recovered": [
+    {
+      "archive": "combined-bare-direct-grouped-packed-v5-through-7.json",
+      "linkedRulesSha256": "1e4d4bf6a7036f1b6367b86fe3c4f816d7af5579fdaf62af581e7c0b3ed99d38",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-bare-direct-packed-v5-through-7.json",
+      "linkedRulesSha256": "34678134902fa3c16501bfb0ac2a44041df655c862ef292d6fa8676162b1d1ab",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-bare-line-packed-v5-through-7.json",
+      "linkedRulesSha256": "4ba6c1a88de65791d6a9ca8a3082bc0d595142bd56c7dfbfbc1206b7d57563e8",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "8cb950ccbd1f33b2d68ebb317a45391ac9ffd7416c27bb5e7b801b8493b98f2d",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-bare-slim-packed-v5-through-7.json",
+      "linkedRulesSha256": "c1b8bb3574a37910b3c40bbef758782ce526cb59e7d2839f2b9655342fba3802",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-pattern-packed-v5-through-7.json",
+      "linkedRulesSha256": "60cf348c7dd8a184e81abc55b95922091cdda387856e19c021cd0658ebacf031",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-quick-packed-v5-through-7.json",
+      "linkedRulesSha256": "fc20db62e7d08d1ca6984a2c3bf2a878c2a3f3af7ff47835674172575a65a349",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-whole-fast-packed-v5-through-7.json",
+      "linkedRulesSha256": "1c54afb25341a008e08b831e0cfd1b8a489dab8681e7d917d384fd77b8018b36",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "combined-whole-packed-v5-through-7.json",
+      "linkedRulesSha256": "b3f55c94fd2353305e3d5750cb74c341fd57d375fc2e9b72df1c171848de794c",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "king-reply-through-7.json",
+      "linkedRulesSha256": "62d773c065a81450e045ccd2e2659481dbcb62ff45a257c138d26a0dfceac530",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "king-reply-v2-through-7.json",
+      "linkedRulesSha256": "df2c9913820ee62a74f9d818a823e07efa25dfc357654fc464c192ada60c42a5",
+      "previousScope": "king mobility only"
+    },
+    {
+      "archive": "king-reply-v3-through-7.json",
+      "linkedRulesSha256": "dbd116558588a5281b676ada4f45b77a07647c3ead2eceac7bc4a515c42685b9",
+      "previousScope": "king mobility only"
+    },
+    {
+      "archive": "king-reply-v4-through-7.json",
+      "linkedRulesSha256": "4d1f3ba3f1be096457a12a8e25f9b38b754293b0af13f4c829dfd18a1ec830f7",
+      "previousScope": "king mobility only"
+    },
+    {
+      "archive": "king-reply-v5-through-7.json",
+      "linkedRulesSha256": "fa2cff41e46a901f826eb53c859d03486797f0687dbe1b89b16183a1510b5814",
+      "previousScope": "king mobility only"
+    },
+    {
+      "archive": "knight-all-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "f2ceefa52435cf386e5f3391d19118315137d541686897034173143f688ba73e",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "knight-budget-guarded-pawn-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "63b617590826cf6f850b5eb338efc052066bbe4168ab558368c43d3bbba86fc0",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "knight-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "3d3d4956de96fc0ec4392128a8d215f246e251c6074733f9f66e0d146d21f237",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "knight-endgame-paired-pawn-combined-bare-factored-pairs-packed-v5-through-7.json",
+      "linkedRulesSha256": "d356ca292da0285dfc2a34eac4b082e7e077e67df93024213235ae659fd99004",
+      "previousScope": "source emission only; no prior game score"
+    },
+    {
+      "archive": "knight-guarded-pawn-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "b3ddcc0db0062c23988efe493a603e30e8b527300111800f7b5dc1d993844d04",
+      "previousScope": "previously modeled complete writes"
+    },
+    {
+      "archive": "knight-quiet-combined-bare-simple-packed-v5-through-7.json",
+      "linkedRulesSha256": "cbbd4b5bf401ca5b807b8dc8b10f2487929256b9e16c9c1f1dcc13f422ea5b43",
+      "previousScope": "previously modeled complete writes"
+    }
+  ]
+}
