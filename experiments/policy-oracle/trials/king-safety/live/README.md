@@ -13,3 +13,14 @@ bun live/run.mjs replay "$generated_rules" "$installed_reference_package" -
 ```
 
 An absolute private archive path in the final argument also reauthenticates the controller journals. The score reports Firestore's observed decision and the independent simulator's verdict and expression cost. Firestore supplies no expression count.
+
+## Follow-up measurements
+
+Local candidate scoring surfaced a long, legal horizontal rook slide from a2 to h2. That case was [frozen separately](../reference/cost-position.json) before its two hosted measurements. The experiments retain the stronger handwritten ruleset and the first generated ruleset as separate releases even when their observed outcomes disagree. The follow-up score also retains an observed local expression-limit diagnostic.
+
+The optimized release keeps the same file safety helper. For a horizontal rook move it uses a generated rank-specific path-clearance function. The deployment gate verifies these exact helper and call-site changes against the executable bytes of the first release. The final receipt covers all seven original positions, the long slide, and [two additional path-blocker controls](../reference/path-cost-controls.json). Its replay verifies the first eight signed proposals match the earlier handwritten captures, including every normalized document field.
+
+```sh
+bun live/run.mjs cost replay "$first_generated_rules" "$installed_reference_package" -
+bun live/run.mjs optimized replay "$optimized_rules" "$installed_reference_package" -
+```
