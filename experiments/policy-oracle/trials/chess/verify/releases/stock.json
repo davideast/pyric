@@ -1,0 +1,48 @@
+{
+  "id": "stock",
+  "receipt": "e82a5ba4416e235ae047694e6e1e43a3e3b28c29c49d88846a3c1147ffef9b51",
+  "bundle": "../bundle/artifacts/stock.rules",
+  "report": {
+    "mode": "stock",
+    "runId": "7f239653-aef7-49cc-9720-577e94d9b9fc",
+    "receipt": "e82a5ba4416e235ae047694e6e1e43a3e3b28c29c49d88846a3c1147ffef9b51",
+    "rulesSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+    "activeRuleset": "projects/digame-mas/rulesets/159ab6b3-3f06-4188-a390-21d656dca425",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "7cd3c42d2038cdbf170fd9a8e1de41265ff5ff31f7b66477b61c8f32e5c2749b",
+    "signedReadersExplicit": false,
+    "exactProtocolIntents": 18,
+    "decisions": {
+      "opening-counter": "DENY",
+      "create": "ALLOW",
+      "cancel-by-guest": "DENY",
+      "cancel-by-host": "ALLOW",
+      "open-match": "ALLOW",
+      "join": "ALLOW",
+      "wrong-turn": "DENY",
+      "wrong-counter": "DENY",
+      "f2f3": "ALLOW",
+      "e7e5": "ALLOW",
+      "g2g4": "ALLOW",
+      "d8h4": "ALLOW",
+      "terminal-move": "DENY",
+      "pointer-alone": "DENY",
+      "offer-rematch": "ALLOW",
+      "duplicate-offer": "DENY",
+      "join-rematch": "ALLOW",
+      "resign-rematch": "ALLOW"
+    },
+    "special": {
+      "special-castle-black-queenside": "ALLOW",
+      "special-capture-corner-rights": "ALLOW",
+      "special-en-passant": "ALLOW",
+      "special-underpromotion-capture": "ALLOW",
+      "special-long-clear-ray": "ALLOW",
+      "special-stalemate": "ALLOW"
+    },
+    "sensitivity": {
+      "changedMoveCount": "f2f3",
+      "missingAtomicPointer": "offer-rematch"
+    }
+  }
+}

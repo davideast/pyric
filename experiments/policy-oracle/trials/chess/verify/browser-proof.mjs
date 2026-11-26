@@ -7,6 +7,15 @@ import {fresh,afterMove,snapshot,transition,priorPosition} from './document.mjs'
 const absent=path=>({path,data:null,version:null});
 export async function browserProof(receipt,j,history,engine,matchPolicy) {
   const b=receipt.browser;
+  assert.equal(b.build.arcade,'66e14d4f4b0aeab22c05db8d748704dde053d2e5');
+  assert.equal(b.build.engine,b.engineSha256);
+  assert.match(b.build.native,/^[a-f0-9]{64}$/);
+  assert.ok(Object.hasOwn(b.build.files,'index.html'));
+  assert.ok(Object.keys(b.build.files).some(f=>f.startsWith('assets/') && f.endsWith('.js')));
+  for(const [file,digest] of Object.entries(b.build.files)) {
+    assert.ok(!file.startsWith('/') && !file.split('/').includes('..'));
+    assert.match(digest,/^[a-f0-9]{64}$/);
+  }
   assert.match(b.browser,/^\d+\.\d+\.\d+\.\d+$/);
   assert.notEqual(b.match,b.rematch);
   for(const id of [b.match,b.rematch]) assert.match(id,/^[a-zA-Z0-9_-]{1,90}$/);
@@ -107,13 +116,14 @@ export async function browserProof(receipt,j,history,engine,matchPolicy) {
   assert.equal(prev.get(draw).data.status,'draw');
   const namesPNG=['opening','checkmate','rematch-resignation','stalemate'];
   assert.deepEqual(b.pictures.map(q=>q.file),namesPNG.map(n=>n+'.png'));
+  assert.equal(new Set(b.pictures.map(p=>p.sha256)).size,namesPNG.length);
   for(const picture of b.pictures) {
     const bytes=readFileSync(join(j.dir,picture.file));
     assert.equal(sha(bytes),picture.sha256);
     assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
     assert.ok(bytes.readUInt32BE(16)>0 && bytes.readUInt32BE(20)>0);
   }
-  return {chromium:b.browser,engineSha256:b.engineSha256,matchPolicySha256:b.matchPolicySha256,screenshots:b.pictures,moveCount:expectedReferee.length,
+  return {chromium:b.browser,build:b.build,engineSha256:b.engineSha256,matchPolicySha256:b.matchPolicySha256,screenshots:b.pictures,moveCount:expectedReferee.length,
     race:b.race,checkmateWinner:prev.get(path).data.winner,rematchWinner:prev.get(next).data.winner,
     kingSafety:pinned.verdict,underpromotion:prev.get(promotion).data.board.a8,stalemate:prev.get(draw).data.status,states:b.observations.length};
 }
