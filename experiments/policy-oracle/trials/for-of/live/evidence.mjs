@@ -4,13 +4,22 @@ import {retained,journal} from '../../chess/verify/journal.mjs';
 import {transition} from '../../chess/verify/document.mjs';
 import * as defaults from './fixtures.mjs';
 
+// A budget measurement has a frozen native answer but records either service
+// verdict. In both outcomes compare the complete document and server version.
+export function afterObservation(spec, c, sample, observed) {
+  assert.ok(observed === 'ALLOW' || observed === 'DENY', c.id);
+  if (spec.measureAdmission) return observed === 'ALLOW' ? {...sample.before,...sample.proposal} : sample.before;
+  assert.equal(observed,c.expected,c.id);
+  return sample.after;
+}
+
 export function checkRows(rows,ids,pathFor,mode,{profile} = defaults) {
   const spec = profile(mode), cases=spec.cases;
   assert.deepEqual(rows.map(r=>r.id),cases.map(c=>c.id));
   for(const [i,c] of cases.entries()) {
     const row = rows[i], path = pathFor(c.id);
     const fixture = spec.sample(c,ids.host,ids.guest);
-    assert.equal(row.observed,c.expected,c.id);
+    const after = afterObservation(spec,c,fixture,row.observed);
     assert.equal(row.actor,ids.host);
     assert.equal(row.reader,ids.observer);
     assert.deepEqual(row.probe,spec.probe(c));
@@ -18,7 +27,7 @@ export function checkRows(rows,ids,pathFor,mode,{profile} = defaults) {
     assert.deepEqual(row.after.map(s=>s.path),[path],c.id);
     assert.deepEqual(row.before[0].data,fixture.before,c.id+' full before');
     assert.deepEqual(row.submitted,[{op:'update',path,data:fixture.proposal}],c.id+' complete submitted update');
-    transition(row.before[0],row.after[0],fixture.after,c.id);
+    transition(row.before[0],row.after[0],after,c.id);
   }
 }
 
@@ -39,10 +48,11 @@ export function qualify(archive,digest,bundle,fixtures = defaults) {
     if(x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k,v])=>[k,redact(v)]));
     return x;
   };
-  const rows = raw.rows.map(({proof,end,expected,...row})=>{
+  const cases = profile(raw.mode).cases;
+  const rows = raw.rows.map(({proof,end,expected,...row},i)=>{
     j.proof(proof); j.proof(end);
     assert.ok(Date.parse(end.verifiedAt) >= Date.parse(proof.verifiedAt));
-    assert.equal(row.observed,expected);
+    assert.equal(expected,cases[i].expected);
     return redact(row);
   });
   const phases=j.all('propagation-confirmed').map(p=>({

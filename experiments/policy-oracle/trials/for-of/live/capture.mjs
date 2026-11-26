@@ -14,6 +14,7 @@ import {withRelease} from '../../../arcade/live/controller/release.mjs';
 import {decision,snapshot} from '../../chess/live/snapshots.mjs';
 import {transition} from '../../chess/verify/document.mjs';
 import * as defaults from './fixtures.mjs';
+import {afterObservation} from './evidence.mjs';
 
 export async function capture(args, fixtures = defaults) {
   const [mode,archive,bundle,rulesSha256] = args;
@@ -74,8 +75,7 @@ export async function capture(args, fixtures = defaults) {
             expected:c.expected,observed,before:[before],after:[after],
             submitted:[{op:'update',path,data:s.proposal}],proof,end:await verify()};
           journal.event('chess-attempt',row);
-          assert.equal(observed,c.expected,c.id);
-          transition(before,after,s.after,c.id);
+          transition(before,after,afterObservation(spec,c,s,observed),c.id);
           rows.push(row);
         }
         return journal.retain({runId,mode,rulesSha256,target:manifest.target,rows});
