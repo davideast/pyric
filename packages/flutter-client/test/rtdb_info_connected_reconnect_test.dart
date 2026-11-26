@@ -16,6 +16,7 @@ void main() {
   late MockRtdbCredentialsProvider credentials;
   late PyricDatabase db;
   late List<bool> connected;
+  late CountGate connectedGate;
   final subscriptions = <StreamSubscription<Object?>>[];
 
   setUp(() {
@@ -27,6 +28,7 @@ void main() {
     credentials = MockRtdbCredentialsProvider();
     db = PyricDatabase(bridgeClient: client, credentialsProvider: credentials);
     connected = [];
+    connectedGate = CountGate();
   });
 
   tearDown(() async {
@@ -65,6 +67,7 @@ void main() {
     subscriptions.add(db.ref('.info/connected').onValue.listen((event) {
       final isConnected = event.snapshot.value == true;
       connected.add(isConnected);
+      connectedGate.tick();
       if (!isConnected) return;
       final status = db.ref('status/u1');
       status.onDisconnect().set('offline').ignore();
@@ -80,18 +83,22 @@ void main() {
 
   test('connected reports false, true, false, true across a drop and a re-attach, with no repeated value', () async {
     listenAsPresence();
-    await until(() => connected.length == 2);
+    await connectedGate.atLeast(2);
     expect(connected, [false, true]);
 
+    final callsBeforeDrop = bridge.connectCalls;
     bridge.refuseConnections = true;
     bridge.current.drop();
-    await until(() => connected.length == 3);
-    await settle();
+    await connectedGate.atLeast(3);
+    // Wait for at least two refused reconnect attempts to prove failed attempts
+    // never emit duplicate `false` values.
+    await bridge.waitForConnectCalls(callsBeforeDrop + 2);
+    await flushMicrotasks();
     expect(connected, [false, true, false], reason: 'failed attempts repeat no false');
 
     bridge.refuseConnections = false;
-    await until(() => connected.length == 4);
-    await settle();
+    await connectedGate.atLeast(4);
+    await flushMicrotasks();
     expect(connected, [false, true, false, true]);
   });
 
@@ -99,16 +106,16 @@ void main() {
     answerWrites();
     listenToRoom();
     listenAsPresence();
-    await until(() => opsNamed('rtdb.onDisconnectSet', bridge.current).isNotEmpty);
+    await bridge.waitForOpsNamed('rtdb.onDisconnectSet', count: 1);
 
     bridge.refuseConnections = true;
     bridge.current.drop();
-    await until(() => connected.length == 3);
+    await connectedGate.atLeast(3);
     db.ref('rooms/a/title').set('held').ignore();
 
     bridge.refuseConnections = false;
-    await until(() => bridge.sockets.length == 2 &&
-        opsNamed('rtdb.onDisconnectSet', bridge.current).isNotEmpty);
+    await bridge.waitForSocketCount(2);
+    await bridge.waitForOpsNamed('rtdb.onDisconnectSet', count: 2);
     final socket = bridge.sockets[1];
     final sent = socket.sent;
     final replayed = sent.indexOf(socket.sentOfType('worker-sub').singleWhere(
@@ -128,19 +135,19 @@ void main() {
     };
     listenToRoom();
     listenAsPresence();
-    await until(() => opsNamed('rtdb.onDisconnectSet', bridge.current).isNotEmpty);
+    await bridge.waitForOpsNamed('rtdb.onDisconnectSet', count: 1);
 
     bridge.hostInstanceId = 'host-b';
     bridge.current.drop();
-    await until(() => bridge.sockets.length == 2 &&
-        opsNamed('auth.restorePortSession', bridge.current).isNotEmpty);
-    await settle();
+    await bridge.waitForSocketCount(2);
+    await bridge.waitForOpsNamed('auth.restorePortSession', count: 1);
+    await flushMicrotasks();
     final socket = bridge.sockets[1];
     expect(connected, [false, true, false], reason: 'true waits for the restore');
     expect(opsNamed('rtdb.onDisconnectSet', socket), isEmpty);
 
     reply(onlyOp('auth.restorePortSession', socket), {'uid': 'u1'});
-    await until(() => opsNamed('rtdb.onDisconnectSet', socket).isNotEmpty);
+    await bridge.waitForOpsNamed('rtdb.onDisconnectSet', count: 2);
     final sent = socket.sent;
     final restored = sent.indexOf(onlyOp('auth.restorePortSession', socket));
     final replayed = sent.indexOf(socket.sentOfType('worker-sub').singleWhere(
@@ -159,14 +166,15 @@ void main() {
       ..add(db.ref('.info').onChildChanged.listen((_) {}))
       ..add(db.ref('.info/serverTimeOffset').onValue.listen((_) {}))
       ..add(db.ref('.info/authenticated').onValue.listen((_) {}));
-    await until(() => connected.length == 2);
+    await connectedGate.atLeast(2);
     await db.ref('.info/connected').get();
     await db.goOffline();
     await db.goOnline();
 
     bridge.current.drop();
-    await until(() => bridge.sockets.length == 2 && connected.length == 6);
-    await settle();
+    await bridge.waitForSocketCount(2);
+    await connectedGate.atLeast(6);
+    await flushMicrotasks();
     expect(connected, [false, true, false, true, false, true]);
     expect(bridge.frames.where(mentionsInfo), isEmpty);
   });

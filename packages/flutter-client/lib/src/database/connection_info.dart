@@ -46,22 +46,56 @@ class ConnectionInfo {
 
   /// The current value of `connected`, then each change. Repeated values are
   /// not delivered. Listening starts the first connection, as a host listener
-  /// does.
+  /// does, and ends when the bridge client closes.
   Stream<bool> connectedChanges() {
     return Stream<bool>.multi((listener) {
-      final stateSub = _bridgeClient.connectionStates.listen((state) {
-        listener.add(_connectedIn(state));
+      if (_bridgeClient.isDisposed) {
+        listener.close();
+        return;
+      }
+
+      var hasDelivered = false;
+      var lastDelivered = false;
+
+      void deliverSync(bool next) {
+        if (listener.isClosed) return;
+        if (hasDelivered && next == lastDelivered) return;
+        hasDelivered = true;
+        lastDelivered = next;
+        listener.addSync(next);
+      }
+
+      late final StreamSubscription<BridgeConnectionState> stateSub;
+      late final StreamSubscription<void> networkSub;
+
+      void closeNow() {
+        unawaited(stateSub.cancel());
+        unawaited(networkSub.cancel());
+        if (!listener.isClosed) {
+          listener.closeSync();
+        }
+      }
+
+      stateSub = _bridgeClient.connectionStates.listen(
+        (state) => deliverSync(_connectedIn(state)),
+        onDone: closeNow,
+      );
+      networkSub = _networkChanges.stream.listen((_) {
+        deliverSync(isConnected);
       });
-      final networkSub = _networkChanges.stream.listen((_) {
-        listener.add(isConnected);
-      });
-      listener.onCancel = () async {
-        await stateSub.cancel();
-        await networkSub.cancel();
+      listener.onCancel = () {
+        unawaited(stateSub.cancel());
+        unawaited(networkSub.cancel());
       };
-      listener.add(isConnected);
+
+      scheduleMicrotask(() {
+        if (listener.isClosed || _bridgeClient.isDisposed || hasDelivered) {
+          return;
+        }
+        deliverSync(isConnected);
+      });
       _bridgeClient.connect().ignore();
-    }).distinct();
+    });
   }
 
   /// The wire snapshot of [path] now.

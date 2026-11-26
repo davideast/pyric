@@ -126,16 +126,16 @@ class PyricUserPlatform extends UserPlatform {
     );
   }
 
-  Future<T> _runGuardedUserOp<T>(Future<T> Function() action) async {
+  Future<T> _runGuardedUserOp<T>(Future<T> Function(int? mutationSeq) action) async {
     final owner = _pyricAuth;
-    owner?.beginLocalAuthMutation();
+    final seq = owner?.beginLocalAuthMutation();
     try {
-      return await action();
+      return await action(seq);
     } catch (error) {
       final mapped = mapBridgeAuthError(error);
       if (mapped is FirebaseAuthException &&
           isAccountInvalidatingAuthCode(mapped.code)) {
-        owner?.invalidateCurrentUserIfMatches(uid);
+        owner?.invalidateCurrentUserIfMatches(uid, mutationSeq: seq);
       }
       throw mapped;
     } finally {
@@ -145,7 +145,7 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<String?> getIdToken([bool forceRefresh = false]) {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       final token = await _client.authGetIdToken(forceRefresh: forceRefresh);
       if (forceRefresh && _isLiveBridge) {
         final tokenRes =
@@ -157,9 +157,17 @@ class PyricUserPlatform extends UserPlatform {
         if (rawClaims != null) {
           liveJwtTokenClaims = rawClaims;
         }
-        _pyricAuth?.notifyUserMutation(this, tokenChanged: true);
+        _pyricAuth?.notifyUserMutation(
+          this,
+          tokenChanged: true,
+          mutationSeq: seq,
+        );
       } else if (forceRefresh) {
-        _pyricAuth?.notifyUserMutation(this, tokenChanged: true);
+        _pyricAuth?.notifyUserMutation(
+          this,
+          tokenChanged: true,
+          mutationSeq: seq,
+        );
       }
       return token;
     });
@@ -167,7 +175,7 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<IdTokenResult> getIdTokenResult([bool forceRefresh = false]) {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       final res =
           await _client.authGetIdTokenResult(forceRefresh: forceRefresh);
       final rawClaims = res['claims'] is Map
@@ -181,7 +189,11 @@ class PyricUserPlatform extends UserPlatform {
         if (forceRefresh) {
           final owner = _pyricAuth;
           if (owner != null) {
-            owner.notifyUserMutation(this, tokenChanged: true);
+            owner.notifyUserMutation(
+              this,
+              tokenChanged: true,
+              mutationSeq: seq,
+            );
           } else {
             auth.sendAuthChangesEvent(auth.app.name, this);
           }
@@ -201,6 +213,7 @@ class PyricUserPlatform extends UserPlatform {
   Future<void> _applyUpdatedUser(
     Map<String, dynamic> res, {
     required bool tokenChanged,
+    int? mutationSeq,
     bool refreshLiveJwtClaims = false,
   }) async {
     final merged = Map<String, dynamic>.from(res);
@@ -237,7 +250,11 @@ class PyricUserPlatform extends UserPlatform {
     }
     final owner = _pyricAuth;
     if (owner != null) {
-      owner.notifyUserMutation(updated, tokenChanged: tokenChanged);
+      owner.notifyUserMutation(
+        updated,
+        tokenChanged: tokenChanged,
+        mutationSeq: mutationSeq,
+      );
     } else {
       auth.currentUser = updated;
       auth.sendAuthChangesEvent(auth.app.name, updated);
@@ -246,7 +263,7 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<void> updateProfile(Map<String, String?> profile) {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       final res = await _client.op('auth.updateProfile', <String, dynamic>{
         if (profile.containsKey('displayName'))
           'displayName': profile['displayName'],
@@ -256,6 +273,7 @@ class PyricUserPlatform extends UserPlatform {
         await _applyUpdatedUser(
           Map<String, dynamic>.from(res),
           tokenChanged: false,
+          mutationSeq: seq,
         );
       }
     });
@@ -263,12 +281,13 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<void> updateEmail(String newEmail) {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       final res = await _client.authUpdateEmail(newEmail);
       if (res is Map) {
         await _applyUpdatedUser(
           Map<String, dynamic>.from(res),
           tokenChanged: true,
+          mutationSeq: seq,
           refreshLiveJwtClaims: true,
         );
       }
@@ -277,12 +296,13 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<void> updatePassword(String newPassword) {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       final res = await _client.authUpdatePassword(newPassword);
       if (res is Map) {
         await _applyUpdatedUser(
           Map<String, dynamic>.from(res),
           tokenChanged: true,
+          mutationSeq: seq,
           refreshLiveJwtClaims: true,
         );
       }
@@ -291,7 +311,7 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<void> reload() {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       final res = _isLiveBridge
           ? await _client.op('auth.reload', <String, dynamic>{'uid': uid})
           : await _client.authGetCurrentUser();
@@ -299,6 +319,7 @@ class PyricUserPlatform extends UserPlatform {
         await _applyUpdatedUser(
           Map<String, dynamic>.from(res),
           tokenChanged: false,
+          mutationSeq: seq,
         );
       }
     });
@@ -306,11 +327,11 @@ class PyricUserPlatform extends UserPlatform {
 
   @override
   Future<void> delete() {
-    return _runGuardedUserOp(() async {
+    return _runGuardedUserOp((seq) async {
       await _client.op('auth.deleteUser', <String, dynamic>{});
       final owner = _pyricAuth;
       if (owner != null) {
-        owner.invalidateCurrentUserIfMatches(uid);
+        owner.invalidateCurrentUserIfMatches(uid, mutationSeq: seq);
       } else {
         auth.currentUser = null;
         auth.sendAuthChangesEvent(auth.app.name, null);

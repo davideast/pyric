@@ -297,10 +297,11 @@ class _ActiveRtdbView {
     _sub ??= database.subscribeRtdb(ref.path, querySpec: querySpec).listen(
       _handleRawEvent,
       onError: _handleError,
+      onDone: _handleDone,
     );
   }
 
-  Future<void> removeRegistration(_ObserverRegistration reg) async {
+  Future<void> removeRegistration(_ObserverRegistration reg) {
     reg.active = false;
     _registrations.remove(reg);
     if (_registrations.isEmpty) {
@@ -308,8 +309,11 @@ class _ActiveRtdbView {
       final sub = _sub;
       _sub = null;
       onEmpty(key, this);
-      await sub?.cancel();
+      if (sub != null) {
+        return sub.cancel();
+      }
     }
+    return Future<void>.value();
   }
 
   void _handleRawEvent(dynamic rawEvent) {
@@ -353,6 +357,20 @@ class _ActiveRtdbView {
     for (final reg in snapshotRegs) {
       if (reg.active && !reg.controller.isClosed) {
         reg.controller.addError(error, stackTrace);
+      }
+    }
+  }
+
+  void _handleDone() {
+    _latestSnapshot = null;
+    _sub = null;
+    onEmpty(key, this);
+    final snapshotRegs = List<_ObserverRegistration>.from(_registrations);
+    _registrations.clear();
+    for (final reg in snapshotRegs) {
+      reg.active = false;
+      if (!reg.controller.isClosed) {
+        reg.controller.close();
       }
     }
   }

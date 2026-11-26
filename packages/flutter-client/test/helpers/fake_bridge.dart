@@ -123,15 +123,121 @@ class FakeBridge {
   /// Runs synchronously as each frame reaches the bridge, inside the client's send.
   void Function(Map<String, dynamic> frame)? onFrame;
 
+  final List<void Function()> _frameWatchers = [];
+  final List<void Function()> _connectWatchers = [];
+
   FakeSocket get current => sockets.last;
+
+  void _notifyFrameWatchers() {
+    final watchers = List<void Function()>.of(_frameWatchers);
+    for (final watcher in watchers) {
+      watcher();
+    }
+  }
+
+  void _notifyConnectWatchers() {
+    final watchers = List<void Function()>.of(_connectWatchers);
+    for (final watcher in watchers) {
+      watcher();
+    }
+  }
+
+  /// Completes as soon as [frames] contains at least [count] frames matching [predicate].
+  Future<List<Map<String, dynamic>>> waitForFrames(
+    bool Function(Map<String, dynamic> frame) predicate, {
+    int count = 1,
+  }) {
+    final existing = frames.where(predicate).toList();
+    if (existing.length >= count) return Future.value(existing);
+    final completer = Completer<List<Map<String, dynamic>>>();
+    late final void Function() check;
+    check = () {
+      final matches = frames.where(predicate).toList();
+      if (matches.length >= count && !completer.isCompleted) {
+        _frameWatchers.remove(check);
+        completer.complete(matches);
+      }
+    };
+    _frameWatchers.add(check);
+    return completer.future;
+  }
+
+  Future<List<Map<String, dynamic>>> waitForType(String type, {int count = 1}) =>
+      waitForFrames((frame) => frame['type'] == type, count: count);
+
+  Future<List<Map<String, dynamic>>> waitForSubsFor(String path, {int count = 1}) =>
+      waitForFrames(
+        (frame) {
+          if (frame['type'] != 'worker-sub') return false;
+          final target = (frame['sub'] as Map)['target'];
+          return target is Map && target['path'] == path;
+        },
+        count: count,
+      );
+
+  Future<List<Map<String, dynamic>>> waitForSubTarget(
+    Object target, {
+    int count = 1,
+  }) =>
+      waitForFrames(
+        (frame) =>
+            frame['type'] == 'worker-sub' &&
+            (frame['sub'] as Map)['target'] == target,
+        count: count,
+      );
+
+  Future<List<Map<String, dynamic>>> waitForOpsNamed(
+    String method, {
+    int count = 1,
+  }) =>
+      waitForFrames(
+        (frame) =>
+            frame['type'] == 'worker-op' &&
+            (frame['op'] as Map)['method'] == method,
+        count: count,
+      );
+
+  /// Completes as soon as [connectCalls] reaches at least [count].
+  Future<void> waitForConnectCalls(int count) {
+    if (connectCalls >= count) return Future.value();
+    final completer = Completer<void>();
+    late final void Function() check;
+    check = () {
+      if (connectCalls >= count && !completer.isCompleted) {
+        _connectWatchers.remove(check);
+        completer.complete();
+      }
+    };
+    _connectWatchers.add(check);
+    return completer.future;
+  }
+
+  /// Completes as soon as [sockets] has at least [count] opened sockets.
+  Future<void> waitForSocketCount(int count) {
+    if (sockets.length >= count) return Future.value();
+    final completer = Completer<void>();
+    late final void Function() check;
+    check = () {
+      if (sockets.length >= count && !completer.isCompleted) {
+        _connectWatchers.remove(check);
+        completer.complete();
+      }
+    };
+    _connectWatchers.add(check);
+    return completer.future;
+  }
 
   Future<WebSocketChannel> connect(Uri uri, Map<String, dynamic> headers) async {
     connectCalls++;
-    if (refuseConnections) throw StateError('connection refused');
+    if (refuseConnections) {
+      _notifyConnectWatchers();
+      throw StateError('connection refused');
+    }
     late final FakeSocket socket;
     socket = FakeSocket((frame) {
       frames.add(frame);
       onFrame?.call(frame);
+      _notifyFrameWatchers();
       if (frame['type'] == 'attach' && autoAck) {
         scheduleMicrotask(() => socket.deliver({
               'type': 'attach-ack',
@@ -147,6 +253,7 @@ class FakeBridge {
       }
     });
     sockets.add(socket);
+    _notifyConnectWatchers();
     return socket;
   }
 
@@ -163,6 +270,39 @@ class FakeBridge {
 
   Map<String, dynamic> opNamed(String method) => ofType('worker-op')
       .lastWhere((frame) => (frame['op'] as Map)['method'] == method);
+}
+
+/// Deterministic event counter gate (zero timers, zero polling).
+class CountGate {
+  int _count = 0;
+  final List<({int target, Completer<void> completer})> _waiters = [];
+
+  int get count => _count;
+
+  void tick() {
+    _count++;
+    _waiters.removeWhere((waiter) {
+      if (_count >= waiter.target) {
+        if (!waiter.completer.isCompleted) waiter.completer.complete();
+        return true;
+      }
+      return false;
+    });
+  }
+
+  Future<void> atLeast(int target) {
+    if (_count >= target) return Future.value();
+    final completer = Completer<void>();
+    _waiters.add((target: target, completer: completer));
+    return completer.future;
+  }
+}
+
+/// Flushes queued microtasks deterministically without timers.
+Future<void> flushMicrotasks([int rounds = 4]) async {
+  for (var i = 0; i < rounds; i++) {
+    await Future<void>.microtask(() {});
+  }
 }
 
 Future<void> settle() => Future<void>.delayed(const Duration(milliseconds: 5));

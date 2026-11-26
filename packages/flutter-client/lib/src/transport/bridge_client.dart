@@ -1,101 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 
-import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../auth/auth_lens.dart';
+import 'bridge_frame_codec.dart';
+import 'bridge_heartbeat.dart';
+import 'bridge_operation_queue.dart';
+import 'bridge_reconnect_policy.dart';
+import 'bridge_subscription_registry.dart';
 import 'exceptions.dart';
 
 export 'bridge_operations.dart';
+export 'bridge_reconnect_policy.dart';
 export 'exceptions.dart';
-
-/// Factory signature for injecting mock or custom WebSocket channels (e.g. in tests).
-typedef WebSocketChannelFactory = FutureOr<WebSocketChannel> Function(
-  Uri uri,
-  Map<String, dynamic> headers,
-);
-
-/// Sends one worker operation on the connection being restored.
-typedef BridgeRestoreOperation = Future<dynamic> Function(
-  String method,
-  Map<String, dynamic> params,
-);
-
-/// Re-establishes the session's Auth user on a replaced bridge host.
-typedef BridgeAuthRestorer = Future<void> Function(BridgeRestoreOperation op);
-
-/// The bridge client's transport state.
-///
-/// `interrupted` covers every reconnect attempt after a drop. `closed` is
-/// terminal: the client was disconnected or hit a failure that permits no retry.
-enum BridgeConnectionState { connecting, attached, interrupted, closed }
-
-/// Delivered on a subscription registered with `includeMetadataChanges` when
-/// the connection drops after it has delivered a value. The listener reports
-/// its last snapshot again with `fromCache` set.
-class BridgeSubscriptionGap {
-  const BridgeSubscriptionGap._();
-
-  static const BridgeSubscriptionGap instance = BridgeSubscriptionGap._();
-}
-
-const String _connectionLost =
-    'The bridge connection was lost. Requests already sent may have completed; check state before retrying.';
-const String _holdExpired =
-    'The bridge connection was not restored within 10 seconds. The request was not sent.';
-const String _authRestoreFailed =
-    'The bridge connection was restored, but the signed-in user could not be restored on the new host. The request was not sent.';
-const Duration _holdDeadline = Duration(seconds: 10);
-// ADR-0019, heartbeat amendment: a ping at attach and every 15 seconds, and a
-// socket that delivers no frame for 45 seconds (three heartbeats) is a drop.
-const Duration _heartbeatInterval = Duration(seconds: 15);
-const Duration _livenessTimeout = Duration(seconds: 45);
-const int _policyCloseCode = 1008;
-const int _maxReconnectDelayMs = 5000;
-final math.Random _jitterSource = math.Random();
-
-/// The wait before reconnect attempt [attempt] (0-based): 250 ms doubling to a
-/// 5 s cap, plus up to 250 ms of jitter, never above 5 s.
-Duration bridgeReconnectDelay(int attempt, [math.Random? random]) {
-  final exponent = math.min(attempt, 10);
-  final base = math.min(_maxReconnectDelayMs, 250 * (1 << exponent));
-  final jitter = (random ?? _jitterSource).nextDouble() * math.min(250, base / 10);
-  return Duration(milliseconds: math.min(_maxReconnectDelayMs, base + jitter).floor());
-}
-
-class _PendingOp {
-  final Completer<dynamic> completer;
-  final Timer timer;
-
-  _PendingOp(this.completer, this.timer);
-}
-
-/// An operation issued while the client is not attached, not yet sent.
-class _HeldOp {
-  final String method;
-  final Map<String, dynamic> params;
-  final Map<String, dynamic>? actAs;
-  final Duration? timeout;
-  final Completer<dynamic> completer = Completer<dynamic>();
-  late final Timer deadline;
-
-  _HeldOp(this.method, this.params, this.actAs, this.timeout);
-}
-
-class _ActiveSub {
-  final StreamController<dynamic> controller;
-  final Map<String, dynamic> payload;
-  bool hasValue = false;
-  dynamic lastValue;
-  bool awaitsRestoredValue = false;
-
-  _ActiveSub(this.controller, this.payload);
-
-  bool get includesMetadataChanges => payload['includeMetadataChanges'] == true;
-}
 
 /// Pure-Dart WebSocket transport connecting to the Pyric bridge server.
 ///
@@ -103,8 +22,9 @@ class _ActiveSub {
 /// The client re-attaches with its `clientSessionId` and re-sends every live
 /// subscription. Operations in flight at the drop fail once with
 /// `unavailable` and are never re-sent. An operation issued while the client
-/// is not attached is held, then sent once after the restore, or fails once
-/// after 10 seconds without being sent.
+/// is not attached (or positively refused by a throwing sink) is held, then
+/// sent once after the restore, or fails once after 10 seconds without being
+/// sent.
 ///
 /// While attached, the client sends a `ping` at attach and every 15 seconds.
 /// Before each one, a socket that has delivered no frame for 45 seconds is
@@ -128,18 +48,18 @@ class PyricBridgeClient {
   /// deadline is fixed at 10 seconds (ADR-0019 decision 7); this is not a user
   /// setting.
   @visibleForTesting
-  Duration holdDeadline = _holdDeadline;
+  Duration holdDeadline = bridgeDefaultHoldDeadline;
 
   /// Test-only: the wait between heartbeat pings. Fixed at 15 seconds
   /// (ADR-0019, heartbeat amendment); this is not a user setting.
   @visibleForTesting
-  Duration heartbeatInterval = _heartbeatInterval;
+  Duration heartbeatInterval = bridgeDefaultHeartbeatInterval;
 
   /// Test-only: how long the socket may deliver no frame before the next
   /// heartbeat treats it as dropped. Fixed at 45 seconds (ADR-0019, heartbeat
   /// amendment); this is not a user setting.
   @visibleForTesting
-  Duration livenessTimeout = _livenessTimeout;
+  Duration livenessTimeout = bridgeDefaultLivenessTimeout;
 
   /// Runs on a re-attach to a replaced host, before listens are re-sent.
   BridgeAuthRestorer? restoreAuth;
@@ -152,32 +72,14 @@ class PyricBridgeClient {
   bool _hasEverAttached = false;
   String? _clientSessionId;
   String? _hostInstanceId;
-  // Set when an attach acknowledgement shows a replaced host. Cleared only when
-  // the Auth restore runs to its result on a current connection, so a drop
-  // during the restore leaves it set and the next attach to that host restores again.
   bool _needsAuthRestore = false;
   int _connectionGeneration = 0;
   int _reconnectAttempt = 0;
   Timer? _reconnectTimer;
   Timer? _attachDeadline;
   Completer<void>? _attempt;
-  // Callers waiting for the next scheduled attempt.
   Completer<void>? _nextAttempt;
-  // Belongs to one attached socket: started on each attach, cancelled when that
-  // socket is released, so an old socket is never pinged.
-  Timer? _heartbeat;
-  // Time since the current socket last delivered a frame of any kind.
-  final Stopwatch _sinceLastFrame = Stopwatch();
-
-  int _opCounter = 0;
-  int _pingCounter = 0;
-  int _subCounter = 0;
-
-  final Map<String, _PendingOp> _pendingOps = {};
-  // Issued while not attached, in issue order. Never contains restore traffic.
-  final List<_HeldOp> _heldOps = [];
-  bool _sendingHeldOps = false;
-  final Map<String, _ActiveSub> _activeSubs = {};
+  Future<void>? _shutdownComplete;
 
   final StreamController<AuthLens> _remoteLensController =
       StreamController<AuthLens>.broadcast();
@@ -185,6 +87,10 @@ class PyricBridgeClient {
       StreamController<PyricBridgeException>.broadcast();
   final StreamController<BridgeConnectionState> _stateController =
       StreamController<BridgeConnectionState>.broadcast();
+
+  late final BridgeHeartbeat _heartbeat;
+  late final BridgeOperationQueue _ops;
+  late final BridgeSubscriptionRegistry _subs;
 
   static void Function(PyricBridgeException)? onDenial;
 
@@ -198,7 +104,35 @@ class PyricBridgeClient {
     this.attachTimeout = const Duration(seconds: 5),
   })  : uri = uri ?? Uri.parse('ws://localhost:5174/__pyric/sandbox'),
         headers = headers ?? const {'Host': 'localhost:5174'},
-        reconnectDelay = reconnectDelay ?? bridgeReconnectDelay;
+        reconnectDelay = reconnectDelay ?? bridgeReconnectDelay {
+    _heartbeat = BridgeHeartbeat(
+      interval: () => heartbeatInterval,
+      livenessTimeout: () => livenessTimeout,
+      isCurrentGeneration: (gen) => gen == _connectionGeneration && !_isDisposed,
+      sendPing: (pingId) => _trySendMessage({'type': 'ping', 'id': pingId}),
+      onSilentDrop: (gen, reason) => _handleConnectionLoss(gen, reason),
+    );
+    _ops = BridgeOperationQueue(
+      defaultOpTimeout: defaultOpTimeout,
+      holdDeadline: () => holdDeadline,
+      isConnected: () => isConnected,
+      isDisposed: () => _isDisposed,
+      hasEverAttached: () => _hasEverAttached,
+      clientSessionId: () => _clientSessionId,
+      trySendEncoded: _trySendEncoded,
+      ensureInitialAttempt: () => connect().ignore(),
+      onDenial: _emitDenial,
+    );
+    _subs = BridgeSubscriptionRegistry(
+      isConnected: () => isConnected,
+      isDisposed: () => _isDisposed,
+      hasEverAttached: () => _hasEverAttached,
+      clientSessionId: () => _clientSessionId,
+      trySendMessage: _trySendMessage,
+      ensureInitialAttempt: () => connect().ignore(),
+      onDenial: _emitDenial,
+    );
+  }
 
   /// Reports whether the client is attached to the bridge.
   bool get isConnected =>
@@ -257,113 +191,12 @@ class PyricBridgeClient {
     Duration? timeout,
   }) async {
     _ensureUsable();
-    // An operation issued while held ones are being sent queues behind them.
-    final sendsNow = isConnected && !_sendingHeldOps;
-    if (sendsNow) {
-      return _dispatchOp(method, params, actAs: actAs, timeout: timeout);
-    }
-    return _hold(_HeldOp(method, params, actAs, timeout));
-  }
-
-  Future<dynamic> _hold(_HeldOp held) {
-    held.deadline = Timer(holdDeadline, () {
-      final wasSent = !_heldOps.remove(held);
-      if (wasSent) return;
-      held.completer.completeError(const PyricBridgeException(
-        code: 'unavailable',
-        message: _holdExpired,
-      ));
-    });
-    _heldOps.add(held);
-    // Joins the attempt in progress or the next scheduled one; starts one only
-    // when none is in progress or scheduled. After the first attach the
-    // reconnect schedule is already running.
-    if (!_hasEverAttached) connect().ignore();
-    return held.completer.future;
-  }
-
-  List<_HeldOp> _takeHeldOps() {
-    final taken = List<_HeldOp>.of(_heldOps);
-    _heldOps.clear();
-    for (final held in taken) {
-      held.deadline.cancel();
-    }
-    return taken;
-  }
-
-  void _sendHeldOps() {
-    _sendingHeldOps = true;
-    try {
-      while (_heldOps.isNotEmpty && isConnected) {
-        final held = _heldOps.removeAt(0);
-        held.deadline.cancel();
-        final result = _dispatchOp(
-          held.method,
-          held.params,
-          actAs: held.actAs,
-          timeout: held.timeout,
-        );
-        held.completer.complete(result);
-      }
-    } finally {
-      _sendingHeldOps = false;
-    }
-  }
-
-  void _failHeldOps(PyricBridgeException error) {
-    for (final held in _takeHeldOps()) {
-      held.completer.completeError(error);
-    }
-  }
-
-  Future<dynamic> _dispatchOp(
-    String method,
-    Map<String, dynamic> params, {
-    Map<String, dynamic>? actAs,
-    Duration? timeout,
-  }) {
-    final id = 'rop-${++_opCounter}';
-    final completer = Completer<dynamic>();
-    final opPayload = <String, dynamic>{
-      'method': method,
-      ...params,
-      if (actAs != null) 'actAs': actAs,
-    };
-
-    final opTimeout = timeout ?? defaultOpTimeout;
-    final timer = Timer(opTimeout, () {
-      if (_pendingOps.remove(id) != null) {
-        completer.completeError(
-          PyricBridgeException(
-            code: 'deadline-exceeded',
-            message:
-                'Remote sandbox op timed out after ${opTimeout.inMilliseconds}ms (op: $method). Is pyric sandbox still running?',
-          ),
-        );
-      }
-    });
-
-    _pendingOps[id] = _PendingOp(completer, timer);
-
-    try {
-      _sendRaw({
-        'type': 'worker-op',
-        'id': id,
-        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-        'op': opPayload,
-      });
-    } catch (e) {
-      timer.cancel();
-      _pendingOps.remove(id);
-      completer.completeError(
-        PyricBridgeException(
-          code: 'unavailable',
-          message: 'Failed to dispatch op to bridge: $e',
-        ),
-      );
-    }
-
-    return completer.future;
+    return _ops.enqueueOrDispatch(
+      method,
+      params,
+      actAs: actAs,
+      timeout: timeout,
+    );
   }
 
   /// Lists all sandbox users via the auth.listUsers RPC.
@@ -379,55 +212,8 @@ class PyricBridgeClient {
   ///
   /// The subscription survives a dropped connection: it is re-sent on every
   /// re-attach until the listener cancels.
-  Stream<dynamic> subscribeRaw(Map<String, dynamic> subPayload) {
-    if (_isDisposed) {
-      throw const PyricBridgeException(
-        code: 'unavailable',
-        message: 'PyricBridgeClient has been disposed.',
-      );
-    }
-
-    late StreamController<dynamic> controller;
-    String? currentSubId;
-
-    controller = StreamController<dynamic>.broadcast(
-      onListen: () {
-        if (_isDisposed) {
-          controller.addError(const PyricBridgeException(
-            code: 'unavailable',
-            message: 'PyricBridgeClient has been disposed.',
-          ));
-          controller.close();
-          return;
-        }
-        final subId = 'rsub-${++_subCounter}';
-        currentSubId = subId;
-        final sub = _ActiveSub(controller, subPayload);
-        _activeSubs[subId] = sub;
-        if (isConnected) {
-          _sendSub(subId, sub);
-        } else if (!_hasEverAttached) {
-          // Sent by the attach that this starts or joins.
-          connect().ignore();
-        }
-      },
-      onCancel: () {
-        final subId = currentSubId;
-        currentSubId = null;
-        if (subId != null && _activeSubs.remove(subId) != null && isConnected) {
-          try {
-            _sendRaw({
-              'type': 'worker-unsub',
-              'subId': subId,
-              if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-            });
-          } catch (_) {}
-        }
-      },
-    );
-
-    return controller.stream;
-  }
+  Stream<dynamic> subscribeRaw(Map<String, dynamic> subPayload) =>
+      _subs.subscribeRaw(subPayload);
 
   /// Establishes a real-time subscription for a document or query target.
   Stream<dynamic> subscribe(
@@ -445,11 +231,8 @@ class PyricBridgeClient {
     });
   }
 
-  // ─── Connection Lifecycle ─────────────────────────────────────────────────
-
   Future<void> _startAttempt() {
     final attempt = Completer<void>();
-    // Settled attempts nobody awaits must not surface as unhandled errors.
     attempt.future.ignore();
     _attempt = attempt;
     final generation = ++_connectionGeneration;
@@ -461,7 +244,10 @@ class PyricBridgeClient {
     }
     _attachDeadline?.cancel();
     _attachDeadline = Timer(attachTimeout, () {
-      _handleConnectionLoss(generation, 'Timed out connecting to the Pyric bridge.');
+      _handleConnectionLoss(
+        generation,
+        'Timed out connecting to the Pyric bridge.',
+      );
     });
     _openChannel(generation);
     return attempt.future;
@@ -503,16 +289,15 @@ class PyricBridgeClient {
       ),
     );
 
-    try {
-      _sendRaw({
-        'type': 'attach',
-        'protocol': 1,
-        'capabilities': const ['pyric/firestore-values/1'],
-        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-        'clientInfo': const {'platform': 'flutter'},
-      });
-    } catch (e) {
-      _handleConnectionLoss(generation, 'Failed to send attach frame: $e');
+    final sentAttach = _trySendMessage({
+      'type': 'attach',
+      'protocol': 1,
+      'capabilities': const ['pyric/firestore-values/1'],
+      if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+      'clientInfo': const {'platform': 'flutter'},
+    });
+    if (!sentAttach) {
+      _handleConnectionLoss(generation, 'Failed to send attach frame.');
     }
   }
 
@@ -521,9 +306,9 @@ class PyricBridgeClient {
     if (isStale) return;
     final error = PyricBridgeException(code: 'unavailable', message: reason);
     final permitsRetry = (_hasEverAttached || retryInitialConnection) &&
-        closeCode != _policyCloseCode;
+        closeCode != bridgePolicyCloseCode;
     if (!permitsRetry) {
-      _shutdown(error);
+      _shutdown(error).ignore();
       return;
     }
 
@@ -535,12 +320,12 @@ class PyricBridgeClient {
     _attempt = null;
     final wasAttached = _state == BridgeConnectionState.attached;
     _setState(BridgeConnectionState.interrupted);
-    _failPendingOps(const PyricBridgeException(
+    _ops.failPending(const PyricBridgeException(
       code: 'unavailable',
-      message: _connectionLost,
+      message: bridgeConnectionLostMessage,
     ));
     if (attempt != null && !attempt.isCompleted) attempt.completeError(error);
-    if (wasAttached) _reportGap();
+    if (wasAttached) _subs.reportGap();
 
     final delay = reconnectDelay(_reconnectAttempt);
     _reconnectAttempt++;
@@ -550,15 +335,6 @@ class PyricBridgeClient {
       if (_isDisposed || _attempt != null) return;
       _startAttempt();
     });
-  }
-
-  void _reportGap() {
-    for (final sub in _activeSubs.values) {
-      final reportsGap = sub.includesMetadataChanges && sub.hasValue;
-      if (reportsGap && !sub.controller.isClosed) {
-        sub.controller.add(BridgeSubscriptionGap.instance);
-      }
-    }
   }
 
   void _handleAttachAck(int generation, Map<String, dynamic> msg) {
@@ -594,22 +370,24 @@ class PyricBridgeClient {
     var authRestoreFailed = false;
     if (restoresAuth && restorer != null) {
       try {
-        // Restore traffic goes straight to the socket; it is never held.
-        await restorer((method, params) => _dispatchOp(method, params));
+        await restorer(
+          (method, params) => _ops.dispatch(
+            method,
+            params,
+            holdOnRefusal: false,
+          ),
+        );
       } catch (_) {
-        // The Auth observers report the host's state when the restore fails.
         authRestoreFailed = true;
       }
       final isStale = generation != _connectionGeneration || _isDisposed;
       if (isStale) return;
       _needsAuthRestore = false;
     }
-    // The host would evaluate a held operation as signed out, an identity the
-    // app did not have when it issued it.
     if (authRestoreFailed) {
-      _failHeldOps(const PyricBridgeException(
+      _ops.failHeld(const PyricBridgeException(
         code: 'unavailable',
-        message: _authRestoreFailed,
+        message: bridgeAuthRestoreFailedMessage,
       ));
     }
 
@@ -619,80 +397,10 @@ class PyricBridgeClient {
     _hasEverAttached = true;
     _reconnectAttempt = 0;
     _setState(BridgeConnectionState.attached);
-    _startHeartbeat(generation);
-    for (final entry in _activeSubs.entries.toList()) {
-      final sub = entry.value;
-      sub.awaitsRestoredValue = sub.hasValue;
-      _sendSub(entry.key, sub);
-    }
-    // Held operations follow the whole restore, in the order they were issued.
-    _sendHeldOps();
+    _heartbeat.start(generation);
+    _subs.restoreAll();
+    _ops.sendHeld();
     if (!attempt.isCompleted) attempt.complete();
-  }
-
-  void _startHeartbeat(int generation) {
-    _stopHeartbeat();
-    _sinceLastFrame
-      ..reset()
-      ..start();
-    // The ping at attach starts the host's watch of this socket.
-    _sendPing();
-    _scheduleHeartbeat(generation);
-  }
-
-  // Waits one interval, or less when the liveness timeout falls sooner, so a
-  // silent socket is noticed 45 seconds after its last frame, as on the web
-  // client. Dart offers no clock that keeps running while the device sleeps,
-  // so [_sinceLastFrame] is monotonic and pauses then.
-  void _scheduleHeartbeat(int generation) {
-    final remainingLiveness = livenessTimeout - _sinceLastFrame.elapsed;
-    final waitsForLiveness = remainingLiveness < heartbeatInterval;
-    final delay = waitsForLiveness ? remainingLiveness : heartbeatInterval;
-    // A negative delay fires at once.
-    _heartbeat = Timer(delay, () {
-      _heartbeat = null;
-      final isStale = generation != _connectionGeneration || _isDisposed;
-      if (isStale) return;
-      // Checked before the send, so a client resumed after a suspension
-      // reconnects instead of pinging a socket the host has already closed.
-      final isSilent = _sinceLastFrame.elapsed >= livenessTimeout;
-      if (isSilent) {
-        _handleConnectionLoss(
-          generation,
-          'The Pyric bridge sent nothing for ${livenessTimeout.inMilliseconds}ms.',
-        );
-        return;
-      }
-      _sendPing();
-      _scheduleHeartbeat(generation);
-    });
-  }
-
-  void _sendPing() {
-    try {
-      _sendRaw({'type': 'ping', 'id': 'hb-${++_pingCounter}'});
-    } catch (_) {
-      // A failed send means the socket is closing; its close is the drop.
-    }
-  }
-
-  void _stopHeartbeat() {
-    _heartbeat?.cancel();
-    _heartbeat = null;
-    _sinceLastFrame.stop();
-  }
-
-  void _sendSub(String subId, _ActiveSub sub) {
-    try {
-      _sendRaw({
-        'type': 'worker-sub',
-        'subId': subId,
-        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-        'sub': sub.payload,
-      });
-    } catch (_) {
-      // A failed send means the socket is closing; its close re-sends this.
-    }
   }
 
   void _setState(BridgeConnectionState next) {
@@ -702,7 +410,7 @@ class PyricBridgeClient {
   }
 
   void _releaseChannel() {
-    _stopHeartbeat();
+    _heartbeat.stop();
     final subscription = _channelSubscription;
     final channel = _channel;
     _channelSubscription = null;
@@ -713,8 +421,6 @@ class PyricBridgeClient {
     } catch (_) {}
   }
 
-  // ─── Message Routing ──────────────────────────────────────────────────────
-
   void _ensureUsable() {
     if (_isDisposed) {
       throw const PyricBridgeException(
@@ -724,227 +430,86 @@ class PyricBridgeClient {
     }
   }
 
-  void _sendRaw(Map<String, dynamic> message) {
-    if (_channel == null || _isDisposed) {
-      throw const PyricBridgeException(
-        code: 'unavailable',
-        message: 'Cannot send message: WebSocket is closed.',
-      );
+  bool _trySendEncoded(String encoded) {
+    final channel = _channel;
+    if (channel == null || _isDisposed) return false;
+    try {
+      channel.sink.add(encoded);
+      return true;
+    } catch (_) {
+      return false;
     }
-    _channel!.sink.add(jsonEncode(message));
+  }
+
+  bool _trySendMessage(Map<String, dynamic> message) {
+    try {
+      return _trySendEncoded(jsonEncode(message));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _emitDenial(PyricBridgeException exception) {
+    if (!_denialController.isClosed) {
+      _denialController.add(exception);
+    }
+    onDenial?.call(exception);
   }
 
   void _handleMessage(int generation, dynamic raw) {
     final isStale = generation != _connectionGeneration || _isDisposed;
     if (isStale) return;
-    // Any frame shows the socket is alive, not only a pong.
-    _sinceLastFrame.reset();
-    Map<String, dynamic> msg;
-    try {
-      if (raw is String) {
-        msg = jsonDecode(raw) as Map<String, dynamic>;
-      } else if (raw is List<int>) {
-        msg = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-      } else if (raw is Map) {
-        msg = Map<String, dynamic>.from(raw);
-      } else {
-        return;
-      }
-    } catch (_) {
-      return;
-    }
+    _heartbeat.recordInboundFrame();
+    final msg = decodeBridgeFrame(raw);
+    if (msg == null) return;
 
     final type = msg['type'] as String?;
-    if (type == null) return;
-
     switch (type) {
       case 'attach-ack':
         _handleAttachAck(generation, msg);
         break;
       case 'worker-res':
-        _handleWorkerRes(msg);
+        _ops.handleWorkerRes(msg);
         break;
       case 'worker-snap':
-        _handleWorkerSnap(msg);
+        _subs.handleWorkerSnap(msg);
         break;
       case 'worker-event':
-        _handleWorkerEvent(msg);
+        final lens = parseRemoteLensEvent(msg);
+        if (lens != null && !_remoteLensController.isClosed) {
+          _remoteLensController.add(lens);
+        }
         break;
       case 'ping':
-        _handlePing(msg);
+        final id = msg['id'] as String?;
+        if (id != null) _trySendMessage({'type': 'pong', 'id': id});
         break;
       case 'pong':
         break;
     }
   }
 
-  void _handleWorkerEvent(Map<String, dynamic> msg) {
-    final event = msg['event'] as String?;
-    if (event != 'remote-lens') return;
-
-    final lensMap = msg['lens'] is Map
-        ? Map<String, dynamic>.from(msg['lens'] as Map)
-        : msg['payload'] is Map
-            ? (msg['payload']['lens'] is Map
-                ? Map<String, dynamic>.from(msg['payload']['lens'] as Map)
-                : Map<String, dynamic>.from(msg['payload'] as Map))
-            : null;
-    if (lensMap == null) return;
-
-    final mode = lensMap['mode'] as String?;
-    final AuthLens lens;
-    switch (mode) {
-      case 'admin':
-        lens = AuthLens.admin;
-        break;
-      case 'anon':
-        lens = AuthLens.anon;
-        break;
-      case 'app-session':
-        lens = AuthLens.appSession;
-        break;
-      case 'as':
-        lens = AuthLens.asUser(
-          uid: lensMap['uid'] as String? ?? '',
-          tenant: lensMap['tenant'] as String?,
-          token: lensMap['token'] is Map
-              ? Map<String, dynamic>.from(lensMap['token'] as Map)
-              : null,
-        );
-        break;
-      default:
-        return;
-    }
-    _remoteLensController.add(lens);
-  }
-
-  void _handleWorkerRes(Map<String, dynamic> msg) {
-    final id = msg['id'] as String?;
-    if (id == null) return;
-
-    final pending = _pendingOps.remove(id);
-    if (pending == null) return; // Expired or already handled
-
-    pending.timer.cancel();
-
-    final ok = msg['ok'] == true;
-    if (ok) {
-      pending.completer.complete(msg['value']);
-    } else {
-      final errorMap = msg['error'] as Map<String, dynamic>? ?? {};
-      final code = errorMap['code'] as String? ?? 'unknown';
-      final message = errorMap['message'] as String? ?? 'unknown sandbox error';
-      final denialContext = errorMap['denialContext'];
-      dynamic envelope = errorMap['aiEnvelope'];
-      envelope ??= errorMap['envelope'];
-
-      final exception = PyricBridgeException(
-        code: code,
-        message: message,
-        denialContext: denialContext,
-        envelope: envelope,
-      );
-      if (denialContext != null ||
-          code.toLowerCase().contains('permission') ||
-          message.toLowerCase().contains('permission_denied')) {
-        _denialController.add(exception);
-        onDenial?.call(exception);
-      }
-      pending.completer.completeError(exception);
-    }
-  }
-
-  void _handleWorkerSnap(Map<String, dynamic> msg) {
-    final subId = msg['subId'] as String?;
-    if (subId == null) return;
-
-    final sub = _activeSubs[subId];
-    if (sub == null) return; // Listener already unmounted
-
-    final dynamic value = msg['value'];
-    if (value is Map && value.containsKey('__error')) {
-      // Terminal subscription error per Firestore contract
-      _activeSubs.remove(subId);
-      if (isConnected) {
-        try {
-          _sendRaw({
-            'type': 'worker-unsub',
-            'subId': subId,
-            if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-          });
-        } catch (_) {}
-      }
-
-      final errMap = value['__error'] as Map<String, dynamic>? ?? {};
-      final code = errMap['code'] as String? ?? 'permission-denied';
-      final message = errMap['message'] as String? ?? 'Subscription error';
-      final denialContext = errMap['denialContext'];
-      dynamic envelope = errMap['aiEnvelope'];
-      envelope ??= errMap['envelope'];
-
-      final exception = PyricBridgeException(
-        code: code,
-        message: message,
-        denialContext: denialContext,
-        envelope: envelope,
-      );
-      if (denialContext != null ||
-          code.toLowerCase().contains('permission') ||
-          message.toLowerCase().contains('permission_denied')) {
-        _denialController.add(exception);
-        onDenial?.call(exception);
-      }
-      sub.controller.addError(exception);
-      sub.controller.close();
-      return;
-    }
-
-    if (sub.awaitsRestoredValue) {
-      sub.awaitsRestoredValue = false;
-      final unchanged = const DeepCollectionEquality().equals(sub.lastValue, value);
-      // Production raises a sync-state-only change only to metadata listeners.
-      if (unchanged && !sub.includesMetadataChanges) return;
-    }
-    sub.hasValue = true;
-    sub.lastValue = value;
-    sub.controller.add(value);
-  }
-
-  void _handlePing(Map<String, dynamic> msg) {
-    final id = msg['id'] as String?;
-    if (id != null) {
-      try {
-        _sendRaw({'type': 'pong', 'id': id});
-      } catch (_) {}
-    }
-  }
-
-  void _failPendingOps(PyricBridgeException error) {
-    final pending = _pendingOps.values.toList();
-    _pendingOps.clear();
-    for (final op in pending) {
-      op.timer.cancel();
-      op.completer.completeError(error);
-    }
-  }
-
-  void _shutdown(PyricBridgeException error) {
+  Future<void> _shutdown(PyricBridgeException error) {
+    if (_shutdownComplete != null) return _shutdownComplete!;
     _isDisposed = true;
     _connectionGeneration++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _stopHeartbeat();
+    _heartbeat.stop();
     _setState(BridgeConnectionState.closed);
 
-    _failPendingOps(error);
-    _failHeldOps(error);
+    _ops.failPending(error);
+    _ops.failHeld(error);
 
-    final subs = _activeSubs.values.toList();
-    _activeSubs.clear();
-    for (final sub in subs) {
-      if (sub.controller.isClosed) continue;
-      sub.controller.addError(error);
-      sub.controller.close();
+    final closeFutures = _subs.closeAll(error);
+    if (!_stateController.isClosed) {
+      closeFutures.add(_stateController.close());
+    }
+    if (!_remoteLensController.isClosed) {
+      closeFutures.add(_remoteLensController.close());
+    }
+    if (!_denialController.isClosed) {
+      closeFutures.add(_denialController.close());
     }
 
     final attempt = _attempt;
@@ -957,16 +522,25 @@ class PyricBridgeClient {
     _attachDeadline = null;
 
     _releaseChannel();
+
+    final done = closeFutures.isEmpty
+        ? Future<void>.value()
+        : Future.wait(closeFutures).then((_) {});
+    _shutdownComplete = done;
+    return done;
   }
 
   /// Closes the connection and cancels all outstanding operations and subscriptions.
   Future<void> disconnect() async {
-    if (_isDisposed) return;
+    if (_isDisposed) {
+      await _shutdownComplete;
+      return;
+    }
     final channelSubscription = _channelSubscription;
     final channel = _channel;
     _channelSubscription = null;
     _channel = null;
-    _shutdown(const PyricBridgeException(
+    final shutdownFuture = _shutdown(const PyricBridgeException(
       code: 'unavailable',
       message: 'PyricBridgeClient disconnected.',
     ));
@@ -974,5 +548,6 @@ class PyricBridgeClient {
     try {
       await channel?.sink.close();
     } catch (_) {}
+    await shutdownFuture;
   }
 }

@@ -426,7 +426,8 @@ class PyricQuery extends QueryPlatform {
         listenSource: listenSource.name,
       ),
       recordOnlineEvent: f.lifecycle.recordOnlineQuery,
-      mapEvent: (event, _) {
+      mapEvent: (event, previous) {
+        if (previous == null) previousDocs = null;
         final snap = PyricQuerySnapshot.fromWire(
           firestore,
           path,
@@ -439,7 +440,8 @@ class PyricQuery extends QueryPlatform {
         previousDocs = snap.docs;
         return snap;
       },
-      buildOfflineProjection: (_) {
+      buildOfflineProjection: (previous) {
+        if (previous == null) previousDocs = null;
         final projected = f.lifecycle.projectOfflineQuery(target);
         final snap = PyricQuerySnapshot.fromWire(
           firestore,

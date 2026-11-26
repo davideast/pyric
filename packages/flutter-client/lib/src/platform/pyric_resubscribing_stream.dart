@@ -8,7 +8,8 @@ import 'pyric_firestore_platform.dart';
 /// Creates a broadcast stream that establishes an underlying bridge subscription
 /// stamped with the current [AuthLens], integrates with [PyricFirestoreLifecycle]
 /// (`disableNetwork`, `enableNetwork`, `terminate`, `snapshotsInSync`), and
-/// re-subscribes whenever [authLensChanges] emits.
+/// re-subscribes whenever [authLensChanges] emits a lens distinct from the
+/// active subscription's lens.
 Stream<T> createResubscribingStream<T>({
   required PyricFirestorePlatform firestore,
   required Map<String, dynamic> target,
@@ -24,12 +25,36 @@ Stream<T> createResubscribingStream<T>({
   late StreamController<T> controller;
   StreamSubscription<dynamic>? bridgeSub;
   StreamSubscription<AuthLens>? authLensSub;
+  StreamSubscription<BridgeConnectionState>? bridgeStateSub;
   int? listenerId;
+  int listenGeneration = 0;
+  AuthLens? activeLens;
   T? previousValue;
   dynamic lastEvent;
   var hasEvent = false;
   var hasOnlineEvent = false;
   var closedByTerminate = false;
+
+  void closeFromBridge() {
+    if (controller.isClosed) return;
+    listenGeneration++;
+    final prevListenerId = listenerId;
+    listenerId = null;
+    final prevBridgeSub = bridgeSub;
+    bridgeSub = null;
+    final prevAuthLensSub = authLensSub;
+    authLensSub = null;
+    final prevBridgeStateSub = bridgeStateSub;
+    bridgeStateSub = null;
+    activeLens = null;
+    if (prevListenerId != null) {
+      firestore.lifecycle.unregisterListener(prevListenerId);
+    }
+    prevBridgeSub?.cancel();
+    prevAuthLensSub?.cancel();
+    prevBridgeStateSub?.cancel();
+    controller.close();
+  }
 
   void emitSnapshot(T value, {required bool isOnline}) {
     if (closedByTerminate || controller.isClosed) return;
@@ -58,14 +83,36 @@ Stream<T> createResubscribingStream<T>({
     emitSnapshot(projected, isOnline: false);
   }
 
-  void startListening(Map<String, dynamic> actAs) {
-    if (closedByTerminate || !firestore.lifecycle.isNetworkEnabled) {
+  void startListening(AuthLens lens, int generation) {
+    if (closedByTerminate ||
+        controller.isClosed ||
+        generation != listenGeneration ||
+        !firestore.lifecycle.isNetworkEnabled) {
       return;
     }
-    bridgeSub?.cancel();
-    final stream = createSubscription(actAs);
-    bridgeSub = stream.listen(
+    activeLens = lens;
+    final prevBridgeSub = bridgeSub;
+    bridgeSub = null;
+    prevBridgeSub?.cancel();
+
+    final Stream<dynamic> stream;
+    try {
+      stream = createSubscription(lens.toMap());
+    } catch (e, st) {
+      scheduleMicrotask(() {
+        if (generation != listenGeneration || controller.isClosed) return;
+        controller.addError(e, st);
+        closeFromBridge();
+      });
+      return;
+    }
+
+    late final StreamSubscription<dynamic> currentSub;
+    currentSub = stream.listen(
       (rawEvent) {
+        if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
+          return;
+        }
         try {
           if (rawEvent is BridgeSubscriptionGap) {
             final gapMapper = mapGap;
@@ -87,15 +134,40 @@ Stream<T> createResubscribingStream<T>({
         }
       },
       onError: (Object err, StackTrace st) {
+        if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
+          return;
+        }
         if (!controller.isClosed) {
           controller.addError(err, st);
         }
       },
+      onDone: () {
+        if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
+          return;
+        }
+        bridgeSub = null;
+        closeFromBridge();
+      },
     );
+    bridgeSub = currentSub;
   }
 
   controller = StreamController<T>.broadcast(
+    sync: true,
     onListen: () {
+      final generation = ++listenGeneration;
+      if (firestore.bridgeClient.isDisposed) {
+        scheduleMicrotask(() {
+          if (generation != listenGeneration || controller.isClosed) return;
+          controller.addError(const PyricBridgeException(
+            code: 'unavailable',
+            message: 'PyricBridgeClient has been disposed.',
+          ));
+          controller.close();
+        });
+        return;
+      }
+
       firestore.lifecycle.ensureActiveAndMarkStarted();
       listenerId = firestore.lifecycle.registerListener(
         ManagedFirestoreListener(
@@ -104,51 +176,77 @@ Stream<T> createResubscribingStream<T>({
           hasDeliveredAny: () => hasEvent,
           hasDeliveredOnline: () => hasOnlineEvent,
           suspendFromHost: () {
-            bridgeSub?.cancel();
+            final prev = bridgeSub;
             bridgeSub = null;
+            prev?.cancel();
           },
           resumeOnHost: () {
-            startListening(firestore.effectiveAuthLens);
+            if (generation != listenGeneration || closedByTerminate) return;
+            startListening(firestore.effectiveLens, generation);
           },
           deliverOfflineProjection: deliverOfflineNow,
           cancelFromTerminate: () {
             closedByTerminate = true;
-            authLensSub?.cancel();
-            authLensSub = null;
-            bridgeSub?.cancel();
-            bridgeSub = null;
-            if (!controller.isClosed) {
-              controller.close();
-            }
+            closeFromBridge();
           },
         ),
       );
 
+      final initialLens = firestore.effectiveLens;
+      activeLens = initialLens;
       if (!firestore.lifecycle.isNetworkEnabled) {
         scheduleMicrotask(deliverOfflineNow);
       } else {
-        startListening(firestore.effectiveAuthLens);
+        startListening(initialLens, generation);
       }
 
-      authLensSub = firestore.authLensChanges.skip(1).listen((newLens) {
-        if (!closedByTerminate && firestore.lifecycle.isNetworkEnabled) {
-          startListening(newLens.toMap());
-        }
-      });
+      bridgeStateSub = firestore.bridgeClient.connectionStates.listen(
+        null,
+        onDone: () {
+          if (generation != listenGeneration ||
+              closedByTerminate ||
+              controller.isClosed) {
+            return;
+          }
+          if (bridgeSub == null) {
+            closeFromBridge();
+          }
+        },
+      );
+
+      authLensSub = firestore.authLensChanges.listen(
+        (newLens) {
+          if (generation != listenGeneration || closedByTerminate) return;
+          if (newLens == activeLens) return;
+          activeLens = newLens;
+          if (firestore.lifecycle.isNetworkEnabled) {
+            startListening(newLens, generation);
+          }
+        },
+        onError: (Object _, StackTrace __) {},
+      );
     },
-    onCancel: () async {
-      if (listenerId != null) {
-        firestore.lifecycle.unregisterListener(listenerId!);
-        listenerId = null;
-      }
-      await authLensSub?.cancel();
-      authLensSub = null;
-      await bridgeSub?.cancel();
+    onCancel: () {
+      listenGeneration++;
+      final prevListenerId = listenerId;
+      listenerId = null;
+      final prevBridgeSub = bridgeSub;
       bridgeSub = null;
+      final prevAuthLensSub = authLensSub;
+      authLensSub = null;
+      final prevBridgeStateSub = bridgeStateSub;
+      bridgeStateSub = null;
+      activeLens = null;
       previousValue = null;
       lastEvent = null;
       hasEvent = false;
       hasOnlineEvent = false;
+      if (prevListenerId != null) {
+        firestore.lifecycle.unregisterListener(prevListenerId);
+      }
+      if (prevBridgeSub != null) unawaited(prevBridgeSub.cancel());
+      if (prevAuthLensSub != null) unawaited(prevAuthLensSub.cancel());
+      if (prevBridgeStateSub != null) unawaited(prevBridgeStateSub.cancel());
     },
   );
 
