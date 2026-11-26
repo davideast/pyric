@@ -38,7 +38,6 @@ import {
   generateEphemeralHostCartesianProduct,
   generateFunctionsHeaderCartesianProduct,
   isTrustedSameOriginLoopbackRequest,
-  isTrustedViteWildcardHostOrigin,
   toWireHeaders,
 } from './request-header-auth-gen.js';
 
@@ -353,7 +352,8 @@ describe('Request header & auth cartesian generator (HTTP Functions & ephemeral 
 
     const viteWildcardVectors = generateFunctionsHeaderCartesianProduct(viteWildcardPort);
     await mapPool(viteWildcardVectors, 24, async (vec) => {
-      const expectedStatus = isTrustedViteWildcardHostOrigin(vec) ? 200 : 403;
+      // Vite server.allowedHosts: true is ignored for Functions DNS-rebinding checks.
+      const expectedStatus = isTrustedSameOriginLoopbackRequest(vec) ? 200 : 403;
       const ans = await sendHttp({
         port: viteWildcardPort,
         path: privatePath,
