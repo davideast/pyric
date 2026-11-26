@@ -1,0 +1,35 @@
+{
+  "authority": "pinned Arcade legalMoves",
+  "cases": [
+    {
+      "id": "white",
+      "fen": "k7/8/8/8/8/2b3b1/3NNN2/4K3 w - -",
+      "firstPinned": "d2",
+      "lastPinned": "f2",
+      "free": "e2",
+      "legalKnightMoves": [
+        "e2c1",
+        "e2c3",
+        "e2d4",
+        "e2f4",
+        "e2g1",
+        "e2g3"
+      ]
+    },
+    {
+      "id": "black",
+      "fen": "4k3/3nnn2/2B3B1/8/8/8/8/K7 b - -",
+      "firstPinned": "d7",
+      "lastPinned": "f7",
+      "free": "e7",
+      "legalKnightMoves": [
+        "e7c6",
+        "e7c8",
+        "e7d5",
+        "e7f5",
+        "e7g6",
+        "e7g8"
+      ]
+    }
+  ]
+}
