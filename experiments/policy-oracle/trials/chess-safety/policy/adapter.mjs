@@ -7,10 +7,10 @@ import {squares, geometricSources, selectSquare} from './geometry.mjs';
 
 const read = path => readFileSync(new URL(path,import.meta.url),'utf8');
 const horizontalSource = () => read('../../king-safety/policy/horizontal-path.policy');
-export const variants = ['pins','attacks','castle','optimized','packed','packed-v2','packed-v3'];
+export const variants = ['pins','attacks','castle','optimized','packed','packed-v2','packed-v3','packed-v4'];
 
 function sourcesFor(variant) {
-  if (['packed-v2','packed-v3'].includes(variant)) return {...packedSources(true),...compactPathSources()};
+  if (['packed-v2','packed-v3','packed-v4'].includes(variant)) return {...packedSources(true),...compactPathSources()};
   return variant === 'packed' ? packedSources() : geometricSources(variant);
 }
 
@@ -61,16 +61,16 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
   });
   const header="rules_version = '2+modules';";
   const packed=variant.startsWith('packed');
-  const compact=['packed-v2','packed-v3'].includes(variant);
+  const compact=['packed-v2','packed-v3','packed-v4'].includes(variant);
   const optimized=variant==='optimized'||packed;
   if (optimized) {
     app.modules[key] = optimizeValidation(app.modules[key]);
     if (compact) app.modules[key]=compactValidation(app.modules[key]);
     const chess='../games/chess/chess';
     app.modules[chess] = optimizeApplication(app.modules[chess]);
-    if (variant==='packed-v3') {
+    if (['packed-v3','packed-v4'].includes(variant)) {
       app.modules[chess]=compactAdmission(app.modules[chess]);
-      app.modules[key]=app.modules[key].replace('next.board.keys().hasAll(old.board.keys())\n    && pieceShape','pieceShape');
+      app.modules[key]=once(app.modules[key],'next.board.keys().hasAll(old.board.keys())\n    && pieceShape','pieceShape');
     }
   }
   const call=selectSquare(0,63,s=>'safe'+s+'(board, enemy'+(optimized?', material':'')+')');
@@ -90,6 +90,12 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
   let helpers=once(app.modules[key],header,[header,...imports,...(packed?[packedGuard(compact)]:[dispatch,guard])].join('\n'));
   helpers=once(helpers,end,end.slice(0,-1)+" && safeTransition(old, next, color, kind == 'k', castle, x + dx, y + dy);");
   helpers=once(helpers,path,compact?compactPath:"(kind == 'r' && dx != 0 ? horizontalPathClear(old.board, mv.from[1:2], x, x + dx) : "+path+")");
+  if (variant==='packed-v4') {
+    const preserved = "(old.castling == '' ? next.castling == '' : next.castling == keptRights(old.castling, piece, mv.from, mv.to))";
+    const corners = "['a1','a8','h1','h8']";
+    helpers=once(helpers,preserved,"(old.castling == '' || (kind != 'k' && !(mv.from in "+corners+") && !(mv.to in "+corners+") && old.castling.matches('K?Q?k?q?')) ? next.castling == old.castling : next.castling == keptRights(old.castling, piece, mv.from, mv.to))");
+    helpers=once(helpers,compactPath,"(kind == 'p' ? old.board[mv.from[0:1] + (color == 'w' ? '3' : '6')] == '' : "+compactPath+")");
+  }
   app.modules[key]=helpers;
   // Source maps are tool metadata. Keep only the full executable Rules when measuring target size.
   const source=bundle();
