@@ -21,7 +21,7 @@ for(const [name,script,args] of [
   if(child.status!==0) process.exitCode=1;
 }
 const simulator=resolve(here,'../../../arcade/runtime/node_modules/@pyric/rules');
-const profiles=await scoreHosted({rulesDirectory:resolve(rules),simulator});
+const profiles=await scoreHosted({rulesDirectory:resolve(rules),simulator,policiesDirectory:resolve(policies)});
 suites.hosted=profiles.map(p=>({...p,rows:p.rows.length}));
 if(profiles.some(p=>p.mismatches.length)) process.exitCode=1;
 console.log(JSON.stringify(suites,null,2));

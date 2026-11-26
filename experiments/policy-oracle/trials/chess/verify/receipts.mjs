@@ -9,6 +9,7 @@ import {journal,retained,file} from './journal.mjs';
 import {protocol} from './document.mjs';
 import {specials} from './special.mjs';
 import {supplement} from './supplement.mjs';
+import {boundary} from './boundary.mjs';
 import {browserProof} from './browser-proof.mjs';
 
 const dir=dirname(fileURLToPath(import.meta.url));
@@ -48,23 +49,30 @@ export async function verify(archive,digest,bundle,enginePath) {
   assert.equal(sha(readFileSync(bundle)),rulesSha256,'linked release bytes');
   if(mode==='stock') assert.equal(rulesSha256,manifest.files['v1/rules/stock.rules']);
   const j=journal(archive,receipt,digest);
-  assert.ok(receipt.cohort===undefined || receipt.cohort==='supplement');
-  const extra=receipt.cohort==='supplement';
-  const {decisions,history}=extra ? {decisions:supplement(receipt,j.actors,j.proof)} : protocol(receipt,j.actors,j.proof);
-  const special=extra ? {} : specials(receipt,j.actors,j.proof);
-  let browser;
-  if(mode==='referee' && !extra) {
-    assert.equal(sha(readFileSync(enginePath)),receipt.browser.engineSha256,'deployed referee code bytes');
+  const cohort=receipt.cohort;
+  assert.ok(cohort===undefined || cohort==='supplement' || cohort==='boundary');
+  if(cohort==='boundary') assert.equal(mode,'referee');
+  let browser, histories, decisions, engine, matchPolicy;
+  if(mode==='referee') {
+    const pins=cohort==='boundary'?receipt:receipt.browser;
+    assert.equal(sha(readFileSync(enginePath)),pins.engineSha256,'deployed referee code bytes');
     const metadataPath=join(dirname(realpathSync(enginePath)),'chess-match.mjs');
-    assert.equal(sha(readFileSync(metadataPath)),receipt.browser.matchPolicySha256,'deployed metadata policy bytes');
-    const engine=await import(pathToFileURL(realpathSync(enginePath)));
-    const matchPolicy=await import(pathToFileURL(metadataPath));
-    browser=await browserProof(receipt,j,history,engine,matchPolicy);
-  } else assert.equal(receipt.browser,undefined);
+    assert.equal(sha(readFileSync(metadataPath)),pins.matchPolicySha256,'deployed metadata policy bytes');
+    engine=await import(pathToFileURL(realpathSync(enginePath)));
+    matchPolicy=await import(pathToFileURL(metadataPath));
+  }
+  if(cohort==='supplement') decisions=supplement(receipt,j.actors,j.proof);
+  else if(cohort==='boundary') decisions=boundary(receipt,j,engine,matchPolicy);
+  else ({decisions,history:histories}=protocol(receipt,j.actors,j.proof));
+  const special=cohort ? {} : specials(receipt,j.actors,j.proof);
+  if(mode==='referee' && !cohort) browser=await browserProof(receipt,j,histories,engine,matchPolicy);
+  else assert.equal(receipt.browser,undefined);
   const report={mode,runId,receipt:digest,rulesSha256,activeRuleset:j.release,restoredRuleset:j.restored,
     journalSha256:j.journalSha256,signedReadersExplicit:receipt.rows.every(r=>r.reader===j.actors.observer),
     exactProtocolIntents:receipt.rows.filter(r=>r.submitted).length,decisions,special,
-    sensitivity:extra?null:sensitivity(receipt,j),...(extra && {cohort:receipt.cohort}),...(browser && {browser})};
+    sensitivity:cohort?null:sensitivity(receipt,j),...(cohort && {cohort}),
+    ...(cohort==='boundary' && {engineSha256:receipt.engineSha256,matchPolicySha256:receipt.matchPolicySha256,
+      requirements:Object.fromEntries(receipt.rows.filter(r=>r.requirement).map(r=>[r.id,r.requirement]))}),...(browser && {browser})};
   return {report,comparable:Object.fromEntries(receipt.rows.map(r=>[r.id,canonical(r,runId,j.actors)]))};
 }
 
