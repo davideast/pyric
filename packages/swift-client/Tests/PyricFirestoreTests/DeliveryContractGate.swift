@@ -37,6 +37,28 @@ final class SignalGate: @unchecked Sendable {
     }
 }
 
+/// Synchronous condition-backed one-shot latch for blocking callback threads
+/// without `DispatchSemaphore` disposal constraints on Darwin.
+final class BlockingGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var signaled = false
+
+    func signal() {
+        condition.lock()
+        signaled = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func wait() {
+        condition.lock()
+        while !signaled {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+}
+
 /// Deterministic continuation-backed counter gate (zero sleeps or polling).
 final class CountGate: @unchecked Sendable {
     private let lock = NSLock()

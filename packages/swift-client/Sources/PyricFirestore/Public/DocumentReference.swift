@@ -389,8 +389,9 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         )
 
         return SimpleListenerRegistration {
-            stateBox.markCancelled()
+            stateBox.setCancelled()
             coordinator.cancel()
+            stateBox.waitForInFlightCallback()
         }
     }
 
@@ -455,12 +456,15 @@ private final class DocListenerStateBox: @unchecked Sendable {
         return _lastWire
     }
 
-    func markCancelled() {
-        callbackLock.lock()
-        defer { callbackLock.unlock() }
+    func setCancelled() {
         lock.lock()
         cancelled = true
         lock.unlock()
+    }
+
+    func waitForInFlightCallback() {
+        callbackLock.lock()
+        callbackLock.unlock()
     }
 
     func runIfActive(_ block: () -> Void) {

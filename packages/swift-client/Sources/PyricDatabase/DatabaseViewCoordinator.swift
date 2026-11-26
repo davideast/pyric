@@ -31,6 +31,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         let handle: UInt
         private let onEvent: @Sendable (DatabaseChildEvent) -> Void
         private let onCancel: (@Sendable (Error) -> Void)?
+        private let stateLock = NSLock()
         private let callbackLock = NSRecursiveLock()
         private var cancelled = false
 
@@ -44,23 +45,31 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             self.onCancel = onCancel
         }
 
+        private var isCancelled: Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return cancelled
+        }
+
         func cancel() {
-            callbackLock.lock()
+            stateLock.lock()
             cancelled = true
+            stateLock.unlock()
+            callbackLock.lock()
             callbackLock.unlock()
         }
 
         func deliverEvent(_ event: DatabaseChildEvent) {
             callbackLock.lock()
             defer { callbackLock.unlock() }
-            guard !cancelled else { return }
+            guard !isCancelled else { return }
             onEvent(event)
         }
 
         func deliverCancel(_ error: Error) {
             callbackLock.lock()
             defer { callbackLock.unlock() }
-            guard !cancelled else { return }
+            guard !isCancelled else { return }
             onCancel?(error)
         }
     }

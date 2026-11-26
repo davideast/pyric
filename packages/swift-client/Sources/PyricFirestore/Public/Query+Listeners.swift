@@ -39,7 +39,8 @@ extension Query {
                 }
             }
             return SimpleListenerRegistration {
-                stateBox.markCancelled()
+                stateBox.setCancelled()
+                stateBox.waitForInFlightCallback()
             }
         }
 
@@ -128,8 +129,9 @@ extension Query {
         )
 
         return SimpleListenerRegistration {
-            stateBox.markCancelled()
+            stateBox.setCancelled()
             coordinator.cancel()
+            stateBox.waitForInFlightCallback()
         }
     }
 
@@ -196,12 +198,15 @@ private final class QuerySnapshotStateBox: @unchecked Sendable {
         return _lastWire
     }
 
-    func markCancelled() {
-        callbackLock.lock()
-        defer { callbackLock.unlock() }
+    func setCancelled() {
         lock.lock()
         cancelled = true
         lock.unlock()
+    }
+
+    func waitForInFlightCallback() {
+        callbackLock.lock()
+        callbackLock.unlock()
     }
 
     func runIfActive(_ block: () -> Void) {

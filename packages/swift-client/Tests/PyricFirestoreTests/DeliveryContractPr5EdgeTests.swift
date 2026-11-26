@@ -50,7 +50,7 @@ struct DeliveryContractPr5EdgeTests {
         // transition queue while deliveryQueue is busy. With single-hop parity,
         // room:1 must strictly precede info:false.
         let queuePaused = SignalGate()
-        let releaseQueue = DispatchSemaphore(value: 0)
+        let releaseQueue = BlockingGate()
         client.deliveryQueue.async {
             queuePaused.signal()
             releaseQueue.wait()
@@ -184,7 +184,7 @@ struct DeliveryContractPr5EdgeTests {
         // Dictionary iteration order is randomized; also register a third remover so
         // whichever runs first removes the other, and verify cross-thread wait below.
         let entered = SignalGate()
-        let release = DispatchSemaphore(value: 0)
+        let release = BlockingGate()
         let exited = GatedBox<Bool>()
         let afterRemove = GatedBox<Bool>()
         let hBlocked = auth.addStateDidChangeListener { _, user in
@@ -199,7 +199,8 @@ struct DeliveryContractPr5EdgeTests {
         }
 
         let transitionDone = SignalGate()
-        DispatchQueue.global().async {
+        let transitionQueue = DispatchQueue(label: "dc5.s24.transition")
+        transitionQueue.async {
             auth.applyUserTransition(User(uid: "block"))
             transitionDone.signal()
         }
@@ -208,7 +209,8 @@ struct DeliveryContractPr5EdgeTests {
         let removeStarted = SignalGate()
         let removeFinished = SignalGate()
         let exitedBeforeReturn = GatedBox<Bool>()
-        DispatchQueue.global().async {
+        let removeQueue = DispatchQueue(label: "dc5.s24.remove")
+        removeQueue.async {
             removeStarted.signal()
             auth.removeStateDidChangeListener(hBlocked)
             exitedBeforeReturn.append(exited.count == 1)
@@ -313,7 +315,7 @@ struct DeliveryContractPr5EdgeTests {
         let ref = db.reference(withPath: "s27/err-race")
 
         let cancelEntered = SignalGate()
-        let releaseCancel = DispatchSemaphore(value: 0)
+        let releaseCancel = BlockingGate()
         let cancelExited = GatedBox<Bool>()
         let afterRemove1 = GatedBox<Bool>()
         let cancel2Called = GatedBox<Bool>()
@@ -346,7 +348,8 @@ struct DeliveryContractPr5EdgeTests {
         let remove1Started = SignalGate()
         let remove1Finished = SignalGate()
         let exitedBeforeReturn = GatedBox<Bool>()
-        DispatchQueue.global().async {
+        let remove1Queue = DispatchQueue(label: "dc5.s27.rtdb.remove")
+        remove1Queue.async {
             remove1Started.signal()
             ref.removeObserver(withHandle: h1)
             exitedBeforeReturn.append(cancelExited.count == 1)

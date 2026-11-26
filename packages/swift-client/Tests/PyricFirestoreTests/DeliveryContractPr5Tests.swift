@@ -354,48 +354,78 @@ struct DeliveryContractPr5Tests {
         let client = bridge.makeClient()
         try await client.connect()
         let fs = makePr5Firestore(client)
+        let callbackQueue = DispatchQueue(label: "dc5.s27.fs.callbacks")
+        fs.settings.dispatchQueue = callbackQueue
 
         let entered = SignalGate()
-        let release = DispatchSemaphore(value: 0)
+        let release = BlockingGate()
         let exited = GatedBox<Bool>()
         let afterRemove = GatedBox<Bool>()
-        let callbackCount = GatedBox<Int>()
+        let reg1Callbacks = GatedBox<Int>()
+        let reg2Callbacks = GatedBox<Int>()
 
-        let reg = fs.document("s27/doc").addSnapshotListener { snap, _ in
+        let reg1 = fs.document("s27/doc1").addSnapshotListener { snap, _ in
             let n = (snap?.data()?["n"]).flatMap { Int("\($0)") } ?? -1
             if afterRemove.count > 0 {
                 afterRemove.append(true)
             }
-            callbackCount.append(n)
+            reg1Callbacks.append(n)
             if n == 1 {
                 entered.signal()
                 release.wait()
                 exited.append(true)
             }
         }
-        await bridge.waitForSub(path: "s27/doc", count: 1)
-        let subId = bridge.subs(onSocket: 1).first {
-            $0["sub"]?["target"]?["path"]?.stringValue == "s27/doc"
+        let reg2 = fs.document("s27/doc2").addSnapshotListener { snap, _ in
+            let n = (snap?.data()?["n"]).flatMap { Int("\($0)") } ?? -1
+            reg2Callbacks.append(n)
+        }
+        await bridge.waitForSub(path: "s27/doc1", count: 1)
+        await bridge.waitForSub(path: "s27/doc2", count: 1)
+        let sub1 = bridge.subs(onSocket: 1).first {
+            $0["sub"]?["target"]?["path"]?.stringValue == "s27/doc1"
+        }!["subId"]!.stringValue!
+        let sub2 = bridge.subs(onSocket: 1).first {
+            $0["sub"]?["target"]?["path"]?.stringValue == "s27/doc2"
         }!["subId"]!.stringValue!
 
         bridge.current.deliver([
             "type": "worker-snap",
-            "subId": subId,
-            "value": ["path": "s27/doc", "exists": true, "data": ["n": 1]],
-        ])
-        bridge.current.deliver([
-            "type": "worker-snap",
-            "subId": subId,
-            "value": ["path": "s27/doc", "exists": true, "data": ["n": 2]],
+            "subId": sub1,
+            "value": ["path": "s27/doc1", "exists": true, "data": ["n": 1]],
         ])
         await entered.wait()
+
+        // Queue a snapshot for reg2 behind reg1's blocked callback on callbackQueue,
+        // wait until both receiveLoop and deliveryQueue have enqueued it onto callbackQueue,
+        // then remove reg2 before releasing reg1 to prove queued callbacks are suppressed.
+        bridge.current.deliver([
+            "type": "worker-snap",
+            "subId": sub2,
+            "value": ["path": "s27/doc2", "exists": true, "data": ["n": 2]],
+        ])
+        bridge.current.deliver([
+            "type": "ping",
+            "id": "sync-s27-fs",
+        ])
+        await bridge.waitForFrames { frames in
+            frames.contains {
+                $0["type"]?.stringValue == "pong" && $0["id"]?.stringValue == "sync-s27-fs"
+            }
+        }
+        let deliveryDrained = SignalGate()
+        client.deliveryQueue.async { deliveryDrained.signal() }
+        await deliveryDrained.wait()
+
+        reg2.remove()
 
         let removeStarted = SignalGate()
         let removeFinished = SignalGate()
         let exitedBeforeRemoveReturned = GatedBox<Bool>()
-        DispatchQueue.global().async {
+        let removeQueue = DispatchQueue(label: "dc5.s27.fs.remove")
+        removeQueue.async {
             removeStarted.signal()
-            reg.remove()
+            reg1.remove()
             exitedBeforeRemoveReturned.append(exited.count == 1)
             afterRemove.append(true)
             removeFinished.signal()
@@ -404,10 +434,14 @@ struct DeliveryContractPr5Tests {
         release.signal()
         await removeFinished.wait()
 
-        await client.pass(turn: client.takeTurn())
+        let callbacksDrained = SignalGate()
+        callbackQueue.async { callbacksDrained.signal() }
+        await callbacksDrained.wait()
+
         #expect(exitedBeforeRemoveReturned.all == [true])
         #expect(afterRemove.all == [true])
-        #expect(callbackCount.all == [1])
+        #expect(reg1Callbacks.all == [1])
+        #expect(reg2Callbacks.all == [])
         await client.disconnect()
     }
 
