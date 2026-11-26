@@ -1,0 +1,16 @@
+[
+  {
+    "input": "exact",
+    "sha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+    "status": "measured",
+    "cases": 145,
+    "captures": 4
+  },
+  {
+    "input": "one extra newline",
+    "sha256": "1caa7cae16e3ebe3c5b4fefe4af06581285343ab4f318b50d42b2d8c93ef4337",
+    "status": "unmeasured",
+    "cases": 0,
+    "captures": 0
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "test": "legalMoves returns a string instead of an array",
+  "byExpectedAndResult": {
+    "ALLOW/false-refusal": 17,
+    "DENY/match": 12
+  },
+  "controls": [
+    {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "decision": "DENY",
+      "status": "false-refusal"
+    },
+    {
+      "id": "rook-exposed",
+      "expected": "DENY",
+      "decision": "DENY",
+      "status": "match"
+    }
+  ]
+}

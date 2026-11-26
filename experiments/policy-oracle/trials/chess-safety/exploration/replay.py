@@ -19,7 +19,7 @@ def evaluate(*args):
     return json.loads(result.stdout)
 
 
-def run(rules, reference, rebuild, extended_endings=False, bare_defender=False):
+def run(rules, reference, rebuild, extended_endings=False, bare_defender=False, knight_replies=False):
     plans = [
         ("v1", "freeze.mjs", "v1/score.mjs", []),
         ("replies-v1", "freeze.mjs", "v1/score.mjs", ["--terminal-replies"]),
@@ -27,14 +27,22 @@ def run(rules, reference, rebuild, extended_endings=False, bare_defender=False):
         ("promotions-v1", "freeze.mjs", "v1/score.mjs", ["--promotions"]),
         ("interior-v1", "freeze.mjs", "v1/score.mjs", ["--interior"]),
         ("rights-claims-v1", "freeze.mjs", "rights-claims-v1/score.mjs", []),
+        ("self-check-v1", "corpus.mjs", "self-check-v1/measure.mjs", []),
     ]
-    if (HERE / "self-check-v1/measure.mjs").is_file():
-        plans.append(("self-check-v1", "corpus.mjs", "self-check-v1/measure.mjs", []))
     if extended_endings:
         plans.extend([("king-last-v1", "freeze.mjs", "v1/score.mjs", ["--king-last"]),
                       ("successor-claims-v1", "freeze.mjs", "v1/score.mjs", ["--all-claims"])])
     if bare_defender:
         plans.append(("bare-defender-v1", "freeze.mjs", "v1/score.mjs", ["--bare-defender"]))
+    if knight_replies:
+        plans.append(("knight-replies-v1", "freeze.mjs", "v1/score.mjs", ["--knight-replies"]))
+    for cohort, freeze, scorer, _ in plans:
+        required = [Path(cohort)/"freeze.json", Path(cohort)/"corpus.json.gz", Path(scorer)]
+        if rebuild:
+            required.append(Path(cohort)/freeze)
+        for path in required:
+            if not (HERE/path).is_file():
+                raise ValueError(f"Missing required coverage input {path}")
     reports, totals = {}, Counter()
     digest = sha256(rules.read_bytes()).hexdigest()
     summary = {}
@@ -74,6 +82,7 @@ def main():
     p.add_argument("--rebuild-native", action="store_true", help="rerun native and standalone generation before scoring")
     p.add_argument("--extended-endings", action="store_true", help="include 288 king-last and 762 remaining terminal proposals")
     p.add_argument("--bare-defender", action="store_true", help="include 1,992 arbitrary-material bare-king and near-miss proposals")
+    p.add_argument("--knight-replies", action="store_true", help="include 492 knight captures, interpositions, pins and terminal claims")
     p.add_argument("--report", type=Path, help="write full report with per-cohort first divergences and minimized examples")
     p.add_argument("--json", action="store_true", help="print full report to stdout")
     p.add_argument("--strict", action="store_true", help="also return exit 1 on any nonmatching or unsupported case")
@@ -88,7 +97,7 @@ def main():
                     raise ValueError(f"Reference archive changed: {name}")
             modules = TOOLS["install_rules"](TOOLS["VENDOR"] / "pyric-rules-0.1.0.tgz", Path(directory) / "ref")
             reference = modules / "@pyric/rules"
-        data = run(rules, reference, args.rebuild_native, args.extended_endings, args.bare_defender)
+        data = run(rules, reference, args.rebuild_native, args.extended_endings, args.bare_defender, args.knight_replies)
     if args.report:
         args.report.write_text(json.dumps(data, indent=2) + "\n")
     output = data if args.json else {k: v for k, v in data.items() if k != "reports"}

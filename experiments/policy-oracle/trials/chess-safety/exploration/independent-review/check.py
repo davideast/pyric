@@ -15,13 +15,15 @@ TRIAL = HERE.parent.parent
 external = runpy.run_path(str(TRIAL.parent / "chess/reference/generate.py"))
 
 
-def cases(trial, extended_endings, other_corpora):
-    for path in sorted((trial / "batches").glob("*/v1/native.json")):
-        yield path.parents[1].name, json.loads(path.read_bytes())["cases"]
-    for name in ("native", "cost-native", "path-native"):
-        path = trial.parent / "king-safety/reference" / (name + ".json")
-        yield "file-pins/" + name, json.loads(path.read_bytes())["cases"]
-    cohorts = {"v1", "replies-v1", "rights-v1", "promotions-v1", "interior-v1", "rights-claims-v1", "self-check-v1"}
+def cases(trial, extended_endings, other_corpora, only_corpora):
+    cohorts = set(only_corpora)
+    if not only_corpora:
+        for path in sorted((trial / "batches").glob("*/v1/native.json")):
+            yield path.parents[1].name, json.loads(path.read_bytes())["cases"]
+        for name in ("native", "cost-native", "path-native"):
+            path = trial.parent / "king-safety/reference" / (name + ".json")
+            yield "file-pins/" + name, json.loads(path.read_bytes())["cases"]
+        cohorts.update({"v1", "replies-v1", "rights-v1", "promotions-v1", "interior-v1", "rights-claims-v1", "self-check-v1"})
     if extended_endings:
         cohorts.update({"king-last-v1", "successor-claims-v1"})
     cohorts.update(other_corpora)
@@ -32,9 +34,9 @@ def cases(trial, extended_endings, other_corpora):
         yield path.parent.name, json.loads(gzip.decompress(path.read_bytes()))
 
 
-def check(chess, trial, extended_endings, other_corpora):
+def check(chess, trial, extended_endings, other_corpora, only_corpora):
     reports = {}
-    for name, rows in cases(trial, extended_endings, other_corpora):
+    for name, rows in cases(trial, extended_endings, other_corpora, only_corpora):
         faults, invalid = collections.Counter(), collections.Counter()
         first, invalid_first = {}, {}
         legal_checked = invalid_rows = 0
@@ -77,6 +79,11 @@ def check(chess, trial, extended_endings, other_corpora):
                 replies = sorted(m.uci() for m in board.legal_moves)
                 reply_bytes = json.dumps(replies, separators=(",", ":")).encode()
                 seen.update(replies=replies, replyCount=len(replies), replySha256=hashlib.sha256(reply_bytes).hexdigest())
+                if "legalKnightReplies" in c:
+                    knights = board.pieces(chess.KNIGHT, board.turn)
+                    seen["legalKnightReplies"] = sorted(m.uci() for m in board.legal_moves if m.from_square in knights)
+                    seen["pseudoKnightReplies"] = sorted(m.uci() for m in board.pseudo_legal_moves if m.from_square in knights)
+                    seen["pinnedKnights"] = sorted(chess.square_name(s) for s in knights if board.is_pinned(board.turn, s))
             seen.update(nativeLegal=legal, nativeAdmission=admission)
             for field, observed in seen.items():
                 if field not in c:
@@ -101,10 +108,11 @@ def main():
     p.add_argument("--trial", type=Path, default=TRIAL)
     p.add_argument("--extended-endings", action="store_true", help="also audit the king-last and remaining-claims inputs")
     p.add_argument("--other-corpus", action="append", default=[], help="audit another named local corpus")
+    p.add_argument("--only-corpus", action="append", default=[], help="audit a named corpus without the default cohort set")
     args = p.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         chess = external["load_chess"](args.archive, Path(tmp))
-        receipt = check(chess, args.trial.resolve(), args.extended_endings, args.other_corpus)
+        receipt = check(chess, args.trial.resolve(), args.extended_endings, args.other_corpus, args.only_corpus)
         print(json.dumps(receipt, indent=2))
         if any(cohort["disagreements"] for cohort in receipt["cohorts"].values()):
             raise SystemExit(1)

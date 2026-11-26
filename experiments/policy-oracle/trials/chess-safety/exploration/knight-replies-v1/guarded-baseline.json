@@ -1,0 +1,46 @@
+{
+  "rulesSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+  "corpusSha256": "d86a76e978fda19b225777cef344d937ecb7d9edaa21920ed160fe4c4ecb90fc",
+  "caseCount": 492,
+  "scoreSha256": "2f5b165684043250ef66abc38bc72f530975aca69eae65920be8ba0136fbd133",
+  "populations": {
+    "two-knight": {
+      "match": 208,
+      "false-allow": 104
+    },
+    "single-knight": {
+      "match": 116,
+      "false-allow": 58
+    },
+    "three-knight-boundary": {
+      "match": 4,
+      "false-allow": 2
+    }
+  },
+  "firstByClass": {
+    "false-allow/None": {
+      "case": {
+        "id": "knight-reply-003",
+        "fen": "k7/n7/3n4/8/1Q2N3/R5R1/B7/5K2 w - -",
+        "uci": "e4g5",
+        "claim": {
+          "status": "draw",
+          "winner": ""
+        },
+        "nativeLegal": true,
+        "kingSafe": true,
+        "nativeAdmission": false,
+        "successor": "k7/n7/3n4/6N1/1Q6/R5R1/B7/5K2 b - -",
+        "outcome": "playing",
+        "replyCount": 8
+      },
+      "result": {
+        "actual": "ALLOW",
+        "status": "false-allow",
+        "cause": null,
+        "kind": "false-allow",
+        "expressions": 762
+      }
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "rulesSha256": "cbbd4b5bf401ca5b807b8dc8b10f2487929256b9e16c9c1f1dcc13f422ea5b43",
+  "corpusSha256": "d86a76e978fda19b225777cef344d937ecb7d9edaa21920ed160fe4c4ecb90fc",
+  "caseCount": 492,
+  "scoreSha256": "71cb0b59f358b604951a271f91eccf3b37168bcb1625ae95a6dd0d8422b3d4da",
+  "populations": {
+    "two-knight": {
+      "match": 278,
+      "false-allow": 24,
+      "false-refusal/resource-limit": 10
+    },
+    "single-knight": {
+      "match": 150,
+      "false-allow": 24
+    },
+    "three-knight-boundary": {
+      "match": 4,
+      "false-allow": 2
+    }
+  },
+  "firstByClass": {
+    "false-allow/None": {
+      "case": {
+        "id": "knight-reply-019",
+        "fen": "3k4/6R1/4QR2/8/Q5n1/8/KQ6/8 w - -",
+        "uci": "a4a8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeLegal": true,
+        "kingSafe": true,
+        "nativeAdmission": false,
+        "successor": "Q2k4/6R1/4QR2/8/6n1/8/KQ6/8 b - -",
+        "outcome": "checkmate",
+        "replyCount": 0
+      },
+      "result": {
+        "actual": "ALLOW",
+        "status": "false-allow",
+        "cause": null,
+        "kind": "false-allow",
+        "expressions": 813
+      }
+    },
+    "false-refusal/resource-limit": {
+      "case": {
+        "id": "knight-reply-026",
+        "fen": "7Q/5R2/2B1k3/2n5/8/3Q4/5K1n/2N5 w - -",
+        "uci": "d3g6",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeLegal": true,
+        "kingSafe": true,
+        "nativeAdmission": true,
+        "successor": "7Q/5R2/2B1k1Q1/2n5/8/8/5K1n/2N5 b - -",
+        "outcome": "checkmate",
+        "replyCount": 0
+      },
+      "result": {
+        "actual": "DENY",
+        "status": "false-refusal",
+        "cause": "resource-limit",
+        "kind": "false-refusal/resource-limit",
+        "expressions": 1000
+      }
+    }
+  }
+}

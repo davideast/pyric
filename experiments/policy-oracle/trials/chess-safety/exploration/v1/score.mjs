@@ -17,7 +17,12 @@ import {encode,plausible} from './corpus.mjs';
 const args=process.argv.slice(2);
 const scopeReport=args.includes('--scope-report');
 const [simulator,bundle,cohort]=args.filter(a=>a!=='--scope-report');
-const locations=new Map([[undefined,'./'],['--terminal-replies','../replies-v1/'],['--rights','../rights-v1/'],['--promotions','../promotions-v1/'],['--interior','../interior-v1/'],['--king-last','../king-last-v1/'],['--all-claims','../successor-claims-v1/'],['--bare-defender','../bare-defender-v1/']]);
+const locations=new Map([
+  [undefined,'./'],['--terminal-replies','../replies-v1/'],['--rights','../rights-v1/'],
+  ['--promotions','../promotions-v1/'],['--interior','../interior-v1/'],
+  ['--king-last','../king-last-v1/'],['--all-claims','../successor-claims-v1/'],
+  ['--bare-defender','../bare-defender-v1/'],['--knight-replies','../knight-replies-v1/'],
+]);
 assert.ok(locations.has(cohort),'unknown discovery cohort');
 const base=new URL(locations.get(cohort),import.meta.url);
 const read=path=>readFileSync(new URL(path,base));

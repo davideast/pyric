@@ -1,0 +1,93 @@
+{
+  "authority": "independent pinned local full Rules evaluator",
+  "rulesSha256": "34678134902fa3c16501bfb0ac2a44041df655c862ef292d6fa8676162b1d1ab",
+  "cases": 15413,
+  "allMatch": false,
+  "outcomes": {
+    "match": 15093,
+    "false-allow": 259,
+    "false-refusal/resource-limit": 60,
+    "evaluation-error/resource-limit": 1
+  },
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "outcomes": {
+        "match": 2456,
+        "false-allow": 25
+      },
+      "decisionsSha256": "c03859313de86377caeb8d00bb18844a563b6914e11539d4bc61d6d3a01cac0b"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "outcomes": {
+        "match": 313,
+        "false-allow": 65
+      },
+      "decisionsSha256": "120cc515f8f8029111fe505e03635dbc8ae477e393f3299401d3dbd716302d8c"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "outcomes": {
+        "match": 1687,
+        "false-refusal/resource-limit": 49
+      },
+      "decisionsSha256": "4ba7e5183455ea51849cecfddd9c97d60d2ee1e0206b263578931304410be2a7"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "outcomes": {
+        "match": 896,
+        "false-refusal/resource-limit": 8
+      },
+      "decisionsSha256": "c09cc8686901263ec5e959ab76bbd8327d56b502704a58c5d123f7391837c0d0"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "outcomes": {
+        "match": 352,
+        "false-allow": 31,
+        "evaluation-error/resource-limit": 1
+      },
+      "decisionsSha256": "4744e73c797eae5d1e40abd543db98b6d377cda3123972518055ddefea420f36"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "outcomes": {
+        "match": 2048
+      },
+      "decisionsSha256": "55cdc7907e64fea25a6c4242a7798dc16712ce4a48cda35035ab0ec77e70b7c5"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "outcomes": {
+        "match": 4440
+      },
+      "decisionsSha256": "ae88eafd2c6b8f11d0454a2feb8d7dc1f9ba7da6871cba4cc9d3cd6dfcf57f35"
+    },
+    "king-last-v1": {
+      "cases": 288,
+      "outcomes": {
+        "match": 288
+      },
+      "decisionsSha256": "c2f8f7e13a4f2f60cf57f6fc5050f9cad46f0c83e92ea96d98a18021af71385a"
+    },
+    "successor-claims-v1": {
+      "cases": 762,
+      "outcomes": {
+        "match": 656,
+        "false-allow": 106
+      },
+      "decisionsSha256": "f43a76d4a030d2b2e3b04e841716d22234c87e9a0533b29a16a906ecb360b1b1"
+    },
+    "bare-defender-v1": {
+      "cases": 1992,
+      "outcomes": {
+        "match": 1957,
+        "false-allow": 32,
+        "false-refusal/resource-limit": 3
+      },
+      "decisionsSha256": "8f5504c385018b88ce4249156f82ae2e64989f7be5deb14dd61a241c336b21dd"
+    }
+  }
+}

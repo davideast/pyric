@@ -1,0 +1,21 @@
+{
+  "test": "legalMoves returns a string instead of an array",
+  "byExpectedAndResult": {
+    "ALLOW/standalone-error": 17,
+    "DENY/standalone-error": 12
+  },
+  "controls": [
+    {
+      "id": "rook-safe",
+      "expected": "ALLOW",
+      "error": "legalMoves must return distinct UCI moves",
+      "status": "standalone-error"
+    },
+    {
+      "id": "rook-exposed",
+      "expected": "DENY",
+      "error": "legalMoves must return distinct UCI moves",
+      "status": "standalone-error"
+    }
+  ]
+}

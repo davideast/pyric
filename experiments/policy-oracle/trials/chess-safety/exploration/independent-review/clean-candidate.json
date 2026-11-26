@@ -1,0 +1,62 @@
+{
+  "checkout": "d2f225caf",
+  "checkoutMode": "fresh depth-one file-transport clone, no preinstalled node_modules",
+  "commands": [
+    "python3 mobility/pack.py --split candidate.tgz",
+    "python3 score.py --candidate-package candidate.tgz --variant combined-pattern-fast-packed-v5 --board-policy --with-live --save-rules candidate.rules",
+    "python3 replay.py --archive RAW_CAPTURE_ARCHIVE --report result.json"
+  ],
+  "candidateSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "rulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+  "savedRulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+  "previousCheckout": {
+    "id": "882c6f42c5b9344fc364e387255263f5a305b8ee",
+    "candidateSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+    "linkedRulesSha256": null,
+    "diagnostics": {
+      "standalone": "error: Cannot find module './three-piece.mjs' from '/oracle/trials/chess-safety/mobility/combined.mjs'\n\nBun v1.4.5 (Linux x64)\n",
+      "compile": "error: Cannot find module './three-piece.mjs' from '/oracle/trials/chess-safety/mobility/combined.mjs'\n\nBun v1.4.5 (Linux x64)\n"
+    }
+  },
+  "namedLocal": {
+    "kingSafety": {
+      "cases": 94,
+      "matches": 94
+    },
+    "standaloneBoard": {
+      "cases": 94,
+      "matches": 94
+    },
+    "linkedWrites": {
+      "cases": 94,
+      "matches": 94
+    }
+  },
+  "extendedCases": 15413,
+  "extendedOutcomes": {
+    "match": 14749,
+    "false-allow": 595,
+    "false-refusal/resource-limit": 63,
+    "evaluation-error/resource-limit": 6
+  },
+  "privateArchiveAuthenticated": true,
+  "hosted": {
+    "rulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+    "status": "measured",
+    "distinctCases": 30,
+    "comparison": {
+      "12-terminal-holdout": {
+        "false-allow": 7,
+        "match": 23
+      }
+    },
+    "receipts": [
+      "4605e453a4e6b88d2b38f64e1b5ed24110c7ba18d926d2cd27e8fb878b3ab027"
+    ],
+    "managementFailures": []
+  },
+  "localConformance": false,
+  "matchesObservedProductionCases": false,
+  "defaultReplayExit": 0,
+  "defaultReportSha256": "cd523a2288ee9dbaec1f1fd3d5e5d4defb6d7383216c9be68ad19a92b43f27ae"
+}

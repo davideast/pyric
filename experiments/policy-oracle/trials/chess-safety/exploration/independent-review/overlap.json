@@ -1,0 +1,143 @@
+{
+  "submissions": 15507,
+  "distinctFens": 5993,
+  "distinctFenMoves": 10445,
+  "uniqueSignedPayloads": 15500,
+  "repeats": 7,
+  "conflictingNativeAnswers": 0,
+  "digestFields": "complete canonical projected resource and merged successor under fixed actors and path",
+  "cases": {
+    "file-pins/native": {
+      "submitted": 7,
+      "newSignedPayloads": 7,
+      "repeats": 0
+    },
+    "file-pins/cost-native": {
+      "submitted": 1,
+      "newSignedPayloads": 1,
+      "repeats": 0
+    },
+    "file-pins/path-native": {
+      "submitted": 2,
+      "newSignedPayloads": 2,
+      "repeats": 0
+    },
+    "01-rank-diagonal": {
+      "submitted": 19,
+      "newSignedPayloads": 19,
+      "repeats": 0
+    },
+    "02-king-destinations": {
+      "submitted": 12,
+      "newSignedPayloads": 12,
+      "repeats": 0
+    },
+    "03-check-evasions": {
+      "submitted": 8,
+      "newSignedPayloads": 8,
+      "repeats": 0
+    },
+    "04-en-passant": {
+      "submitted": 5,
+      "newSignedPayloads": 5,
+      "repeats": 0
+    },
+    "05-castling": {
+      "submitted": 20,
+      "newSignedPayloads": 20,
+      "repeats": 0
+    },
+    "06-composition": {
+      "submitted": 10,
+      "newSignedPayloads": 10,
+      "repeats": 0
+    },
+    "07-terminal": {
+      "submitted": 10,
+      "newSignedPayloads": 10,
+      "repeats": 0
+    },
+    "v1": {
+      "submitted": 2481,
+      "newSignedPayloads": 2481,
+      "repeats": 0
+    },
+    "replies-v1": {
+      "submitted": 378,
+      "newSignedPayloads": 378,
+      "repeats": 0
+    },
+    "rights-v1": {
+      "submitted": 1736,
+      "newSignedPayloads": 1736,
+      "repeats": 0
+    },
+    "promotions-v1": {
+      "submitted": 904,
+      "newSignedPayloads": 904,
+      "repeats": 0
+    },
+    "interior-v1": {
+      "submitted": 384,
+      "newSignedPayloads": 384,
+      "repeats": 0
+    },
+    "rights-claims-v1": {
+      "submitted": 2048,
+      "newSignedPayloads": 2044,
+      "repeats": 4
+    },
+    "self-check-v1": {
+      "submitted": 4440,
+      "newSignedPayloads": 4437,
+      "repeats": 3
+    },
+    "king-last-v1": {
+      "submitted": 288,
+      "newSignedPayloads": 288,
+      "repeats": 0
+    },
+    "successor-claims-v1": {
+      "submitted": 762,
+      "newSignedPayloads": 762,
+      "repeats": 0
+    },
+    "bare-defender-v1": {
+      "submitted": 1992,
+      "newSignedPayloads": 1992,
+      "repeats": 0
+    }
+  },
+  "examples": [
+    {
+      "first": "rights-00604",
+      "repeat": "a8a1-KQk-claim-Kk",
+      "firstCohort": "rights-v1",
+      "repeatCohort": "rights-claims-v1"
+    },
+    {
+      "first": "rights-00999",
+      "repeat": "h8h1-KQq-claim-Qq",
+      "firstCohort": "rights-v1",
+      "repeatCohort": "rights-claims-v1"
+    },
+    {
+      "first": "rights-01300",
+      "repeat": "a1a8-Kkq-claim-Kk",
+      "firstCohort": "rights-v1",
+      "repeatCohort": "rights-claims-v1"
+    },
+    {
+      "first": "rights-01421",
+      "repeat": "h1h8-Qkq-claim-Qq",
+      "firstCohort": "rights-v1",
+      "repeatCohort": "rights-claims-v1"
+    },
+    {
+      "first": "white-short-transit-attacked",
+      "repeat": "safety-4280",
+      "firstCohort": "05-castling",
+      "repeatCohort": "self-check-v1"
+    }
+  ]
+}
