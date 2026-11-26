@@ -1,0 +1,30 @@
+{
+  "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+  "inputs": [
+    {
+      "batch": "03-check-evasions",
+      "file": "../batches/03-check-evasions/v1/positions.json",
+      "sha256": "b479f5575aed77c91aa3bea3dbabebbdef060933f0eee975901e5f115ac8ac32"
+    },
+    {
+      "batch": "04-en-passant",
+      "file": "../batches/04-en-passant/v1/positions.json",
+      "sha256": "a907de9aa30c0c7f0ebae6b10dd751625b697d2e9a95a900c2d7e69bf7b3da14"
+    },
+    {
+      "batch": "05-castling",
+      "file": "../batches/05-castling/v1/positions.json",
+      "sha256": "2a9f20982195d93fad17bebf13aa1730253f1f4bc17d04f324eb727ce67268e6"
+    },
+    {
+      "batch": "06-composition",
+      "file": "../batches/06-composition/v1/positions.json",
+      "sha256": "521a89eb3c77af68b54044ad1187e78c65fc678ee00fb13512083bd2d3c3d56c"
+    },
+    {
+      "batch": "07-terminal",
+      "file": "../batches/07-terminal/v1/positions.json",
+      "sha256": "84b4fbffbddb1de2c7b1d4e0a27e12d1befcaa7c67e0fb8ea38c3ef61e75eadc"
+    }
+  ]
+}
