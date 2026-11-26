@@ -20,7 +20,13 @@ import { emitHttpExecutionEvent } from './host-events.js';
 import { refuseForeignOrigin, type AppOriginCheck } from './private-origin.js';
 import { proxyToChild, writeProxyBadGateway, type ProxyTarget } from './proxy.js';
 import { captureInboundRequestBody } from './request-body-buffer.js';
-import type { TrustProxyPolicy } from '../../serve/guard-policy.js';
+import {
+  attachedFunctionsRequestGuard,
+  evaluateFunctionsRequestGuard,
+  parseGuardRequestUrl,
+  writeGuardRejectionResponse,
+} from './request-guard.js';
+import type { RequestGuardPolicy, TrustProxyPolicy } from '../../serve/guard-policy.js';
 import { rewriteTarget, sessionCookieOnly, type HostingRewrite, type RewriteFunction } from './rewrites.js';
 import { matchEmulatorPath } from './routes.js';
 import { unavailableReason, type FunctionsPlane } from './unavailable.js';
@@ -71,6 +77,8 @@ export interface FunctionsHttpGatewayOptions {
   hostingRewriteTimeoutSeconds?: number;
   /** Optional proxy trust policy forwarded to `proxyToChild` for `x-forwarded-proto`. */
   trustProxy?: TrustProxyPolicy;
+  /** Optional unified request guard policy enforced on every matched function route. */
+  guardPolicy?: RequestGuardPolicy;
   /** Optional Node-hosted sandbox receiving `execution_finished` events for served `onRequest` calls (#1768). */
   sandbox?: LocalSandbox | (() => LocalSandbox | null | undefined);
   plane: FunctionsPlane;
@@ -287,10 +295,27 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     },
     async handle(req, res, allowsAppOrigin) {
       const rawUrl = req.url ?? '/';
+      const evaluateRequestGuard = (): ReturnType<typeof evaluateFunctionsRequestGuard> | null => {
+        const attached = attachedFunctionsRequestGuard(req);
+        if (attached !== undefined) {
+          return evaluateFunctionsRequestGuard(req, attached.policy, { url: attached.url });
+        }
+        if (options.guardPolicy !== undefined) {
+          return evaluateFunctionsRequestGuard(req, options.guardPolicy, { url: parseGuardRequestUrl(req) });
+        }
+        return null;
+      };
+
+      let guardDecision: ReturnType<typeof evaluateFunctionsRequestGuard> | null = null;
       let capturedForRestart = false;
       if (current.kind === 'restarting' && current.ready !== undefined) {
         const probeMatch = resolve(rawUrl, null);
         if (probeMatch === null) return false;
+        guardDecision = evaluateRequestGuard();
+        if (guardDecision !== null && !guardDecision.ok) {
+          writeGuardRejectionResponse(res, guardDecision);
+          return true;
+        }
         captureInboundRequestBody(req);
         capturedForRestart = true;
         await waitBounded(current.ready, CRASH_RESTART_WAIT_MS);
@@ -314,17 +339,25 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         drainIfCaptured();
         return false;
       }
+      if (resolved.kind === 'unknown-function' && (http === null || mayBeStaticRead(req))) {
+        drainIfCaptured();
+        return false;
+      }
+      if (guardDecision === null) {
+        guardDecision = evaluateRequestGuard();
+      }
+      if (guardDecision !== null && !guardDecision.ok) {
+        drainIfCaptured();
+        writeGuardRejectionResponse(res, guardDecision);
+        return true;
+      }
       const reason = unavailableReason(state, options.plane);
       if (reason !== null) {
         drainIfCaptured();
         res.writeHead(503, { ...PLAIN_TEXT, 'retry-after': '1' }).end(reason);
         return true;
       }
-      if (resolved.kind === 'unknown-function') {
-        if (http === null || mayBeStaticRead(req)) {
-          drainIfCaptured();
-          return false;
-        }
+      if (resolved.kind === 'unknown-function' && http !== null) {
         drainIfCaptured();
         res.writeHead(404, PLAIN_TEXT).end(notFoundText(resolved.key, http.functions));
         return true;
@@ -338,7 +371,8 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         res.writeHead(404, PLAIN_TEXT).end(message);
         return true;
       }
-      if (refuseForeignOrigin(req, res, resolved.fn, allowsAppOrigin)) {
+      const guardVerifiedOrigin = guardDecision !== null && guardDecision.ok && guardDecision.isRemoteRequest;
+      if (refuseForeignOrigin(req, res, resolved.fn, allowsAppOrigin, { guardVerifiedOrigin })) {
         drainIfCaptured();
         return true;
       }

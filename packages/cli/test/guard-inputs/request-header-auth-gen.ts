@@ -137,32 +137,6 @@ export function isTrustedSameOriginLoopbackRequest(vector: RequestHeaderVector):
 }
 
 /**
- * Ground-truth specification predicate for Vite private HTTP Functions when
- * `server.allowedHosts === true` (where Vite accepts non-wildcard hosts, and
- * `Origin` must strictly match the request's `Host` and listener scheme).
- */
-export function isTrustedViteWildcardHostOrigin(vector: RequestHeaderVector): boolean {
-  if (vector.host.kind === 'empty' || vector.host.kind === 'wildcard') {
-    return (
-      vector.origin.kind === 'absent' &&
-      vector.secFetchSite.kind !== 'same-site' &&
-      vector.secFetchSite.kind !== 'cross-site'
-    );
-  }
-  const fetchSiteTrusted =
-    vector.secFetchSite.kind === 'absent' ||
-    vector.secFetchSite.kind === 'same-origin' ||
-    vector.secFetchSite.kind === 'none';
-  if (!fetchSiteTrusted) return false;
-  if (vector.origin.kind === 'absent') return true;
-  if (vector.host.kind === 'loopback-ip') return vector.origin.kind === 'same-origin-ip';
-  if (vector.host.kind === 'loopback-localhost') {
-    return vector.origin.kind === 'same-origin-localhost';
-  }
-  return false;
-}
-
-/**
  * Ground-truth specification predicates for every endpoint of `functions-ephemeral-host`.
  */
 export function expectedEphemeralHealthOutcome(vector: RequestHeaderAuthVector): {
