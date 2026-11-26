@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {squares} from '../policy/geometry.mjs';
+import {position} from '../../chess/reference/score.mjs';
+import {squareName} from '../../chess/reference/arcade-reference.ts';
+import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
+import {compileMobility} from './adapter.mjs';
+const [pkg,variant='king-reply']=process.argv.slice(2);
+const {compileFunction}=await loadPolicyApi(pkg);
+const bundle=compileMobility(compileFunction,{mode:'standalone',specialized:variant!=='king-reply'});
+const truth=JSON.parse(readFileSync(new URL('native.json',import.meta.url)));
+const delta={N:8,NE:9,E:1,SE:-7,S:-8,SW:-9,W:-1,NW:7};
+const observations=truth.cases.map(c=>{
+  const p=position(c.fen),board=Object.fromEntries(p.board.map((v,i)=>[squareName(i),v]));
+  const dirs=bundle.directions(board,p.turn);
+  const destinations=dirs.map(dir=>squares[squares.indexOf(c.from)+delta[dir]]).sort();
+  assert.deepEqual(destinations,c.adjacent,c.id);
+  assert.equal(dirs.length>0,c.hasKingReply,c.id);
+  return {id:c.id,directions:dirs,destinations,hasKingReply:!!dirs.length};
+});
+console.log(JSON.stringify({cases:observations.length,directionChecks:8*observations.length,observations},null,2));
