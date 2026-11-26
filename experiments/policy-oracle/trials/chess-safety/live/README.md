@@ -20,3 +20,9 @@ The combined operator command retries a temporary management error up to twice. 
 After a completed or restored earlier upload, the operator can append `--reuse-run PREVIOUS_PRIVATE_RUN_ID` to `measure`. The controller derives the immutable Google Ruleset name from that prior lease's activation record. Before switching, it fetches the entire Google resource, requires the intended project, database attachment and Firestore service, and compares the only named source file byte-for-byte with the reviewed local bundle and its SHA-256. The usual actual activation, signed phase controls, authenticated writes, original release restoration and per-write digest checks still apply.
 
 If a new upload succeeded and its activation failed temporarily, the bounded retry automatically selects that prior upload's run. The next lease verifies its complete remote bytes and attachment before activation.
+
+### Signed two-player opening
+
+`node opening.mjs measure PLAN PRIVATE_ARCHIVE PRIOR_RUN` exercises the ordinary opening on a single newly created match. The host creates the match, the guest joins, White plays g2–g4, and Black plays a7–a6. Every move claims `playing`. The plan identifies the already reviewed complete ruleset and the prior run supplies its verified Google Ruleset identifier. An independent signed client and the versioned service snapshot establish continuity across all four writes.
+
+Use `node opening.mjs replay PLAN` to check the public receipt or add `PRIVATE_ARCHIVE` to verify the original release, complete journal and signed closure controls. Opening receipts are separate from the fresh-position score because all four writes depend on the same stored match.
