@@ -1,0 +1,19 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "cases": [
+    {
+      "id": "long-safe-slide",
+      "fen": "8/8/8/4k3/8/8/R7/K7 w - -",
+      "uci": "a2h2",
+      "nativeLegal": true,
+      "beforeCheck": false,
+      "afterCheck": false,
+      "standalone": {
+        "beforeCheck": false,
+        "afterCheck": false,
+        "legal": true
+      }
+    }
+  ]
+}

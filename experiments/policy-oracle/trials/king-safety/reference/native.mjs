@@ -10,7 +10,7 @@ const engine = sha(read('../../chess/reference/arcade-reference.ts'));
 const policy = sha(read('../../chess/policies/chess.mjs'));
 assert.equal(engine,'1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e');
 assert.equal(policy,'97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212');
-const cases = JSON.parse(read('positions.json')).map(({id,fen,uci}) => {
+const cases = JSON.parse(read(process.argv[2] ?? 'positions.json')).map(({id,fen,uci}) => {
   const pos=position(fen), move={from:squareOf(uci.slice(0,2)),to:squareOf(uci.slice(2))};
   const next=applyMove(pos,move);
   const beforeCheck=inCheck(pos), afterCheck=inCheck(next,pos.turn), nativeLegal=isLegal(pos,move);
