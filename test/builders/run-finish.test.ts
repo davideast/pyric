@@ -2,6 +2,7 @@
 // appends: the run still gets its record and its measurement line, and the
 // harness touches nothing through the link.
 import { describe, expect, spyOn, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -222,7 +223,7 @@ describe('finishRun on a network record the builder wrote', () => {
   });
 });
 
-describe.skipIf(UID === 0)('finishRun on a file the harness still can’t read', () => {
+describe.skipIf(UID === 0)("finishRun on a file the harness still can't read", () => {
   test('names the file in the record, so the run is not clean', async () => {
     const { dirs, end } = plainRun();
     const builderLog = join(dirs.logs, BUILDER_LOG);
@@ -250,5 +251,70 @@ describe.skipIf(UID === 0)('finishRun on a file the harness still can’t read',
     expect(record.harness.plantedLinks).toEqual([expect.stringMatching(/^logs\/extra\.log: the read failed: EACCES/)]);
     expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
     expect(existsSync(join(end.dataDir, 'logs', 'extra.log'))).toBe(false);
+  });
+
+  test('records an unreadable home/.claude directory without crashing finishRun', async () => {
+    const { dirs, end } = plainRun();
+    const claudeDir = join(dirs.home, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+    chmodSync(claudeDir, 0o000);
+    const spy = spyOn(ownerAccessModule, 'restoreOwnerAccess').mockImplementation(() => {});
+    const record = await finishRun(input(), end).finally(() => {
+      spy.mockRestore();
+      chmodSync(claudeDir, 0o700);
+    });
+    expect(record.harness.plantedLinks).toEqual(['home/.claude/projects: home/.claude/projects could not be checked (EACCES)']);
+    expect(isCleanRecord(record)).toBe(false);
+    expect(existsSync(join(end.dataDir, 'report.json'))).toBe(true);
+    expect(existsSync(join(end.dataDir, 'transcripts'))).toBe(false);
+  });
+});
+
+describe('finishRun app.tgz state exclusion and builder transcripts (#1767)', () => {
+  test('excludes .pyric/state from app.tgz and skips scanning .pyric/state while keeping app sources', async () => {
+    const { dirs, end } = plainRun();
+    const secret = 'secret-token-for-1767';
+    mkdirSync(join(dirs.app, '.pyric', 'state'), { recursive: true });
+    writeFileSync(join(dirs.app, 'index.js'), 'export const ok = true;\n');
+    writeFileSync(join(dirs.app, '.pyric', 'rules.json'), '{"ok":true}\n');
+    writeFileSync(join(dirs.app, '.pyric', 'state', 'store.db'), `state-blob-${secret}\n`);
+
+    const record = await finishRun({ ...input(), scanned: [secret] }, end);
+    expect(record.harness.tokenFoundIn).toEqual([]);
+    const archive = join(end.dataDir, 'app.tgz');
+    expect(existsSync(archive)).toBe(true);
+    const listing = spawnSync('tar', ['-tzf', archive], { encoding: 'utf8' });
+    expect(listing.status).toBe(0);
+    expect(listing.stdout).toContain('app/index.js');
+    expect(listing.stdout).toContain('app/.pyric/rules.json');
+    expect(listing.stdout).not.toContain('.pyric/state');
+  });
+
+  test('keeps and redacts Claude session transcripts under home/.claude/projects', async () => {
+    const { dirs, end } = plainRun();
+    const secret = 'secret-in-transcript-1767';
+    const projectDir = join(dirs.transcripts, '-app');
+    mkdirSync(projectDir, { recursive: true });
+    const line = JSON.stringify({ type: 'tool_use', name: 'Read', path: 'docs/site/overview.md', note: secret });
+    writeFileSync(join(projectDir, 'session-1.jsonl'), `${line}\n`);
+
+    const record = await finishRun({ ...input(), scanned: [secret] }, end);
+    expect(record.harness.tokenFoundIn).toEqual(['home/.claude/projects/-app/session-1.jsonl']);
+    expect(existsSync(join(end.dataDir, 'app.tgz'))).toBe(true);
+    const keptTranscript = readFileSync(join(end.dataDir, 'transcripts', '-app', 'session-1.jsonl'), 'utf8');
+    expect(keptTranscript).toContain('docs/site/overview.md');
+    expect(keptTranscript).not.toContain(secret);
+    expect(filesContaining(end.dataDir, secret)).toEqual([]);
+  });
+
+  test('marks a run invalid and skips transcripts when home/.claude is a planted symlink', async () => {
+    const { dirs, outside, end } = plainRun();
+    symlinkSync(join(outside, '..'), join(dirs.home, '.claude'));
+
+    const record = await finishRun(input(), end);
+    expect(record.harness.plantedLinks).toEqual(['home/.claude/projects: home/.claude is a link']);
+    expect(isCleanRecord(record)).toBe(false);
+    expect(existsSync(join(end.dataDir, 'transcripts'))).toBe(false);
+    expect(filesContaining(end.dataDir, HOST_TEXT.trim())).toEqual([]);
   });
 });

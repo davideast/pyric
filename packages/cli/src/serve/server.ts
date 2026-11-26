@@ -27,11 +27,16 @@ import {
   type RestAuthRtdbHandler,
 } from './rest-auth-rtdb.js';
 import {
-  createGuardPolicy,
   evaluateGuard,
-  type GuardDecision,
   type RemoteAccessOptions,
 } from './guard-policy.js';
+import {
+  attachFunctionsRequestGuard,
+  createFunctionsGuardPolicy,
+  evaluateFunctionsRequestGuard,
+  mergeAllowedHostEntries,
+  writeGuardRejectionResponse,
+} from '../functions/http/request-guard.js';
 import { isRemoteClientRequest } from './project-key.js';
 import {
   isAuthenticatedRemoteHtmlRequest,
@@ -279,42 +284,31 @@ function shouldDeferRestToStaticHosting(
   return resolveHostingFile(publicDir, url.pathname) !== null;
 }
 
-function mergedServerAllowedHosts(opts: StaticServerOptions): string[] {
-  const merged: string[] = [];
-  for (const host of opts.allowedHosts ?? []) {
-    if (!merged.includes(host)) merged.push(host);
-  }
-  for (const host of opts.remoteAccess?.allowedHosts ?? []) {
-    if (!merged.includes(host)) merged.push(host);
-  }
-  return merged;
+function serverGuardPolicy(
+  opts: StaticServerOptions,
+  effectiveSessionToken: string | undefined,
+): ReturnType<typeof createFunctionsGuardPolicy> {
+  return createFunctionsGuardPolicy({
+    boundHost: opts.host ?? 'localhost',
+    allowedHosts: opts.allowedHosts,
+    remoteAccess: opts.remoteAccess,
+    sessionToken: effectiveSessionToken,
+  });
 }
 
-/**
- * Evaluate the Auth/RTDB REST gate (`rest-auth-rtdb.ts`).
- *
- * Enforces `allowPeers` and mandatory per-boot session capability authentication
- * for EVERY non-loopback peer or non-loopback `Host` header -- even when bound to
- * wildcard addresses (`--host 0.0.0.0` / `::`). Local loopback clients stay
- * zero-config without a token.
- */
-function evaluateRestOriginAndPeer(
+function isStaticHostingCandidate(
   req: IncomingMessage,
   url: URL,
   opts: StaticServerOptions,
-  effectiveSessionToken: string | undefined,
-): GuardDecision {
-  const policy = createGuardPolicy({
-    boundHost: opts.host ?? 'localhost',
-    allowedHosts: mergedServerAllowedHosts(opts),
-    allowPeers: opts.remoteAccess?.allowPeers,
-    trustProxy: opts.remoteAccess?.trustProxy,
-    browserUnlock: opts.remoteAccess?.browserUnlock,
-    remoteAccessEnabled: opts.remoteAccess !== undefined,
-    sessionToken: effectiveSessionToken,
-    requireSessionToken: false,
-  });
-  return evaluateGuard(req, policy, 'rest-auth-rtdb', { url });
+): boolean {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  if (url.pathname === '/favicon.ico') return true;
+  const shouldRedirectRoot = opts.redirectRootToStudio ?? Boolean(opts.namespaceHandler);
+  if (url.pathname === '/' && shouldRedirectRoot) return true;
+  const publicDir = opts.publicDir;
+  if (publicDir === null) return false;
+  if (resolveHostingFile(publicDir, url.pathname) !== null) return true;
+  return opts.spaRewrite === true && !extname(url.pathname) && resolveHostingFile(publicDir, '/index.html') !== null;
 }
 
 async function handleRequest(
@@ -325,7 +319,7 @@ async function handleRequest(
 ): Promise<void> {
   // DNS-rebinding guard (before ANY handling -- protects static files,
   // init.json/rules schema, and especially /__pyric/state credentials).
-  const serverAllowedHosts = mergedServerAllowedHosts(opts);
+  const serverAllowedHosts = mergeAllowedHostEntries(opts.allowedHosts, opts.remoteAccess?.allowedHosts);
   if (!isAllowedHost(req.headers.host, opts.host ?? 'localhost', serverAllowedHosts)) {
     logger.note(`  ✖ 403 blocked Host '${req.headers.host}' (DNS-rebinding guard)`);
     res.writeHead(403, { 'content-type': 'text/plain' }).end(
@@ -352,36 +346,34 @@ async function handleRequest(
     if (handled) return;
   }
 
+  const effectiveSessionToken = resolveEffectiveSessionToken(opts);
   if (opts.functionsHandler && !url.pathname.startsWith('/__pyric/')) {
-    const handled = await opts.functionsHandler(req, res);
-    if (handled) return;
+    const functionsPolicy = serverGuardPolicy(opts, effectiveSessionToken);
+    if (!isStaticHostingCandidate(req, url, opts)) {
+      const fnDecision = evaluateFunctionsRequestGuard(req, functionsPolicy, { url });
+      if (!fnDecision.ok) {
+        writeGuardRejectionResponse(res, fnDecision);
+        return;
+      }
+    }
+    const detachGuard = attachFunctionsRequestGuard(req, { policy: functionsPolicy, url });
+    try {
+      const handled = await opts.functionsHandler(req, res);
+      if (handled) return;
+    } finally {
+      detachGuard();
+    }
   }
 
-  const effectiveSessionToken = resolveEffectiveSessionToken(opts);
   const restHandler = resolveServerRestHandler(opts, effectiveSessionToken);
   if (
     restHandler !== undefined
     && matchesRestAuthRtdbPathname(url.pathname)
     && shouldDeferRestToStaticHosting(req, url, opts.publicDir) === false
   ) {
-    const restDecision = evaluateRestOriginAndPeer(req, url, opts, effectiveSessionToken);
+    const restDecision = evaluateGuard(req, serverGuardPolicy(opts, effectiveSessionToken), 'rest-auth-rtdb', { url });
     if (!restDecision.ok) {
-      res.writeHead(restDecision.status, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-      });
-      if (restDecision.unlockRequired) {
-        res.end(
-          JSON.stringify({
-            error: 'unlock_required',
-            reason: restDecision.reason,
-            unlockPath: '/__pyric/unlock',
-            message: restDecision.message,
-          }),
-        );
-      } else {
-        res.end(JSON.stringify({ error: restDecision.message, reason: restDecision.reason }));
-      }
+      writeGuardRejectionResponse(res, restDecision);
       return;
     }
     const handled = await restHandler(req, res, url);

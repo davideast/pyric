@@ -160,4 +160,29 @@ describe('proveCollectionGroupRules', () => {
     expect(result?.service.match.children[0]?.path.raw).toBe('/{path=**}/items/{id}');
     expect(result?.service.match.functions.map((fn) => fn.name)).toEqual(['rootAllowed']);
   });
+
+  test('rejects collection-group proofs under rules_version 1 or omitted rules_version (#1440)', () => {
+    for (const header of ['', "rules_version = '1';\n"]) {
+      const wholeDb = `${header}service cloud.firestore {
+        match /databases/{database}/documents {
+          match /{document=**} { allow read: if true; }
+        }
+      }`;
+      const groupRule = `${header}service cloud.firestore {
+        match /databases/{database}/documents {
+          match /{path=**}/items/{id} { allow read: if true; }
+        }
+      }`;
+      expect(project(wholeDb)).toBeNull();
+      expect(project(groupRule)).toBeNull();
+    }
+
+    const modularV2 = `rules_version = '2+modules';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /{path=**}/items/{id} { allow read: if true; }
+        }
+      }`;
+    expect(project(modularV2)).not.toBeNull();
+  });
 });

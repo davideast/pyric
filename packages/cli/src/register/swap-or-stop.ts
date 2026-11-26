@@ -42,6 +42,13 @@ import {
   type AiMode,
 } from '../serve/firebase-module-swap.js';
 import { INSTALLED_SDK_SPECIFIERS } from '../serve/vite-supplied-rows.js';
+import {
+  findGoogleServerSdkStop,
+  isStoppedServerSdkSpecifier,
+  liveServerSdkStop,
+  missingServerSdkSpecifierStop,
+  sandboxServerSdkStop,
+} from './server-sdk-stop.js';
 import { joinedList } from './word-list.js';
 
 /** The code on the error a stopped import throws. */
@@ -80,12 +87,13 @@ function sdkFamilyOf(name: string | null): SdkFamily | null {
 }
 
 /**
- * Whether a `package.json` `name` is a Firebase SDK this hook stops when the
- * swap does not choose it. `withPyric` keeps every such dependency external,
- * however the app names it, so Node resolves it here (#1626).
+ * Whether a `package.json` `name` is a Firebase or stopped Google server SDK
+ * that this hook refuses when the swap does not choose it. `withPyric` and
+ * Vite SSR keep every such dependency external, however the app names it, so
+ * Node resolves it here (#1626, #1609).
  */
 export function isFirebaseSdkName(name: string | null): boolean {
-  return sdkFamilyOf(name) !== null;
+  return sdkFamilyOf(name) !== null || findGoogleServerSdkStop(name) !== null;
 }
 
 function isFileUrl(url: string): boolean {
@@ -306,6 +314,10 @@ function isCjsReloadOfAllowedFile(load: ResolvedLoad, allowedUrls: ReadonlySet<s
 export function stopFor(load: ResolvedLoad, allowedUrls: Set<string>): Error | null {
   if (!isFileUrl(load.url)) return null;
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
+  const serverStop = findGoogleServerSdkStop(packageName);
+  if (serverStop !== null && packageName !== null) {
+    return sandboxServerSdkStop(load, packageName, serverStop, REAL_SDK_STOPPED_CODE, LOG_PREFIX, REPORT_URL);
+  }
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;
   if (isCjsReloadOfAllowedFile(load, allowedUrls)) return null;
@@ -415,55 +427,17 @@ function isAllowedLiveRowLoad(load: ResolvedLoad, packageName: string, allowedUr
   return isLoadedPackage;
 }
 
-/** Why a server SDK stops under live rows, and what the app imports instead. */
-interface ServerSdkStop {
-  /** What the SDK would reach that pyric neither observes nor can tell from what it lets through. */
-  readonly reaches: string;
-  readonly fix: string;
-}
+export { isStoppedServerSdkSpecifier };
 
 /**
- * The Google server SDKs whose calls would bypass live rows: an app's own
- * import of either would reach production with no row observing it.
- * `@google-cloud/firestore` speaks gRPC to `firestore.googleapis.com` and
- * `@google-cloud/storage` reaches `storage.googleapis.com` directly. A
- * passed-through `firebase-admin` still loads both, from its own tree.
+ * Stop error for a direct import of a stopped Google server SDK specifier when
+ * the package or requested subpath is missing from `node_modules` (#1609).
  */
-const LIVE_HOST_SERVER_SDKS: Readonly<Record<string, ServerSdkStop>> = {
-  '@google-cloud/firestore': {
-    reaches: "Cloud Firestore on its own gRPC connection, which pyric neither observes nor can tell from the rows'",
-    fix: 'import firebase/firestore, which live mode serves to a Node process',
-  },
-  '@google-cloud/storage': {
-    reaches: "Cloud Storage's JSON API, which pyric neither observes nor can tell from the Admin SDK's own calls",
-    fix: 'import firebase/storage, which live mode serves to a Node process, or firebase-admin/storage, which it observes',
-  },
-};
-
-function findLiveHostServerSdkStop(packageName: string | null): ServerSdkStop | null {
-  if (packageName === null || !Object.hasOwn(LIVE_HOST_SERVER_SDKS, packageName)) {
-    return null;
-  }
-  return LIVE_HOST_SERVER_SDKS[packageName] ?? null;
-}
-
-/** The stop's message for a server SDK under live rows: it would reach production unobserved. */
-function serverSdkStopMessage(load: ResolvedLoad, packageName: string, stop: ServerSdkStop): string {
-  return [
-    `${LIVE_LOG_PREFIX}: stopped loading ${packageName}`,
-    `  import '${load.specifier}'`,
-    `  from   ${load.importer ?? 'the entry point'}`,
-    `  found  ${load.url}`,
-    "In live mode, only the installed Firebase SDK reaches production, through @pyric/live's rows, so pyric sees each call. " +
-      `${packageName} would reach ${stop.reaches}.`,
-    `Fix: ${stop.fix}, or move this code to a process without @pyric/live/register.`,
-    `code: ${REAL_SDK_STOPPED_CODE}`,
-  ].join('\n');
-}
-
-function serverSdkStop(load: ResolvedLoad, packageName: string, stop: ServerSdkStop): Error {
-  const error = new Error(serverSdkStopMessage(load, packageName, stop));
-  return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
+export function stoppedServerSdkSpecifierStop(
+  specifier: string,
+  importer: string | undefined,
+): Error {
+  return missingServerSdkSpecifierStop(specifier, importer, REAL_SDK_STOPPED_CODE, LOG_PREFIX, REPORT_URL);
 }
 
 /**
@@ -471,7 +445,7 @@ function serverSdkStop(load: ResolvedLoad, packageName: string, stop: ServerSdkS
  * load, or `null` when it may go ahead. The client SDK loads only for a row
  * module's own ESM import of its specifier, and then for the packages those
  * files import ({@link isAllowedLiveRowLoad}); `firebase-admin` and the
- * server SDKs in {@link LIVE_HOST_SERVER_SDKS} load only when the register
+ * Google server SDKs in `server-sdk-stop.ts` load only when the register
  * passes `firebase-admin` through: the app's own import of it, then whatever
  * its tree imports ({@link SuppliedRowsGrant.isFromAdminTree}).
  * An allowed load joins `allowedUrls`. The swap table and AI mode play no
@@ -484,9 +458,9 @@ export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>
   const packageName = (load.nameOf ?? packageNameOf)(load.url);
   const isAdminEntry = grant.isAdminImport === true && packageName === 'firebase-admin';
   if (isAdminEntry) return null;
-  const serverStop = findLiveHostServerSdkStop(packageName);
+  const serverStop = findGoogleServerSdkStop(packageName);
   if (serverStop !== null && packageName !== null) {
-    return serverSdkStop(load, packageName, serverStop);
+    return liveServerSdkStop(load, packageName, serverStop, REAL_SDK_STOPPED_CODE, LIVE_LOG_PREFIX);
   }
   const family = sdkFamilyOf(packageName);
   if (family === null || packageName === null) return null;

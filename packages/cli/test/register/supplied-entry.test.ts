@@ -7,6 +7,7 @@
  * because `@pyric/live/register` shuts Admin rows on Node 22.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { generateKeyPairSync } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -20,6 +21,7 @@ import { DEFAULT_SANDBOX_PATH, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, 
 import { createBridge } from '../../src/bridge/server/bridge.js';
 import { createSilentLogger } from '../../src/bridge/server/logger.js';
 import { attachPeer } from '../../src/bridge/server/peer.js';
+import { IITM_REGISTER_MJS, RITM_INDEX_CJS } from './supplied-entry-fixtures.js';
 
 const cliDir = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliDir, '../..');
@@ -52,82 +54,13 @@ const fbUtilDir = packageDir(requireFromFirebase.resolve('@firebase/util'), '@fi
 const nodeMajor = Number(spawnSync('node', ['-p', 'process.versions.node'], { encoding: 'utf8' }).stdout.split('.')[0]);
 const adminRowsOn = nodeMajor >= 23;
 
-/** Stand-in for `require-in-the-middle` (v7/v8) main-entry probe + `onrequire` wrapping. */
-const RITM_INDEX_CJS = `'use strict';
-const Module = require('node:module');
-const path = require('node:path');
-function moduleDetailsFromPath(filename) {
-  const segs = filename.split(path.sep);
-  const nmIdx = segs.lastIndexOf('node_modules');
-  if (nmIdx === -1 || nmIdx + 1 >= segs.length) return undefined;
-  const first = segs[nmIdx + 1];
-  if (first.startsWith('@')) {
-    if (nmIdx + 2 >= segs.length) return undefined;
-    return { name: first + '/' + segs[nmIdx + 2], basedir: segs.slice(0, nmIdx + 3).join(path.sep) };
+function requireOutputLine(stdout: string, prefix: string): string {
+  const line = stdout.split('\n').find((entry) => entry.startsWith(prefix));
+  if (line === undefined) {
+    throw new Error(`Expected child stdout line starting with ${JSON.stringify(prefix)}, got:\n${stdout}`);
   }
-  return { name: first, basedir: segs.slice(0, nmIdx + 2).join(path.sep) };
+  return line.slice(prefix.length);
 }
-function Hook(modules, options, onrequire) {
-  if ((this instanceof Hook) === false) return new Hook(modules, options, onrequire);
-  if (typeof modules === 'function') { onrequire = modules; modules = null; options = {}; }
-  else if (typeof options === 'function') {
-    onrequire = options;
-    options = Array.isArray(modules) ? {} : (modules || {});
-    if (!Array.isArray(modules)) modules = null;
-  }
-  const hasWhitelist = Array.isArray(modules);
-  const internals = options ? options.internals === true : false;
-  const self = this;
-  this.cache = new Map();
-  this._origRequire = Module.prototype.require;
-  this._require = Module.prototype.require = function patchedRequire(id) {
-    let filename;
-    try { filename = Module._resolveFilename(id, this); } catch (_err) { return self._origRequire.apply(this, arguments); }
-    if (Module.isBuiltin(filename)) return self._origRequire.apply(this, arguments);
-    if (self.cache.has(filename)) return self.cache.get(filename);
-    const exports = self._origRequire.apply(this, arguments);
-    const stat = moduleDetailsFromPath(filename);
-    if (stat === undefined || (hasWhitelist && !modules.includes(stat.name))) return exports;
-    if (!internals) {
-      let res;
-      try { res = require.resolve(stat.name, { paths: [stat.basedir] }); } catch (_err) { return exports; }
-      if (res !== filename) return exports;
-    }
-    const patched = onrequire ? onrequire(exports, stat.name, stat.basedir) : exports;
-    self.cache.set(filename, patched);
-    return patched;
-  };
-}
-
-Hook.prototype.unhook = function unhook() {
-  if (Module.prototype.require === this._require) Module.prototype.require = this._origRequire;
-};
-
-module.exports = Hook;
-module.exports.Hook = Hook;
-`;
-
-const IITM_REGISTER_MJS = `const INCLUDED = /^(?:.*\\/)?node_modules\\/(?:@firebase\\/[^/]+|firebase|firebase-admin)\\//;
-export async function resolve(specifier, context, nextResolve) {
-  if (specifier.includes('?iitm=true')) return { url: specifier, format: 'module', shortCircuit: true };
-  if (specifier.includes('?iitm=ignore')) {
-    return { url: specifier.replace('?iitm=ignore', ''), format: 'module', shortCircuit: true };
-  }
-  const parentURL = context.parentURL?.includes('?iitm=true')
-    ? context.parentURL.replace('?iitm=true', '')
-    : context.parentURL;
-  const result = await nextResolve(specifier, { ...context, parentURL });
-  if (result.url.startsWith('file://') && INCLUDED.test(result.url) && result.format === 'module') {
-    return { url: result.url + '?iitm=true', format: 'module', shortCircuit: true };
-  }
-  return result;
-}
-export async function load(url, context, nextLoad) {
-  if (!url.includes('?iitm=true')) return nextLoad(url, context);
-  const realUrl = url.replace('?iitm=true', '');
-  return { format: 'module', source: 'export * from ' + JSON.stringify(realUrl + '?iitm=ignore') + ';\\n', shortCircuit: true };
-}
-`;
 
 const PROJECT = 'demo-ritm-fixture';
 const INSTANCE_ID = 'demo-ritm-instance';
@@ -339,6 +272,9 @@ async function runNode(imports: readonly string[], scriptName: string, source: s
       FIRESTORE_PREFER_REST: 'true',
       FIREBASE_AUTH_EMULATOR_HOST: `127.0.0.1:${stubBackendPort}`,
       FIREBASE_STORAGE_EMULATOR_HOST: `127.0.0.1:${stubBackendPort}`,
+      // Prevent ambient GCE metadata probes on GCE dev machines so runs match
+      // non-GCP CI runners where no metadata server or ADC exists.
+      GCE_METADATA_HOST: '127.0.0.1:1',
     },
   });
   let stdout = '';
@@ -408,8 +344,8 @@ process.exit(0);
 `,
     );
     expect(stopClient.status, stopClient.stderr).toBe(0);
-    const line = stopClient.stdout.split('\n').find((l) => l.startsWith('STOP_OUT '))!;
-    expect(JSON.parse(line.slice('STOP_OUT '.length))).toEqual({
+    const stopOutJson = requireOutputLine(stopClient.stdout, 'STOP_OUT ');
+    expect(JSON.parse(stopOutJson)).toEqual({
       rowResolved: true,
       directRowResolved: true,
       directResolveFbUtil: 'PYRIC_REAL_SDK_STOPPED',
@@ -423,7 +359,9 @@ process.exit(0);
   it.skipIf(!adminRowsOn)(
     'loads firebase-admin cleanly with zero PYRIC_REAL_SDK_STOPPED stderr and observes Admin calls under stacked require-in-the-middle hooks (both --import orders)',
     async () => {
-      const adminScript = `import { initializeApp } from 'firebase-admin/app';
+      const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+      const testPrivateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+      const adminScript = `import { cert, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -431,6 +369,11 @@ import { getStorage } from 'firebase-admin/storage';
 
 const app = initializeApp({
   projectId: '${PROJECT}',
+  credential: cert({
+    projectId: '${PROJECT}',
+    clientEmail: 'test@${PROJECT}.iam.gserviceaccount.com',
+    privateKey: ${JSON.stringify(testPrivateKeyPem)},
+  }),
   databaseURL: 'http://127.0.0.1:${stubBackendPort}?ns=${PROJECT}-default-rtdb',
   storageBucket: '${PROJECT}.appspot.com',
 });
@@ -464,8 +407,8 @@ process.exit(0);
         expect(res.stderr).not.toContain('PYRIC_REAL_SDK_STOPPED');
         expect(res.stderr).not.toContain('stopped loading');
 
-        const line = res.stdout.split('\n').find((l) => l.startsWith('RESULT '))!;
-        const { hooked } = JSON.parse(line.slice('RESULT '.length)) as { hooked: string[] };
+        const resultJson = requireOutputLine(res.stdout, 'RESULT ');
+        const { hooked } = JSON.parse(resultJson) as { hooked: string[] };
         expect(hooked).toContain('@google-cloud/firestore');
         expect(hooked).toContain('@google-cloud/storage');
         expect(hooked).toContain('@firebase/util');
@@ -484,7 +427,10 @@ process.exit(0);
   it.skipIf(!adminRowsOn)(
     'stops direct, createRequire(adminTree/ritm/adminRow), and vm+paths-getter forged loads with PYRIC_REAL_SDK_STOPPED after firebase-admin has loaded',
     async () => {
-      const firestoreRowUrl = ADMIN_ROW_URLS.get('firestore')!;
+      const firestoreRowUrl = ADMIN_ROW_URLS.get('firestore');
+      if (firestoreRowUrl === undefined) {
+        throw new Error('Expected ADMIN_ROW_URLS to contain firestore');
+      }
       const gcpFirestoreEntry = requireFromAdmin.resolve('@google-cloud/firestore');
       const securityScript = `import { createRequire } from 'node:module';
 import vm from 'node:vm';
@@ -575,8 +521,8 @@ process.exit(0);
       const res = await runNode([ritmUrl, '@pyric/live/register'], 'security-probe.mjs', securityScript);
       expect(res.status, res.stderr).toBe(0);
 
-      const line = res.stdout.split('\n').find((l) => l.startsWith('SECURITY '))!;
-      const outcomes = JSON.parse(line.slice('SECURITY '.length)) as Record<string, string>;
+      const securityJson = requireOutputLine(res.stdout, 'SECURITY ');
+      const outcomes = JSON.parse(securityJson) as Record<string, string>;
       for (const [key, value] of Object.entries(outcomes)) {
         expect([key, value]).toEqual([key, 'PYRIC_REAL_SDK_STOPPED']);
       }
@@ -610,8 +556,8 @@ process.exit(0);
 `;
       const res = await runNode(['@pyric/live/register'], 'eval-worker-probe.mjs', evalWorkerScript);
       expect(res.status, res.stderr).toBe(0);
-      const line = res.stdout.split('\n').find((l) => l.startsWith('EVAL_WORKER '))!;
-      const outcome = JSON.parse(line.slice('EVAL_WORKER '.length)) as {
+      const evalWorkerJson = requireOutputLine(res.stdout, 'EVAL_WORKER ');
+      const outcome = JSON.parse(evalWorkerJson) as {
         ok: boolean;
         directGcp?: string;
         code?: string | null;

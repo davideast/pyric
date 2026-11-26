@@ -4,41 +4,41 @@
  * grow their own copy of the same dispatch.
  *
  * Behavior:
- *   - No rules configured → deny. Matches Firebase production fail-closed
+ *   - No rules configured -> deny. Matches Firebase production fail-closed
  *     security invariants: bare `getStorage` with no `rules` option
  *     rejects client operations with `storage/unauthorized`.
- *   - A bucket with no rules deployed in permissive mode → allow, with no
+ *   - A bucket with no rules deployed in permissive mode -> allow, with no
  *     rule evaluated: the event says the bucket is open by its default
  *     policy rather than naming a synthetic rule.
- *   - Rules configured → call `evaluateStorageRules`. Throw
+ *   - Rules configured -> call `evaluateStorageRules`. Throw
  *     `storage/unauthorized` with the evaluator's `reasons` joined
  *     into the message on denial.
  *
  * `listAll` DOES call this (ST-B2): Firebase Storage's `read`
  * permission governs both download and list, so `list.ts` enforces a
  * `read` check on the scanned prefix path. A previous v1 scope build
- * silently bypassed list — that contradicted the rules-enforcement
+ * silently bypassed list -- that contradicted the rules-enforcement
  * contract (a denied tree was still enumerable). When no rules are
  * configured the check fails closed (default-deny).
  *
  * Studio observability (storage-denial-events): every enforcement
- * decision — allow, deny, AND admin-plane bypass — lands on the
+ * decision -- allow, deny, AND admin-plane bypass -- lands on the
  * unified sandbox `onEvent`/`history()` stream as a `kind: 'operation'`
  * event, mirroring RTDB's `emitOperation` (see
  * `src/database/sandbox/backend.ts`) and Firestore's `RequestEvent`
  * deny path. Before this, a rules-denied storage op threw a plain
- * `StorageError` with NO trace on the event stream — invisible to
+ * `StorageError` with NO trace on the event stream -- invisible to
  * Studio's Traffic surface and the rules inspector. Field names are
  * chosen to match RTDB's `SandboxOperationEvent` exactly (`result`,
  * `reasons`, `rules.engine`/`.reason`, `origin`) so Traffic/inspector
  * work without Studio-side changes. The storage evaluator returns a
- * flat `{ allowed, reasons[] }` — no rule index/position is tracked —
+ * flat `{ allowed, reasons[] }` -- no rule index/position is tracked --
  * so `rules.matchedRule`/`.ruleIndex` are always omitted rather than
  * fabricated.
  *
  * Emission is additive and best-effort: a throw from the emit path
  * never blocks the real allow/deny control flow, and a denial still
- * throws `StorageError` exactly as before — the error contract to
+ * throws `StorageError` exactly as before -- the error contract to
  * app code is unchanged.
  */
 import {
@@ -49,6 +49,9 @@ import {
 import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import {
+  addressesDefaultBucket,
+  DEFAULT_STORAGE_BUCKET,
+  noticeUndeployedStorageBucket,
   storageOperationProvenance,
   storageRulesInForce,
   type CrossServiceIam,
@@ -221,10 +224,10 @@ export function normalizeRecordedStorageDeniedWrite(
   const requestResource = normalizeStorageRequestResource(raw.requestResource);
   const resource = normalizeStorageResource(raw.resource);
   if (requestResource === undefined && resource === undefined) return undefined;
-  return {
-    ...(requestResource === undefined ? {} : { requestResource }),
-    ...(resource === undefined ? {} : { resource }),
-  };
+  const out: RecordedStorageDeniedWrite = {};
+  if (requestResource !== undefined) out.requestResource = requestResource;
+  if (resource !== undefined) out.resource = resource;
+  return out;
 }
 
 function recordStorageDeniedWrite(
@@ -322,9 +325,9 @@ export function enforceRules(
   // Where an allow or admin bypass is recorded; nowhere when only denials are.
   const allowTarget = recordsAllow ? target : undefined;
   // Admin plane (internal `getAdminStorageSandbox` handles): rules are
-  // bypassed entirely — firebase-admin semantics. See `SandboxTarget.admin`.
+  // bypassed entirely -- firebase-admin semantics. See `SandboxTarget.admin`.
   // Rules never ran; the event still lands so Studio can show the op, with
-  // `result: 'not-applicable'` + `origin: 'admin'` — the same shape RTDB's
+  // `result: 'not-applicable'` + `origin: 'admin'` -- the same shape RTDB's
   // admin plane (`adminSet`/`adminGet`/...) emits, with an explicit
   // bypass disposition independent of source or auth-lens presentation.
   const isAdminPlane = target?.kind === 'sandbox' && (
@@ -335,10 +338,17 @@ export function enforceRules(
     return;
   }
   const inForce = rulesFor(service, target);
+  if (
+    target !== undefined &&
+    !addressesDefaultBucket(target) &&
+    ((inForce.kind === 'open' && inForce.undeployed !== false) || inForce.kind === 'locked')
+  ) {
+    noticeUndeployedStorageBucket(target.sandbox, inForce.bucket, service.defaultPolicy);
+  }
   if (inForce.kind !== 'rules' && inForce.kind !== 'open') {
     const reason = noRulesReason(inForce);
     emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
-    throw unauthorized(input.request.method, input.request.path, ` — ${reason}`, deniedBucketName(target));
+    throw unauthorized(input.request.method, input.request.path, ` \u2014 ${reason}`, deniedBucketName(target));
   }
   if (input.request.method === 'update' && !input.resource) {
     const reason = 'Client updateMetadata requires an existing object to synthesize request.resource.';
@@ -346,7 +356,8 @@ export function enforceRules(
     throw unauthorized(input.request.method, input.request.path, ` - ${reason}`, deniedBucketName(target));
   }
   if (inForce.kind === 'open') {
-    emitOperation(allowTarget, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
+    const reason = openBucketReason(inForce.bucket, inForce.undeployed !== false);
+    emitOperation(allowTarget, input, 'allow', [reason], 'user', false, boundProvenance, 'allow');
     return;
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
@@ -372,7 +383,7 @@ export function enforceRules(
       }
     }
     emitOperation(target, input, 'deny', result.reasons, 'user', true, boundProvenance);
-    const detail = result.reasons.length > 0 ? ` — ${result.reasons.join('; ')}` : '';
+    const detail = result.reasons.length > 0 ? ` \u2014 ${result.reasons.join('; ')}` : '';
     throw unauthorized(input.request.method, input.request.path, detail, deniedBucketName(target));
   }
   emitOperation(allowTarget, input, 'allow', result.reasons, 'user', true, boundProvenance);
@@ -388,11 +399,17 @@ function deniedBucketName(target: Target | undefined): string | undefined {
 function rulesFor(service: StorageService, target: Target | undefined): StorageRulesInForce {
   if (target !== undefined) return storageRulesInForce(service, target);
   if (service.rules) return { kind: 'rules', rules: service.rules };
+  if (service.defaultPolicy === 'allow') {
+    return { kind: 'open', bucket: DEFAULT_STORAGE_BUCKET, undeployed: false };
+  }
   return { kind: 'none' };
 }
 
 /** Why a request to a bucket with no rules deployed is allowed in permissive mode. */
-function openBucketReason(bucket: string): string {
+function openBucketReason(bucket: string, undeployed = true): string {
+  if (!undeployed) {
+    return 'No Storage rules configured; permissive mode allows every client operation.';
+  }
   return `Storage bucket "${bucket}" has no rules deployed in firebase.json; permissive mode allows every client operation on it.`;
 }
 
@@ -434,6 +451,34 @@ function emitOperation(
 ): void {
   if (!target) return;
   try {
+    const detail: Record<string, unknown> = {
+      bucket: target.bucket,
+      bucketName: rulesBucketName(target.bucket, target.bucketName),
+    };
+    if (defaultPolicy !== undefined) {
+      detail.defaultPolicy = defaultPolicy;
+    }
+    let rulesDisposition:
+      | { kind: 'bypassed'; reason: 'admin' }
+      | { kind: 'evaluated'; verdict: 'allow' | 'deny' }
+      | { kind: 'not-evaluated'; reason: 'no-rules' };
+    if (origin === 'admin') {
+      rulesDisposition = { kind: 'bypassed', reason: 'admin' };
+    } else if (evaluated) {
+      let verdict: 'allow' | 'deny' = 'allow';
+      if (result === 'deny') verdict = 'deny';
+      rulesDisposition = { kind: 'evaluated', verdict };
+    } else {
+      rulesDisposition = { kind: 'not-evaluated', reason: 'no-rules' };
+    }
+    let rules: { engine: 'storage'; reason?: string } | undefined;
+    if (evaluated) {
+      let joinedReason: string | undefined;
+      if (reasons !== undefined && reasons.length > 0) {
+        joinedReason = reasons.join('; ');
+      }
+      rules = { engine: 'storage', reason: joinedReason };
+    }
     const operationEvent = makeSandboxOperationEvent({
       at: getClock(target.sandbox).now(),
       service: 'storage',
@@ -446,22 +491,9 @@ function emitOperation(
       // The store key, and the name the rules saw it by, so a replay binds
       // the same name (ST-H2-4).
       // A permissive-mode open bucket says so, since no rule decided it.
-      detail: {
-        bucket: target.bucket,
-        bucketName: rulesBucketName(target.bucket, target.bucketName),
-        ...(defaultPolicy === undefined ? {} : { defaultPolicy }),
-      },
-      rulesDisposition: origin === 'admin'
-        ? { kind: 'bypassed', reason: 'admin' }
-        : evaluated
-          ? { kind: 'evaluated', verdict: result === 'deny' ? 'deny' : 'allow' }
-          : { kind: 'not-evaluated', reason: 'no-rules' },
-      rules: evaluated
-        ? {
-            engine: 'storage',
-            reason: reasons && reasons.length > 0 ? reasons.join('; ') : undefined,
-          }
-        : undefined,
+      detail,
+      rulesDisposition,
+      rules,
     });
     if (result === 'deny') {
       recordStorageDeniedWrite(target.sandbox, operationEvent.id, input);
@@ -472,7 +504,7 @@ function emitOperation(
       { ...provenance, service: 'storage' },
     );
   } catch {
-    // Observational — never let event emission break storage enforcement.
+    // Observational -- never let event emission break storage enforcement.
   }
 }
 
@@ -484,7 +516,7 @@ function emitOperation(
  * the enforcement seam stays synchronous AND the lookup is invoked lazily
  * during evaluation (honoring short-circuit) exactly like production.
  *
- * Calls without a target get no lookup — a rule that reaches for
+ * Calls without a target get no lookup -- a rule that reaches for
  * `firestore.*` there denies "unsupported" rather than false-allowing.
  *
  * `crossServiceIam: 'denied'` models the production project state WITHOUT

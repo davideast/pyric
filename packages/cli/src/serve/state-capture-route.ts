@@ -1,6 +1,7 @@
 import { createReadStream, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
+import { answerAndClose, isBodyTooLarge } from '../bridge/server/peer.js';
+import { hasUnreadRequestBody, readBoundedUtf8Body, sendPayloadTooLarge } from './bounded-body.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import {
   parseStateVersionHeader,
@@ -22,6 +23,7 @@ import {
  *  persistence controller's own blob -- stored verbatim, never interpreted. */
 export const STATE_OBJECTS_PREFIX = '/__pyric/state/objects/';
 export const STATE_BODY_LIMIT_BYTES = 32 * 1024 * 1024;
+export const CAPTURE_BODY_LIMIT_BYTES = STATE_BODY_LIMIT_BYTES;
 
 /**
  * GET /__pyric/state/objects/<sha256> -> the bytes a Storage reference in the
@@ -67,14 +69,6 @@ function readExpectedStateVersion(
   const rawHeader = req.headers[STATE_VERSION_HEADER];
   const headerValue = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
   return parseStateVersionHeader(headerValue);
-}
-
-function hasUnreadRequestBody(req: IncomingMessage): boolean {
-  if (req.complete || req.readableEnded) return false;
-  const contentLength = req.headers['content-length'];
-  const hasNonZeroLength = contentLength !== undefined && contentLength !== '0';
-  const hasTransferEncoding = req.headers['transfer-encoding'] !== undefined;
-  return hasNonZeroLength || hasTransferEncoding;
 }
 
 export async function handleState(
@@ -187,7 +181,11 @@ export async function handleState(
         );
         return;
       }
-      const body = await collectBody(req, STATE_BODY_LIMIT_BYTES);
+      const rawBody = await readBoundedUtf8Body(req, STATE_BODY_LIMIT_BYTES);
+      let body: unknown;
+      if (rawBody.length > 0) {
+        body = JSON.parse(rawBody);
+      }
       if (refuseOutdatedVersion()) return;
       if (!lock.claim(effectiveWriter, Date.now(), expectedVersion)) {
         res.writeHead(423, {
@@ -208,7 +206,7 @@ export async function handleState(
     answerAndClose(req, res, 405, { allow: 'GET, PUT, POST, DELETE' }, 'method not allowed');
   } catch (e) {
     if (isBodyTooLarge(e)) {
-      answerAndClose(req, res, 413, { 'content-type': 'text/plain' }, 'Payload Too Large');
+      sendPayloadTooLarge(req, res, 'Payload Too Large');
       return;
     }
     const status = e instanceof StateFileError ? 409 : 400;
@@ -255,18 +253,14 @@ export async function handleCapture(
     return;
   }
   try {
-    const body = await new Promise<string>((resolve, reject) => {
-      let raw = '';
-      req.setEncoding('utf8');
-      req.on('data', (chunk: string) => {
-        raw += chunk;
-      });
-      req.on('end', () => resolve(raw));
-      req.on('error', reject);
-    });
+    const body = await readBoundedUtf8Body(req, CAPTURE_BODY_LIMIT_BYTES);
     capture.write(body);
     res.writeHead(204).end();
   } catch (e) {
+    if (isBodyTooLarge(e)) {
+      sendPayloadTooLarge(req, res, 'Payload Too Large');
+      return;
+    }
     res.writeHead(400, { 'content-type': 'text/plain' });
     const message = e instanceof Error ? e.message : String(e);
     res.end(message);

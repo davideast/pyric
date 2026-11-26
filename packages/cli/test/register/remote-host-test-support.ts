@@ -120,7 +120,14 @@ export async function startInMemoryRemoteHost(
     }
     if (req.url === '/__pyric/init.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ hosted: true, projectKey: options.projectKey }));
+      res.end(
+        JSON.stringify({
+          hosted: true,
+          projectKey: options.projectKey,
+          bridgeUrl: `${baseOrigin.replace(/^http/, 'ws')}/__pyric/sandbox`,
+          instanceId: runtime.instanceId,
+        }),
+      );
       return;
     }
     res.writeHead(404).end();

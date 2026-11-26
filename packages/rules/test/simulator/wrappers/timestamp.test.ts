@@ -305,12 +305,16 @@ describe('Timestamp — through evaluator', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('unknown method on timestamp → UNSUPPORTED', () => {
+  test('unknown method on timestamp throws absorbable EvalError (DENY)', () => {
     const r = sim.simulate(
       rules('timestamp.value(0).millennium() == 2000'),
-      [tc('unknown method', 'ALLOW')],
+      [tc('unknown method', 'DENY')],
     );
-    expect(r.success && r.data.unsupported).toBe(1);
+    expect(r.success && r.data.passed).toBe(1);
+    if (r.success) {
+      expect(r.data.results[0]?.trace[0]?.verdict).toBe('ERROR');
+      expect(r.data.results[0]?.trace[0]?.message).toBe('Function not found error: Name: [millennium].');
+    }
   });
 });
 

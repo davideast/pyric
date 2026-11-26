@@ -1,11 +1,18 @@
 /** Node register adapter for canonical `firebase/app` imports. */
-import type { FirebaseApp, FirebaseAppSettings, FirebaseOptions } from './types.js';
+import type {
+  FirebaseApp,
+  FirebaseAppSettings,
+  FirebaseOptions,
+  FirebaseServerApp,
+  FirebaseServerAppSettings,
+} from './types.js';
 import { initializeSandbox } from '../sandbox/index.js';
 import { loadProjectRules } from './register-rules.js';
 import {
   bindAppRegistryRefusal,
   bindAppRegistrySandbox,
   initializeApp as initializeRegistryApp,
+  initializeServerApp as initializeRegistryServerApp,
 } from './registry.js';
 import { clientSdkRefusal, isRemoteSandboxActivation } from './client-sdk-refusal.js';
 
@@ -32,4 +39,19 @@ export function initializeApp(
 ): FirebaseApp {
   prepareNodeSandbox();
   return initializeRegistryApp(options, rawSettings);
+}
+
+export function initializeServerApp(
+  options: FirebaseOptions | FirebaseApp | undefined,
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp;
+export function initializeServerApp(
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp;
+export function initializeServerApp(
+  optionsOrSettings?: FirebaseOptions | FirebaseApp | FirebaseServerAppSettings,
+  config?: FirebaseServerAppSettings,
+): FirebaseServerApp {
+  prepareNodeSandbox();
+  return initializeRegistryServerApp(optionsOrSettings as FirebaseOptions, config);
 }

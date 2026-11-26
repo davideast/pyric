@@ -282,20 +282,64 @@ describe('IndexedDB persistence', () => {
     expect((await backend.listByPrefix('uploads/')).length).toBe(1);
     expect(openReadonlyTransactions).toBe(0);
 
+    let releaseCancel: (() => void) | undefined;
+    const cancelGate = new Promise<void>((resolve) => {
+      releaseCancel = resolve;
+    });
     const canceledAfterDelete = (async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
+      await cancelGate;
       await backend.delete('uploads/held.txt');
       throw Object.assign(new Error('storage/canceled'), { code: 'storage/canceled' });
     })();
+    // Attach a rejection observer immediately so a fast settlement on a loaded
+    // runner can never surface as an unhandled rejection before expect().rejects.
+    void canceledAfterDelete.catch((_expectedError: unknown) => undefined);
 
     const polledMeta = await backend.getMetadata('uploads/held.txt');
     expect(polledMeta?.generation).toBe('7');
+    expect(openReadonlyTransactions).toBe(0);
     const polledBlob = await backend.getBlob('uploads/held.txt');
+    expect(polledBlob).toBeDefined();
+    expect(openReadonlyTransactions).toBe(0);
     if (polledBlob) {
       await polledBlob.arrayBuffer();
     }
+    if (releaseCancel === undefined) {
+      throw new Error('expected cancelGate resolver');
+    }
+    releaseCancel();
     await expect(canceledAfterDelete).rejects.toMatchObject({ code: 'storage/canceled' });
     expect(await backend.getMetadata('uploads/held.txt')).toBeUndefined();
+    expect(openReadonlyTransactions).toBe(0);
+
+    // Also exercise an overlapping read + delete/cancel scheduled in the same turn
+    // so concurrent readonly and readwrite transactions settle without hanging or
+    // leaking an unhandled rejection.
+    await backend.put('uploads/concurrent.txt', payload, makeMetadata({
+      fullPath: 'uploads/concurrent.txt',
+      name: 'concurrent.txt',
+      size: payload.size,
+      generation: '8',
+    }));
+    const concurrentCancel = (async () => {
+      await backend.delete('uploads/concurrent.txt');
+      throw Object.assign(new Error('storage/canceled'), { code: 'storage/canceled' });
+    })();
+    void concurrentCancel.catch((_expectedError: unknown) => undefined);
+
+    const [concurrentMeta, concurrentBlob] = await Promise.all([
+      backend.getMetadata('uploads/concurrent.txt'),
+      backend.getBlob('uploads/concurrent.txt'),
+    ]);
+    if (concurrentMeta !== undefined) {
+      expect(concurrentMeta.generation).toBe('8');
+    }
+    if (concurrentBlob !== undefined) {
+      await concurrentBlob.arrayBuffer();
+    }
+    await expect(concurrentCancel).rejects.toMatchObject({ code: 'storage/canceled' });
+    expect(await backend.getMetadata('uploads/concurrent.txt')).toBeUndefined();
+    expect(openReadonlyTransactions).toBe(0);
     backend.close();
   });
 });

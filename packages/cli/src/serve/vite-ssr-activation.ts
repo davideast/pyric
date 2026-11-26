@@ -34,7 +34,11 @@
  * untouched. A server whose certificate cannot be read that way is refused,
  * naming HTTPS.
  */
+import { existsSync, realpathSync } from 'node:fs';
+import Module from 'node:module';
 import type { AddressInfo } from 'node:net';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ViteDevServer } from 'vite';
 import { FirebaseError } from 'pyric/app';
 import type { Sandbox } from 'pyric/sandbox';
@@ -44,6 +48,7 @@ import {
   type HostTrust,
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
+import { liveAppDirs } from '../register/live-package.js';
 import {
   connectRemoteSandbox,
   createLazyRemoteSandbox,
@@ -52,6 +57,7 @@ import {
   type RemoteSandboxChannel,
 } from '../remote/index.js';
 import { honorsCertificatePin, hostTrustFor, isTrustedOrigin } from '../remote/loopback-tls.js';
+import { resolveAiMode, type AiMode } from './firebase-module-swap.js';
 import { inProcessSessionTokenForUrl } from './local-session-token.js';
 import { servesHttps } from './vite-https.js';
 import { VITE_SSR_ISSUE_URL } from './vite-ssr-routing.js';
@@ -62,6 +68,19 @@ import {
 } from './vite-ssr-worker-activation.js';
 
 const LABEL = "the Vite dev server's server-rendered modules";
+
+/** The seam with pyric-admin's App Check mirror: firebase-admin's verifier for tokens from Firebase (#1552, #1561). */
+const APP_CHECK_FIREBASE_VERIFIER = Symbol.for('pyric.admin.appCheck.firebaseVerifier');
+
+/** Process-stop state installed by `acquireViteProcessStop` (`vite-process-stop.ts`), read to resolve Vite's active AI mode. */
+const VITE_PROCESS_STOP = Symbol.for('pyric.viteProcessStop');
+
+type AppCheckFirebaseVerifier = (token: string, projectId: string) => Promise<unknown>;
+
+interface ActiveProcessStopLease {
+  readonly kind?: unknown;
+  readonly getAiMode?: unknown;
+}
 
 interface ServerInForce {
   readonly generationId: number;
@@ -77,6 +96,123 @@ interface ServerInForce {
 
 let inForce: ServerInForce | undefined;
 let adminSandbox: LazyRemoteSandbox | undefined;
+let installedAppCheckVerifier: AppCheckFirebaseVerifier | undefined;
+
+function activeViteProcessStopAiMode(): AiMode | undefined {
+  const state = (globalThis as Record<symbol, unknown>)[VITE_PROCESS_STOP];
+  if (state === null || typeof state !== 'object') return undefined;
+  const leases = (state as { leases?: unknown }).leases;
+  if (!Array.isArray(leases) || leases.length === 0) return undefined;
+  const active = leases[leases.length - 1] as ActiveProcessStopLease | undefined;
+  if (active === null || typeof active !== 'object') return undefined;
+  if (active.kind === 'live') return 'sandbox';
+  if (active.kind === 'sandbox' && typeof active.getAiMode === 'function') {
+    const mode = (active.getAiMode as () => unknown)();
+    if (mode === 'production' || mode === 'sandbox') {
+      return mode;
+    }
+  }
+  return undefined;
+}
+
+function resolveSsrAiMode(
+  env: Record<string, string | undefined>,
+  explicitAiMode: AiMode | undefined,
+): AiMode {
+  if (explicitAiMode !== undefined) return explicitAiMode;
+  if (env === process.env) {
+    const leaseMode = activeViteProcessStopAiMode();
+    if (leaseMode !== undefined) return leaseMode;
+  }
+  return resolveAiMode(undefined, env);
+}
+
+function findRealAdminManifestFromDir(startDir: string): string | null {
+  let dir = startDir;
+  for (;;) {
+    const candidate = join(dir, 'node_modules', 'firebase-admin', 'package.json');
+    if (existsSync(candidate)) {
+      try {
+        return realpathSync(candidate);
+      } catch (err) {
+        if (err instanceof Error) return candidate;
+        throw err;
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function findAdminJoseUrl(projectRoot: string | undefined): string | null {
+  const dirs: string[] = [];
+  const seen = new Set<string>();
+  const addDir = (dir: string | undefined): void => {
+    if (dir === undefined || dir.length === 0 || seen.has(dir)) return;
+    seen.add(dir);
+    dirs.push(dir);
+  };
+  addDir(projectRoot);
+  for (const appDir of liveAppDirs(process.argv[1], process.cwd())) {
+    addDir(appDir);
+  }
+  addDir(dirname(fileURLToPath(import.meta.url)));
+  for (const dir of dirs) {
+    const adminManifest = findRealAdminManifestFromDir(dir);
+    if (adminManifest === null) continue;
+    try {
+      const jwksEntry = Module.createRequire(adminManifest).resolve('jwks-rsa');
+      const joseEntry = Module.createRequire(jwksEntry).resolve('jose');
+      return pathToFileURL(joseEntry).href;
+    } catch (err) {
+      if (err instanceof Error) continue;
+      throw err;
+    }
+  }
+  return null;
+}
+
+function clearAppCheckVerifier(): void {
+  const activeVerifier = installedAppCheckVerifier;
+  if (activeVerifier === undefined) return;
+  const holder = globalThis as Record<symbol, unknown>;
+  if (holder[APP_CHECK_FIREBASE_VERIFIER] === activeVerifier) {
+    delete holder[APP_CHECK_FIREBASE_VERIFIER];
+  }
+  installedAppCheckVerifier = undefined;
+}
+
+/**
+ * Production AI mode only: install firebase-admin's App Check verifier behind
+ * `pyric.admin.appCheck.firebaseVerifier` for standalone `vite dev` SSR and
+ * server routes, matching `@pyric/cli/register` (#1552, #1561). Sandbox AI mode
+ * installs nothing and clears any verifier left by a replaced production server.
+ */
+function syncAppCheckVerifier(aiMode: AiMode, projectRoot: string | undefined): void {
+  if (aiMode !== 'production') {
+    clearAppCheckVerifier();
+    return;
+  }
+  let joseWarmed = false;
+  const verifier: AppCheckFirebaseVerifier = async (token: string, projectId: string) => {
+    if (!joseWarmed) {
+      const joseUrl = findAdminJoseUrl(projectRoot);
+      if (joseUrl !== null) {
+        try {
+          await import(joseUrl);
+          joseWarmed = true;
+        } catch (err) {
+          if (!(err instanceof Error)) throw err;
+        }
+      }
+    }
+    const bridge = await import('../register/app-bridge-admin-app-check.js');
+    return bridge.verifyFirebaseAppCheckToken(token, projectId);
+  };
+  (globalThis as Record<symbol, unknown>)[APP_CHECK_FIREBASE_VERIFIER] = verifier;
+  installedAppCheckVerifier = verifier;
+}
 
 /** The refusal server-rendered calls get from a dev server that does not host the sandbox. */
 export function viteSsrRefusal(detail?: string): FirebaseError {
@@ -253,10 +389,12 @@ export function attachViteSsrActivation(
   server: ViteDevServer,
   hosted: boolean,
   env: Record<string, string | undefined> = process.env,
-  runtime: { honorsCertificatePin: () => boolean } = { honorsCertificatePin },
+  runtime: { honorsCertificatePin: () => boolean; aiMode?: AiMode } = { honorsCertificatePin },
 ): ViteSsrActivation {
   const isActivatedFromOutside = (env.PYRIC_SANDBOX ?? '').trim().length > 0;
   if (isActivatedFromOutside) return { close: () => {} };
+  const aiMode = resolveSsrAiMode(env, runtime.aiMode);
+  const projectRoot = server.config?.root;
   const generationId = publishMainViteSsrActivation(hosted, currentWorkerSnapshot);
   const attached: ServerInForce = {
     generationId,
@@ -270,6 +408,7 @@ export function attachViteSsrActivation(
     previous.sandbox?.close();
     previous.sandbox = undefined;
   }
+  syncAppCheckVerifier(aiMode, projectRoot);
   installProcessActivation(activation);
   return {
     close() {
@@ -278,6 +417,7 @@ export function attachViteSsrActivation(
       const isReplaced = inForce !== attached;
       if (isReplaced) return;
       inForce = undefined;
+      clearAppCheckVerifier();
       clearMainViteSsrActivation(attached.generationId);
       clearProcessActivation(activation);
     },

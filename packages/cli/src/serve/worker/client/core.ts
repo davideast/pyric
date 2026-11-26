@@ -10,8 +10,8 @@ import { setAiEvidence } from 'pyric/ai/internal';
  * observe every `setLens(...)` update through the same singleton — exactly as
  * they did when all of this lived inline in `client.ts`.
  */
-import type { InboundMessage, OutboundMessage, SerializedError } from '../protocol.js';
-import type { RuntimeReloadMessage } from '../protocol.js';
+import type { InboundMessage, OutboundMessage, RuntimeReloadMessage, SerializedError } from '../protocol.js';
+import { isMessagingSub } from '../protocol/subscriptions.js';
 // TYPE-ONLY — the auth-lens contract + the cross-service event envelope, shared
 // with the worker host + the sandbox's event provenance. Erased at build, so the
 // leaf client bundle stays engine-free.
@@ -214,9 +214,7 @@ export function retargetMessagingSubscriptions(
   for (const [subId, subscription] of _snapSubs) {
     const message = subscription.message;
     const ownsSubscription = subscription.port === port && message?.t === 'sub';
-    if (!ownsSubscription) continue;
-    const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
-    if (!isMessaging) continue;
+    if (!ownsSubscription || !isMessagingSub(message)) continue;
     postMessage({ t: 'unsub', subId });
     message.recipientId = recipientId;
     postMessage(message);
@@ -230,9 +228,7 @@ export function restoreMessagingSubscriptions(port: ClientPort, postMessage: Cli
   for (const [subId, subscription] of _snapSubs) {
     const message = subscription.message;
     const ownsSubscription = subscription.port === port && message?.t === 'sub';
-    if (!ownsSubscription) continue;
-    const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
-    if (!isMessaging) continue;
+    if (!ownsSubscription || !isMessagingSub(message)) continue;
     postMessage({ t: 'unsub', subId });
     postMessage(message);
   }

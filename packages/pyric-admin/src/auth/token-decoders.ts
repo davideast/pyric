@@ -50,7 +50,7 @@ const MESSAGES = {
 export type IdTokenFailureCode = 'argument-error' | 'id-token-expired';
 
 /** pyric's own code for a token from the other mode, beside firebase-admin's. */
-export const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH';
+const MODE_MISMATCH = 'PYRIC_MODE_MISMATCH';
 
 export type IdTokenVerdict =
   | { ok: true; token: DecodedIdToken }
@@ -97,13 +97,15 @@ function contentMessage(header: Claims, claims: Claims, projectId: string): stri
 /** jsonwebtoken's `nbf` rule, which runs before `exp`; firebase-admin reports a failure as an invalid signature. */
 function isNotYetValid(nbf: unknown, nowSec: number): boolean {
   if (nbf === undefined) return false;
-  return typeof nbf !== 'number' || nbf > nowSec;
+  return typeof nbf !== 'number' || !Number.isFinite(nbf) || !Number.isFinite(nowSec) || nbf > nowSec;
 }
 
-/** jsonwebtoken's `exp` rule: an absent `exp` never expires, and a non-number is an invalid signature. */
+/** jsonwebtoken's `exp` rule: an absent `exp` never expires, and a non-finite or non-number is an invalid signature. */
 function expiryVerdict(exp: unknown, nowSec: number): IdTokenVerdict | undefined {
   if (exp === undefined) return undefined;
-  if (typeof exp !== 'number') return refused(MESSAGES.signature);
+  if (typeof exp !== 'number' || !Number.isFinite(exp) || !Number.isFinite(nowSec)) {
+    return refused(MESSAGES.signature);
+  }
   const hasExpired = nowSec >= exp;
   if (hasExpired) return { ok: false, code: 'id-token-expired', message: MESSAGES.expired };
   return undefined;
