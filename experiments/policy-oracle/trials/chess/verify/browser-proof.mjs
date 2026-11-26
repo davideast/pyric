@@ -114,6 +114,14 @@ export async function browserProof(receipt,j,history,engine,matchPolicy) {
   assert.equal(prev.get(path).data.winner,'guest');
   assert.equal(prev.get(next).data.status,'resigned');
   assert.equal(prev.get(draw).data.status,'draw');
+  const replayStages=[['f2f3',1],['e7e5',2],['g2g4',3],['d8h4',4],['rematch-e2e4',1],['rematch-resignation',1],['stalemate',1],['underpromotion',1]];
+  assert.deepEqual(b.replayChecks,j.all('browser-replay'),'recorded visible checks on both clients');
+  assert.deepEqual(b.replayChecks.map(({id,role,ply})=>[id,role,ply]),replayStages.flatMap(([id,ply])=>['white','black'].map(role=>[id,role,ply])));
+  for(const check of b.replayChecks) {
+    assert.deepEqual(check.displayedIllegal,[],check.id+' displayed an illegal move');
+    assert.equal(check.normalized,true);assert.equal(check.corrected,true);assert.equal(typeof check.original,'boolean');
+  }
+  const clientReplay={checks:b.replayChecks.length,originalRefusals:b.replayChecks.filter(c=>!c.original).length,correctedRefusals:0,visibleWarnings:0};
   const namesPNG=['opening','checkmate','rematch-resignation','stalemate'];
   assert.deepEqual(b.pictures.map(q=>q.file),namesPNG.map(n=>n+'.png'));
   assert.equal(new Set(b.pictures.map(p=>p.sha256)).size,namesPNG.length);
@@ -123,7 +131,7 @@ export async function browserProof(receipt,j,history,engine,matchPolicy) {
     assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
     assert.ok(bytes.readUInt32BE(16)>0 && bytes.readUInt32BE(20)>0);
   }
-  return {chromium:b.browser,build:b.build,engineSha256:b.engineSha256,matchPolicySha256:b.matchPolicySha256,screenshots:b.pictures,moveCount:expectedReferee.length,
+  return {chromium:b.browser,clientReplay,build:b.build,engineSha256:b.engineSha256,matchPolicySha256:b.matchPolicySha256,screenshots:b.pictures,moveCount:expectedReferee.length,
     race:b.race,checkmateWinner:prev.get(path).data.winner,rematchWinner:prev.get(next).data.winner,
     kingSafety:pinned.verdict,underpromotion:prev.get(promotion).data.board.a8,stalemate:prev.get(draw).data.status,states:b.observations.length};
 }

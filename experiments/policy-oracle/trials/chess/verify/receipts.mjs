@@ -85,6 +85,9 @@ if (import.meta.main) {
       const raw=gunzipSync(readFileSync(join(dir,'releases',pin.receipt+'.json.gz')));
       assert.equal(sha(raw),pin.receipt);
       assert.deepEqual(raw,readFileSync(join(archive,pin.receipt+'.json')));
+      for(const item of report.browser?.screenshots ?? []) {
+        assert.equal(sha(readFileSync(join(dir,'screens',pin.receipt,item.file))),item.sha256);
+      }
       releases.set(pin.id,{report,comparable});
     }
     const stock=releases.get('stock'),compat=releases.get('compatibility');

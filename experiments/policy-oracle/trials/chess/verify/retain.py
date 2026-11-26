@@ -28,9 +28,18 @@ def retain(archive, name, digest, bundle, engine=None, inputs=None):
     unsigned = list((archive / report["runId"]).glob("*-unauthenticated-read.json"))
     if len(unsigned) != 1:
         raise ValueError("Expected one signed-out read from the qualified archive")
-    for file, data in [(reads / (digest + ".json"), unsigned[0].read_bytes()),
+    artifacts = [(reads / (digest + ".json"), unsigned[0].read_bytes()),
                        (output / (digest + ".json.gz"), gzip.compress(raw, mtime=0)),
-                       (output / (name + ".json"), (json.dumps(spec, indent=2) + "\n").encode())]:
+                       (output / (name + ".json"), (json.dumps(spec, indent=2) + "\n").encode())]
+    if "browser" in report:
+        screens = output.parent / "screens" / digest
+        screens.mkdir(parents=True, exist_ok=True)
+        for item in report["browser"]["screenshots"]:
+            data = (archive / report["runId"] / item["file"]).read_bytes()
+            if hashlib.sha256(data).hexdigest() != item["sha256"]:
+                raise ValueError("Screenshot changed after verification")
+            artifacts.append((screens / item["file"], data))
+    for file, data in artifacts:
         if file.exists():
             if file.read_bytes() != data:
                 raise ValueError(f"Registry key already bound to a different result: {file.name}")

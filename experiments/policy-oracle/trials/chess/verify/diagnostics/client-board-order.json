@@ -1,0 +1,20 @@
+{
+  "status": "diagnostic",
+  "runId": "6ce946aa-5a67-47ec-8adf-68c00439bad6",
+  "receipt": "a7ef76c1e698d4d3e138fa55d060c973be6b811b869e9e86bc143e94c7423009",
+  "engine": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "metadataPolicy": "e55d5da74410f0424062d9ce92d00b4c3304e8e30c2d7ed84017850ce5067ed9",
+  "screens": {
+    "opening.png": "600bbb11a959d33af799ab7076fd0de676a693d7160674567413c046c92f4983",
+    "checkmate.png": "d8fb24ac0b30630a45369609fffa74076c168479bd5aa8a271d46a685dd086b9",
+    "rematch-resignation.png": "a505111554bb349dcf0ed04d4939ee45402df80e325c6fd2b18a2060725f4dcb",
+    "stalemate.png": "1ff52b64af81ad660469eec9f9b0e15a4b6939c4c208d570dc2a0770fd2d53b7"
+  },
+  "visibleWarning": "The checkmate, resignation and stalemate overlays displayed ILLEGAL: MOVE for legal transitions.",
+  "nativeSquareOrderControl": {
+    "case": "browser-f2f3",
+    "upstreamCommit": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "originalPinnedVerifyMoveWithLiteObserverOrder": true,
+    "same64SquaresInReverseInsertionOrder": false
+  }
+}
