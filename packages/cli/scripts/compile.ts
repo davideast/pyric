@@ -213,14 +213,7 @@ writeFileSync(
     cliImportSpecifier: '../dist/cli/index.js',
   }),
 );
-writeFileSync(
-  join(BUILD, 'load-rules-document.worker.js'),
-  banner +
-    `import { startLoadRtdbRulesDocumentWorker } from '../dist/rtdb/load-rules-document.worker.js';\n` +
-    `startLoadRtdbRulesDocumentWorker();\n`,
-);
 const entry = join(BUILD, 'standalone-entry.js');
-const rtdbWorkerEntry = join(BUILD, 'load-rules-document.worker.js');
 
 // ── 4. Cross-compile ──────────────────────────────────────────────────
 mkdirSync(OUT, { recursive: true });
@@ -236,7 +229,7 @@ for (const t of selected) {
   // (#1521).
   const r = spawnSync(
     bun,
-    ['build', entry, rtdbWorkerEntry, '--compile', '--compile-autoload-package-json', `--target=${t.target}`, `--outfile=${outfile}`],
+    ['build', entry, '--compile', '--compile-autoload-package-json', `--target=${t.target}`, `--outfile=${outfile}`],
     { stdio: ['ignore', 'inherit', 'inherit'], cwd: PKG_ROOT },
   );
   if (r.status !== 0) die(`bun build --compile failed for ${t.target} (exit ${r.status})`);
