@@ -1,0 +1,37 @@
+{
+  "authority": "native Arcade legality; local pinned Firestore evaluator",
+  "totalPositions": 288,
+  "nativeLegal": 240,
+  "corpusSha256": "dc431943f5de8caeb07cd43095ac3dc2fe544568321eba8b28275cbae9176047",
+  "profiles": {
+    "stock": {
+      "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "allows": 240,
+      "budgetRefusals": 0,
+      "otherRefusals": 0,
+      "peakLocalExpressions": 933,
+      "firstDivergence": null
+    },
+    "initial": {
+      "rulesSha256": "d16ec3f40dc8df4120cfc9aaa56a1def251da8f64cd9de7e43b6869620669004",
+      "allows": 20,
+      "budgetRefusals": 220,
+      "otherRefusals": 0,
+      "peakLocalExpressions": 1000,
+      "firstDivergence": {
+        "fen": "8/8/8/4k3/8/8/R7/K7 w - -",
+        "uci": "a2h2",
+        "localExpressions": 1000,
+        "diagnostic": "Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached."
+      }
+    },
+    "revised": {
+      "rulesSha256": "1d3e7e79f0f1301e5f8170c8e8a52cf4c8dc35904b5d155f24bcce3df56176c5",
+      "allows": 240,
+      "budgetRefusals": 0,
+      "otherRefusals": 0,
+      "peakLocalExpressions": 998,
+      "firstDivergence": null
+    }
+  }
+}
