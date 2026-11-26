@@ -1,6 +1,7 @@
 """Qualify complete bundles serially against the named database pinned by the live controller."""
 import argparse
 import hashlib
+import json
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,14 @@ def main():
     embedded = args.client_build / "games/chess/src/policy.mjs"
     if embedded.read_bytes() != args.engine.read_bytes():
         parser.error("the client build and referee must use the same engine")
+    built = json.loads((args.client_build / "chess-build.json").read_bytes())
+    if built["engine"] != hashlib.sha256(args.engine.read_bytes()).hexdigest():
+        parser.error("built browser engine differs from the release")
+    dist = args.client_build / "app/dist"
+    actual = {str(p.relative_to(dist)): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in dist.rglob("*") if p.is_file()}
+    if actual != built["files"] or built["native"] != hashlib.sha256((args.client_build / "native.mjs").read_bytes()).hexdigest():
+        parser.error("browser assets or native control have changed since the build")
     results = {}
     for profile in args.profiles:
         bundle = HERE.parent / "bundle/artifacts" / (profile + ".rules")

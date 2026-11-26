@@ -20,7 +20,7 @@ async function authenticate(config, header) {
     claims.exp > Date.now()/1000 ? claims.sub : null;
 }
 
-export async function refereeServer({config, gameBuild, engine, matchPolicy, verify, journal, allowed}) {
+export async function refereeServer({config, gameBuild, engine, matchPolicy, verify, journal, allowed, beforeCommit}) {
   const openedAt = Date.now();
   const originFor = () => 'http://127.0.0.1:' + server.address().port;
   const records = [];
@@ -46,10 +46,13 @@ export async function refereeServer({config, gameBuild, engine, matchPolicy, ver
       allowed.add(id);
     }
     let verdict = matchPolicy.admit(doc,uid,ply);
+    let comparedVersion;
     if (verdict === 'ok') {
       const patch = fromPolicy(engine,matchPolicy,doc,uci);
       if (!patch) verdict = 'legalMove';
       else {
+        if (beforeCommit) await beforeCommit(id,ply,before.updateTime);
+        comparedVersion = before.updateTime;
         try {
           await api(dbUrl + '/documents:commit','POST',{writes:[{update:{name:dbName+'/documents/'+path,fields:wireFields(patch)},
             updateMask:{fieldPaths:Object.keys(patch)},currentDocument:{updateTime:before.updateTime}}]});
@@ -62,7 +65,7 @@ export async function refereeServer({config, gameBuild, engine, matchPolicy, ver
     }
     const after = await readDocument(path);
     const end = await verify();
-    const record = {uid,id,ply,uci,verdict,beforeVersion:before.updateTime,afterVersion:after.updateTime,
+    const record = {uid,id,ply,uci,verdict,comparedVersion,beforeVersion:before.updateTime,afterVersion:after.updateTime,
       before:doc,after:unpack(after.fields),proof,end};
     journal.event('referee',record); records.push(record);
     return [verdict === 'committed' ? 200 : 409, verdict];

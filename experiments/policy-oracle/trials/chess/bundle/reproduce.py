@@ -19,12 +19,15 @@ PINS = {
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--compiler", required=True, type=Path)
+    parser.add_argument("--compiler", type=Path, default=HERE.parent / "policies/vendor/pyric-rules-chess.tgz")
     parser.add_argument("--arcade", required=True, type=Path)
     args = parser.parse_args()
     for name, expected in PINS.items():
         source = args.compiler if name == "compiler" else VENDOR / name
-        if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+        valid = {expected}
+        if name == "compiler":
+            valid.add(json.loads((HERE.parent / "policies/lock.json").read_text())["package"])
+        if hashlib.sha256(source.read_bytes()).hexdigest() not in valid:
             raise ValueError(f"Unexpected package digest for {name}")
     with tempfile.TemporaryDirectory(prefix="pyric-chess-bundle-") as scratch:
         tmp = Path(scratch)

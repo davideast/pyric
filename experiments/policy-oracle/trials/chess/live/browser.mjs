@@ -25,7 +25,16 @@ export async function play(ctx) {
   const metadataUrl = new URL('./chess-match.mjs',pathToFileURL(resolve(enginePath)));
   const matchPolicy = await import(metadataUrl);
   const allowed = new Set([runId]);
-  const srv = await refereeServer({config,gameBuild,engine,matchPolicy,verify,journal,allowed});
+  // Synchronize only the two deliberately concurrent fixture requests after both real reads.
+  const barrier = Promise.withResolvers(), versions = [];
+  const beforeCommit = async (id,ply,version) => {
+    if (id !== runId || ply !== 0) return;
+    versions.push(version);
+    if (versions.length === 2) barrier.resolve();
+    const timer = setTimeout(() => barrier.reject(new Error('second concurrent move did not arrive')),30000);
+    try {await barrier.promise;} finally {clearTimeout(timer);}
+  };
+  const srv = await refereeServer({config,gameBuild,engine,matchPolicy,verify,journal,allowed,beforeCommit});
   const {chromium} = await import(process.env.CHESS_PLAYWRIGHT || 'playwright');
   let browser;
   const pages = [], pictures = [], observations = [];
@@ -56,6 +65,7 @@ export async function play(ctx) {
     assert.deepEqual(await snapshot(reader,'chess/'+runId),initial);
     const race = await Promise.all([submit('e2e4'),submit('d2d4')]);
     assert.deepEqual(race.slice().sort(),['committed','matchVersion']);
+    assert.deepEqual(versions,[initial.version,initial.version]);
     const current = await snapshot(reader,'chess/'+runId);
     assert.deepEqual(current.data,{...initial.data,...native.moveUpdate(initial.data,move(race[0] === 'committed' ? 'e2e4' : 'd2d4'))});
     journal.event('concurrent-admission',{race,initial,current});
@@ -149,12 +159,16 @@ export async function play(ctx) {
     await record('browser-underpromotion',[promotionPath],([s]) => assert.deepEqual(s.data,
       {...promotionBefore.data,...native.moveUpdate(promotionBefore.data,move('a7a8n'))}));
     return {match:id,rematch,engineSha256:sha(readFileSync(enginePath)),matchPolicySha256:sha(readFileSync(metadataUrl)),
+      build:JSON.parse(readFileSync(join(gameBuild,'chess-build.json'))),
       browser:browser.version(),pictures,observations,race,referee:srv.records};
   } finally {
+    let cleanupError;
     for (const [i,page] of pages.entries()) {
       if (!existsSync(join(journal.directory,'stalemate.png'))) await photo(page,'last-view-'+i).catch(()=>{});
-      await page.evaluate(async () => {if (window.chessSignOut) await window.chessSignOut();}).catch(e => journal.event('browser-cleanup-error',{page:i,code:e.name}));
+      try {await page.evaluate(async () => {if (window.chessSignOut) await window.chessSignOut();});}
+      catch(e) {journal.event('browser-cleanup-error',{page:i,code:e.name});cleanupError=e;}
     }
     try {await browser?.close();} finally {await srv.close();}
+    if (cleanupError) throw new Error('Browser identity cleanup failed',{cause:cleanupError});
   }
 }

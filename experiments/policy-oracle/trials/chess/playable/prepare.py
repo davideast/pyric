@@ -1,6 +1,7 @@
 """Build the pinned Arcade client in a fresh directory with its locked dependencies."""
 import argparse
 import hashlib
+import json
 import shutil
 import subprocess
 import tarfile
@@ -60,6 +61,12 @@ import { inCheck, legalMoves } from './policy-adapter.ts';""")
     subprocess.run([str(directory / "node_modules/.bin/vite"), "build"], cwd=app, check=True)
     subprocess.run(["bun", "build", "games/chess/src/logic.ts", "--target=node", "--outfile=native.mjs"],
                    cwd=directory, check=True)
+    dist = app / "dist"
+    files = {str(path.relative_to(dist)): hashlib.sha256(path.read_bytes()).hexdigest()
+             for path in sorted(dist.rglob("*")) if path.is_file()}
+    record = {"arcade": PIN, "engine": hashlib.sha256(engine.read_bytes()).hexdigest() if engine else None,
+              "native": hashlib.sha256((directory / "native.mjs").read_bytes()).hexdigest(), "files": files}
+    (directory / "chess-build.json").write_text(json.dumps(record, indent=2) + "\n")
     print("built", directory, "Arcade", PIN, "engine",
           hashlib.sha256(engine.read_bytes()).hexdigest() if engine else "stock")
 

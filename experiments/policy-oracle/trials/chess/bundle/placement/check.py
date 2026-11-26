@@ -19,7 +19,7 @@ def digest(path):
 
 def require_modules(paths, lock_path):
     locks = json.loads(lock_path.read_bytes())
-    if not isinstance(locks, dict) or set(locks) != set(EXPORTS):
+    if not isinstance(locks, dict) or not set(EXPORTS).issubset(locks):
         raise ValueError("referee needs a release lock with board and match digests")
     for role, path in paths.items():
         expected = locks[role]
@@ -39,7 +39,7 @@ def require_modules(paths, lock_path):
     """
     bindings = [[str(path.resolve()), role, EXPORTS[role]] for role, path in paths.items()]
     subprocess.run(["node", "--input-type=module", "-e", probe, json.dumps(bindings)], check=True, timeout=15)
-    return locks
+    return {role: locks[role] for role in EXPORTS}
 
 
 def check(profile, bundle, board, match, lock, *, require_complete=False):
