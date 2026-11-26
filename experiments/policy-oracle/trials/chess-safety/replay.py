@@ -265,6 +265,10 @@ def main():
     p.add_argument('--summary',action='store_true',help='print a compact human-readable result instead of the full JSON')
     p.add_argument('--scorecard',type=Path,help='also render the recorded release comparison in Markdown')
     args = p.parse_args()
+    for name in ('candidate_package', 'sealed_referee', 'archive'):
+        path = getattr(args, name)
+        if path is not None:
+            setattr(args, name, path.resolve(strict=True))
     with tempfile.TemporaryDirectory(prefix='chess-safety-replay-') as scratch:
         result, matches = replay(args,Path(scratch))
     result['passesScoredCases'] = matches
