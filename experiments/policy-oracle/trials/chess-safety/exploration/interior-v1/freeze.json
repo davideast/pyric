@@ -1,0 +1,20 @@
+{
+  "seed": "0x5f5084a2",
+  "pairs": 192,
+  "writes": 384,
+  "counts": {
+    "b/stalemate": 16,
+    "w/king-checked": 16,
+    "b/king-unchecked": 16,
+    "b/mate": 16,
+    "b/king-checked": 16,
+    "w/king-unchecked": 16,
+    "w/mate": 16,
+    "b/nonking-unchecked": 16,
+    "w/nonking-unchecked": 16,
+    "w/nonking-checked": 16,
+    "w/stalemate": 16,
+    "b/nonking-checked": 16
+  },
+  "sha256": "3ae826772af378f5234a6f7d7911b78839e4e9c406d8882033c355e94bd2b5fc"
+}

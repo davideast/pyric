@@ -4,11 +4,12 @@ import {gunzipSync,gzipSync} from 'node:zlib';
 import {sha} from '../../../../arcade/corpus.mjs';
 import * as arcade from '../../../chess/reference/arcade-reference.ts';
 import * as native from '../../../chess/reference/native.mjs';
-import {encode,plausible} from '../v1/corpus.mjs';
+import {plausible} from '../v1/corpus.mjs';
 import {bucket} from './family.mjs';
+import {reverseMove} from './reverse.mjs';
 import {nativeEvidence} from '../../reference/native.mjs';
 
-const name=arcade.squareName, idx=arcade.squareOf;
+const idx=arcade.squareOf;
 function random(seed) {
   let state=seed;
   return n=>{state=(Math.imul(1664525,state)+1013904223)>>>0;return Math.floor(state/0x100000000*n);};
@@ -19,19 +20,6 @@ const maxPerGroup=12;
 const count={},inputs=[],seen=new Set();
 const available=Array.from({length:64},(_,i)=>i);
 const dist=(a,b)=>Math.max(Math.abs(a%8-b%8),Math.abs((a>>3)-(b>>3)));
-function reverseMove(next,at) {
-  const starts=available.filter(i=>!next.board[i] && i!==at);
-  const offset=rng(starts.length);
-  for(let x=0;x<starts.length;x++) {
-    const from=starts[(x+offset)%starts.length], b=[...next.board];
-    b[from]=b[at];b[at]='';
-    const p={...next,board:b,turn:'w'};
-    if(!plausible(p)) continue;
-    const m={from,to:at};
-    if(arcade.isLegal(p,m) && native.apply(p,name(from)+name(at)).board.join('|')===next.board.join('|'))
-      return {fen:encode(p),uci:name(from)+name(at)};
-  }
-}
 for(let attempt=0;attempt<150000;attempt++) {
   const bk=choose(['a8','b8','g8','h8','a7','h7'].map(idx),rng);
   const wk=choose(available.filter(i=>dist(i,bk)>=2&&dist(i,bk)<=3),rng);
@@ -52,7 +40,7 @@ for(let attempt=0;attempt<150000;attempt++) {
   if(!plausible(next)) continue;
   const replies=native.legalMoves(next), group=bucket(next,replies);
   if(!group || (count[group]??0)>=maxPerGroup)continue;
-  const row=reverseMove(next,attacker);
+  const row=reverseMove(next,attacker,rng);
   if(!row)continue;
   const key=row.fen+' '+row.uci;
   if(seen.has(key))continue;
