@@ -47,7 +47,7 @@ node --import @pyric/live/register server.js
 npx pyric-live
 ```
 
-`pyric-live` takes `--port`, `--host`, `--no-open` and `--project <id>`. Pages get their Firebase SDK through Vite and `pyricLive()`, not from this host.
+`pyric-live` takes `--port`, `--host`, `--no-open`, `--project <id>`, `--pass-through <specifier>` (repeatable or comma-separated), `--deployed-rules`, and `--allow-remote-live`. Pages get their Firebase SDK through Vite and `pyricLive()`, not from this host.
 
 ## Check which project it's on
 
@@ -99,7 +99,7 @@ The last three are the only calls live mode refuses because of where they go. Se
 
 Two health reports list module-level coverage for services pyric doesn't observe:
 
-- **The live host.** `GET <url>/__pyric/health` on the dev server or `pyric-live` has a `live` field, including `passThrough` when imports are passed through.
+- **The live host.** `GET <url>/__pyric/health` on the dev server or `pyric-live` has a `live` field, including `passThrough` when imports are passed through and a credential-free `deployedRules` summary when deployed Security Rules inspection is opted in.
 - **A Node process under `@pyric/live/register`.** Its own servers answer a process health request. The answer lists `unobservedAdmin` for the `firebase-admin` services no row serves, and `gatedAdmin` for the services checked against your project but not recorded. See [Process health on registered processes](../reference/cli.md#process-health-on-registered-processes).
 
 Each list is absent when it is empty. A Node process also sends its lists to the live host. While it is connected, the host's `live.clients` entry for it (`kind: "node"`) carries the same `unobservedAdmin` and `gatedAdmin` lists, named by the client id its events carry. The lists hold service names only, and they go when the host drops the client.
@@ -117,7 +117,23 @@ Live mode forwards what your app sends, as it would without pyric:
 
 Each call is a row in traffic, marked as served by production. A row shows the method, such as `setDoc` or `sendPasswordResetEmail`, production's answer (success or an error code such as `permission-denied`), the client that made it (this page, another tab or a Node process), and the signed-in account's id and claim names. It never shows the token. Claim values (including `email` and `firebase.identities.email`), written fields and read documents stay on your machine so the host can check your local rules and `pyric verify` can replay captured live calls.
 
-Local rules checks evaluate Firestore and Realtime Database calls against the documents and paths observed in this live session's reads, writes and listener deliveries. A rule that reads a path this session hasn't observed yet (or whose snapshot was skipped, invalidated by an uncaptured mutation, or read or delivered optimistically while a Realtime Database write was still in flight) reports `unevaluated` with the missing paths instead of guessing empty state. Writes made outside the observed processes — such as from another client, a Cloud Function, a separate server or the Firebase console — aren't seen until this session reads those paths again or receives them on a listener, so a previously captured snapshot can go stale and report local `allow` (`drift`) where production denies on newer server state.
+Local rules checks evaluate Firestore and Realtime Database calls against the documents and paths observed in this live session's reads, writes and listener deliveries. A rule that reads a path this session hasn't observed yet (or whose snapshot was skipped, invalidated by an uncaptured mutation, or read or delivered optimistically while a Realtime Database write was still in flight) reports `unevaluated` with the missing paths instead of guessing empty state. Writes made outside the observed processes -- such as from another client, a Cloud Function, a separate server or the Firebase console -- aren't seen until this session reads those paths again or receives them on a listener, so a previously captured snapshot can go stale and report local `allow` (`drift`) where production denies on newer server state.
+
+### Inspect deployed Security Rules (opt-in)
+
+By default, live mode evaluates denials against your local rules files only and makes zero credential lookups or deployed-rules network requests. When you want production denials checked against the rules currently deployed to your Firebase project, opt in explicitly:
+
+```sh
+npx pyric-live --deployed-rules
+```
+
+Or in Vite:
+
+```ts
+pyricLive({ deployedRules: true })
+```
+
+When opted in, live mode performs read-only inspection of active deployed Firestore, Realtime Database, and Cloud Storage Security Rules using your existing local Firebase CLI or Application Default Credentials login without storing any credentials. Production denials in the terminal, chip, and Studio then show whether deployed or local rules matched, the matched rule line and expression, any unevaluated lookup paths, and drift against your local rules files, and `GET <url>/__pyric/health` exposes a credential-free `live.deployedRules` status block.
 
 ## Realtime Database calls
 
@@ -171,7 +187,7 @@ To use any of these, run the app without `@pyric/live`. It gets the sandbox agai
 
 ## Pass other services through
 
-An app that needs a service live mode doesn't serve can list its import in `passThrough`. The app then loads that service from its own installed SDK, unobserved:
+An app that needs a service live mode doesn't serve can list its import in `passThrough` (in `pyricLive()`) or pass `--pass-through <specifier>` (repeatable or comma-separated) to `pyric-live`. The app then loads that service from its own installed SDK, unobserved:
 
 ```ts
 // vite.config.ts
@@ -181,6 +197,10 @@ import { pyricLive } from '@pyric/live/vite';
 export default defineConfig({
   plugins: [pyricLive({ passThrough: ['firebase/functions'] })],
 });
+```
+
+```sh
+npx pyric-live --pass-through firebase/functions
 ```
 
 Its calls don't show in Traffic, and production still bills them. The start line, the chip and Studio each name it:

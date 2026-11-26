@@ -17,7 +17,7 @@ In-page browser scripts interact with Pyric's public modular subpaths:
 | `pyric/sandbox` | `initializeSandbox`, `SandboxContext` | Root sandbox lifecycle and identity handles |
 | `pyric/firestore` | `getFirestore`, `collection`, `doc`, `addDoc`, `updateDoc`, `deleteDoc`, `onSnapshot`, `query`, `orderBy`, `where` | Modular Web-SDK Firestore mirrors (also `pyric/firestore/lite`) |
 | `pyric/sandbox/firestore` | `setRules`, `seedDocuments`, `inspect`, `snapshotDocuments` | Service-specific sandbox controls for Firestore |
-| `pyric/storage` | `getStorageSandbox`, `getStorage`, `ref`, `uploadBytes`, `getDownloadURL`, `deleteObject`, `uploadString`, `getMetadata`, `updateMetadata`, `listAll` | Modular Web-SDK Storage mirror & local IDB storage engine |
+| `pyric/storage` | `getStorageSandbox`, `getStorage`, `ref`, `uploadBytes`, `getDownloadURL`, `deleteObject`, `uploadString`, `getMetadata`, `updateMetadata`, `list`, `listAll` | Modular Web-SDK Storage mirror & local IDB storage engine |
 | `pyric/auth` | `getAuth`, `signInAnonymously`, `signOut`, `onAuthStateChanged`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `updateProfile`, `signInWithPopup`, `GoogleAuthProvider`, `sandbox as authSandbox` | Modular Web-SDK Auth mirror & sandbox driver for Auth |
 | `pyric/app-check` | `initializeAppCheck`, `getToken`, `getLimitedUseToken`, `CustomProvider`, `ReCaptchaV3Provider` | Modular Web-SDK App Check mirror with local token minting |
 | `pyric/messaging` | `getMessaging`, `getToken`, `deleteToken`, `onMessage`, `isSupported`, `sandbox as messagingSandbox` | Modular Web-SDK Cloud Messaging (FCM) client mirror & test delivery driver |

@@ -30,7 +30,7 @@ const saved = await getDoc(note);
 console.log(saved.data());
 ```
 
-During development, Pyric resolves those imports to the local backend. A production build resolves them to Firebase again.
+During development, Pyric resolves those imports to the local backend. A production build resolves them to Firebase again. Named databases (`getFirestore(app, 'analytics')` and `db.databaseId`) stay isolated with their own data and rules, bind `{database}` in Security Rules to the active database id, and reject cross-database `get()`/`exists()` lookups just like production.
 
 ## Query the documents the current user owns
 

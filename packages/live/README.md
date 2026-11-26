@@ -27,7 +27,7 @@ npx pyric-live run --wait -- node server.js
 node --import @pyric/live/register server.js
 ```
 
-Without a Vite dev server, start the live host with `npx pyric-live`.
+Without a Vite dev server, start the live host with `npx pyric-live`. Both `pyric-live --pass-through <specifier>` and `pyricLive({ passThrough: [...] })` let an unsupported Firebase import pass through unwrapped and unobserved. To enrich production denials against active deployed Firestore, Realtime Database, and Cloud Storage rules (read-only via your local Firebase CLI or ADC login, off by default, zero stored credentials), opt in with `npx pyric-live --deployed-rules` or `pyricLive({ deployedRules: true })`.
 
 Live mode forwards your app's Firestore, Realtime Database, Auth and App Check
 calls and refuses pyric's own writes, other Firebase services and named

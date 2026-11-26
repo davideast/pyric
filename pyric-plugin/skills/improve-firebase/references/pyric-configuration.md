@@ -11,7 +11,7 @@ Check package manifests, lockfiles, imports, and scripts:
 - use `pyric()` as the Vite plugin name (`hosted: true` for Node host, `bridge: true` for browser SharedWorker bridge)
 - use `withPyric` from `@pyric/cli/next` for a Next.js integration
 - use `@pyric/rules` for standalone rules unit-testing when installed without the rest of Pyric
-- use `@pyric/live` (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`) only for deliberate live-mode observation against a real Firebase project
+- use `@pyric/live` (`pyric-live`, `@pyric/live/vite`, `@pyric/live/register`) only for deliberate live-mode observation against a real Firebase project; note that `--pass-through` / `passThrough` unwraps unsupported services unobserved and `--deployed-rules` / `deployedRules: true` is an explicit read-only opt-in (off by default, zero stored credentials)
 - flag direct `@google-cloud/firestore` or `@google-cloud/storage` imports in sandboxed Node/SSR code (stopped with `PYRIC_REAL_SDK_STOPPED` under `@pyric/cli/register` and Vite SSR; use `firebase/*` or `firebase-admin/*`)
 - flag `bun`, `bunx`, or `deno` child commands launched under `pyric sandbox` or `pyric run` (refused with `PYRIC_UNSUPPORTED_RUNTIME` because they cannot evaluate Node loader hooks)
 - flag absolute `file:/...` dependencies that point to a global installation
@@ -34,7 +34,7 @@ When a server is already running, inspect `/__pyric/health`. Agent data-plane wo
 
 Inspect the options supported by the installed `@pyric/cli/vite`. Current surfaces may include:
 
-- `root` and `rules` for project and Rules discovery (including named Firestore databases and per-bucket Storage rules in `firebase.json`)
+- `root` and `rules` for project and Rules discovery (including named Firestore databases with `{database}` rules binding and per-bucket Storage rules in `firebase.json`)
 - `hosted` for the Node-hosted sandbox (`.pyric/state/hosted/state.sqlite`, no open browser tab required)
 - `persist`, `fresh`, and `seed` for local state
 - `capture` for `.pyric/last-session.json`
