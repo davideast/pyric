@@ -15,6 +15,7 @@ import oracle
 from candidate import MAX_PACKAGE
 from offline_runtime import side
 from compiler_trial import run_stage
+from hosted import measurements
 
 NATIVE_SHA = "ebf93cbebf1c8a2d05ae37e04de4fde06e4422924a2263c17afe3b7efe0938d2"
 COST_NATIVE_SHA = "dd44a06c4dbc04679d29a9746ed978252d39875c869d292ff093c3d3ab6bb369"
@@ -142,9 +143,12 @@ def main():
     parser.add_argument("--candidate-package", type=Path, required=True)
     parser.add_argument("--before-board", action="store_true", help="exercise the stale-board binding mutation")
     parser.add_argument("--variant", choices=("v1","v2"), default="v2", help="authored lowering to score")
+    parser.add_argument("--with-live", action="store_true", help="look up retained Firestore verdicts for identical linked Rules bytes")
     args = parser.parse_args()
     try:
         result = score(args.candidate_package, args.before_board, args.variant)
+        if args.with_live:
+            result["hosted"] = measurements(HERE, result.get("linkedRulesSha256"))
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         result = {"passed": False, "infrastructureError": str(error)}
     print(json.dumps(result, indent=2))
