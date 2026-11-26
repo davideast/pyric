@@ -38,9 +38,9 @@ export function retryable(archive,runId) {
   return true;
 }
 
-export async function measure(name,archive) {
+export async function measure(name,archive,options=[]) {
   for(let attempt=1;attempt<=3;attempt++) {
-    const child=spawnSync(process.execPath,[cli,'capture',name,archive],{
+    const child=spawnSync(process.execPath,[cli,'capture',name,archive,...options],{
       encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:2*1024*1024,
     });
     if(child.error) throw child.error;
@@ -63,4 +63,25 @@ export async function measure(name,archive) {
     execFileSync(process.execPath,[cli,'retain',name,archive,digest],{stdio:'inherit'});
     return;
   }
+}
+
+// Source names come from the original capture's immutable, released lease.
+export function previouslyUploaded(archive,runId,digest) {
+  assert.match(runId,/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
+  const directory=join(privateArchive(archive),runId);
+  function one(kind) {
+    const files=readdirSync(directory).filter(f=>f.endsWith('-'+kind+'.json'));
+    assert.equal(files.length,1,kind);
+    return immutableJson(join(directory,files[0])).data;
+  }
+  const activated=one('activate'),closed=one('closed'),acquired=one('acquired');
+  assert.equal(activated.digest,digest);
+  assert.equal(activated.previous,manifest.target.closedRuleset);
+  assert.equal(closed.databaseUid,manifest.target.uid);
+  assert.equal(closed.rulesetName,manifest.target.closedRuleset);
+  assert.equal(closed.rulesSha256,manifest.files['v1/rules/closed.rules']);
+  assert.equal(closed.lockRunId,runId);
+  assert.equal(closed.lockVersion,acquired.lockVersion);
+  assert.deepEqual(one('released'),{runId,version:acquired.lockVersion});
+  return activated.candidate;
 }

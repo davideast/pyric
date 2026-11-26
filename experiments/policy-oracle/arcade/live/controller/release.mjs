@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import { api, dbName, dbUrl, currentRelease, preflight, releaseLock, releaseName, switchRelease, takeLock, uploadRules } from '../control.mjs';
 import { manifest, sha } from '../../corpus.mjs';
 import { now } from './archive.mjs';
@@ -6,6 +7,15 @@ import { now } from './archive.mjs';
 const { uid, project, closedRuleset } = manifest.target;
 const closedSha = manifest.files['v1/rules/closed.rules'];
 const lockUrl = dbUrl + '/documents/oracleLocks/arcade-counter';
+const preparedRelease = new AsyncLocalStorage();
+
+// Reuse immutable Rules bytes only within this one capture invocation.
+export function withPreparedRuleset(name, run) {
+  const prefix = 'projects/' + project + '/rulesets/';
+  assert.ok(typeof name === 'string' && name.startsWith(prefix));
+  assert.match(name.slice(prefix.length), /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/);
+  return preparedRelease.run(name, run);
+}
 
 async function verifyLease(runId, lockVersion) {
   const db = await api(dbUrl);
@@ -32,6 +42,7 @@ async function inspect(runId, lockVersion, expectedName, expectedSha) {
 }
 
 const management = { inspect, verifyLease, preflight, takeLock, releaseLock, switchRelease, uploadRules, currentRelease,
+  async getRuleset(name) { return api('https://firebaserules.googleapis.com/v1/' + name); },
   async recoverLock(runId) {
     const lock = await api(lockUrl);
     if (lock.fields.runId.stringValue === runId) return lock.updateTime;
@@ -60,7 +71,19 @@ export async function withRelease({ runId, journal, source, digest, setupClients
     await setupClients(setup.config);
     await checkPropagation('initially-closed', initial);
     checkStop();
-    candidate = await service.uploadRules(source, setup.projectNumber, digest);
+    const prepared = preparedRelease.getStore();
+    if (prepared) {
+      const rule = await service.getRuleset(prepared);
+      assert.equal(rule.name, prepared);
+      assert.equal(rule.attachmentPoint, 'firestore.googleapis.com/projects/' + setup.projectNumber + '/databases/' + manifest.target.database);
+      assert.deepEqual(rule.metadata.services, ['cloud.firestore']);
+      assert.deepEqual(rule.source.files, [{name: 'firestore.rules', content: source}]);
+      assert.equal(sha(rule.source.files[0].content), digest);
+      candidate = prepared;
+      journal.event('reuse-reviewed-ruleset', {candidate, digest});
+    } else {
+      candidate = await service.uploadRules(source, setup.projectNumber, digest);
+    }
     assert.ok(candidate.startsWith('projects/' + project + '/rulesets/'));
     assert.notEqual(candidate, closedRuleset);
     await inspectRelease(closedRuleset, closedSha);

@@ -80,19 +80,25 @@ function report(archive, allowUnmeasured) {
 
 const [operation,...args]=process.argv.slice(2);
 if(operation==='measure') {
-  const [name,archive]=args;
-  assert.equal(args.length,2);
+  const [name,archive,...options]=args;
+  assert.ok(!options.length || (options.length===2 && options[0]==='--reuse-run'));
   const {measure}=await import('./measure.mjs');
-  await measure(name,archive);
+  await measure(name,archive,options);
   const {measurements}=verify(name,reviewedPlan(name),archive);
   console.log('Replayed',measurements.decisions.length,'signed writes and closure',measurements.receipt);
 } else if(operation==='capture' || operation==='retain') {
   const [name,archive,receipt]=args;
   const {plan,bundle,fixtures,receipts}=reviewedPlan(name);
   if(operation==='capture') {
-    assert.equal(args.length,2);
+    assert.ok(args.length===2 || (args.length===4 && args[2]==='--reuse-run'));
     const {capture}=await import('../../for-of/live/capture.mjs');
-    await capture([name,archive,bundle,plan.rulesSha256],fixtures);
+    const run=()=>capture([name,archive,bundle,plan.rulesSha256],fixtures);
+    if(args.length===2) await run();
+    else {
+      const {previouslyUploaded}=await import('./measure.mjs');
+      const {withPreparedRuleset}=await import('../../../arcade/live/controller/release.mjs');
+      await withPreparedRuleset(previouslyUploaded(archive,args[3],plan.rulesSha256),run);
+    }
   } else {
     assert.equal(args.length,3);
     retain([archive,receipt,bundle],fixtures,receipts);

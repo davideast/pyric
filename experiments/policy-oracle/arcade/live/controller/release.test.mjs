@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
 import { manifest, sha } from '../../corpus.mjs';
-import { withRelease } from './release.mjs';
+import { withRelease, withPreparedRuleset } from './release.mjs';
 
 const closed = manifest.target.closedRuleset;
 const open = 'projects/' + manifest.target.project + '/rulesets/test-candidate';
@@ -89,4 +89,30 @@ test('a failed acquisition never releases a foreign lease', async () => {
   service.takeLock = async () => { throw Error('lease busy'); };
   await assert.rejects(withRelease(options, service), /lease busy/);
   assert.deepEqual(history, []);
+});
+
+test('reusing a previously uploaded source verifies its project, attachment and entire file list before activation', async () => {
+  const name='projects/'+manifest.target.project+'/rulesets/'+randomUUID();
+  for (const fault of [null,'name','database','content','extra','service']) {
+    const {options,service,history}=mock();
+    service.uploadRules=()=>{throw Error('unexpected upload');};
+    service.getRuleset=async key=>{
+      assert.equal(key,name);
+      return {name:fault==='name' ? 'another-ruleset' : name,
+        attachmentPoint:'firestore.googleapis.com/projects/1/databases/'+(fault==='database'?'other':manifest.target.database),
+        source:{files:[{name:'firestore.rules',content:fault==='content'?'wrong':options.source},...(fault==='extra'?[{name:'other',content:'x'}]:[])]},
+        metadata:{services:[fault==='service'?'other':'cloud.firestore']}};
+    };
+    const run=()=>withPreparedRuleset(name,()=>withRelease(options,service));
+    if (fault) {
+      await assert.rejects(run);
+      assert.deepEqual(history,['initially-closed','unlock']);
+    } else {
+      await run();
+      assert.deepEqual(history,['initially-closed',name,'open',closed,'restored-closed','unlock']);
+    }
+  }
+  for(const invalid of [name.replace('/rulesets/','/releases/'),name+'/suffix',name.replace(manifest.target.project,'wrong-project')]) {
+    assert.throws(()=>withPreparedRuleset(invalid,()=>assert.fail('invoked foreign source')));
+  }
 });
