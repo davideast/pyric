@@ -1,0 +1,40 @@
+{
+  "source": "native Arcade successor rights, independent standalone agreement",
+  "moves": 128,
+  "writes": 2048,
+  "sha256": "69ea989bf775b9d6419a4cd86a5f5c7ae6b29d641c7e23fa10c9afb44919cd51",
+  "groups": {
+    "corner-to-corner-drop-0": {
+      "allow": 16,
+      "deny": 240
+    },
+    "king-step-drop-0": {
+      "allow": 8,
+      "deny": 120
+    },
+    "corner-to-corner-drop-1": {
+      "allow": 32,
+      "deny": 480
+    },
+    "king-step-drop-1": {
+      "allow": 16,
+      "deny": 240
+    },
+    "castle-drop-1": {
+      "allow": 16,
+      "deny": 240
+    },
+    "king-step-drop-2": {
+      "allow": 8,
+      "deny": 120
+    },
+    "castle-drop-2": {
+      "allow": 16,
+      "deny": 240
+    },
+    "corner-to-corner-drop-2": {
+      "allow": 16,
+      "deny": 240
+    }
+  }
+}

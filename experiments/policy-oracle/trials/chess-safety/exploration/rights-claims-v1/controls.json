@@ -1,0 +1,26 @@
+[
+  {
+    "id": "a1a8-KQkq-claim-Kk",
+    "fen": "r3k2r/8/8/8/8/8/8/R3K2R w KQkq -",
+    "uci": "a1a8",
+    "claimedRights": "Kk"
+  },
+  {
+    "id": "a1a8-KQkq-claim-KQk",
+    "fen": "r3k2r/8/8/8/8/8/8/R3K2R w KQkq -",
+    "uci": "a1a8",
+    "claimedRights": "KQk"
+  },
+  {
+    "id": "a1a8-KQkq-claim-Kkq",
+    "fen": "r3k2r/8/8/8/8/8/8/R3K2R w KQkq -",
+    "uci": "a1a8",
+    "claimedRights": "Kkq"
+  },
+  {
+    "id": "a1a8-KQkq-claim-KQkq",
+    "fen": "r3k2r/8/8/8/8/8/8/R3K2R w KQkq -",
+    "uci": "a1a8",
+    "claimedRights": "KQkq"
+  }
+]
