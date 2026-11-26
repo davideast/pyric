@@ -41,14 +41,26 @@ function describeForeignCaller(rawOrigin: string | undefined, site: string | und
   return 'a foreign page';
 }
 
+export interface RefuseForeignOriginOptions {
+  /**
+   * True when the unified request guard (`evaluateGuard`) already verified
+   * `Origin`, `Sec-Fetch-Site`, scheme, and trusted forwarding headers for a
+   * remote request.
+   */
+  readonly guardVerifiedOrigin?: boolean;
+}
+
 /** Answers 403 and returns true when a private function's caller is a foreign page. */
 export function refuseForeignOrigin(
   req: IncomingMessage,
   res: ServerResponse,
   fn: HttpFunctionInfo,
   allowsAppOrigin: AppOriginCheck,
+  options?: RefuseForeignOriginOptions,
 ): boolean {
-  const isForeignCaller = fn.privateInvoker && (isForeignFetchWithoutOrigin(req) || !allowsAppOrigin(req));
+  if (!fn.privateInvoker) return false;
+  const originRejected = options?.guardVerifiedOrigin !== true && !allowsAppOrigin(req);
+  const isForeignCaller = isForeignFetchWithoutOrigin(req) || originRejected;
   if (!isForeignCaller) return false;
   const caller = describeForeignCaller(getHeader(req, 'origin'), getHeader(req, 'sec-fetch-site')?.trim());
   res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(

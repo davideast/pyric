@@ -10,6 +10,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { briefPackageProblems } from './brief-packages.ts';
 import { parseJsonText, parseWith, type Parsed } from './parse.ts';
 
 export const STRESS_DIMENSIONS = ['scale', 'lifecycle', 'integration', 'combination', 'concurrency'] as const;
@@ -69,21 +70,33 @@ function readBriefFile(path: string): Parsed<Brief> {
 /** The command that makes a round's briefs directory under the data root. */
 export const briefsSetupCommand = (dir: string) => `mkdir -p ${dir}`;
 
+export interface ReadBriefsOptions {
+  startersDir?: string;
+}
+
 /** The briefs in `dir`, or, when there is no such directory, the command that makes it. */
-export function readBriefsDir(dir: string): { briefs: Brief[]; errors: string[] } {
-  if (existsSync(dir)) return readBriefs(dir);
+export function readBriefsDir(dir: string, options: ReadBriefsOptions = {}): { briefs: Brief[]; errors: string[] } {
+  if (existsSync(dir)) return readBriefs(dir, options);
   return { briefs: [], errors: [`no briefs directory ${dir}: make it with \`${briefsSetupCommand(dir)}\` and write the round's briefs there`] };
 }
 
 /** Every `*.json` brief in `dir`, sorted by name, or each file's errors. */
-export function readBriefs(dir: string): { briefs: Brief[]; errors: string[] } {
+export function readBriefs(dir: string, options: ReadBriefsOptions = {}): { briefs: Brief[]; errors: string[] } {
   const files = readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
   const briefs: Brief[] = [];
   const errors: string[] = [];
   for (const file of files) {
     const parsed = readBriefFile(join(dir, file));
-    if (parsed.ok) briefs.push(parsed.value);
-    else errors.push(...parsed.errors.map((error) => `${file}: ${error}`));
+    if (!parsed.ok) {
+      errors.push(...parsed.errors.map((error) => `${file}: ${error}`));
+      continue;
+    }
+    const packageProblems = briefPackageProblems(parsed.value, options.startersDir);
+    if (packageProblems.length > 0) {
+      errors.push(...packageProblems.map((problem) => `${file}: ${problem}`));
+      continue;
+    }
+    briefs.push(parsed.value);
   }
   if (files.length === 0) errors.push(`no *.json briefs in ${dir}`);
   const ids = briefs.map((brief) => brief.id);

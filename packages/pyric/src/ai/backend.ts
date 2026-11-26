@@ -15,9 +15,12 @@ export const BackendType = {
 } as const;
 export type BackendType = (typeof BackendType)[keyof typeof BackendType];
 
+const DEFAULT_AGENT_PLATFORM_LOCATION = 'global';
+
 /**
  * Abstract base class representing the configuration for an AI service
- * backend. Do not instantiate directly -- use {@link GoogleAIBackend}.
+ * backend. Do not instantiate directly -- use {@link GoogleAIBackend} or
+ * {@link AgentPlatformBackend}.
  */
 export abstract class Backend {
   readonly backendType: BackendType;
@@ -31,5 +34,18 @@ export abstract class Backend {
 export class GoogleAIBackend extends Backend {
   constructor() {
     super(BackendType.GOOGLE_AI);
+  }
+}
+
+/**
+ * Configuration class for the Agent Platform Gemini API backend (formerly
+ * Vertex AI Gemini API). Defaults `location` to `'global'` when omitted or empty.
+ */
+export class AgentPlatformBackend extends Backend {
+  readonly location: string;
+
+  constructor(location?: string) {
+    super(BackendType.AGENT_PLATFORM);
+    this.location = location ? location : DEFAULT_AGENT_PLATFORM_LOCATION;
   }
 }

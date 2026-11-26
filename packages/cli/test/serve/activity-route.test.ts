@@ -9,7 +9,8 @@ const servers: Server[] = [];
 const ACTIVITY_TOKEN = 'activity-test-token';
 afterEach(async () => {
   while (servers.length > 0) {
-    const server = servers.pop()!;
+    const server = servers.pop();
+    if (!server) continue;
     await new Promise<void>((resolve, reject) => server.close((error) => {
       if (error) reject(error);
       else resolve();
@@ -202,6 +203,67 @@ describe('activity route', () => {
       body: chunked,
     });
     await expectClosedEarlyAnswer(oversized, 413, url);
+  });
+
+  it('deduplicates identical hosted subscription incidents across tabs while preserving severity escalations', async () => {
+    const incidents: ActivityIncident[] = [];
+    const url = await startActivityServer((value) => incidents.push(value));
+    const duplicateWarning = incident({
+      pattern: 'duplicate-listener',
+      confidence: 'medium',
+      severity: 'warning',
+      method: 'listen',
+      targetFingerprint: JSON.stringify({ kind: 'doc', path: 'todos/t1' }),
+      count: 3,
+      windowMs: 50,
+      evidenceEventIds: ['sub-1', 'sub-2', 'sub-3'],
+      listenerBalance: { attaches: 3, detaches: 0, active: 3 },
+      usage: {
+        unit: 'listener-attaches',
+        lowerBound: 3,
+        limitations: ['Listener lifecycle events count attachments.'],
+      },
+    });
+
+    for (let tab = 0; tab < 2; tab += 1) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: url,
+          'x-pyric-activity-token': ACTIVITY_TOKEN,
+        },
+        body: JSON.stringify(duplicateWarning),
+      });
+      expect(response.status).toBe(204);
+    }
+
+    expect(incidents).toHaveLength(1);
+
+    const criticalEscalation = incident({
+      ...duplicateWarning,
+      confidence: 'high',
+      severity: 'critical',
+      count: 10,
+      evidenceEventIds: ['sub-3', 'sub-4', 'sub-5', 'sub-6', 'sub-7', 'sub-8', 'sub-9', 'sub-10'],
+      listenerBalance: { attaches: 10, detaches: 0, active: 10 },
+      usage: {
+        unit: 'listener-attaches',
+        lowerBound: 10,
+        limitations: ['Listener lifecycle events count attachments.'],
+      },
+    });
+    const escalated = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: url,
+        'x-pyric-activity-token': ACTIVITY_TOKEN,
+      },
+      body: JSON.stringify(criticalEscalation),
+    });
+    expect(escalated.status).toBe(204);
+    expect(incidents).toHaveLength(2);
   });
 
 });

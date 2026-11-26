@@ -74,10 +74,16 @@ export interface AiStreamSubMessage {
   appCheck?: AiAppCheckWire;
 }
 
+type MessagingSubTarget =
+  | 'messaging.foreground'
+  | 'messaging.background'
+  | 'messaging.registered'
+  | 'messaging.unregistered';
+
 export interface MessagingSubMessage {
   t: 'sub';
   subId: string;
-  target: 'messaging.foreground' | 'messaging.background';
+  target: MessagingSubTarget;
   recipientId?: string;
 }
 
@@ -127,8 +133,17 @@ export function isEventSub(msg: SubMessage): msg is EventSubMessage {
   return msg.target === 'events';
 }
 
+function isMessagingSubTarget(target: unknown): target is MessagingSubTarget {
+  return (
+    target === 'messaging.foreground' ||
+    target === 'messaging.background' ||
+    target === 'messaging.registered' ||
+    target === 'messaging.unregistered'
+  );
+}
+
 export function isMessagingSub(msg: SubMessage): msg is MessagingSubMessage {
-  return msg.target === 'messaging.foreground' || msg.target === 'messaging.background';
+  return isMessagingSubTarget(msg.target);
 }
 
 export function isPresenceSub(msg: SubMessage): msg is PresenceSubMessage {

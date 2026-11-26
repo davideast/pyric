@@ -13,6 +13,7 @@
  * resolver and the catch-all listener may see only the unhooked plants.
  */
 import { normalizeHostname } from '../../../packages/cli/src/google-endpoints.ts';
+import type { SandboxStop } from '../namespace.ts';
 import type { BrowserConnect, BrowserRequest } from '../recorder/chromium-netlog.ts';
 import { isGoogleOrMetadata, isLoopbackHost } from '../recorder/google-hosts.ts';
 import { EXPECTED_PLANTS, type ExpectedPlants } from './plant-names.ts';
@@ -49,6 +50,7 @@ export interface CanaryObservations {
   browser: { plants: BrowserPlantResult[]; local: { url: string; outcome: string } };
   unhooked: { plants: UnhookedPlantResult[] };
   record: NetworkEvent[];
+  sandbox?: SandboxStop;
 }
 
 export interface CanaryCheck {
@@ -226,6 +228,12 @@ function judgeCatchAllConnects(connects: readonly NamespaceConnectEvent[], unhoo
   return { name: 'sandbox: only the unhooked plants reached the catch-all listener', ok: unexpected.length === 0, detail };
 }
 
+function judgeSandboxStop(sandbox: SandboxStop): CanaryCheck {
+  const stopped = sandbox === 'exited';
+  const detail = stopped ? 'exited' : 'still running after SIGKILL';
+  return { name: 'sandbox: stopped cleanly', ok: stopped, detail };
+}
+
 /** Fails a side whose report is missing an expected plant or names one not expected. */
 export function judgePlantSet(side: string, reported: readonly { name: string }[], expected: readonly string[]): CanaryCheck {
   const names = reported.map((plant) => plant.name);
@@ -260,6 +268,7 @@ export function judgeCanary(observations: CanaryObservations, expected: Expected
     ...observations.unhooked.plants.map((plant) => judgeUnhookedPlant(plant, queries, connects)),
     judgeResolverQueries(queries, observations.unhooked.plants),
     judgeCatchAllConnects(connects, observations.unhooked.plants),
+    judgeSandboxStop(observations.sandbox ?? 'exited'),
   ];
   return {
     ok: checks.every((check) => check.ok),

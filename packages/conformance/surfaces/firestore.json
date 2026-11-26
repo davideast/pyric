@@ -43,17 +43,6 @@
   "registry": "firestore",
   "dispositions": [
     {
-      "id": "firestore.min-max-aggregates",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "The maximum and minimum aggregates are new in firebase 12.19.0 and belong next to sum and average in the aggregate engine; implementing them is tracked in #1672.",
-      "evidenceRefs": ["upstream:firebase/firestore@4.17.2"],
-      "symbols": [
-        "maximum",
-        "minimum"
-      ]
-    },
-    {
       "id": "firestore.enterprise-bson-values",
       "availability": "deferred",
       "reasonCode": "implementation-deferred",

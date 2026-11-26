@@ -5,7 +5,7 @@ import { sandbox as authSandbox, type Auth, type MintedSession } from 'pyric/aut
 import { normalizeTenantScope, resolveCustomTokenIdentity } from 'pyric/auth/internal';
 import { get as rawRtdbGet, getAdminDatabase as pyricGetAdminDatabase, getDatabase as pyricGetDatabase, ref as rtdbRef, remove as rawRtdbRemove, set as rawRtdbSet, update as rawRtdbUpdate, type Database } from 'pyric/database';
 import type { AuthState } from 'pyric/sandbox';
-import { authAccountsFor, checkIdToken, getClock, parseClaimJson, resolveDatabaseInstance, rulesTokenFromIdToken, SANDBOX_PROJECT_ID, sdkActivity, utf8FromBase64url } from 'pyric/sandbox/internal';
+import { authAccountsFor, checkIdToken, getClock, parseClaimJson, resolveDatabaseInstance, rulesTokenFromIdToken, SANDBOX_PROJECT_ID, sdkActivity, utf8FromBase64url, type AuthAccountStanding } from 'pyric/sandbox/internal';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import type { PyricWriteRefusal } from './hosted/own-writes.js';
 import { getHeader } from './loopback-guard.js';
@@ -17,6 +17,8 @@ import type { ResolvedIdentity } from './worker/protocol.js';
 
 const AUTH_BODY_LIMIT_BYTES = 64 * 1024;
 const RTDB_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+/** Upper bound on in-memory REST refresh tokens retained per dev-server host context. */
+export const MAX_REFRESH_SESSIONS_PER_HOST = 1024;
 const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 const SECURETOKEN_ISSUER_PREFIX = 'https://securetoken.google.com/';
 const EXPIRES_IN_SECONDS = '3600';
@@ -27,7 +29,7 @@ const AUTH_REST_ERROR_LABELS: Readonly<Record<string, string>> = {
 };
 
 export type RestAuthRtdbHandler = (req: IncomingMessage, res: ServerResponse, url: URL) => boolean | Promise<boolean>;
-export interface RestAuthRtdbOptions { readonly ctx: HostCtx; readonly ownWriteRefusal?: PyricWriteRefusal; readonly stagedIdentities?: ReadonlyMap<string, ResolvedIdentity>; }
+export interface RestAuthRtdbOptions { readonly ctx: HostCtx; readonly ownWriteRefusal?: PyricWriteRefusal; readonly stagedIdentities?: ReadonlyMap<string, ResolvedIdentity>; readonly maxRefreshSessions?: number; }
 type RestRoute = { readonly kind: 'signInWithIdp' } | { readonly kind: 'signInWithCustomToken' } | { readonly kind: 'tokenRefresh' } | { readonly kind: 'rtdb'; readonly rawPath: string };
 interface IdpProfile { readonly subjectUid: string; readonly email: string | null; readonly displayName: string | null; readonly photoURL: string | null; readonly emailVerified: boolean | undefined; }
 
@@ -109,14 +111,27 @@ function classifyRestRoute(pathname: string): RestRoute | null {
   return null;
 }
 
+function resolveMaxRefreshSessions(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return MAX_REFRESH_SESSIONS_PER_HOST;
+  const floored = Math.floor(limit);
+  if (floored < 1) return 1;
+  if (floored > MAX_REFRESH_SESSIONS_PER_HOST) return MAX_REFRESH_SESSIONS_PER_HOST;
+  return floored;
+}
 function refreshMapFor(ctx: HostCtx): Map<string, MintedSession> {
   let map = refreshSessionsByCtx.get(ctx);
   if (map === undefined) { map = new Map<string, MintedSession>(); refreshSessionsByCtx.set(ctx, map); }
   return map;
 }
-function issueRefreshToken(ctx: HostCtx, session: MintedSession): string {
+function issueRefreshToken(ctx: HostCtx, session: MintedSession, maxEntries: number): string {
+  const map = refreshMapFor(ctx);
   const token = randomBytes(24).toString('base64url');
-  refreshMapFor(ctx).set(token, session);
+  while (map.size >= maxEntries) {
+    const oldest = map.keys().next();
+    if (oldest.done === true) break;
+    map.delete(oldest.value);
+  }
+  map.set(token, session);
   return token;
 }
 function decodeBase64JsonSegment(segment: string): Record<string, unknown> | null {
@@ -202,7 +217,7 @@ async function handleSignInWithIdp(req: IncomingMessage, res: ServerResponse, op
     const session = authSandbox.mintSession(auth, { kind: 'provider', uid, providerId, tenantId });
     await bestEffortFlush(options.ctx, 'auth.acceptIdentity');
     const tokenResult = await session.user.getIdTokenResult(true);
-    const refreshToken = issueRefreshToken(options.ctx, session);
+    const refreshToken = issueRefreshToken(options.ctx, session, resolveMaxRefreshSessions(options.maxRefreshSessions));
     const responseBody = {
       kind: 'identitytoolkit#VerifyAssertionResponse', federatedId: profile.subjectUid, providerId, localId: session.user.uid, emailVerified: session.user.emailVerified,
       email: session.user.email ?? '', displayName: session.user.displayName ?? '', photoUrl: session.user.photoURL ?? '',
@@ -224,7 +239,7 @@ async function handleSignInWithCustomToken(req: IncomingMessage, res: ServerResp
     const session = authSandbox.mintSession(auth, { kind: 'custom', uid: user.uid, tenantId });
     await bestEffortFlush(options.ctx, 'auth.signInWithCustomToken');
     const tokenResult = await session.user.getIdTokenResult(true);
-    const refreshToken = issueRefreshToken(options.ctx, session);
+    const refreshToken = issueRefreshToken(options.ctx, session, resolveMaxRefreshSessions(options.maxRefreshSessions));
     const responseBody = { kind: 'identitytoolkit#VerifyCustomTokenResponse', idToken: tokenResult.token, refreshToken, expiresIn: EXPIRES_IN_SECONDS, isNewUser };
     sendJson(res, 200, responseBody);
   } catch (error) { sendAuthRestError(res, 400, authErrorLabel(error, 'INVALID_CUSTOM_TOKEN')); }
@@ -256,7 +271,7 @@ async function handleSecureTokenRefresh(req: IncomingMessage, res: ServerRespons
   try {
     const refreshed = remintSessionWithClaims(ensureAuth(options.ctx), existing);
     map.delete(parsedFields.refreshToken);
-    const nextRefreshToken = issueRefreshToken(options.ctx, refreshed);
+    const nextRefreshToken = issueRefreshToken(options.ctx, refreshed, resolveMaxRefreshSessions(options.maxRefreshSessions));
     const tokenResult = await refreshed.user.getIdTokenResult(true);
     const projectId = resolveTargetProjectId(options.ctx);
     const responseBody = { access_token: tokenResult.token, expires_in: EXPIRES_IN_SECONDS, token_type: 'Bearer', refresh_token: nextRefreshToken, id_token: tokenResult.token, user_id: refreshed.user.uid, project_id: projectId };
@@ -284,6 +299,28 @@ function isIdTokenFreshAt(claims: Record<string, unknown>, nowSec: number): bool
   if (claims.nbf === undefined) return true;
   return typeof claims.nbf === 'number' && claims.nbf <= nowSec;
 }
+function isRejectedByAccountStanding(
+  standing: AuthAccountStanding,
+  claims: Record<string, unknown>,
+): boolean {
+  if (standing.kind === 'disabled' || standing.kind === 'deleted') {
+    return true;
+  }
+  if (standing.kind !== 'active' || standing.tokensValidAfterMs === null) {
+    return false;
+  }
+  const validAfterMs = standing.tokensValidAfterMs;
+  const authTime = claims.auth_time;
+  const issuedAt = claims.iat;
+  const hasAuthTime = typeof authTime === 'number' && Number.isFinite(authTime);
+  const hasIssuedAt = typeof issuedAt === 'number' && Number.isFinite(issuedAt);
+  if (authTime !== undefined && !hasAuthTime) return true;
+  if (issuedAt !== undefined && !hasIssuedAt) return true;
+  if (!hasAuthTime && !hasIssuedAt) return true;
+  if (hasAuthTime && Math.floor(authTime) * 1000 < validAfterMs) return true;
+  if (hasIssuedAt && Math.floor(issuedAt) * 1000 < validAfterMs) return true;
+  return false;
+}
 async function resolveRtdbAuthState(ctx: HostCtx, req: IncomingMessage, url: URL): Promise<{ ok: true; state: AuthState } | { ok: false }> {
   const rawToken = extractRequestToken(req, url);
   if (rawToken === null) return { ok: false };
@@ -298,7 +335,10 @@ async function resolveRtdbAuthState(ctx: HostCtx, req: IncomingMessage, url: URL
   if (claims.aud !== expectedProject || claims.iss !== `${SECURETOKEN_ISSUER_PREFIX}${expectedProject}`) return { ok: false };
   const nowSec = Math.floor(getClock(ctx.sandbox).now() / 1000);
   if (isIdTokenFreshAt(claims, nowSec) === false) return { ok: false };
-  if (authAccountsFor(ctx.sandbox)?.standing(sub).kind === 'disabled') return { ok: false };
+  const accounts = authAccountsFor(ctx.sandbox);
+  if (accounts !== undefined && isRejectedByAccountStanding(accounts.standing(sub), claims)) {
+    return { ok: false };
+  }
   const rulesToken = rulesTokenFromIdToken(claims);
   const authState: NonNullable<AuthState> = { uid: sub, token: rulesToken };
   if (isPlainObject(rulesToken.firebase) && typeof rulesToken.firebase.tenant === 'string') authState.tenant = rulesToken.firebase.tenant;

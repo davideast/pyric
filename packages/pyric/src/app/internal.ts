@@ -8,6 +8,7 @@ import {
 } from './runtime.js';
 
 export { bindAppRegistryRefusal, bindAppRegistrySandbox, resetAppRegistryForTests } from './registry.js';
+export { authStateFromServerIdToken } from './server-app-tokens.js';
 export { clientSdkRefusal, clientSdkRefusalFor } from './client-sdk-refusal.js';
 export { firebaseOptionsEqual } from './options.js';
 export { isSandboxAppDeleted };

@@ -1,4 +1,4 @@
-/** Served `firebase/app`: Pyric client registry with shadow container bridge for production AI pass-through. */
+/** Served `firebase/app`: Pyric client and server app registries with shadow container bridge for production AI pass-through. */
 import { bindAppRegistrySandbox } from 'pyric/app/internal';
 import * as pyricApp from 'pyric/app';
 import { shadowedAppRegistry } from '../../register/app-bridge-shadow.js';
@@ -11,12 +11,17 @@ const registry = shadowedAppRegistry({
     bindAppRegistrySandbox(sandbox);
     return pyricApp.initializeApp(options, rawSettings);
   },
+  initializeServerApp(options, rawSettings) {
+    bindAppRegistrySandbox(sandbox);
+    return pyricApp.initializeServerApp(options as pyricApp.FirebaseOptions, rawSettings);
+  },
   getApp: pyricApp.getApp,
   getApps: pyricApp.getApps,
   deleteApp: pyricApp.deleteApp,
 });
 
 export const initializeApp = registry.initializeApp;
+export const initializeServerApp = registry.initializeServerApp;
 export const getApp = registry.getApp;
 export const getApps = registry.getApps;
 export const deleteApp = registry.deleteApp;
@@ -32,6 +37,8 @@ export type {
   FirebaseApp,
   FirebaseAppSettings,
   FirebaseOptions,
+  FirebaseServerApp,
+  FirebaseServerAppSettings,
   LogCallback,
   LogEntry,
   LogLevel,

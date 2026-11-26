@@ -71,6 +71,7 @@ const NON_PERSISTED_LIVE_WRITE: Readonly<Record<NonPersistedOperationMethod, boo
   'auth.listUsers': false,
   'auth.adminGetAccountStanding': false,
   'auth.getProviderConfig': false,
+  'auth.getEmailEnumerationProtection': false,
   'storage.listAll': false,
   'storage.getMetadata': false,
   'storage.getBlob': false,

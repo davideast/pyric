@@ -72,6 +72,14 @@ export class FieldValue {
     return createIncrementSentinel(n);
   }
 
+  static maximum(n: number): FieldValue & FieldValueSentinel {
+    return createMaximumSentinel(n);
+  }
+
+  static minimum(n: number): FieldValue & FieldValueSentinel {
+    return createMinimumSentinel(n);
+  }
+
   static arrayUnion(...values: unknown[]): FieldValue & FieldValueSentinel {
     return createArrayUnionSentinel(values);
   }
@@ -136,6 +144,52 @@ class NumericIncrementFieldValueImpl extends FieldValue {
   }
 }
 
+class NumericMaximumFieldValueImpl extends FieldValue {
+  readonly __type = 'maximum' as const;
+  readonly value: number;
+
+  constructor(operand: number) {
+    super('maximum');
+    this.value = operand;
+    defineHiddenProperty(this, '__sentinel', 'maximum');
+    defineHiddenProperty(this, 'n', operand);
+    markFieldValueSentinel(this);
+  }
+
+  override isEqual(other: unknown): boolean {
+    if (!(other instanceof NumericMaximumFieldValueImpl)) {
+      return false;
+    }
+    if (this.value === other.value) {
+      return true;
+    }
+    return Number.isNaN(this.value) && Number.isNaN(other.value);
+  }
+}
+
+class NumericMinimumFieldValueImpl extends FieldValue {
+  readonly __type = 'minimum' as const;
+  readonly value: number;
+
+  constructor(operand: number) {
+    super('minimum');
+    this.value = operand;
+    defineHiddenProperty(this, '__sentinel', 'minimum');
+    defineHiddenProperty(this, 'n', operand);
+    markFieldValueSentinel(this);
+  }
+
+  override isEqual(other: unknown): boolean {
+    if (!(other instanceof NumericMinimumFieldValueImpl)) {
+      return false;
+    }
+    if (this.value === other.value) {
+      return true;
+    }
+    return Number.isNaN(this.value) && Number.isNaN(other.value);
+  }
+}
+
 class ArrayUnionFieldValueImpl extends FieldValue {
   readonly __type = 'arrayUnion' as const;
   readonly values: unknown[];
@@ -184,6 +238,14 @@ export function createServerTimestampSentinel(): FieldValue & FieldValueSentinel
 
 export function createIncrementSentinel(n: number): FieldValue & FieldValueSentinel {
   return new NumericIncrementFieldValueImpl(n) as unknown as FieldValue & FieldValueSentinel;
+}
+
+export function createMaximumSentinel(n: number): FieldValue & FieldValueSentinel {
+  return new NumericMaximumFieldValueImpl(n) as unknown as FieldValue & FieldValueSentinel;
+}
+
+export function createMinimumSentinel(n: number): FieldValue & FieldValueSentinel {
+  return new NumericMinimumFieldValueImpl(n) as unknown as FieldValue & FieldValueSentinel;
 }
 
 export function createArrayUnionSentinel(values: unknown[]): FieldValue & FieldValueSentinel {

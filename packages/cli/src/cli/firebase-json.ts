@@ -1,7 +1,7 @@
 /**
  * Minimal `firebase.json` / `.firebaserc` reader for the CLI.
  *
- * Surfaces only the fields the subcommands actually touch — the
+ * Surfaces only the fields the subcommands actually touch -- the
  * full firebase.json schema is huge and a full parse isn't needed
  * for any current subcommand. New fields land alongside the
  * subcommand that consumes them.
@@ -10,10 +10,36 @@
  * the standard Firebase CLI uses the same convention.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { formatPyricCommand } from './command-hint.js';
+import { missingPublicDirHint } from './public-dir-hint.js';
+
+interface HostingRewriteConfig {
+  source?: string;
+  regex?: string;
+  glob?: string;
+  destination?: string;
+  function?: unknown;
+  run?: unknown;
+  dynamicLinks?: boolean;
+}
+
+interface HostingConfig {
+  public?: string;
+  source?: string;
+  rewrites?: HostingRewriteConfig[];
+  redirects?: unknown[];
+  i18n?: unknown;
+}
+
+interface ResolvedHostingSite {
+  /** Resolved static directory from `hosting.public`, or `null` when no static directory is served. */
+  publicDir: string | null;
+  /** Configured `hosting.public` label for diagnostics and startup lines, or `null` when unset. */
+  publicLabel: string | null;
+}
 
 export interface FirebaseJson {
   /**
@@ -55,6 +81,121 @@ export interface FirestoreConfigEntry extends FirestoreConfig {
    * `pyric.config` override serves on `(default)`. See `withDefaultFirestoreRules`.
    */
   pyricRulesOverride?: string;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isDestinationRewrite(rewrite: unknown): boolean {
+  return typeof rewrite === 'object' && rewrite !== null && 'destination' in rewrite;
+}
+
+function isDynamicRewrite(rewrite: unknown): boolean {
+  return typeof rewrite === 'object' && rewrite !== null && !('destination' in rewrite);
+}
+
+/**
+ * Extract the single hosting config `pyric sandbox` supports. Arrays
+ * (multi-site) take the first entry with a warning -- multi-site is out of
+ * scope (plan section 6).
+ */
+export function extractHosting(config: FirebaseJson | null): HostingConfig | null {
+  const hosting = config?.hosting;
+  if (!hosting || typeof hosting !== 'object') return null;
+  if (Array.isArray(hosting)) {
+    const first = hosting[0];
+    if (!first || typeof first !== 'object' || Array.isArray(first)) return null;
+    return first as HostingConfig;
+  }
+  return hosting as HostingConfig;
+}
+
+/** firebase.json's SPA idiom: a `**` rewrite to `/index.html`. */
+export function wantsSpaRewrite(hosting: HostingConfig | null): boolean {
+  const rewrites = Array.isArray(hosting?.rewrites) ? hosting.rewrites : [];
+  return rewrites.some((r) => r.source === '**' && r.destination === '/index.html');
+}
+
+/**
+ * Validate a `hosting` block against `firebase-tools` (`lib/hosting/config.js`)
+ * and resolve its served static directory (#1779, #1825).
+ *
+ * `firebase-tools` sets `root = source || public` with no `'public'` default:
+ * a block without `public` or `source` is accepted when it has a dynamic
+ * rewrite or redirect and no `destination` rewrite or `i18n` config, and deploys
+ * no static files (`publicDir: null`).
+ */
+export function resolveHostingSite(
+  cwd: string,
+  hosting: HostingConfig | null,
+  options: { hosted?: boolean } = {},
+): ResolvedHostingSite {
+  if (hosting === null) {
+    return { publicDir: null, publicLabel: null };
+  }
+  const sourceName = hosting.source;
+  const publicName = hosting.public;
+  const hasSource = isNonEmptyString(sourceName);
+  const hasPublic = isNonEmptyString(publicName);
+  if (hasSource && hasPublic) {
+    throw new Error('pyric sandbox: Can only specify "source" or "public" in a Hosting config, not both.');
+  }
+
+  const rewrites = Array.isArray(hosting.rewrites) ? hosting.rewrites : [];
+  const redirects = Array.isArray(hosting.redirects) ? hosting.redirects : [];
+  const hasStaticRewrite = rewrites.some(isDestinationRewrite);
+  const hasDynamicRewrite = rewrites.some(isDynamicRewrite);
+  const hasRedirects = redirects.length > 0;
+  const hasI18n = hosting.i18n !== undefined && hosting.i18n !== null && hosting.i18n !== false;
+  const hasRoot = hasSource || hasPublic;
+
+  if (!hasRoot && hasStaticRewrite) {
+    throw new Error(
+      'pyric sandbox: Must supply a "public" or "source" directory when using "destination" rewrites.',
+    );
+  }
+  if (!hasRoot && hasI18n) {
+    throw new Error(
+      'pyric sandbox: Must supply a "public" or "source" directory when using "i18n" configuration.',
+    );
+  }
+  if (!hasRoot && !hasDynamicRewrite && !hasRedirects) {
+    throw new Error(
+      'pyric sandbox: Must supply a "public" or "source" directory or at least one rewrite or redirect in each "hosting" config.',
+    );
+  }
+
+  if (hasSource) {
+    const sourceDir = resolve(cwd, sourceName);
+    if (!existsSync(sourceDir)) {
+      const hint = missingPublicDirHint(sourceDir, { cwd, hosted: options.hosted === true });
+      throw new Error(`pyric sandbox: hosting.source directory does not exist: ${sourceDir}${hint}`);
+    }
+    return { publicDir: null, publicLabel: null };
+  }
+
+  if (hasPublic) {
+    const publicDir = resolve(cwd, publicName);
+    if (!existsSync(publicDir)) {
+      const hint = missingPublicDirHint(publicDir, { cwd, hosted: options.hosted === true });
+      throw new Error(`pyric sandbox: hosting.public directory does not exist: ${publicDir}${hint}`);
+    }
+    return { publicDir, publicLabel: publicName };
+  }
+
+  return { publicDir: null, publicLabel: null };
+}
+
+/** The startup line for a project that serves no static site. */
+export function hostingNoStaticSiteLine(hasFirebaseJson: boolean, hasHostingBlock: boolean): string {
+  if (!hasFirebaseJson) {
+    return '\u2022 hosting  Off: no firebase.json. Add one with hosting.public to serve a site.';
+  }
+  if (!hasHostingBlock) {
+    return '\u2022 hosting  Off: firebase.json has no hosting block. Add hosting.public to serve a site.';
+  }
+  return '\u2022 hosting  No static files: hosting.public is not set.';
 }
 
 /**
@@ -100,7 +241,8 @@ interface DatabaseRulesEntry {
 /** The rules file a single-object `database` config names; undefined for the array form. */
 export function singleDatabaseRulesFile(config: FirebaseJson | null): string | undefined {
   const database = config?.database;
-  return Array.isArray(database) ? undefined : database?.rules;
+  if (Array.isArray(database)) return undefined;
+  return database?.rules;
 }
 
 export interface FirebaseRc {
@@ -109,10 +251,10 @@ export interface FirebaseRc {
     [alias: string]: string | undefined;
   };
   /**
-   * Deploy-target maps, keyed project → resource type → target name →
+   * Deploy-target maps, keyed project -> resource type -> target name ->
    * resource ids (mirrors firebase-tools' RCData,
-   * clones/firebase-tools/src/rc.ts:28-36). `hosting` (target → site ids),
-   * `database` (target → instance names) and `firestore` (target → database
+   * clones/firebase-tools/src/rc.ts:28-36). `hosting` (target -> site ids),
+   * `database` (target -> instance names) and `firestore` (target -> database
    * ids) are consumed.
    */
   targets?: {
@@ -125,7 +267,7 @@ export interface FirebaseRc {
 }
 
 /**
- * Read + parse `firebase.json` from `cwd`. Throws when missing — every
+ * Read + parse `firebase.json` from `cwd`. Throws when missing -- every
  * subcommand that needs project metadata expects a present file.
  */
 export async function readFirebaseJson(cwd: string = process.cwd()): Promise<FirebaseJson> {
@@ -143,14 +285,13 @@ export async function readFirebaseJson(cwd: string = process.cwd()): Promise<Fir
   try {
     return JSON.parse(raw) as FirebaseJson;
   } catch (e) {
-    throw new Error(
-      `pyric: failed to parse firebase.json: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`pyric: failed to parse firebase.json: ${detail}`);
   }
 }
 
 /**
- * Read + parse `.firebaserc` from `cwd`. Returns null when missing —
+ * Read + parse `.firebaserc` from `cwd`. Returns null when missing --
  * the project id can also come from `--project` / `PYRIC_PROJECT`, so
  * absence is not fatal at this layer.
  */
@@ -183,8 +324,7 @@ function parseFirebaseRc(raw: string): FirebaseRc {
   try {
     return JSON.parse(raw) as FirebaseRc;
   } catch (e) {
-    throw new Error(
-      `pyric: failed to parse .firebaserc: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(`pyric: failed to parse .firebaserc: ${detail}`);
   }
 }

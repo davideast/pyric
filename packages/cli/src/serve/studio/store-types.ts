@@ -1,11 +1,11 @@
 /**
- * Studio storage port shapes — server-side MIRROR of `@pyric/studio/ports`.
+ * Studio storage port shapes -- server-side MIRROR of `@pyric/studio/ports`.
  *
- * `@pyric/studio` is a CONSUMER of @pyric/cli' serve routes, not a dependency
+ * `@pyric/studio` is a CONSUMER of @pyric/cli serve routes, not a dependency
  * of it; adding a `@pyric/studio` dep here would invert the layering (and risk
  * a cycle). So the disk impls in this directory type-check against these local
  * copies, which are structurally identical to the port interfaces. Keep them in
- * lockstep with `packages/studio/src/ports.ts` — that file is the contract.
+ * lockstep with `packages/studio/src/ports.ts` -- that file is the contract.
  */
 
 export interface WorkspaceEntry {
@@ -20,12 +20,34 @@ export interface WorkspaceChange {
 }
 
 /**
+ * A Storage object carried on a branch summary strictly by SHA-256 byte
+ * reference (ADR 0018), never inline base64 bytes.
+ */
+export interface WorkspaceBranchStorageReference {
+  /** Non-default bucket holding the object; omitted for the default bucket. */
+  bucket?: string;
+  /** Full path within the bucket. */
+  path: string;
+  /** Lowercase 64-character hex SHA-256 digest of the object's bytes. */
+  sha256: string;
+  /** Byte length of the object. */
+  size: number;
+  /** Content type reported by object metadata, when set. */
+  contentType?: string;
+  /** User-defined custom metadata key/value pairs. */
+  customMetadata: Record<string, string>;
+  /** Stored Blob MIME type when present. */
+  blobType?: string;
+}
+
+/**
  * One branch the project holds on disk, as the branch store reports it.
  *
  * The branch store's on-disk format, the manifest and the record bundle and
  * the event log, is read by the store alone, on the server side of this port. What
  * crosses the port is the branch already rebuilt: what the manifest recorded,
- * plus the Firestore documents the branch holds after its events were applied.
+ * the Firestore documents the branch holds after its events were applied, and
+ * any Storage objects represented as SHA-256 byte references.
  */
 export interface WorkspaceBranch {
   name: string;
@@ -36,6 +58,8 @@ export interface WorkspaceBranch {
   eventCount: number;
   /** The branch's Firestore documents, by document path. */
   documents: Record<string, Record<string, unknown>>;
+  /** The branch's Storage objects by SHA-256 reference; omitted when empty. */
+  storage?: WorkspaceBranchStorageReference[];
 }
 
 export interface WorkspaceStore {

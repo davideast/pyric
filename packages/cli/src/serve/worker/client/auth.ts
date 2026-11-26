@@ -46,6 +46,8 @@ export {
   adminClearUsers,
   getProviderConfig,
   setProviderConfig,
+  getEmailEnumerationProtection,
+  setEmailEnumerationProtection,
 } from './auth-admin.js';
 
 // ════════════════════════════════════════════════════════════════════════
