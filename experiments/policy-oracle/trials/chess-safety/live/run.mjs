@@ -108,7 +108,8 @@ if(operation==='measure') {
   if(operation==='lookup') assert.match(digest,/^[0-9a-f]{64}$/);
   assert.ok(!args.length || (args.length===2 && args[0]==='--archive'));
   const result=report(args[1],operation==='lookup');
-  const data=digest ? result.releases.find(r=>r.rulesSha256===digest)
-    ?? {rulesSha256:digest,status:'unmeasured',distinctCases:0,captures:[]} : result;
+  const measured=digest && result.releases.find(r=>r.rulesSha256===digest);
+  const data=digest ? {...(measured ?? {rulesSha256:digest,status:'unmeasured',distinctCases:0,captures:[]}),
+    managementFailures:result.managementFailures.filter(f=>f.intendedRulesSha256===digest)} : result;
   console.log(JSON.stringify(data,null,2));
 }

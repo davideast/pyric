@@ -11,7 +11,7 @@ bun live/run.mjs replay
 bun live/run.mjs lookup RULES_SHA256
 ```
 
-Each returns hosted data only. An unknown digest returns `unmeasured`. Repeating a measurement requires identical normalized inputs. Each digest records its own outcomes. A local package score cannot substitute for a production decision. Add `--archive ABSOLUTE_PRIVATE_CAPTURE_DIRECTORY` to authenticate the raw journal, signed controls and individual write proofs again.
+Each returns hosted data only. An unknown digest returns `unmeasured`. Hosted management failures are a separate field; they carry no case verdict. For failure before Rules accepted upload, the public entry distinguishes the planned digest from a digest actually bound by the private activation journal. Repeating a measurement requires identical normalized inputs. Each digest records its own outcomes. A local package score cannot substitute for a production decision. Add `--archive ABSOLUTE_PRIVATE_CAPTURE_DIRECTORY` to authenticate the raw journal, signed controls and individual write proofs again.
 
 The operator installs the SDK from Arcade's locked `live/package-lock.json`. A plan can be captured, retained and privately replayed in one operation with `node live/run.mjs measure PLAN ARCHIVE`. Alternatively, a plan can be run with `node live/run.mjs capture PLAN ARCHIVE`. The subsequent `node live/run.mjs retain PLAN ARCHIVE PRIVATE_RECEIPT_SHA256` verifies the original release, active deployment, every update, signed readbacks and closure before recording a public receipt. Replaying measurements is offline.
 
