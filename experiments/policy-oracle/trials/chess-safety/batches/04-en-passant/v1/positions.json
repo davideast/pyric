@@ -1,0 +1,27 @@
+[
+  {
+    "id": "ep-surviving-rank-blocker",
+    "fen": "4k3/8/8/r1N2pPK/8/8/8/8 w - f6",
+    "uci": "g5f6"
+  },
+  {
+    "id": "ep-two-pawns-leave-rank",
+    "fen": "4k3/8/8/r4pPK/8/8/8/8 w - f6",
+    "uci": "g5f6"
+  },
+  {
+    "id": "ep-rook-on-neighboring-rank",
+    "fen": "4k3/8/8/5pPK/r7/8/8/8 w - f6",
+    "uci": "g5f6"
+  },
+  {
+    "id": "black-ep-surviving-blocker",
+    "fen": "8/8/8/8/R1n2Ppk/8/8/4K3 b - f3",
+    "uci": "g4f3"
+  },
+  {
+    "id": "black-ep-opens-rank",
+    "fen": "8/8/8/8/R4Ppk/8/8/4K3 b - f3",
+    "uci": "g4f3"
+  }
+]
