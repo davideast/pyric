@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {optimizeValidation,optimizeApplication} from './optimized.mjs';
 import {squares, geometricSources, selectSquare} from './geometry.mjs';
 
 const read = path => readFileSync(new URL(path,import.meta.url),'utf8');
 const horizontalSource = () => read('../../king-safety/policy/horizontal-path.policy');
-export const variants = ['pins','attacks','castle'];
+export const variants = ['pins','attacks','castle','optimized'];
 
 export function compile(compileFunction, variant = 'castle', {mode='both'} = {}) {
   const sources = {...geometricSources(variant), horizontalPathClear:horizontalSource()};
@@ -17,11 +18,14 @@ export function compile(compileFunction, variant = 'castle', {mode='both'} = {})
     const kingMove = old.board[from] === color+'k';
     const index = kingMove ? squares.indexOf(to) : compiled.locateKing(next.board,color+'k');
     if (index<0 || index>63) return false;
-    if (!compiled['safe'+squares[index]](next.board,enemy)) return false;
+    function safe(square, board) {
+      return variant==='optimized' ? compiled['safe'+square](board,enemy,Object.values(board)) : compiled['safe'+square](board,enemy);
+    }
+    if (!safe(squares[index],next.board)) return false;
     const castle = kingMove && Math.abs(squares.indexOf(from) - index) === 2;
-    if (variant!=='castle' || !castle) return true;
+    if (!['castle','optimized'].includes(variant) || !castle) return true;
     const transit = (to[0]==='g' ? 'f' : 'd') + from[1];
-    return compiled['safe'+from](old.board,enemy) && compiled['safe'+transit](old.board,enemy);
+    return safe(from,old.board) && safe(transit,old.board);
   }
   return {modules,predict};
 }
@@ -48,9 +52,15 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
     return "import { "+name+" } from './safety-"+name+"';";
   });
   const header="rules_version = '2+modules';";
-  const call=selectSquare(0,63,s=>'safe'+s+'(board, enemy)');
-  const dispatch='function kingSafeAt(board, enemy, index) { return index >= 0 && index < 64 && '+call+'; }';
-  const castle=variant==='castle' ? " && (!castle || (kingSafeAt(old.board, enemy, color == 'w' ? 4 : 60) && kingSafeAt(old.board, enemy, (color == 'w' ? 0 : 56) + (xTo > 4 ? 5 : 3))))" : '';
+  const optimized=variant==='optimized';
+  if (optimized) {
+    app.modules[key] = optimizeValidation(app.modules[key]);
+    const chess='../games/chess/chess';
+    app.modules[chess] = optimizeApplication(app.modules[chess]);
+  }
+  const call=selectSquare(0,63,s=>'safe'+s+'(board, enemy'+(optimized?', material':'')+')');
+  const dispatch='function kingSafeAt(board, enemy, index) { '+(optimized?'let material = board.values(); ':'')+'return index >= 0 && index < 64 && '+call+'; }';
+  const castle=['castle','optimized'].includes(variant) ? " && (!castle || (kingSafeAt(old.board, enemy, color == 'w' ? 4 : 60) && kingSafeAt(old.board, enemy, (color == 'w' ? 0 : 56) + (xTo > 4 ? 5 : 3))))" : '';
   const guard=`function safeTransition(old, next, color, kingMove, castle, xTo, yTo) {
     let enemy = color == 'w' ? 'b' : 'w';
     let square = kingMove ? yTo * 8 + xTo : locateKing(next.board, color + 'k');

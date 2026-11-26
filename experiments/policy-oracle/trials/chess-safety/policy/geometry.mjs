@@ -19,7 +19,7 @@ function ray(x, y, [dx,dy]) {
   return found;
 }
 
-export function squarePolicy(sq, {slidersOnly=false}={}) {
+export function squarePolicy(sq, {slidersOnly=false, material=false}={}) {
   const x=files.indexOf(sq[0]), y=Number(sq[1])-1;
   const nearby = steps => steps.flatMap(([dx,dy]) => toSquare(x+dx,y+dy) ?? []).map(cell);
   const lines = [
@@ -27,12 +27,18 @@ export function squarePolicy(sq, {slidersOnly=false}={}) {
     [diagonal,'bishopQueen'],
   ];
   const tests = [];
-  for (const [steps,pieces] of lines) for (const dir of steps) {
+  for (const [steps,pieces] of lines) {
+    const lineTests=[];
+    for (const dir of steps) {
     const cells = ray(x,y,dir).map(cell);
     if (!cells.length) continue;
     // A non-attacking sentinel makes [0] valid on an empty ray.
     const nearest = cells.length === 1 ? cells[0] : list([...cells,"'-'"])+".removeAll([''])[0]";
-    tests.push('!('+nearest+' in '+pieces+')');
+    lineTests.push('!('+nearest+' in '+pieces+')');
+    }
+    const rays=lineTests.join(' && ');
+    const symbol=pieces==='rookQueen'?'r':'b';
+    tests.push(material ? "(!((enemy + 'q' in material) || (enemy + '"+symbol+"' in material)) || ("+rays+'))' : rays);
   }
   if (!slidersOnly) {
     tests.push("!(enemy + 'n' in "+list(nearby(knight))+")");
@@ -40,7 +46,7 @@ export function squarePolicy(sq, {slidersOnly=false}={}) {
     const pawn = dy => list(nearby([[-1,dy],[1,dy]]));
     tests.push("!(enemy + 'p' in (enemy == 'b' ? "+pawn(1)+' : '+pawn(-1)+'))');
   }
-  return 'function safe'+sq+'(b, enemy) {\n'
+  return 'function safe'+sq+'(b, enemy'+(material?', material':'')+') {\n'
     +"  let rookQueen = [enemy + 'r', enemy + 'q'];\n"
     +"  let bishopQueen = [enemy + 'b', enemy + 'q'];\n"
     +'  return '+tests.join('\n    && ')+';\n}';
@@ -57,8 +63,8 @@ export function locatePolicy() {
 }
 
 export function geometricSources(variant) {
-  if(!['pins','attacks','castle'].includes(variant)) throw Error('Unknown safety variant '+variant);
-  return Object.fromEntries([['locateKing',locatePolicy()],...squares.map(s=>['safe'+s,squarePolicy(s,{slidersOnly:variant==='pins'})])]);
+  if(!['pins','attacks','castle','optimized'].includes(variant)) throw Error('Unknown safety variant '+variant);
+  return Object.fromEntries([['locateKing',locatePolicy()],...squares.map(s=>['safe'+s,squarePolicy(s,{slidersOnly:variant==='pins',material:variant==='optimized'})])]);
 }
 
 export function selectSquare(lo,hi,makeCall) {
