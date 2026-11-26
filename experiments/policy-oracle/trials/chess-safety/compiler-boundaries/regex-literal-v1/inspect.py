@@ -10,6 +10,7 @@ import sys
 # argument other than a concatenation or dynamically computed value is graded.
 TOKEN = re.compile(r"""//[^\n]*|/\*[\s\S]*?\*/|'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"|[\w$]+|[^\s]""")
 LIMIT = 4096
+GROUP_LIMIT = 100
 
 
 def inspect(source):
@@ -28,13 +29,25 @@ def inspect(source):
             other_arguments += 1
             continue
         pattern = arg[0][1:-1]
+        in_class = False
+        group_count = 0
+        for char in pattern:
+            if char == '[':
+                in_class = True
+            elif char == ']':
+                in_class = False
+            elif char == '(' and not in_class:
+                group_count += 1
         measurements.append({'function':function,'line':source.count('\n',0,arg.start())+1,
                              'column':arg.start()-source.rfind('\n',0,arg.start()),
-                             'length':len(pattern),'patternSha256':hashlib.sha256(pattern.encode()).hexdigest()})
+                             'length':len(pattern),'groups':group_count,'patternSha256':hashlib.sha256(pattern.encode()).hexdigest()})
     return {'rulesSha256':hashlib.sha256(source.encode()).hexdigest(),'directAsciiLiterals':len(measurements),
             'largest':max((p['length'] for p in measurements),default=None),'otherMatchesArguments':other_arguments,
-            'observedLimit':LIMIT,'exceeding':[m for m in measurements if m['length']>LIMIT]}
+            'observedLimit':LIMIT,'observedGroupsLimit':GROUP_LIMIT,
+            'maxGroups':max((p['groups'] for p in measurements),default=None),
+            'exceedingGroups':[m for m in measurements if m['groups']>GROUP_LIMIT],
+            'exceeding':[m for m in measurements if m['length']>LIMIT]}
 
 
 if __name__ == '__main__':
-    print(json.dumps(inspect(Path(sys.argv[1]).read_text()),indent=2))
+    print(json.dumps(inspect(Path(sys.argv[1]).read_bytes().decode('utf-8')),indent=2))

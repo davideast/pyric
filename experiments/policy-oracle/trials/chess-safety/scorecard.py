@@ -52,7 +52,7 @@ def render(report):
     if scope:
         output += ['', '## Target compiler check','',
             f"The emitted source has {scope['directAsciiLiterals']} direct unescaped ASCII `matches()` literals. The largest is {scope['largest']} characters. "
-            f"{len(scope['exceeding'])} exceed the observed 4,096-character limit. {scope['otherMatchesArguments']} other arguments are outside this source check. "
+            f"{len(scope['exceeding'])} exceed the observed 4,096-character limit. {len(scope.get('exceedingGroups',[]))} exceed 100 regex groups. {scope['otherMatchesArguments']} other arguments are outside this source check. "
             '[Official diagnostic and measured samples](compiler-boundaries/regex-literal-v1/)']
     queen = [(name,r) for name,r in zip(names,releases,strict=True) if 'holdout-black-queen-corner-playing' in r.get('examples',{})]
     if queen:

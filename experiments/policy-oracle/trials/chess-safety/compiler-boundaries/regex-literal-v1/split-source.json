@@ -1,0 +1,76 @@
+{
+  "rulesSha256": "ac1cbff2f3a8db47adf2869dcd7569e4e7d15dd46565d988569c122e199b1b75",
+  "directAsciiLiterals": 42,
+  "largest": 3969,
+  "otherMatchesArguments": 4,
+  "observedLimit": 4096,
+  "observedGroupsLimit": 100,
+  "maxGroups": 289,
+  "exceedingGroups": [
+    {
+      "function": "allRefusedw0",
+      "line": 28,
+      "column": 28,
+      "length": 3404,
+      "groups": 243,
+      "patternSha256": "6ad5f624204056091b6909d85b683b8dfb88eb8f408a01f751192298e3bf506d"
+    },
+    {
+      "function": "allRefusedw1",
+      "line": 31,
+      "column": 28,
+      "length": 3689,
+      "groups": 275,
+      "patternSha256": "b98d4fbb605d17f88178363e9c709570b146dcac73c0faa00c25d037d87eb6b6"
+    },
+    {
+      "function": "allRefusedw2",
+      "line": 34,
+      "column": 28,
+      "length": 3914,
+      "groups": 284,
+      "patternSha256": "1c8fc4f53bff3977e3812ca51ca6591247299ee4819129e67d5b48c411531509"
+    },
+    {
+      "function": "allRefusedw3",
+      "line": 37,
+      "column": 28,
+      "length": 3465,
+      "groups": 257,
+      "patternSha256": "56039ef7b44ae140919a2bad4003a8ecbbe92b0b1cf97da66a1dbcadcdf5bae2"
+    },
+    {
+      "function": "allRefusedb0",
+      "line": 40,
+      "column": 28,
+      "length": 3404,
+      "groups": 244,
+      "patternSha256": "828012767f009b262af747c001ebfc8d485b2a31323a492a8291a3d9f7812201"
+    },
+    {
+      "function": "allRefusedb1",
+      "line": 43,
+      "column": 28,
+      "length": 3759,
+      "groups": 281,
+      "patternSha256": "f87c9819c22c8a7760f61b7b961a33a505968a0748b74f80cc629d49dc799d9e"
+    },
+    {
+      "function": "allRefusedb2",
+      "line": 46,
+      "column": 28,
+      "length": 3969,
+      "groups": 289,
+      "patternSha256": "f959e3b6c33609d733334a79e39c825e4659a2ee2c125a2fc87404f40f9e63ee"
+    },
+    {
+      "function": "allRefusedb3",
+      "line": 49,
+      "column": 28,
+      "length": 3508,
+      "groups": 261,
+      "patternSha256": "d1dbf4f8cab204a958f125439c6023417a28820e2a3554599dfac87a600d1a88"
+    }
+  ],
+  "exceeding": []
+}

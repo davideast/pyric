@@ -1,4 +1,5 @@
 """Re-score every historical candidate registered here on all eight frozen core cohorts."""
+import argparse
 from collections import Counter
 from hashlib import sha256
 import json
@@ -14,11 +15,17 @@ from replay import REFERENCE, build_recorded_package
 from score import score
 
 
-def verify():
+def verify(selected):
     results=[]
     with tempfile.TemporaryDirectory(prefix='chess-revision-matrix-') as temp:
         work=Path(temp)
-        for archive in sorted((HERE/'scores').glob('*-through-*.json')):
+        archives=sorted((HERE/'scores').glob('*-through-*.json'))
+        if selected:
+            unknown=set(selected)-{a.name for a in archives}
+            if unknown:
+                raise ValueError(f'Unknown historical revisions: {sorted(unknown)}')
+            archives=[a for a in archives if a.name in selected]
+        for archive in archives:
             old=json.loads(archive.read_bytes())
             digest=old['linkedRulesSha256']
             if not digest:
@@ -54,4 +61,26 @@ def verify():
     return results
 
 if __name__=='__main__':
-    print(json.dumps(verify(),indent=2))
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--only',action='append',default=[],help='one archived score filename; may repeat')
+    parser.add_argument('--record',action='store_true',help='add a missing per-revision record')
+    args=parser.parse_args()
+    earlier={row['archive']:row for row in json.loads((HERE/'revisions/scores.json').read_bytes())}
+    result=verify(args.only)
+    for row in result:
+        name=row['archive']
+        leaf=HERE/'revisions/results'/name
+        if name in earlier:
+            expected=earlier[name]
+        elif leaf.is_file():
+            expected=json.loads(leaf.read_bytes())
+        elif args.record:
+            leaf.parent.mkdir(exist_ok=True)
+            with leaf.open('x') as target:
+                target.write(json.dumps(row,indent=2)+'\n')
+            expected=row
+        else:
+            raise ValueError(f'Missing per-revision evidence: {name}')
+        if expected!=row:
+            raise ValueError(f'Historical replay changed: {name}')
+    print(json.dumps(result,indent=2))

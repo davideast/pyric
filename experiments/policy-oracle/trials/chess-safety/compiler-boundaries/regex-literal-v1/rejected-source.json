@@ -4,12 +4,15 @@
   "largest": 7477,
   "otherMatchesArguments": 4,
   "observedLimit": 4096,
-  "exceeding": [
+  "observedGroupsLimit": 100,
+  "maxGroups": 550,
+  "exceedingGroups": [
     {
       "function": "allRefusedw0",
       "line": 28,
       "column": 28,
       "length": 7093,
+      "groups": 518,
       "patternSha256": "717bf7615c0482a08dc41beb7274fdfb906affc251a343c7a9f02ab2c6442eb2"
     },
     {
@@ -17,6 +20,7 @@
       "line": 31,
       "column": 28,
       "length": 7379,
+      "groups": 541,
       "patternSha256": "0861fd0fe8dae909b3cd033f9e69d3fb2112d102e8890698fabf94385e4365ce"
     },
     {
@@ -24,6 +28,7 @@
       "line": 34,
       "column": 28,
       "length": 7163,
+      "groups": 525,
       "patternSha256": "16e0e0caee931726b44c5a8f0404a6d4f05bac9241bf2e5b4fcaa76d4c549de1"
     },
     {
@@ -31,6 +36,41 @@
       "line": 37,
       "column": 28,
       "length": 7477,
+      "groups": 550,
+      "patternSha256": "f9e10e107c375f391f2e16e9dc29051f2b7ef1d71e0f62dfd8521d82b94f901a"
+    }
+  ],
+  "exceeding": [
+    {
+      "function": "allRefusedw0",
+      "line": 28,
+      "column": 28,
+      "length": 7093,
+      "groups": 518,
+      "patternSha256": "717bf7615c0482a08dc41beb7274fdfb906affc251a343c7a9f02ab2c6442eb2"
+    },
+    {
+      "function": "allRefusedw1",
+      "line": 31,
+      "column": 28,
+      "length": 7379,
+      "groups": 541,
+      "patternSha256": "0861fd0fe8dae909b3cd033f9e69d3fb2112d102e8890698fabf94385e4365ce"
+    },
+    {
+      "function": "allRefusedb0",
+      "line": 34,
+      "column": 28,
+      "length": 7163,
+      "groups": 525,
+      "patternSha256": "16e0e0caee931726b44c5a8f0404a6d4f05bac9241bf2e5b4fcaa76d4c549de1"
+    },
+    {
+      "function": "allRefusedb1",
+      "line": 37,
+      "column": 28,
+      "length": 7477,
+      "groups": 550,
       "patternSha256": "f9e10e107c375f391f2e16e9dc29051f2b7ef1d71e0f62dfd8521d82b94f901a"
     }
   ]
