@@ -5,8 +5,8 @@
     "firestore-rules#224"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"interpolated-lookup-path-segments\" (FS3-SIM-1). An interpolated string holding '/' is one lookup path segment, so it names no document; pyric read it as the deeper document.",
-  "observedAt": "2026-11-16T06:12:03.520Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.025Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

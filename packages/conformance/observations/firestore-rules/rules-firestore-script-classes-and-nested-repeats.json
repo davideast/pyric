@@ -5,8 +5,8 @@
     "firestore-rules#227"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"script-classes-and-nested-repeats\" (Coverage: RE2 script classes in matches()). A guard on a Unicode script (`\\p{Cyrillic}`, `\\p{Han}`) reads RE2's script class in matches(), and a nested repeat in split() and replace() on a 27-character subject answers as production does.",
-  "observedAt": "2026-11-04T02:35:05.214Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:47.114Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

@@ -5,8 +5,8 @@
     "firestore-rules#228"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"re2-more-classes-and-escapes\" (Coverage: RE2 classes and escapes in matches(), split() and replace()). RE2's Unicode classes (`\\pN`, `\\p{Greek}`), POSIX classes, `\\Q..\\E`, `(?i)`, `\\x61`, `\\b`, `\\d` and a class range over emoji give production's result in matches(), split() and replace().",
-  "observedAt": "2026-11-04T02:34:28.077Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:46.641Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",

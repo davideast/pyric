@@ -5,8 +5,8 @@
     "firestore-rules#191"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"ast-strictness-and-unsupported-casts\" (RULES-AST-STRICT). Proves production Firebase Rules Test API rejects unsupported boolean casting, non-whitelisted math helpers, and bare map membership assertions.",
-  "observedAt": "2026-10-30T09:17:39.191Z",
-  "fbSdkVersion": "12.19.0",
+  "observedAt": "2026-11-25T16:46:44.727Z",
+  "fbSdkVersion": "13.4.0",
   "projectId": "digame-mas",
   "inputDigest": {
     "algorithm": "sha256",
