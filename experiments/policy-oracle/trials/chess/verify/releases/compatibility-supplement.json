@@ -1,0 +1,36 @@
+{
+  "id": "compatibility-supplement",
+  "receipt": "d296ba1a2749ee739762c0d819e77d53b206e666dd15b9aaf13533b82d4f82ee",
+  "bundle": "../bundle/artifacts/compatibility.rules",
+  "report": {
+    "mode": "compatibility",
+    "runId": "a75b4188-6ed9-4d22-8b9b-dc6519bc702a",
+    "receipt": "d296ba1a2749ee739762c0d819e77d53b206e666dd15b9aaf13533b82d4f82ee",
+    "rulesSha256": "49ecbc125efe816605b153369b3751d332366cb2a2906ad5ff1d3637979b7d95",
+    "activeRuleset": "projects/digame-mas/rulesets/afe757c6-c9e4-4fc2-b8e7-72425efffdfd",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "5f2d8e8b0eb642100c571feb8c4330dd0fcddaee6db017e4553c8301620be17c",
+    "signedReadersExplicit": true,
+    "exactProtocolIntents": 15,
+    "decisions": {
+      "supplement-knight": "ALLOW",
+      "supplement-bishop": "ALLOW",
+      "supplement-king": "ALLOW",
+      "supplement-rook": "ALLOW",
+      "supplement-retain-turn": "DENY",
+      "supplement-previous-board": "DENY",
+      "supplement-previous-rights": "DENY",
+      "supplement-previous-ep": "DENY",
+      "supplement-retained-source": "DENY",
+      "supplement-wrong-destination": "DENY",
+      "supplement-unrelated-square": "DENY",
+      "supplement-protected-guest": "DENY",
+      "supplement-last-move-extra": "DENY",
+      "supplement-ongoing-winner": "DENY",
+      "supplement-wrong-color": "DENY"
+    },
+    "special": {},
+    "sensitivity": null,
+    "cohort": "supplement"
+  }
+}
