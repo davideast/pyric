@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {packedSources,packedGuard,packedPredict} from './packed.mjs';
 import {optimizeValidation,optimizeApplication} from './optimized.mjs';
 import {squares, geometricSources, selectSquare} from './geometry.mjs';
 
 const read = path => readFileSync(new URL(path,import.meta.url),'utf8');
 const horizontalSource = () => read('../../king-safety/policy/horizontal-path.policy');
-export const variants = ['pins','attacks','castle','optimized'];
+export const variants = ['pins','attacks','castle','optimized','packed'];
+
+function sourcesFor(variant) {
+  return variant === 'packed' ? packedSources() : geometricSources(variant);
+}
 
 export function compile(compileFunction, variant = 'castle', {mode='both'} = {}) {
-  const sources = {...geometricSources(variant), horizontalPathClear:horizontalSource()};
+  const sources = {...sourcesFor(variant), horizontalPathClear:horizontalSource()};
   const compiled = Object.fromEntries(Object.entries(sources).map(([name,source])=>[name,compileFunction(source)]));
   const modules = mode==='standalone' ? {} : Object.fromEntries(Object.entries(compiled).map(([k,fn])=>[k,fn.firestoreModule()]));
   function predict({resource:old, data:next}) {
+    if (variant==='packed') return packedPredict(compiled,{resource:old,data:next});
     const color = old.currentTurn === 'host' ? 'w' : 'b';
     const enemy = color === 'w' ? 'b' : 'w';
     const {from,to} = next.lastMove;
@@ -45,14 +51,15 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
     return result.data.resolved;
   }
   assert.equal(bundle(),read('../../chess/bundle/artifacts/stronger.rules'));
-  const names = [...Object.keys(geometricSources(variant)), 'horizontalPathClear'];
+  const names = [...Object.keys(sourcesFor(variant)), 'horizontalPathClear'];
   assert.deepEqual(Object.keys(modules).sort(), names.sort());
   const imports = names.map(name=>{
     app.modules['../games/chess/safety-'+name]=modules[name];
     return "import { "+name+" } from './safety-"+name+"';";
   });
   const header="rules_version = '2+modules';";
-  const optimized=variant==='optimized';
+  const packed=variant==='packed';
+  const optimized=variant==='optimized'||packed;
   if (optimized) {
     app.modules[key] = optimizeValidation(app.modules[key]);
     const chess='../games/chess/chess';
@@ -72,7 +79,7 @@ export async function link(modules,resolveModules,{variant='castle'}={}) {
     assert.equal(rules.split(a).length,2,a);
     return rules.replace(a,b);
   }
-  let helpers=once(app.modules[key],header,[header,...imports,dispatch,guard].join('\n'));
+  let helpers=once(app.modules[key],header,[header,...imports,...(packed?[packedGuard()]:[dispatch,guard])].join('\n'));
   helpers=once(helpers,end,end.slice(0,-1)+" && safeTransition(old, next, color, kind == 'k', castle, x + dx, y + dy);");
   helpers=once(helpers,path,"(kind == 'r' && dx != 0 ? horizontalPathClear(old.board, mv.from[1:2], x, x + dx) : "+path+")");
   app.modules[key]=helpers;
