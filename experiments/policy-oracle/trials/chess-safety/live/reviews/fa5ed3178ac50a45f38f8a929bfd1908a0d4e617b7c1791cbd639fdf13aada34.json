@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34",
+  "file": "../artefacts/pawn-combined-bare-packed-v5.rules",
+  "basis": "Exact 83,618-byte successor to the reviewed combined bare ruleset. All match and allow clauses and all non-chess functions are unchanged. Adds black and white pawn-reply functions producing three candidate boards via string replacement and checking king safety. The only changed caller is admittedStatus, which restricts terminal claims when a pawn has a concrete reply."
+}

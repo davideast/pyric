@@ -1,0 +1,10 @@
+{
+  "rulesSha256": "fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34",
+  "inputs": [
+    {
+      "batch": "13-sole-pawn",
+      "file": "../exploration/sole-pawn-v1/controls/positions.json",
+      "sha256": "d533099e9c24d73423ec750d978e6e7f31f849429c80cd2bf8ac0fc27237b8f8"
+    }
+  ]
+}
