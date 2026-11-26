@@ -5,6 +5,7 @@ import {basename,join} from 'node:path';
 import {sha} from '../../../arcade/corpus.mjs';
 import {sample} from '../reference/fixtures.mjs';
 import {sampleRights} from '../exploration/rights-claims-v1/fixture.mjs';
+import {namedSample} from '../reachable/lifecycle-v1/named/v1/inputs.mjs';
 
 const read = url => readFileSync(url,'utf8');
 const here = new URL('./',import.meta.url);
@@ -37,13 +38,17 @@ export function reviewedPlan(name) {
     assert.equal(bindings(source),bindings(stock),'match and allow clauses changed');
   }
   checkBundle(name,readFileSync(bundle,'utf8'),plan.rulesSha256);
-  const batches = new Map(), cases = [];
+  const batches = new Map(), cases = [], namedInputs=new Set();
   for (const input of plan.inputs) {
     assert.match(input.sha256,digest);
     const bytes = readFileSync(new URL(input.file,here));
     assert.equal(sha(bytes),input.sha256,'frozen positions changed for '+input.batch);
-    assert.ok(input.adapter === undefined || input.adapter === 'successor-rights');
+    assert.ok(input.adapter === undefined || ['successor-rights','named-snapshot'].includes(input.adapter));
     let selected=JSON.parse(bytes);
+    if(input.adapter==='named-snapshot') {
+      assert.equal(input.file,'../reachable/lifecycle-v1/named/v1/inputs.json');
+      selected=selected.cases;
+    }
     if(input.ids) {
       const byId=new Map(selected.map(c=>[c.id,c]));
       assert.equal(byId.size,selected.length);
@@ -54,7 +59,8 @@ export function reviewedPlan(name) {
       assert.match(id,/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/);
       assert.ok(!batches.has(id),'duplicate case '+id);
       batches.set(id,input.batch);
-      const c={id,fen,uci,...(claim && {claim})};
+      const c={id,...(fen && {fen}),uci,...(claim && {claim})};
+      if(input.adapter==='named-snapshot')namedInputs.add(id);
       if(input.adapter === 'successor-rights') {
         assert.equal(typeof raw.claimedRights,'string');
         assert.match(raw.claimedRights,/^K?Q?k?q?$/);
@@ -67,7 +73,8 @@ export function reviewedPlan(name) {
   function profile(mode) {
     assert.equal(mode,name);
     return {collection:'chess',measureAdmission:true,cases,
-      sample:(c,writer,other)=>Object.hasOwn(c,'claimedRights') ? sampleRights(c,writer,other) : sample(c,writer,other),
+      sample:(c,writer,other)=>namedInputs.has(c.id) ? namedSample(c.id,writer,other) :
+        Object.hasOwn(c,'claimedRights') ? sampleRights(c,writer,other) : sample(c,writer,other),
       probe:({id,...submitted})=>submitted};
   }
   return {plan,bundle,batches,fixtures:{checkBundle,profile},

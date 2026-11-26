@@ -1,0 +1,18 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "pawn-sole-pawn",
+  "rulesSha256": "fa5ed3178ac50a45f38f8a929bfd1908a0d4e617b7c1791cbd639fdf13aada34",
+  "requestSha256": "1fc324e9f20caa66921f5042c31c9bdb63035e08ea896023f47cfc708ea5f9db",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [
+    {
+      "severity": "WARNING",
+      "line": 363,
+      "column": 38,
+      "message": "Unused variable: kind."
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "99f52c0ea80c17e3c206aa7fb8077f2a33ae184f8c7f19c643df5fb4a285b7f4"
+}

@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "ef1a9a20902c228227567277e8acc8cb38936a8c64789ca16d993da2de1e5343",
+  "file": "../artefacts/knight-endgame-paired-pawn-combined-bare-projections-packed-v5.rules",
+  "basis": "89,300-byte revision of rejected a5a549b9. Replaces four overlong composed allRefused regexes with two anyKingReply functions using the earlier projection logic. Apart from those functions only hasKingReply changes; all signed actors, write guards, match/allow bindings and other functions remain byte-identical."
+}

@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "28a1783008b1d212be7a386e3db2aced79adb0a4f4b185a0b47d61a9afc673fa",
+  "file": "../artefacts/knight-endgame-paired-pawn-combined-bare-fixed-packed-v5.rules",
+  "basis": "118,355-byte revision of the split-group repair ac1cbff2. Adds two color-specific fixed-width board encoders and changes the eight allRefused patterns and hasKingReply. Checked that the rest of the complete Rules functions, actor and write guards, match and allow clauses are identical to the reviewed release."
+}

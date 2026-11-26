@@ -1,0 +1,97 @@
+{
+  "rulesSha256": "ef1a9a20902c228227567277e8acc8cb38936a8c64789ca16d993da2de1e5343",
+  "inputs": [
+    {
+      "batch": "00-legacy-file",
+      "file": "../../king-safety/reference/positions.json",
+      "sha256": "e094b8218691bf7efe0070db356ab88bace68680fa23dc06e58cf4607e0f2588"
+    },
+    {
+      "batch": "00-legacy-file",
+      "file": "../../king-safety/reference/cost-position.json",
+      "sha256": "05000731394a8baa188a865025e8e4d454fa797e3d962ffba77ccd5e842c1226"
+    },
+    {
+      "batch": "00-legacy-file",
+      "file": "../../king-safety/reference/path-cost-controls.json",
+      "sha256": "66c9099711d70a87d78bece84c550b55566976ddd78045d7bd438ecfb8156eb1"
+    },
+    {
+      "batch": "01-rank-diagonal",
+      "file": "../batches/01-rank-diagonal/v1/positions.json",
+      "sha256": "fcfdc099e9667fccd083139742ec4a8ec27322605c462db58a2b5948c14444e7"
+    },
+    {
+      "batch": "02-king-destinations",
+      "file": "../batches/02-king-destinations/v1/positions.json",
+      "sha256": "8c3b3a9a0ea76b7f310c439d79343158ed6b5a0d9273d03058d485c847e799de"
+    },
+    {
+      "batch": "03-check-evasions",
+      "file": "../batches/03-check-evasions/v1/positions.json",
+      "sha256": "b479f5575aed77c91aa3bea3dbabebbdef060933f0eee975901e5f115ac8ac32"
+    },
+    {
+      "batch": "04-en-passant",
+      "file": "../batches/04-en-passant/v1/positions.json",
+      "sha256": "a907de9aa30c0c7f0ebae6b10dd751625b697d2e9a95a900c2d7e69bf7b3da14"
+    },
+    {
+      "batch": "05-castling",
+      "file": "../batches/05-castling/v1/positions.json",
+      "sha256": "2a9f20982195d93fad17bebf13aa1730253f1f4bc17d04f324eb727ce67268e6"
+    },
+    {
+      "batch": "06-composition",
+      "file": "../batches/06-composition/v1/positions.json",
+      "sha256": "521a89eb3c77af68b54044ad1187e78c65fc678ee00fb13512083bd2d3c3d56c"
+    },
+    {
+      "batch": "07-terminal",
+      "file": "../batches/07-terminal/v1/positions.json",
+      "sha256": "84b4fbffbddb1de2c7b1d4e0a27e12d1befcaa7c67e0fb8ea38c3ef61e75eadc"
+    },
+    {
+      "batch": "08-minimized",
+      "file": "../exploration/v1/controls/positions.json",
+      "sha256": "3f6996c341fb6550fffe7b2b09bb854dfa6b9a88080f6de1ce2982ca0475b9a0"
+    },
+    {
+      "batch": "09-corner-rights",
+      "file": "../exploration/rights-v1/controls/positions.json",
+      "sha256": "6faa986f588aa8058f66249595018e21be9304d93d3361a8364393dfc59c7546"
+    },
+    {
+      "batch": "10-promotion-claims",
+      "file": "../exploration/promotions-v1/controls/positions.json",
+      "sha256": "a1fb0984fb735d0d1409a2a9863301421fd9f833a62f2256757515a5f12c4461"
+    },
+    {
+      "batch": "11-successor-rights",
+      "file": "../exploration/rights-claims-v1/controls.json",
+      "sha256": "50085f44ff081b92b8f198543cb5669052ae0a9e93cf6f7a3ff51bc088042424",
+      "adapter": "successor-rights"
+    },
+    {
+      "batch": "12-terminal-holdout",
+      "file": "../exploration/hosted-holdout-v1/controls/positions.json",
+      "sha256": "bbf08319af2b12919b3446a04f21987bb40934552eae013fb642ab942b576945"
+    },
+    {
+      "batch": "13-sole-pawn",
+      "file": "../exploration/sole-pawn-v1/controls/positions.json",
+      "sha256": "d533099e9c24d73423ec750d978e6e7f31f849429c80cd2bf8ac0fc27237b8f8"
+    },
+    {
+      "batch": "14-bare-king",
+      "file": "../exploration/hosted-bare-v1/controls/positions.json",
+      "sha256": "5511463ade7c022e2bccd447062bd73cff91a23c5dcd78d377d2dabc1626be85"
+    },
+    {
+      "batch": "15-fourth-ply-and-knight",
+      "file": "../reachable/lifecycle-v1/named/v1/inputs.json",
+      "sha256": "3b63a93abaaa76fcde449072c2921e4691a21d1386f918c1feb84b74fe444213",
+      "adapter": "named-snapshot"
+    }
+  ]
+}

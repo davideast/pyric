@@ -1,0 +1,30 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "fixed-chess-safety-full",
+  "rulesSha256": "28a1783008b1d212be7a386e3db2aced79adb0a4f4b185a0b47d61a9afc673fa",
+  "requestSha256": "0c6bbbcd4c63ed38577f92ebd3dc5c4e626453015c924923653823737d211b42",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [
+    {
+      "severity": "WARNING",
+      "line": 112,
+      "column": 12,
+      "message": "Unused function: knightWitness."
+    },
+    {
+      "severity": "WARNING",
+      "line": 438,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 450,
+      "column": 12,
+      "message": "Unused function: nextEp."
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "3f2269529858be061f7c23d0231674e5371c1c0e3013c2bcd1be2ad4e8a78034"
+}
