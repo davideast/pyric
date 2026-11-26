@@ -19,8 +19,10 @@ The product boundary is deliberate:
 `PRIORITIES.md` is law for proposed work, and `AGENTS.md` says so plainly:
 judge every proposal against the priority tests before starting it. Since the
 2026-10-14 baseline, the Node host (`pyric sandbox --hosted`), `@pyric/rules`,
-`@pyric/live`, App Check AI Logic enforcement, per-bucket Storage rules,
-Firestore named databases (`getFirestore(app, databaseId)` and `db.databaseId`),
+`@pyric/live` (including `--pass-through` and opt-in `--deployed-rules`),
+App Check AI Logic enforcement, per-bucket Storage rules and paginated
+`list(ref, options?)`, Firestore named databases (`getFirestore(app, databaseId)`,
+`db.databaseId`, and `{database}` rules binding), `zod` `^4.6.6`,
 remote-access `/__pyric/unlock` two-hop proxy pairing, and Wave 2 security
 hardening have landed on `main`. See `PRIORITIES.md` for current status.
 

@@ -31,13 +31,17 @@ console.log(JSON.parse(await blob.text()));
 
 ## List and delete
 ```ts
-import { listAll, deleteObject } from 'pyric/storage';
+import { list, listAll, deleteObject } from 'pyric/storage';
+
+const firstPage = await list(ref(storage, 'sessions'), { maxResults: 50 });
+console.log(firstPage.items.map((item) => item.name), firstPage.nextPageToken);
 
 const listing = await listAll(ref(storage, 'sessions'));
 console.log(listing.items.map((item) => item.name)); // ['s1']
 
 await deleteObject(ref(storage, 'sessions/s1'));
 ```
+Pass `pageToken: firstPage.nextPageToken` to `list()` to step through subsequent pages. Both `list` and `listAll` enforce Storage `list` rules across the in-process, worker, and hosted planes.
 ## Metadata rides along
 
 Set it at upload, read it back, patch it later:
@@ -83,7 +87,7 @@ An anonymous upload and an 11 MiB payload both throw `FirebaseError` with `stora
 
 Notice the `request.method == 'delete'` carve-out. `deleteObject` carries no incoming payload, and production treats reading or null-checking the absent `request.resource` as an error. Testing the method lets deletes through while keeping payload checks on creates and updates.
 
-One rule-shape gotcha carried over faithfully from production: `listAll` requires `read` on the listed folder itself. A rule scoped to `match /sessions/{id}` grants nothing on `/sessions`, so give the folder its own read rule.
+One rule-shape gotcha carried over faithfully from production: `list` and `listAll` require `read` (or `list`) on the listed folder itself. A rule scoped to `match /sessions/{id}` grants nothing on `/sessions`, so give the folder its own read rule.
 
 ## Serve production download URLs from your service worker
 
