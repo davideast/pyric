@@ -1,0 +1,515 @@
+{
+  "native": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "standalone": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "cases": [
+    {
+      "id": "w-only-c5",
+      "fen": "7k/8/8/3PP3/2PKP3/2PPP3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c5",
+        "d4c5",
+        "d5d6",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "w-only-d5",
+      "fen": "7k/8/8/2P1P3/2PKP3/2PPP3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "d5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c6",
+        "d4d5",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "w-only-e5",
+      "fen": "7k/8/8/2PP4/2PKP3/2PPP3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "e5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c6",
+        "d4e5",
+        "d5d6",
+        "e4e5"
+      ]
+    },
+    {
+      "id": "w-only-c4",
+      "fen": "7k/8/8/2PPP3/3KP3/2PPP3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c3c4",
+        "c5c6",
+        "d4c4",
+        "d5d6",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "w-only-e4",
+      "fen": "7k/8/8/2PPP3/2PK4/2PPP3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "e4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c6",
+        "d4e4",
+        "d5d6",
+        "e3e4",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "w-only-c3",
+      "fen": "7k/8/8/2PPP3/2PKP3/3PP3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c3"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c6",
+        "d4c3",
+        "d5d6",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "w-only-d3",
+      "fen": "7k/8/8/2PPP3/2PKP3/2P1P3/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "d3"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c6",
+        "d4d3",
+        "d5d6",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "w-only-e3",
+      "fen": "7k/8/8/2PPP3/2PKP3/2PP4/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "e3"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c6",
+        "d4e3",
+        "d5d6",
+        "e5e6"
+      ]
+    },
+    {
+      "id": "b-only-c6",
+      "fen": "8/8/3pp3/2pkp3/2ppp3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "c6"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "d4d3",
+        "d5c6",
+        "e4e3"
+      ]
+    },
+    {
+      "id": "b-only-d6",
+      "fen": "8/8/2p1p3/2pkp3/2ppp3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "d6"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "d4d3",
+        "d5d6",
+        "e4e3"
+      ]
+    },
+    {
+      "id": "b-only-e6",
+      "fen": "8/8/2pp4/2pkp3/2ppp3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "e6"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "d4d3",
+        "d5e6",
+        "e4e3"
+      ]
+    },
+    {
+      "id": "b-only-c5",
+      "fen": "8/8/2ppp3/3kp3/2ppp3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "c5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "c6c5",
+        "d4d3",
+        "d5c5",
+        "e4e3"
+      ]
+    },
+    {
+      "id": "b-only-e5",
+      "fen": "8/8/2ppp3/2pk4/2ppp3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "e5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "d4d3",
+        "d5e5",
+        "e4e3",
+        "e6e5"
+      ]
+    },
+    {
+      "id": "b-only-c4",
+      "fen": "8/8/2ppp3/2pkp3/3pp3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "c4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c5c4",
+        "d4d3",
+        "d5c4",
+        "e4e3"
+      ]
+    },
+    {
+      "id": "b-only-d4",
+      "fen": "8/8/2ppp3/2pkp3/2p1p3/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "d4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "d5d4",
+        "e4e3"
+      ]
+    },
+    {
+      "id": "b-only-e4",
+      "fen": "8/8/2ppp3/2pkp3/2pp4/8/8/7K b - -",
+      "from": "d5",
+      "adjacent": [
+        "e4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4c3",
+        "d4d3",
+        "d5e4",
+        "e5e4"
+      ]
+    },
+    {
+      "id": "edge-a1",
+      "fen": "7k/8/8/8/8/8/8/K7 w - -",
+      "from": "a1",
+      "adjacent": [
+        "a2",
+        "b1",
+        "b2"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "a1a2",
+        "a1b1",
+        "a1b2"
+      ]
+    },
+    {
+      "id": "center",
+      "fen": "7k/8/8/8/3K4/8/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c3",
+        "c4",
+        "c5",
+        "d3",
+        "d5",
+        "e3",
+        "e4",
+        "e5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "d4c3",
+        "d4c4",
+        "d4c5",
+        "d4d3",
+        "d4d5",
+        "d4e3",
+        "d4e4",
+        "d4e5"
+      ]
+    },
+    {
+      "id": "undefended-capture",
+      "fen": "7k/8/8/8/8/2Kr4/8/8 w - -",
+      "from": "c3",
+      "adjacent": [
+        "b2",
+        "b4",
+        "c2",
+        "c4",
+        "d3"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c3b2",
+        "c3b4",
+        "c3c2",
+        "c3c4",
+        "c3d3"
+      ]
+    },
+    {
+      "id": "defended-capture",
+      "fen": "7k/8/6b1/8/8/2Kr4/8/8 w - -",
+      "from": "c3",
+      "adjacent": [
+        "b2",
+        "b4",
+        "c2",
+        "c4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c3b2",
+        "c3b4",
+        "c3c2",
+        "c3c4"
+      ]
+    },
+    {
+      "id": "vacated-origin-ray",
+      "fen": "7k/8/8/8/r2K4/8/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c3",
+        "c5",
+        "d3",
+        "d5",
+        "e3",
+        "e5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "d4c3",
+        "d4c5",
+        "d4d3",
+        "d4d5",
+        "d4e3",
+        "d4e5"
+      ]
+    },
+    {
+      "id": "friendly-neighbor",
+      "fen": "7k/8/8/8/3KR3/8/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c3",
+        "c4",
+        "c5",
+        "d3",
+        "d5",
+        "e3",
+        "e5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "d4c3",
+        "d4c4",
+        "d4c5",
+        "d4d3",
+        "d4d5",
+        "d4e3",
+        "d4e5",
+        "e4e1",
+        "e4e2",
+        "e4e3",
+        "e4e5",
+        "e4e6",
+        "e4e7",
+        "e4e8",
+        "e4f4",
+        "e4g4",
+        "e4h4"
+      ]
+    },
+    {
+      "id": "enemy-king-attack",
+      "fen": "8/8/8/8/3K1k2/8/8/8 w - -",
+      "from": "d4",
+      "adjacent": [
+        "c3",
+        "c4",
+        "c5",
+        "d3",
+        "d5"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "d4c3",
+        "d4c4",
+        "d4c5",
+        "d4d3",
+        "d4d5"
+      ]
+    },
+    {
+      "id": "blocked-capture-with-pinned-knight",
+      "fen": "4k3/4n3/8/3p4/2K5/8/8/4R3 w - -",
+      "from": "c4",
+      "adjacent": [
+        "b3",
+        "b4",
+        "b5",
+        "c3",
+        "c5",
+        "d3",
+        "d4"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "c4b3",
+        "c4b4",
+        "c4b5",
+        "c4c3",
+        "c4c5",
+        "c4d3",
+        "c4d4"
+      ]
+    },
+    {
+      "id": "mate-correct",
+      "fen": "7k/6Q1/6K1/8/8/8/8/8 b - -",
+      "from": "h8",
+      "adjacent": [],
+      "hasKingReply": false,
+      "replies": []
+    },
+    {
+      "id": "stalemate-correct",
+      "fen": "7k/5Q2/6K1/8/8/8/8/8 b - -",
+      "from": "h8",
+      "adjacent": [],
+      "hasKingReply": false,
+      "replies": []
+    },
+    {
+      "id": "one-king-reply-correct",
+      "fen": "7k/4Q3/6K1/8/8/8/8/8 b - -",
+      "from": "h8",
+      "adjacent": [
+        "g8"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "h8g8"
+      ]
+    },
+    {
+      "id": "one-rook-reply-correct",
+      "fen": "7k/r5Q1/6K1/8/8/8/8/8 b - -",
+      "from": "h8",
+      "adjacent": [],
+      "hasKingReply": false,
+      "replies": [
+        "a7g7"
+      ]
+    },
+    {
+      "id": "black-mate-correct",
+      "fen": "8/8/8/8/8/6k1/6q1/7K w - -",
+      "from": "h1",
+      "adjacent": [],
+      "hasKingReply": false,
+      "replies": []
+    },
+    {
+      "id": "castle-and-ordinary-reply",
+      "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ -",
+      "from": "e1",
+      "adjacent": [
+        "d1",
+        "d2",
+        "e2",
+        "f1",
+        "f2"
+      ],
+      "hasKingReply": true,
+      "replies": [
+        "a1a2",
+        "a1a3",
+        "a1a4",
+        "a1a5",
+        "a1a6",
+        "a1a7",
+        "a1a8",
+        "a1b1",
+        "a1c1",
+        "a1d1",
+        "e1c1",
+        "e1d1",
+        "e1d2",
+        "e1e2",
+        "e1f1",
+        "e1f2",
+        "e1g1",
+        "h1f1",
+        "h1g1",
+        "h1h2",
+        "h1h3",
+        "h1h4",
+        "h1h5",
+        "h1h6",
+        "h1h7",
+        "h1h8"
+      ]
+    }
+  ]
+}

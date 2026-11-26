@@ -1,0 +1,122 @@
+[
+  {
+    "id": "w-only-c5",
+    "fen": "7k/8/8/3PP3/2PKP3/2PPP3/8/8 w - -"
+  },
+  {
+    "id": "w-only-d5",
+    "fen": "7k/8/8/2P1P3/2PKP3/2PPP3/8/8 w - -"
+  },
+  {
+    "id": "w-only-e5",
+    "fen": "7k/8/8/2PP4/2PKP3/2PPP3/8/8 w - -"
+  },
+  {
+    "id": "w-only-c4",
+    "fen": "7k/8/8/2PPP3/3KP3/2PPP3/8/8 w - -"
+  },
+  {
+    "id": "w-only-e4",
+    "fen": "7k/8/8/2PPP3/2PK4/2PPP3/8/8 w - -"
+  },
+  {
+    "id": "w-only-c3",
+    "fen": "7k/8/8/2PPP3/2PKP3/3PP3/8/8 w - -"
+  },
+  {
+    "id": "w-only-d3",
+    "fen": "7k/8/8/2PPP3/2PKP3/2P1P3/8/8 w - -"
+  },
+  {
+    "id": "w-only-e3",
+    "fen": "7k/8/8/2PPP3/2PKP3/2PP4/8/8 w - -"
+  },
+  {
+    "id": "b-only-c6",
+    "fen": "8/8/3pp3/2pkp3/2ppp3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-d6",
+    "fen": "8/8/2p1p3/2pkp3/2ppp3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-e6",
+    "fen": "8/8/2pp4/2pkp3/2ppp3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-c5",
+    "fen": "8/8/2ppp3/3kp3/2ppp3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-e5",
+    "fen": "8/8/2ppp3/2pk4/2ppp3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-c4",
+    "fen": "8/8/2ppp3/2pkp3/3pp3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-d4",
+    "fen": "8/8/2ppp3/2pkp3/2p1p3/8/8/7K b - -"
+  },
+  {
+    "id": "b-only-e4",
+    "fen": "8/8/2ppp3/2pkp3/2pp4/8/8/7K b - -"
+  },
+  {
+    "id": "edge-a1",
+    "fen": "7k/8/8/8/8/8/8/K7 w - -"
+  },
+  {
+    "id": "center",
+    "fen": "7k/8/8/8/3K4/8/8/8 w - -"
+  },
+  {
+    "id": "undefended-capture",
+    "fen": "7k/8/8/8/8/2Kr4/8/8 w - -"
+  },
+  {
+    "id": "defended-capture",
+    "fen": "7k/8/6b1/8/8/2Kr4/8/8 w - -"
+  },
+  {
+    "id": "vacated-origin-ray",
+    "fen": "7k/8/8/8/r2K4/8/8/8 w - -"
+  },
+  {
+    "id": "friendly-neighbor",
+    "fen": "7k/8/8/8/3KR3/8/8/8 w - -"
+  },
+  {
+    "id": "enemy-king-attack",
+    "fen": "8/8/8/8/3K1k2/8/8/8 w - -"
+  },
+  {
+    "id": "blocked-capture-with-pinned-knight",
+    "fen": "4k3/4n3/8/3p4/2K5/8/8/4R3 w - -"
+  },
+  {
+    "id": "mate-correct",
+    "fen": "7k/6Q1/6K1/8/8/8/8/8 b - -"
+  },
+  {
+    "id": "stalemate-correct",
+    "fen": "7k/5Q2/6K1/8/8/8/8/8 b - -"
+  },
+  {
+    "id": "one-king-reply-correct",
+    "fen": "7k/4Q3/6K1/8/8/8/8/8 b - -"
+  },
+  {
+    "id": "one-rook-reply-correct",
+    "fen": "7k/r5Q1/6K1/8/8/8/8/8 b - -"
+  },
+  {
+    "id": "black-mate-correct",
+    "fen": "8/8/8/8/8/6k1/6q1/7K w - -"
+  },
+  {
+    "id": "castle-and-ordinary-reply",
+    "fen": "4k3/8/8/8/8/8/8/R3K2R w KQ -"
+  }
+]
