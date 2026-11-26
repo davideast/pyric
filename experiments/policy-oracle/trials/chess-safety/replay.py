@@ -33,7 +33,9 @@ def equal(result, expected, label):
         raise ValueError(f'Evidence changed for {label}')
 
 
-def native_replay():
+def native_replay(control_files=None):
+    if control_files is None:
+        control_files = sorted((HERE/'exploration').glob('*/controls/positions.json'))
     cases, batches, _ = load(7)
     native = {c['id']: c['nativeAdmission'] for c in cases}
     for inputs, answers in [('positions','native'),('cost-position','cost-native'),('path-cost-controls','path-native')]:
@@ -43,8 +45,9 @@ def native_replay():
         folder = HERE/'batches'/batch/'v1'
         equal(observed('bun','reference/native.mjs',folder/'positions.json'),read(folder/'native.json'),batch+' native')
         equal(observed('bun','reference/mutations.mjs',batch),read(folder/'mutations.json'),batch+' mutation sensitivity')
-    for folder in sorted((HERE/'exploration').glob('*/controls/native.json')):
-        data = observed('bun','reference/native.mjs',folder.with_name('positions.json'))
+    for positions in control_files:
+        folder = positions.with_name('native.json')
+        data = observed('bun','reference/native.mjs',positions)
         equal(data, read(folder), folder.parent.parent.name+' controls')
         for c in data['cases']:
             native[c['id']] = c['nativeAdmission']
@@ -78,9 +81,9 @@ def hosted(native, digest, archive):
             'receipts':[c['receipt'] for c in data['captures']], 'managementFailures':data['managementFailures']}
 
 
-def score_controls(native, sdk, rules, digest):
+def score_controls(native, sdk, rules, digest, control_files):
     reports = {}
-    for filename in sorted((HERE/'exploration').glob('*/controls/positions.json')):
+    for filename in control_files:
         requests = observed('bun','inputs.mjs',filename)
         local = json.loads(subprocess.check_output(['bun',HERE/'baseline.mjs',sdk,rules],input=json.dumps(requests).encode()))
         equal(local['sha256'],digest,'same Rules for supplemental write controls')
@@ -111,7 +114,8 @@ def build_recorded_package(variant, temp):
 
 
 def replay(args, temp):
-    native, batches = native_replay()
+    control_files = sorted((HERE/'exploration').glob('*/controls/positions.json'))
+    native, batches = native_replay(control_files)
     equal(observed(sys.executable,'registry/leaves.py'),{'claims':7,'cases':84},'registry coverage')
     equal(observed('bun','exploration/hosted-holdout-v1/freeze.mjs'),{'moves':10,'writes':30,'allowed':10},'hosted triads')
     for name, digest in REFERENCE['PINS'].items():
@@ -139,7 +143,7 @@ def replay(args, temp):
     sdk = REFERENCE['install_rules'](REFERENCE['VENDOR']/'pyric-rules-0.1.0.tgz',temp/'ref')/'@pyric/rules'
     discovery = DISCOVERY['run'](bundle,sdk,True,extended_endings=True,bare_defender=True)
     result['discovery'] = {k:v for k,v in discovery.items() if k != 'reports'}
-    result['supplementalControls'] = score_controls(native,sdk,bundle,digest)
+    result['supplementalControls'] = score_controls(native,sdk,bundle,digest,control_files)
     ep = HERE/'exploration/en-passant-evasions-v1'
     equal(observed('bun',ep/'freeze.mjs'),read(ep/'freeze.json'),'en passant double-push predecessors')
     pair_count = observed('bun',ep/'pairs.mjs')['pairedBoards']
@@ -152,6 +156,11 @@ def replay(args, temp):
         equal(detail['rulesSha256'],digest,'historical Rules')
         history[mode] = {k:v for k,v in detail.items() if k not in ('byTrace','highestAllowed')}
     result['history'] = history
+    lifecycle = HERE/'reachable/lifecycle-v1'
+    equal(observed('bun',lifecycle/'freeze.mjs'),read(lifecycle/'freeze.json'),'actual match histories and heads')
+    run = observed('bun',lifecycle/'measure.mjs',sdk,bundle)
+    equal(run['rulesSha256'],digest,'match lifecycle Rules')
+    result['lifecycle'] = {k:v for k,v in run.items() if k!='byTrace'}
     result['sealedReferee'] = {'status':'not-run'}
     sealed_pass = True
     if args.sealed_referee:
@@ -168,9 +177,9 @@ def replay(args, temp):
         # exist before a receipt if an activation failed before Firestore saw any writes.
         result['releaseComparisons'] = compare(native,sdk,args.archive)
     target = result['hosted']
-    local_pass = (sealed_pass and core['passed'] and discovery['allMatch'] and not result['enPassantContinuations']['first']
+    local_pass = (sealed_pass and run['matchedAll'] and core['passed'] and discovery['allMatch'] and not result['enPassantContinuations']['first']
                   and all(r['counts']=={'match':r['cases']} for r in result['supplementalControls'].values())
-                  and all(x['falseRefusals']==0 for x in history.values()))
+                  and all(x['allow']==x['writes'] for x in history.values()))
     matches = all(set(counts) <= {'match'} for counts in target['comparison'].values()) if target['distinctCases'] else None
     result['localConformance'] = local_pass
     result['matchesObservedProductionCases'] = matches
@@ -184,13 +193,19 @@ def main():
     p.add_argument('--sealed-referee',type=Path,help='also score the prior private chess reference archive')
     p.add_argument('--archive',type=Path,help='optionally authenticate each private Firestore journal')
     p.add_argument('--report',type=Path,help='also retain the JSON report at this path')
+    p.add_argument('--scorecard',type=Path,help='also render the recorded release comparison in Markdown')
     args = p.parse_args()
+    if args.scorecard and args.candidate_package:
+        p.error('--scorecard uses the archived release comparison; candidate scores are available with --report')
     with tempfile.TemporaryDirectory(prefix='chess-safety-replay-') as scratch:
         result, matches = replay(args,Path(scratch))
     result['passesScoredCases'] = matches
     output = json.dumps(result,indent=2)+'\n'
     if args.report:
         args.report.write_text(output)
+    if args.scorecard:
+        from scorecard import render
+        args.scorecard.write_text(render(result))
     print(output,end='')
     return int(args.candidate_package is not None and not matches)
 

@@ -90,14 +90,9 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
     ref = (ROOT / "arcade/vendor/pyric-rules-0.1.0.tgz").read_bytes()
     oracle.require(oracle.sha(ref)==REFERENCE,"independent evaluator changed")
     inputs = [{k:r[k] for k in ("resource","data")} for r in requests]
-    policy_files = {REL+"/policy/"+name+".mjs" for name in ("adapter", "line-search", "compact", "packed", "optimized", "geometry")}
-    files = {REL+"/consumer.mjs", *policy_files,"trials/king-safety/policy/public-api.mjs",
+    trusted_policy = {REL+'/'+f for f in json.loads(subprocess.check_output(['bun',HERE/'policy-imports.mjs']))}
+    files = {REL+"/consumer.mjs", *trusted_policy, "trials/king-safety/policy/public-api.mjs",
              "trials/king-safety/policy/horizontal-path.policy"}
-    terminal_files = {REL+"/terminal/v1/"+f for f in ("policy.mjs","geometry.mjs","compact.mjs","reply.mjs")}
-    terminal_files.update({REL+"/terminal/table-v2/"+f for f in ("policy.mjs","endings.mjs","patterns.mjs")})
-    terminal_files.update({REL+"/mobility/"+f for f in ("combined.mjs","adapter.mjs","grouped.mjs","three-piece.mjs","bare.mjs")})
-    terminal_files.update({REL+"/pawns/v1/"+f for f in ("adapter.mjs","policy.mjs")})
-    files.update(terminal_files)
     tasks = {"emit":task("consumer.mjs", ["emit",variant,PKG]),
              "standalone":task("consumer.mjs", ["standalone",variant,PKG,*chunks(inputs)])}
     if board_policy:
@@ -125,9 +120,9 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
         groups=[requests[i:i+24] for i in range(0,len(requests),24)]
         stages={str(i):task(evaluator,[MODULES,*chunks({"modules":modules,"variant":variant,"requests":g,
                      "returnSource":save_artifact is not None and i==0})]) for i,g in enumerate(groups)}
-        vf={REL+"/"+evaluator, REL+"/policy", "trials/king-safety/policy", "trials/chess/bundle/artifacts",
+        vf={REL+"/"+evaluator, "trials/king-safety/policy/horizontal-path.policy", "trials/chess/bundle/artifacts",
             "trials/sokoban-repair/v1/tictactoe.stock.rules"}
-        judged=side(ROOT,ref,stages,reference=False,timeout=240,pinned_paths=vf|terminal_files)
+        judged=side(ROOT,ref,stages,reference=False,timeout=240,pinned_paths=vf|trusted_policy)
         rows=[]
         for i,group in enumerate(groups):
             out,err=task_output(judged,str(i))
@@ -179,7 +174,7 @@ def main():
     p.add_argument("--variant",default="combined-pattern-fast-packed-v5")
     p.add_argument("--save-rules",type=Path,help="save independently linked source for review")
     p.add_argument("--board-policy",action="store_true",help="also derive full move legality, successor and terminal outcome via the public bounded-module API")
-    p.add_argument("--with-live",action="store_true",help="look up retained measurements of these exact Rules bytes")
+    p.add_argument("--with-live",action="store_true",help="append hosted receipts for these exact bytes; passed grades the selected local planes")
     args=p.parse_args()
     try:
         out=score(args.candidate_package,args.through,args.variant,args.save_rules,args.board_policy)

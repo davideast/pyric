@@ -1,0 +1,20 @@
+[
+  {
+    "control": "repacked",
+    "packageSha256": "df29bd41e1a24896a0b97f560ea9f045eba1ac3d0dc760a7dd12f603e8286fc9",
+    "linkedRulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+    "matchedCoreCases": 94,
+    "production": "measured",
+    "controllerReceipts": [
+      "4605e453a4e6b88d2b38f64e1b5ed24110c7ba18d926d2cd27e8fb878b3ab027"
+    ]
+  },
+  {
+    "control": "parameterRename",
+    "packageSha256": "1c0c8a7d695d15349c43aa215245db1f98e0e81df0dde2dca42b6bda4d4eb1a5",
+    "linkedRulesSha256": "03a799a1df924e5b152dc40b4d227eee00b92423068ffb0a530f24eed53a33ab",
+    "matchedCoreCases": 94,
+    "production": "unmeasured",
+    "controllerReceipts": []
+  }
+]

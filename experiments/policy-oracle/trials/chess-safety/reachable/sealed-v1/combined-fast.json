@@ -1,0 +1,29 @@
+{
+  "authority": "pinned hidden-trace reference and independent local evaluator",
+  "archiveSha256": "26a9eb7b807c0b18774008af09aa413e92336b43a38a852685e4b8079103dd4e",
+  "successorDigest": "228dc23018aff06bac3414959a57a0f74231901bbfc46008fa864259be275518",
+  "rulesSha256": "a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b",
+  "decisionsSha256": "b16f19d6b5ca426d798d31999fb2bad11307086a2bd69595e879cc8ee60ecafb",
+  "groups": {
+    "each-legal-successor": {
+      "match": 46385
+    },
+    "three-claims-per-board": {
+      "match": 4371,
+      "false-allow": 191,
+      "evaluation-error/resource-limit": 1
+    }
+  },
+  "first": {
+    "three-claims-per-board/false-allow": {
+      "caseSha256": "c4029995781a35072439efef8f4ccde408dbfec5a3026a08273f96058310dae1",
+      "observed": "ALLOW",
+      "localCost": 908
+    },
+    "three-claims-per-board/evaluation-error/resource-limit": {
+      "caseSha256": "5effc55b142bbcf2321dd4b6dc9ccfa129cc58c402bf0402ffcaa86e25687b0b",
+      "observed": "DENY",
+      "localCost": 1000
+    }
+  }
+}

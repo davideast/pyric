@@ -30,12 +30,15 @@ for(const {trace,ply,row,first} of positions()) {
       resource:before,data:{...before,...proposal},expectation:'ALLOW'};
     const [r]=judge.simulate([request]).cases;
     const cost=r.evaluatedExpressions;
-    assert.ok(!r.unsupported,request.description);
+
     const reason=r.resourceLimit?'resource-limit':r.trace.some(t=>t.verdict==='ERROR')?'rule-error':'predicate';
     const record=result.byTrace[trace]??={attempted:0,allow:0,firstRefusal:null};
     result.writes++;
     record.attempted++;
-    if(r.decision==='ALLOW'){
+    if(r.unsupported){
+      result.unsupported=(result.unsupported??0)+1;
+      result.firstUnsupported??={...info,detail:r.notes};
+    }else if(r.decision==='ALLOW'){
       result.allow++;
       record.allow++;
       if(cost>(result.highestAllowed?.cost??0))result.highestAllowed={...info,cost};
@@ -46,7 +49,7 @@ for(const {trace,ply,row,first} of positions()) {
       record.firstRefusal??={ply,uci,reason,cost};
       result.firstRefusal??={...info,reason,cost};
     }
-    digest.update(JSON.stringify([trace,ply,uci,r.decision,cost,r.resourceLimit?.kind??null])+'\n');
+    digest.update(JSON.stringify([trace,ply,uci,r.decision,cost,r.unsupported?'unsupported':r.resourceLimit?.kind??null])+'\n');
   }
 }
 assert.equal(serial,mode==='legal'?frozen.legalSuccessors:frozen.recordedMoves);

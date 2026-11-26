@@ -1,0 +1,9 @@
+{
+  "authority": "public compiler API",
+  "acceptedLength": 8192,
+  "firstRejectedLength": 8193,
+  "boundary": "Source exceeds 8192 characters",
+  "tableRows": 193,
+  "monolithicChars": 76995,
+  "monolithicDiagnostic": "Source exceeds 8192 characters"
+}

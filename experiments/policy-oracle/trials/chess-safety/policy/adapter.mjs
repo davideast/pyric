@@ -25,7 +25,8 @@ export function compile(compileFunction, variant = 'castle', {mode='both'} = {})
     const enemy = color === 'w' ? 'b' : 'w';
     const {from,to} = next.lastMove;
     const kingMove = old.board[from] === color+'k';
-    const index = kingMove ? squares.indexOf(to) : compiled.locateKing(next.board,color+'k');
+    const location = kingMove ? squares.indexOf(to) : compiled.locateKing(next.board,color+'k');
+    const index = typeof location === 'bigint' ? Number(location) : location;
     if (!Number.isInteger(index) || index < -1 || index > 63) throw Error('locateKing must return a square index or -1');
     if (index === -1) return false;
     function safe(square, board) {

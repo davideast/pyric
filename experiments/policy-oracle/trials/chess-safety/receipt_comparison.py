@@ -41,7 +41,7 @@ def compare(native, sdk, archive=None):
                 key = row['id']; batch = server['batch']
                 if key!=sim['id'] or key!=server['id'] or row['observed']!=server['verdict']:
                     raise ValueError(f'Case identity or live verdict changed for {key}')
-                outcome = {'batch':batch,'native':'ALLOW' if native[key] else 'DENY',
+                outcome = {'batch':batch,'native':('ALLOW' if native[key] else 'DENY') if key in native else 'unscored',
                            'production':server['verdict'],'local':sim['decision'],'localError':sim.get('error'),
                            'localExpressions':sim['cost']}
                 if key in distinct:
@@ -53,11 +53,13 @@ def compare(native, sdk, archive=None):
                 bins['nativeMatches']+=outcome['native']==outcome['production']
                 bins['localVerdictMatches']+=outcome['local']==outcome['production']
                 bins['localErrors']+=bool(outcome['localError'])
+                bins['unscoredNative']+=key not in native
                 bins['falseAllows']+=outcome['production']=='ALLOW' and outcome['native']=='DENY'
                 bins['falseRefusals']+=outcome['production']=='DENY' and outcome['native']=='ALLOW'
                 if outcome['native']!=outcome['production'] or outcome['local']!=outcome['production'] or outcome['localError']:
                     disagreements.append({'id':key,**outcome,'receipt':str(receipt.relative_to(HERE)),'versions':[row['before'][0]['version'],row['after'][0]['version']]})
         releases.append({'rules':str(source.relative_to(HERE)) if source.is_relative_to(HERE) else spec['file'],
                          'sha256':digest,'status':hosted['status'],'productionCases':len(distinct),'batches':batches,
+                         'examples':{k:v for k,v in distinct.items() if k.startswith(('holdout-black-queen-corner-','sole-pawn-w-'))},
                          'disagreements':disagreements})
     return releases
