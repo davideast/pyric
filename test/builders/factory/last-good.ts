@@ -10,11 +10,11 @@
 import { z } from 'zod';
 import { readJson, writeJson } from './state-files.ts';
 
-const lastGoodSchema = z.object({
+const lastGoodSchema = z.strictObject({
   commit: z.string(),
   hour: z.number().int(),
   at: z.string().datetime(),
-}).strict();
+});
 
 export type LastGood = z.infer<typeof lastGoodSchema>;
 

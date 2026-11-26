@@ -6,37 +6,37 @@ import { defineRtdbRules } from '../../../src/rtdb/constraints/document.js';
 import { rtdbRules } from '../../../src/index.js';
 
 describe('schemaRules', () => {
-  test('z.string() → isString', () => {
+  test('z.string() -> isString', () => {
     const result = schemaRules(z.object({ name: z.string() }));
     expect(result.children.name.validate).toBe('newData.isString()');
   });
 
-  test('z.number() → isNumber', () => {
+  test('z.number() -> isNumber', () => {
     const result = schemaRules(z.object({ age: z.number() }));
     expect(result.children.age.validate).toBe('newData.isNumber()');
   });
 
-  test('z.boolean() → isBoolean', () => {
+  test('z.boolean() -> isBoolean', () => {
     const result = schemaRules(z.object({ active: z.boolean() }));
     expect(result.children.active.validate).toBe('newData.isBoolean()');
   });
 
-  test('z.enum() → val() == comparisons', () => {
+  test('z.enum() -> val() == comparisons', () => {
     const result = schemaRules(z.object({ role: z.enum(['user', 'admin']) }));
     expect(result.children.role.validate).toBe("newData.val() == 'user' || newData.val() == 'admin'");
   });
 
-  test('z.literal(string) → val() == literal', () => {
+  test('z.literal(string) -> val() == literal', () => {
     const result = schemaRules(z.object({ type: z.literal('post') }));
     expect(result.children.type.validate).toBe("newData.val() == 'post'");
   });
 
-  test('z.literal(number) → val() == number', () => {
+  test('z.literal(number) -> val() == number', () => {
     const result = schemaRules(z.object({ version: z.literal(1) }));
     expect(result.children.version.validate).toBe('newData.val() == 1');
   });
 
-  test('z.literal(boolean) → val() == boolean', () => {
+  test('z.literal(boolean) -> val() == boolean', () => {
     const result = schemaRules(z.object({ enabled: z.literal(true) }));
     expect(result.children.enabled.validate).toBe('newData.val() == true');
   });
@@ -68,11 +68,11 @@ describe('schemaRules', () => {
     }));
     expect(result.children.address.validate).toContain('newData.hasChildren()');
     expect(result.children.address.children).toBeDefined();
-    expect(result.children.address.children!.city.validate).toBe('newData.isString()');
-    expect(result.children.address.children!.zip.validate).toBe('newData.isString()');
+    expect(result.children.address.children?.city.validate).toBe('newData.isString()');
+    expect(result.children.address.children?.zip.validate).toBe('newData.isString()');
   });
 
-  test('z.union of primitives → OR of type checks', () => {
+  test('z.union of primitives -> OR of type checks', () => {
     const result = schemaRules(z.object({
       value: z.union([z.string(), z.number()]),
     }));
@@ -105,7 +105,7 @@ describe('schemaRules', () => {
     expect(() => schemaRules(z.object({ date: z.date() }))).toThrow('Unsupported');
   });
 
-  test('empty object → just hasChildren()', () => {
+  test('empty object -> just hasChildren()', () => {
     const result = schemaRules(z.object({}));
     expect(result.validate).toBe('newData.hasChildren()');
     expect(Object.keys(result.children)).toHaveLength(0);
@@ -343,5 +343,67 @@ describe('schemaRules', () => {
       "newData.hasChildren() && newData.hasChild('title') && newData.child('title').val() == 'ok'",
     );
     expect(result.children.meta.children?.title.validate).toBe('newData.isString()');
+  });
+
+  test('compiles Zod 4 top-level formats, multi-value literals, strictObject, and looseObject', () => {
+    const schema = z.strictObject({
+      email: z.email(),
+      boundedEmail: z.email().min(6),
+      count: z.int().min(1),
+      status: z.literal(['open', 'closed']),
+      prefix: z.string().startsWith('pre_'),
+      suffix: z.string().endsWith('_end'),
+      contains: z.string().includes('mid'),
+      step: z.number().multipleOf(5),
+    });
+    const result = schemaRules(schema);
+    expect(result.children.$other?.validate).toBe('false');
+    expect(result.children.email?.validate).toBe(
+      'newData.isString() && newData.val().matches(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/)',
+    );
+    expect(result.children.boundedEmail?.validate).toBe(
+      'newData.isString() && newData.val().matches(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/) && newData.val().length >= 6',
+    );
+    expect(result.children.count?.validate).toBe(
+      'newData.isNumber() && newData.val() % 1 == 0 && newData.val() >= 1',
+    );
+    expect(result.children.status?.validate).toBe(
+      "newData.val() == 'open' || newData.val() == 'closed'",
+    );
+    expect(result.children.prefix?.validate).toBe(
+      "newData.isString() && newData.val().beginsWith('pre_')",
+    );
+    expect(result.children.suffix?.validate).toBe(
+      "newData.isString() && newData.val().endsWith('_end')",
+    );
+    expect(result.children.contains?.validate).toBe(
+      "newData.isString() && newData.val().contains('mid')",
+    );
+    expect(result.children.step?.validate).toBe(
+      'newData.isNumber() && newData.val() % 5 == 0',
+    );
+
+    expect(schemaRules(z.looseObject({ name: z.string() })).children.$other).toBeUndefined();
+    expect(() => schemaRules(z.object({ name: z.string() }).catchall(z.string()))).toThrow(
+      /Unsupported Zod object catchall/,
+    );
+    expect(() => schemaRules(z.object({ id: z.uuid() }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ n: z.int32() }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ s: z.string().includes('a', { position: 2 }) }))).toThrow(
+      /Unsupported/,
+    );
+    expect(() => schemaRules(z.object({ s: z.string().trim() }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ s: z.string().refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.string() }).refine(() => true))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.string() }).superRefine(() => {}))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ nested: z.object({ a: z.string() }).refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.string() }).catchall(z.unknown().refine(() => true)))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.string().optional().refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.boolean().refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.enum(['x', 'y']).refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.literal('x').refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.union([z.string(), z.number()]).refine(() => true) }))).toThrow(/Unsupported/);
+    expect(() => schemaRules(z.object({ a: z.union([] as never) }))).toThrow(/Unsupported empty Zod union/);
+    expect(() => schemaRules(z.object({ a: z.string().transform((s) => s) }))).toThrow(/Unsupported/);
   });
 });

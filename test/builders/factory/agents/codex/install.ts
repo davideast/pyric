@@ -13,7 +13,7 @@ import type { AgentInstall } from '../../agent.ts';
 
 export const CODEX_PACKAGE = '@openai/codex';
 
-const packageSchema = z.object({ name: z.string() }).passthrough();
+const packageSchema = z.looseObject({ name: z.string() });
 
 /** The package's name from its `package.json`, or undefined when there is none to read. */
 function packageName(dir: string): string | undefined {

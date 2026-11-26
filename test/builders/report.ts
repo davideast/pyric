@@ -12,50 +12,50 @@ import { parseJsonText, parseWith, type Parsed } from './parse.ts';
 const text = z.string().trim().min(1);
 const stepNumber = z.number().int().positive();
 
-const step = z.object({
+const step = z.strictObject({
   n: stepNumber,
   did: text,
   result: z.enum(['worked', 'broke', 'stuck']),
   /** A path inside the run directory. */
   log: z.string(),
-}).strict();
+});
 
 /** The forms of the selectors the harness gives its own problems (`repro-target.ts`), which a builder's id must not take. */
 export const RESERVED_PROBLEM_ID = /^(refusal-allowed-\d+$|google-host:)/;
 
-const problem = z.object({
+const problem = z.strictObject({
   id: text.refine((id) => !RESERVED_PROBLEM_ID.test(id), 'must not take the form of a harness selector (refusal-allowed-<n>, google-host:<host>)'),
   summary: text,
   step: stepNumber,
   /** What the docs said would happen; null when no page led the builder to expect anything. */
-  docsLedMeToExpect: z.object({ page: text, quote: text }).strict().nullable(),
+  docsLedMeToExpect: z.strictObject({ page: text, quote: text }).nullable(),
   whatHappened: text,
   errorText: z.string(),
   logs: z.array(z.string()),
   reproHint: text,
-}).strict();
+});
 
 export const REFUSAL_RESULTS = ['refused', 'allowed', 'not-attempted'] as const;
 
-const refusal = z.object({
+const refusal = z.strictObject({
   action: text,
   firebaseDoc: text,
   productionAnswer: text,
   pyricAnswer: z.string(),
   result: z.enum(REFUSAL_RESULTS),
-}).strict();
+});
 
-const stuck = z.object({ where: text, lastError: z.string(), whatIWouldTryNext: text }).strict();
+const stuck = z.strictObject({ where: text, lastError: z.string(), whatIWouldTryNext: text });
 
 const isDistinct = (values: readonly string[]) => new Set(values).size === values.length;
 
-export const builderReportSchema = z.object({
+export const builderReportSchema = z.strictObject({
   steps: z.array(step),
   worked: z.array(text),
   problems: z.array(problem).refine((problems) => isDistinct(problems.map((entry) => entry.id)), 'problem ids must be distinct'),
   refusals: z.array(refusal),
   stuck: stuck.nullable(),
-}).strict();
+});
 
 export type BuilderReport = z.infer<typeof builderReportSchema>;
 export type Refusal = BuilderReport['refusals'][number];

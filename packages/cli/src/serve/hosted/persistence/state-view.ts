@@ -27,7 +27,7 @@ import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 import { validateHostedDatabase } from './validate.js';
 
 type Database = Awaited<ReturnType<typeof openHostedDatabase>>;
-const authSection = z.object({ users: z.array(seedUserSchema) }).passthrough();
+const authSection = z.looseObject({ users: z.array(seedUserSchema) });
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 /** The Storage entries a document carries, validated as a seed's are. */

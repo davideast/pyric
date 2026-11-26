@@ -21,8 +21,8 @@ describe('parseBrief', () => {
   test('requires two to five must-be-refused lines', () => {
     const brief = fixture();
     const [first] = brief.mustBeRefused as unknown[];
-    expect(errorsFor({ ...brief, mustBeRefused: [first] })).toEqual(['mustBeRefused: Array must contain at least 2 element(s)']);
-    expect(errorsFor({ ...brief, mustBeRefused: Array.from({ length: 6 }, () => first) })).toEqual(['mustBeRefused: Array must contain at most 5 element(s)']);
+    expect(errorsFor({ ...brief, mustBeRefused: [first] })).toEqual(['mustBeRefused: Too small: expected array to have >=2 items']);
+    expect(errorsFor({ ...brief, mustBeRefused: Array.from({ length: 6 }, () => first) })).toEqual(['mustBeRefused: Too big: expected array to have <=5 items']);
   });
 
   test('takes a must-be-refused source only from firebase.google.com over https', () => {
@@ -38,21 +38,21 @@ describe('parseBrief', () => {
 
   test('takes one or two distinct stress dimensions from the five', () => {
     const brief = fixture();
-    expect(errorsFor({ ...brief, stressDimensions: [] })).toEqual(['stressDimensions: Array must contain at least 1 element(s)']);
+    expect(errorsFor({ ...brief, stressDimensions: [] })).toEqual(['stressDimensions: Too small: expected array to have >=1 items']);
     expect(errorsFor({ ...brief, stressDimensions: ['scale', 'scale'] })).toEqual(['stressDimensions: must not repeat a dimension']);
-    expect(errorsFor({ ...brief, stressDimensions: ['scale', 'lifecycle', 'combination'] })).toEqual(['stressDimensions: Array must contain at most 2 element(s)']);
-    expect(errorsFor({ ...brief, stressDimensions: ['speed'] })[0]).toStartWith('stressDimensions.0: Invalid enum value');
+    expect(errorsFor({ ...brief, stressDimensions: ['scale', 'lifecycle', 'combination'] })).toEqual(['stressDimensions: Too big: expected array to have <=2 items']);
+    expect(errorsFor({ ...brief, stressDimensions: ['speed'] })[0]).toStartWith('stressDimensions.0: Invalid option: expected one of ');
   });
 
   test('takes only the three frameworks and an id of the form <round>-<n>', () => {
     const brief = fixture();
-    expect(errorsFor({ ...brief, framework: 'astro' })[0]).toStartWith('framework: Invalid enum value');
+    expect(errorsFor({ ...brief, framework: 'astro' })[0]).toStartWith('framework: Invalid option: expected one of ');
     expect(errorsFor({ ...brief, id: 'fake' })).toEqual(['id: must be <round>-<n>']);
   });
 
   test('rejects a field the shape does not name, such as a model or a cap', () => {
-    expect(errorsFor({ ...fixture(), model: 'claude-haiku' })).toEqual(["(top level): Unrecognized key(s) in object: 'model'"]);
-    expect(errorsFor({ ...fixture(), limits: { wallClockMinutes: 10, maxBudgetUsd: 5 } })).toEqual(["limits: Unrecognized key(s) in object: 'maxBudgetUsd'"]);
+    expect(errorsFor({ ...fixture(), model: 'claude-haiku' })).toEqual(['(top level): Unrecognized key: "model"']);
+    expect(errorsFor({ ...fixture(), limits: { wallClockMinutes: 10, maxBudgetUsd: 5 } })).toEqual(['limits: Unrecognized key: "maxBudgetUsd"']);
   });
 });
 
@@ -64,7 +64,7 @@ describe('readBriefs', () => {
     writeFileSync(join(dir, 'brief-3.json'), '{ not json');
     const { briefs, errors } = readBriefs(dir);
     expect(briefs.map((brief) => brief.id)).toEqual(['fake-1']);
-    expect(errors[0]).toBe('brief-2.json: appIdea: String must contain at least 1 character(s)');
+    expect(errors[0]).toBe('brief-2.json: appIdea: Too small: expected string to have >=1 characters');
     expect(errors[1]).toStartWith('brief-3.json: not JSON');
   });
 

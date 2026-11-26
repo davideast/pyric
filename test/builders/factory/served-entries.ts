@@ -9,7 +9,7 @@ import type { AppPaths } from './app-paths.ts';
 import { readJson, writeJson } from './state-files.ts';
 import { removeServed, tailscaleFrom } from './tailnet.ts';
 
-const ENTRIES_SCHEMA = z.object({ ports: z.array(z.number().int()) }).strict();
+const ENTRIES_SCHEMA = z.strictObject({ ports: z.array(z.number().int()) });
 
 function entriesFile(paths: AppPaths): string {
   return join(paths.host, 'private-network-entries.json');

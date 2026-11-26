@@ -68,13 +68,13 @@ const CLIENT_TOOL_TYPES = new Set(['function', 'custom', 'local_shell', 'namespa
 const isReferenceKey = (key: string) => key.endsWith('_url') || key === 'file_id';
 const isInlineData = (value: unknown) => typeof value === 'string' && value.startsWith('data:');
 
-const toolSchema = z.object({ type: z.string(), tools: z.array(z.unknown()).optional() }).passthrough();
+const toolSchema = z.looseObject({ type: z.string(), tools: z.array(z.unknown()).optional() });
 
-const bodySchema = z.object({
+const bodySchema = z.looseObject({
   model: z.string(),
   tools: z.array(z.unknown()).optional(),
   input: z.unknown().optional(),
-}).passthrough();
+});
 
 /** The type of every tool in `tools`, and in each namespace's own `tools`, depth first. */
 function toolTypes(tools: readonly unknown[]): string[] {

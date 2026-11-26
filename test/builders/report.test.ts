@@ -28,15 +28,15 @@ describe('parseBuilderReport', () => {
   });
 
   test('rejects the fields only the harness writes', () => {
-    expect(errorsFor({ ...fixture(), network: [], usage: { costUsd: 0 } })).toEqual(["(top level): Unrecognized key(s) in object: 'network', 'usage'"]);
+    expect(errorsFor({ ...fixture(), network: [], usage: { costUsd: 0 } })).toEqual(['(top level): Unrecognized keys: "network", "usage"']);
   });
 
   test('takes only the three step results and the three refusal results', () => {
     const report = fixture();
     const [step] = report.steps as Record<string, unknown>[];
     const [refusal] = report.refusals as Record<string, unknown>[];
-    expect(errorsFor({ ...report, steps: [{ ...step, result: 'skipped' }] })[0]).toStartWith('steps.0.result: Invalid enum value');
-    expect(errorsFor({ ...report, refusals: [{ ...refusal, result: 'denied' }] })[0]).toStartWith('refusals.0.result: Invalid enum value');
+    expect(errorsFor({ ...report, steps: [{ ...step, result: 'skipped' }] })[0]).toStartWith('steps.0.result: Invalid option: expected one of ');
+    expect(errorsFor({ ...report, refusals: [{ ...refusal, result: 'denied' }] })[0]).toStartWith('refusals.0.result: Invalid option: expected one of ');
   });
 
   test('requires distinct problem ids, and lets a problem cite no doc', () => {
@@ -48,7 +48,10 @@ describe('parseBuilderReport', () => {
 
   test('takes stuck as null or with every field', () => {
     expect(errorsFor({ ...fixture(), stuck: { where: 'step 2', lastError: 'EADDRINUSE', whatIWouldTryNext: 'another port' } })).toEqual([]);
-    expect(errorsFor({ ...fixture(), stuck: { where: 'step 2' } })).toEqual(['stuck.lastError: Required', 'stuck.whatIWouldTryNext: Required']);
+    expect(errorsFor({ ...fixture(), stuck: { where: 'step 2' } })).toEqual([
+      'stuck.lastError: Invalid input: expected string, received undefined',
+      'stuck.whatIWouldTryNext: Invalid input: expected string, received undefined',
+    ]);
   });
 });
 

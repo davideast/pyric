@@ -52,11 +52,10 @@ export class StateFileError extends Error {
   }
 }
 
-const stateFileSchema = z.object({
+const stateFileSchema = z.looseObject({
   version: z.literal(STATE_FILE_VERSION),
   firestore: z.unknown().default(null),
-  auth: z.object({ users: z.array(seedUserSchema) })
-    .passthrough().nullable().default(null),
+  auth: z.looseObject({ users: z.array(seedUserSchema) }).nullable().default(null),
   storage: z.array(z.union([
     z.object({
       dataBase64: z.string(),
@@ -71,7 +70,7 @@ const stateFileSchema = z.object({
       metadata: storedMetadataSchema,
     }).refine(entry => entry.path === entry.metadata.fullPath && entry.size === entry.metadata.size),
   ])).optional(),
-}).passthrough();
+});
 
 function diagnosticVersion(value: unknown): string {
   const isVersionNumber = typeof value === 'number' && Number.isSafeInteger(value);

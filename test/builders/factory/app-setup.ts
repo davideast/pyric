@@ -56,7 +56,7 @@ export function defaultBriefDir(env: NodeJS.ProcessEnv = process.env): string {
   return join(dataRoot(env), 'briefs', 'factory', 'mdmedia');
 }
 
-const recordSchema = z.object({
+const recordSchema = z.strictObject({
   source: z.string(),
   sourceCommit: z.string(),
   startCommit: z.string(),
@@ -66,7 +66,7 @@ const recordSchema = z.object({
   adaptations: z.array(z.string()),
   /** Each tool in `tools/` by its sha256. */
   tools: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
-}).strict();
+});
 
 export type AppRecord = z.infer<typeof recordSchema>;
 

@@ -22,6 +22,7 @@ import {
   validateMethodName,
 } from '../../../src/bridge/surface/method-validation.js';
 import type { Method, Tool } from '../../../src/bridge/surface/method-types.js';
+import { METHODS_BY_KEY } from '../../../src/bridge/surface/methods/registry.js';
 
 /** A method record built only for this test; never filed under `methods/`. */
 function fakeMethod(overrides: Partial<Method> = {}): Method {
@@ -221,5 +222,24 @@ describe('validateDescribe', () => {
 
   it('passes a method name the tool does carry', () => {
     expect(validateDescribe(tool, { method: 'spin' })).toBeNull();
+  });
+
+  it('reports omitted and non-string required enum arguments without hallucinated suggestions', () => {
+    const method = METHODS_BY_KEY.get('storage.setCrossServiceIam');
+    expect(method).toBeDefined();
+    if (method === undefined) return;
+
+    const missing = validateArguments(method, {});
+    expect(missing?.summary).toContain("argument 'mode' is missing.");
+    expect(missing?.data.fix).toContain("Pass 'mode'.");
+    expect(missing?.data.fix).not.toContain("Pass 'mode' as 'denied'.");
+
+    const wrongNumber = validateArguments(method, { mode: 123 });
+    expect(wrongNumber?.summary).toContain("argument 'mode' is number, not 'granted' | 'denied'.");
+    expect(wrongNumber?.data.fix).toContain("Pass 'mode' as 'granted' | 'denied'.");
+
+    const wrongNull = validateArguments(method, { mode: null });
+    expect(wrongNull?.summary).toContain("argument 'mode' is null, not 'granted' | 'denied'.");
+    expect(wrongNull?.data.fix).toContain("Pass 'mode' as 'granted' | 'denied'.");
   });
 });

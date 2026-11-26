@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { z } from 'zod';
 
 import {
   renderSurfaceManifest,
@@ -100,6 +101,16 @@ describe('the loaded record set', () => {
       const budget = method.tool === 'assurance' ? AUTHORED_RECORD_DEPTH : ARGUMENT_DEPTH;
       expect(schemaDepth(toJsonSchema(method.args))).toBeLessThanOrEqual(budget);
     }
+  });
+
+  it('rejects custom refinements and transforms fail-closed in JSON Schema', () => {
+    expect(() => toJsonSchema(z.string().refine((value) => value.length > 0))).toThrow(
+      "unsupported parameter construct 'custom'",
+    );
+    expect(() => toJsonSchema(z.string().transform((value) => value.trim()))).toThrow(
+      "unsupported parameter construct 'pipe'",
+    );
+    expect(toJsonSchema(z.string().min(1))).toEqual({ type: 'string' });
   });
 
   it('describes every method for the agent that has to choose it', () => {

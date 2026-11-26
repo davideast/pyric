@@ -36,25 +36,25 @@ function isFirebaseDoc(url: string): boolean {
 
 const text = z.string().trim().min(1);
 
-const refusal = z.object({
+const refusal = z.strictObject({
   action: text,
   firebaseDoc: z.string().refine(isFirebaseDoc, 'must be an https://firebase.google.com/ page'),
   productionAnswer: text,
-}).strict();
+});
 
 const isDistinct = (values: readonly string[]) => new Set(values).size === values.length;
 
-export const briefSchema = z.object({
+export const briefSchema = z.strictObject({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*-\d+$/, 'must be <round>-<n>'),
-  targetArea: z.object({ area: text, whyWeak: text }).strict(),
+  targetArea: z.strictObject({ area: text, whyWeak: text }),
   stressDimensions: z.array(z.enum(STRESS_DIMENSIONS)).min(1).max(2).refine(isDistinct, 'must not repeat a dimension'),
   appIdea: text,
   framework: z.enum(FRAMEWORKS),
   features: z.array(text).min(1),
   userJourney: z.array(text).min(1),
   mustBeRefused: z.array(refusal).min(2).max(5),
-  limits: z.object({ wallClockMinutes: z.number().int().positive().max(240) }).strict(),
-}).strict();
+  limits: z.strictObject({ wallClockMinutes: z.number().int().positive().max(240) }),
+});
 
 export type Brief = z.infer<typeof briefSchema>;
 

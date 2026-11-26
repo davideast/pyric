@@ -31,11 +31,20 @@ type ArgumentKind = 'string' | 'number' | 'boolean' | 'json';
 /** A parsed command line, or the message explaining why it is not one. */
 export type ArgumentsOrError = { args: Args } | { error: string };
 
+interface ZodDefLike {
+  type: string;
+  innerType?: z.ZodTypeAny;
+}
+
+function definitionOf(schema: z.ZodTypeAny): ZodDefLike {
+  return schema._zod.def as unknown as ZodDefLike;
+}
+
 /** The innermost schema of a wrapper chain, past optional, nullable, and default. */
 function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
-  const def = schema._def as { typeName: string; innerType?: z.ZodTypeAny };
+  const def = definitionOf(schema);
   if (def.innerType === undefined) return schema;
-  if (['ZodOptional', 'ZodNullable', 'ZodDefault'].includes(def.typeName)) {
+  if (def.type === 'optional' || def.type === 'nullable' || def.type === 'default') {
     return unwrap(def.innerType);
   }
   return schema;
@@ -47,11 +56,11 @@ function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
  * string: `--service firestore`, not `--service '"firestore"'`.
  */
 export function argumentKind(schema: z.ZodTypeAny): ArgumentKind {
-  const typeName = (unwrap(schema)._def as { typeName: string }).typeName;
-  if (typeName === 'ZodNumber') return 'number';
-  if (typeName === 'ZodBoolean') return 'boolean';
-  if (typeName === 'ZodString') return 'string';
-  if (typeName === 'ZodEnum') return 'string';
+  const type = definitionOf(unwrap(schema)).type;
+  if (type === 'number') return 'number';
+  if (type === 'boolean') return 'boolean';
+  if (type === 'string') return 'string';
+  if (type === 'enum') return 'string';
   return 'json';
 }
 

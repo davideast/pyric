@@ -11,8 +11,8 @@ import { z } from 'zod';
 
 type JsonSchema = Record<string, unknown>;
 
-function definitionOf(schema: z.ZodTypeAny): { typeName: string } & Record<string, unknown> {
-  return schema._def as { typeName: string } & Record<string, unknown>;
+function definitionOf(schema: z.ZodTypeAny): { type: string } & Record<string, unknown> {
+  return schema._zod.def as unknown as { type: string } & Record<string, unknown>;
 }
 
 function described(schema: z.ZodTypeAny, converted: JsonSchema): JsonSchema {
@@ -20,62 +20,83 @@ function described(schema: z.ZodTypeAny, converted: JsonSchema): JsonSchema {
   return { ...converted, description: schema.description };
 }
 
+function hasCustomCheck(def: Record<string, unknown>): boolean {
+  const checks = def.checks;
+  if (!Array.isArray(checks)) return false;
+  return checks.some((entry) => {
+    const checkDef = (entry as { _zod?: { def?: { check?: string } } })._zod?.def;
+    return checkDef?.check === 'custom';
+  });
+}
+
 /** Convert one Zod schema to JSON Schema. Throws on a construct outside the authored subset. */
 export function toJsonSchema(schema: z.ZodTypeAny): JsonSchema {
   const def = definitionOf(schema);
-  switch (def.typeName) {
-    case 'ZodString':
+  if (hasCustomCheck(def)) {
+    throw new Error("unsupported parameter construct 'custom'");
+  }
+  switch (def.type) {
+    case 'string':
       return described(schema, { type: 'string' });
-    case 'ZodNumber':
+    case 'number':
       return described(schema, { type: 'number' });
-    case 'ZodBoolean':
+    case 'boolean':
       return described(schema, { type: 'boolean' });
-    case 'ZodLiteral':
-      return described(schema, { const: def.value });
-    case 'ZodEnum':
-      return described(schema, { type: 'string', enum: [...(def.values as string[])] });
-    case 'ZodArray':
+    case 'literal': {
+      const values = def.values as readonly unknown[];
+      if (values.length === 1) return described(schema, { const: values[0] });
+      return described(schema, { enum: [...values] });
+    }
+    case 'enum': {
+      const entries = def.entries as Record<string, string | number>;
+      return described(schema, {
+        type: 'string',
+        enum: Array.from(new Set(Object.values(entries))),
+      });
+    }
+    case 'array':
       return described(schema, {
         type: 'array',
-        items: toJsonSchema(def.type as z.ZodTypeAny),
+        items: toJsonSchema(def.element as z.ZodTypeAny),
       });
-    case 'ZodRecord':
+    case 'record':
       return described(schema, {
         type: 'object',
         additionalProperties: toJsonSchema(def.valueType as z.ZodTypeAny),
       });
-    case 'ZodObject':
-      return described(schema, objectSchema(schema as z.ZodObject<z.ZodRawShape>));
-    case 'ZodUnion':
+    case 'object':
+      return described(schema, objectSchema(schema as z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>));
+    case 'union':
       return described(schema, {
         anyOf: (def.options as z.ZodTypeAny[]).map(toJsonSchema),
       });
-    case 'ZodNull':
+    case 'null':
       return described(schema, { type: 'null' });
-    case 'ZodUnknown':
-    case 'ZodAny':
+    case 'unknown':
+    case 'any':
       return described(schema, {});
-    case 'ZodOptional':
-    case 'ZodNullable':
-    case 'ZodDefault':
+    case 'optional':
+    case 'nullable':
+    case 'default':
       return described(schema, toJsonSchema(def.innerType as z.ZodTypeAny));
     default:
-      throw new Error(`unsupported parameter construct '${def.typeName}'`);
+      throw new Error(`unsupported parameter construct '${def.type}'`);
   }
 }
 
 function isOptional(schema: z.ZodTypeAny): boolean {
-  const typeName = definitionOf(schema).typeName;
-  return typeName === 'ZodOptional' || typeName === 'ZodDefault';
+  const type = definitionOf(schema).type;
+  return type === 'optional' || type === 'default';
 }
 
-function objectSchema(schema: z.ZodObject<z.ZodRawShape>): JsonSchema {
+function objectSchema(schema: z.ZodObject<z.ZodRawShape, z.core.$ZodObjectConfig>): JsonSchema {
   const shape = schema.shape;
   const properties: JsonSchema = {};
   const required: string[] = [];
   for (const [key, value] of Object.entries(shape)) {
-    properties[key] = toJsonSchema(value);
-    if (!isOptional(value)) required.push(key);
+    const field = value as z.ZodTypeAny;
+    properties[key] = toJsonSchema(field);
+    if (!isOptional(field)) required.push(key);
   }
   if (required.length === 0) return { type: 'object', properties };
   return { type: 'object', properties, required };

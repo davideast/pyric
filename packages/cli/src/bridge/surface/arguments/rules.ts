@@ -119,7 +119,7 @@ const queryBound = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 /** The query a database read carries, as rules read it through `query.*`. */
 const databaseQuery = z
-  .object({
+  .strictObject({
     orderByChild: z.string().optional(),
     orderByKey: z.literal(true).optional(),
     orderByValue: z.literal(true).optional(),
@@ -128,16 +128,14 @@ const databaseQuery = z
     endAt: queryBound.optional(),
     limitToFirst: z.number().int().positive().optional(),
     limitToLast: z.number().int().positive().optional(),
-  })
-  .strict();
+  });
 
 const firestoreWhereClause = z
-  .object({
+  .strictObject({
     field: z.string(),
     op: z.string(),
     value: z.union([queryBound, z.array(queryBound)]),
-  })
-  .strict();
+  });
 
 const firestoreOrderBy = z.union([
   z.string(),
@@ -153,7 +151,7 @@ const firestoreOrderBy = z.union([
  * `firestoreWhereClause` and `firestoreOrderBy`.
  */
 const firestoreQuery = z
-  .object({
+  .strictObject({
     where: z
       .array(z.unknown())
       .optional()
@@ -164,8 +162,7 @@ const firestoreQuery = z
       .unknown()
       .optional()
       .describe("Order-by map of field names to 'ASC' or 'DESC' (or legacy field string)."),
-  })
-  .strict();
+  });
 
 /** The member names only a Firestore list query carries. */
 const FIRESTORE_QUERY_KEYS = new Set(Object.keys(firestoreQuery.shape));

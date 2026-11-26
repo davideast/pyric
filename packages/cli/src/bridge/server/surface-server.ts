@@ -193,7 +193,7 @@ function registerTool(
   const shape = jsonSchemaToZodShape(tool.inputSchema as never);
   // Preserve unknown/renamed/guard top-level keys into `tool.execute` (`callMethod`
   // / `validateArguments`) while letting the SDK validate declared property types.
-  const inputSchema = z.object(shape).passthrough();
+  const inputSchema = z.looseObject(shape);
   const register = server.registerTool as unknown as RegisterPassthroughMcpTool;
   register.call(
     server,

@@ -29,6 +29,7 @@ export const scriptResponseArgument = z
     type: z.enum(['text', 'json', 'error']).describe('The shape payload is read as.'),
     payload: z
       .unknown()
+      .optional()
       .describe(
         'A string for type "text", a plain object for type "json", or { code, message } for type "error".',
       ),

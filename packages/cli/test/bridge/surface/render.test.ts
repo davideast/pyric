@@ -38,8 +38,13 @@ function depthBudgetFor(toolName: string): number {
 function enumValues(toolName: string, field: string): string[] {
   const tool = DISCRIMINATOR_TOOLS.find((candidate) => candidate.name === toolName);
   if (!tool) throw new Error(`no discriminator tool named ${toolName}`);
-  const shape = tool.parameters.shape as Record<string, { _def?: { values?: string[] } }>;
-  return shape[field]?._def?.values ?? [];
+  const shape = tool.parameters.shape as Record<
+    string,
+    { _zod?: { def?: { entries?: Record<string, string> } } }
+  >;
+  const entries = shape[field]?._zod?.def?.entries;
+  if (entries === undefined) return [];
+  return Array.from(new Set(Object.values(entries)));
 }
 
 describe('the named variants', () => {

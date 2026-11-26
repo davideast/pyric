@@ -18,9 +18,9 @@ import { parseJsonText, parseWith } from './parse.ts';
 
 const count = z.number().int().nonnegative();
 const cost = z.number().nonnegative();
-const tokens = z.object({ input: count, output: count, cacheCreation: count, cacheRead: count }).strict();
+const tokens = z.strictObject({ input: count, output: count, cacheCreation: count, cacheRead: count });
 
-export const builderMeasurementSchema = z.object({
+export const builderMeasurementSchema = z.strictObject({
   kind: z.literal('builder'),
   run: z.string().min(1),
   round: z.string().min(1),
@@ -34,17 +34,17 @@ export const builderMeasurementSchema = z.object({
   tokens: tokens.nullable(),
   /** How long the run phase took, by the harness's own clock; null only in a round 1 line whose run phase never said. */
   wallMs: count.nullable(),
-}).strict();
+});
 
 /** How the verifier judged each reported problem of one run. */
-export const verdictCountsSchema = z.object({
-  confirmed: z.object({
+export const verdictCountsSchema = z.strictObject({
+  confirmed: z.strictObject({
     pyricDiffers: count,
     misleadingDocs: count,
     unclearError: count,
     /** A confirmed CLI or tooling lifecycle defect with no Firebase counterpart (#1767). */
     toolingBug: count.default(0),
-  }).strict(),
+  }),
   /** Reproduced, but an open or recently closed issue already has it. */
   duplicate: count,
   /** Pyric may differ, with no production evidence yet: listed for the oracle queue, not filed. */
@@ -53,9 +53,9 @@ export const verdictCountsSchema = z.object({
   builderBug: count,
   /** Problems of a run the verifier marked invalid (it broke a builder rule). */
   invalid: count,
-}).strict();
+});
 
-export const verificationMeasurementSchema = z.object({
+export const verificationMeasurementSchema = z.strictObject({
   kind: z.literal('verification'),
   /** The round and run it judged: run ids repeat across rounds. */
   round: z.string().min(1),
@@ -64,7 +64,7 @@ export const verificationMeasurementSchema = z.object({
   costUsd: cost,
   tokens,
   verdicts: verdictCountsSchema,
-}).strict();
+});
 
 export const measurementSchema = z.discriminatedUnion('kind', [builderMeasurementSchema, verificationMeasurementSchema]);
 

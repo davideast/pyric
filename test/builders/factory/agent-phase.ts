@@ -31,7 +31,7 @@ import { startBridge } from '../model-channel.ts';
 import { assertInsideSandbox, inventoryLine } from '../sandbox-check.ts';
 import { PROVIDER_BRIDGE_PORT } from './provider-wiring.ts';
 
-export const agentPhaseSchema = z.object({
+export const agentPhaseSchema = z.strictObject({
   /** The run directory, whose sandbox the phase checks it is in before it starts anything. */
   runRoot: z.string().min(1),
   /** The Unix socket the bridge pipes to, where the forwarder outside listens. */
@@ -43,8 +43,8 @@ export const agentPhaseSchema = z.object({
   /** The session's HOME and the directories the agent keeps under it. */
   homeDirs: z.array(z.string().min(1)),
   cwd: z.string().min(1),
-  invocation: z.object({ command: z.string().min(1), args: z.array(z.string()), env: z.record(z.string(), z.string()) }).strict(),
-}).strict();
+  invocation: z.strictObject({ command: z.string().min(1), args: z.array(z.string()), env: z.record(z.string(), z.string()) }),
+});
 
 export type AgentPhase = z.infer<typeof agentPhaseSchema>;
 

@@ -20,11 +20,11 @@ export interface CopyOverrides {
   properNouns: string[];
 }
 
-const overridesSchema = z.object({
+const overridesSchema = z.strictObject({
   verbs: z.array(z.string()).default([]),
   buttonLabels: z.array(z.string()).default([]),
   properNouns: z.array(z.string()).default([]),
-}).strict();
+});
 
 export const DEFAULT_OVERRIDES_FILE = fileURLToPath(new URL('./ui-rules/copy-overrides.json', import.meta.url));
 

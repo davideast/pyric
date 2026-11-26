@@ -11,7 +11,7 @@ import { readRunFile, replaceFile } from './host-files.ts';
 export class StateFileError extends Error {}
 
 /** Reads `path` through `schema`; undefined when it doesn't exist, an error when it is anything but valid. */
-export function readJson<T>(path: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): T | undefined {
+export function readJson<T>(path: string, schema: z.ZodType<T>): T | undefined {
   const read = readRunFile(path);
   if (!read.ok && read.problem.includes('ENOENT')) return undefined;
   if (!read.ok) throw new StateFileError(`${path} can't be read: ${read.problem}`);
@@ -26,43 +26,43 @@ export function writeJson(path: string, value: unknown): void {
   replaceFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-const layoutFinding = z.object({
+const layoutFinding = z.strictObject({
   rule: z.enum(['horizontal-scroll', 'overlap', 'clipped-text', 'column-misaligned']),
   key: z.string(),
   detail: z.string(),
-}).strict();
+});
 
 /** A screenshot's name: one file in the capture folder, no directory. */
 const screenshotName = z.string().regex(/^[\w.-]+\.png$/);
 
-export const pageCaptureSchema = z.object({
+export const pageCaptureSchema = z.strictObject({
   path: z.string(),
   width: z.number().int().positive(),
   screenshot: screenshotName,
   findings: z.array(layoutFinding),
   error: z.string().optional(),
-}).strict();
+});
 
-export const walkResultSchema = z.object({
-  walks: z.array(z.object({ name: z.string(), passed: z.boolean(), error: z.string().optional(), visited: z.array(z.string()) }).strict()),
+export const walkResultSchema = z.strictObject({
+  walks: z.array(z.strictObject({ name: z.string(), passed: z.boolean(), error: z.string().optional(), visited: z.array(z.string()) })),
   pages: z.array(pageCaptureSchema),
-}).strict();
+});
 
-export const captureRecordSchema = z.object({
+export const captureRecordSchema = z.strictObject({
   commit: z.string(),
   capturedAt: z.string().datetime(),
   widths: z.array(z.number().int().positive()),
   notes: z.array(z.string()).optional(),
-}).strict();
+});
 
 export type CaptureRecord = z.infer<typeof captureRecordSchema>;
 
 export const knownFailuresSchema = z.record(z.string(), z.record(z.string(), z.number().int().positive()));
 
-export const baselineStateSchema = z.object({
+export const baselineStateSchema = z.strictObject({
   startCommit: z.string(),
   walksHash: z.string(),
   capturedAt: z.string().datetime(),
   knownFailures: knownFailuresSchema,
   error: z.string().optional(),
-}).strict();
+});

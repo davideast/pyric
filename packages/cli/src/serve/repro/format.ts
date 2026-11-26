@@ -87,8 +87,8 @@ export interface ReproFile {
 }
 
 const entrySchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('in'), at: z.number(), session: z.string(), frame: z.object({ t: z.string() }).passthrough() }),
-  z.object({ kind: z.literal('out'), at: z.number(), session: z.string(), frame: z.object({ t: z.string() }).passthrough() }),
+  z.object({ kind: z.literal('in'), at: z.number(), session: z.string(), frame: z.looseObject({ t: z.string() }) }),
+  z.object({ kind: z.literal('out'), at: z.number(), session: z.string(), frame: z.looseObject({ t: z.string() }) }),
   z.object({ kind: z.literal('client'), at: z.number(), session: z.string(), event: z.enum(['disconnect', 'interrupted']) }),
   z.object({
     kind: z.literal('upload'), at: z.number(),
@@ -108,7 +108,7 @@ const reproSchema = z.object({
   truncated: z.boolean(),
   base: z.object({
     at: z.number(),
-    checkpoint: z.object({ format: z.string(), state: z.unknown() }).passthrough(),
+    checkpoint: z.looseObject({ format: z.string(), state: z.unknown() }),
     databaseInstances: z.record(z.string(), z.unknown()),
     rules: z.object({
       firestore: z.string().nullable(),
@@ -125,7 +125,7 @@ const reproSchema = z.object({
       signInProvider: z.string().nullable().optional(),
       customClaims: z.record(z.string(), z.unknown()).optional(),
     })),
-    subscriptions: z.record(z.string(), z.array(z.object({ t: z.literal('sub') }).passthrough())),
+    subscriptions: z.record(z.string(), z.array(z.looseObject({ t: z.literal('sub') }))),
   }),
   entries: z.array(entrySchema),
 });
