@@ -1,0 +1,52 @@
+[
+  {
+    "id": "edge-ray-clear",
+    "fen": "5k2/7b/8/8/8/8/1B6/K7 w - -",
+    "uci": "b2a3"
+  },
+  {
+    "id": "edge-ray-seventh-square",
+    "fen": "5k1b/8/8/8/8/8/1B6/K7 w - -",
+    "uci": "b2a3"
+  },
+  {
+    "id": "edge-ray-residual-blocker",
+    "fen": "5k1b/8/8/4P3/8/8/1B6/K7 w - -",
+    "uci": "b2a3"
+  },
+  {
+    "id": "long-diagonal-edge-capture",
+    "fen": "7r/7k/8/8/8/8/8/BK6 w - -",
+    "uci": "a1h8"
+  },
+  {
+    "id": "long-rank-edge-capture",
+    "fen": "8/8/8/4k3/8/8/R6r/K7 w - -",
+    "uci": "a2h2"
+  },
+  {
+    "id": "long-file-edge-capture-black",
+    "fen": "r3k3/8/8/8/8/8/8/R3K3 b - -",
+    "uci": "a8a1"
+  },
+  {
+    "id": "dense-source-file-capture",
+    "fen": "7k/8/P7/P7/K7/P7/R6r/8 w - -",
+    "uci": "a2h2"
+  },
+  {
+    "id": "far-rank-pinned-edge-capture",
+    "fen": "2nn4/6k1/8/8/8/8/K1R4r/8 w - -",
+    "uci": "c2h2"
+  },
+  {
+    "id": "crowded-kiwipete-castle",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "crowded-kiwipete-edge-capture",
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
+    "uci": "e2a6"
+  }
+]
