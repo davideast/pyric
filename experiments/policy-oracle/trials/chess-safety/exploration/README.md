@@ -33,6 +33,8 @@ The command uses a fresh offline install of the pinned independent referee. The 
 
 Add `--extended-endings` to score 1,050 more submissions. The [king-last corpus](king-last-v1/freeze.json) holds the nonking piece stationary, moves the attacking king, and makes all three status claims on the identical move. It also covers both castling wings with retained and expired rights. The [remaining-claims corpus](successor-claims-v1/freeze.json) completes all four status and winner combinations on 381 existing edge and interior moves. It excludes the 762 submissions already scored in the parent cohorts.
 
+Add `--bare-defender` to score 1,992 submissions where the attacker has 2, 3, 5, 8, 12 or 15 nonking pieces. Of those submissions, 1,896 have a bare defending king. The remaining 96 add one defending piece with exactly one legal reply. Both colors appear, with cases for castling, promotion and capturing the last defending piece. A companion receipt holds each board's exact successor and a digest of its sorted legal replies. [Frozen cases and material distribution](bare-defender-v1/freeze.json) · [Three reported outcomes on each move](bare-defender-v1/bare.json)
+
 ### Independent review
 
 The independent python-chess run cross-checked all 94 core rows and the original 12,371 supplemental submissions. It reported zero differences on fields present in the individual receipts. The 941 legal trace moves carry construction histories. Among the synthetic density variants, 28 have an impossible checking configuration according to python-chess. Those rows measure behavior on composed maps and should be excluded from claims about reachable chess positions. The report counts actual comparisons separately for each field. [Independent receipt](independent-review/python-chess.json)
@@ -43,5 +45,9 @@ Reproduce the external check with the source archive pinned in the chess trial a
 python3 exploration/independent-review/check.py "$CHESS_ARCHIVE"
 python3 exploration/independent-review/controls.py
 ```
+
+The extended cross-check uses `--extended-endings --other-corpus bare-defender-v1`. It agreed with the 1,992 new claims on legal moves, successors, outcomes and reply-set digests. Arcade calls a position with at least one legal reply `playing`. Its terminal rule covers checkmate and stalemate. [Extended third-referee receipt](independent-review/python-chess-extended.json)
+
+For the separate two-ply en-passant cohort, run `python3 exploration/independent-review/en-passant.py "$CHESS_ARCHIVE"`. It checks the preceding legal double push, exact en-passant target in FEN, and both captures on each paired board. [Two-ply receipt](independent-review/en-passant.json)
 
 The second command installs a deliberately malformed compiler through the normal package scorer. Its square predicates return a string, and its emitted Rules evaluate an invalid list index. The scorer must report a standalone type error. An evaluation failure on a legal write is a false refusal. The same failure on an illegal write is an evaluation error. [Earlier classification](independent-review/classification-before.json) · [After the type check](independent-review/classification-after.json)

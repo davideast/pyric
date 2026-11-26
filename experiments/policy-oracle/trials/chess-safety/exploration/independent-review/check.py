@@ -15,21 +15,26 @@ TRIAL = HERE.parent.parent
 external = runpy.run_path(str(TRIAL.parent / "chess/reference/generate.py"))
 
 
-def cases(trial, extended_endings):
+def cases(trial, extended_endings, other_corpora):
     for path in sorted((trial / "batches").glob("*/v1/native.json")):
         yield path.parents[1].name, json.loads(path.read_bytes())["cases"]
     for name in ("native", "cost-native", "path-native"):
         path = trial.parent / "king-safety/reference" / (name + ".json")
         yield "file-pins/" + name, json.loads(path.read_bytes())["cases"]
-    for path in sorted((trial / "exploration").glob("*/corpus.json.gz")):
-        if path.parent.name in ("king-last-v1", "successor-claims-v1") and not extended_endings:
-            continue
+    cohorts = {"v1", "replies-v1", "rights-v1", "promotions-v1", "interior-v1", "rights-claims-v1", "self-check-v1"}
+    if extended_endings:
+        cohorts.update({"king-last-v1", "successor-claims-v1"})
+    cohorts.update(other_corpora)
+    for name in sorted(cohorts):
+        if Path(name).name != name:
+            raise ValueError("Expected a local cohort name")
+        path = trial / "exploration" / name / "corpus.json.gz"
         yield path.parent.name, json.loads(gzip.decompress(path.read_bytes()))
 
 
-def check(chess, trial, extended_endings):
+def check(chess, trial, extended_endings, other_corpora):
     reports = {}
-    for name, rows in cases(trial, extended_endings):
+    for name, rows in cases(trial, extended_endings, other_corpora):
         faults, invalid = collections.Counter(), collections.Counter()
         first, invalid_first = {}, {}
         legal_checked = invalid_rows = 0
@@ -95,10 +100,11 @@ def main():
     p.add_argument("archive", type=Path)
     p.add_argument("--trial", type=Path, default=TRIAL)
     p.add_argument("--extended-endings", action="store_true", help="also audit the king-last and remaining-claims inputs")
+    p.add_argument("--other-corpus", action="append", default=[], help="audit another named local corpus")
     args = p.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         chess = external["load_chess"](args.archive, Path(tmp))
-        receipt = check(chess, args.trial.resolve(), args.extended_endings)
+        receipt = check(chess, args.trial.resolve(), args.extended_endings, args.other_corpus)
         print(json.dumps(receipt, indent=2))
         if any(cohort["disagreements"] for cohort in receipt["cohorts"].values()):
             raise SystemExit(1)

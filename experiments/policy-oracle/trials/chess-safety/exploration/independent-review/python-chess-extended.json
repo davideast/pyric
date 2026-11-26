@@ -1,0 +1,362 @@
+{
+  "authority": "independent python-chess 1.11.2 source",
+  "archiveSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "checked": 15507,
+  "cohorts": {
+    "01-rank-diagonal": {
+      "rows": 19,
+      "legalMoves": 13,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 19,
+        "afterCheck": 19,
+        "kingSafe": 19,
+        "successor": 13,
+        "outcome": 13,
+        "replies": 13,
+        "nativeLegal": 19,
+        "nativeAdmission": 19
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "02-king-destinations": {
+      "rows": 12,
+      "legalMoves": 6,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 12,
+        "afterCheck": 12,
+        "kingSafe": 12,
+        "successor": 6,
+        "outcome": 6,
+        "replies": 6,
+        "nativeLegal": 12,
+        "nativeAdmission": 12
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "03-check-evasions": {
+      "rows": 8,
+      "legalMoves": 4,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 8,
+        "afterCheck": 8,
+        "kingSafe": 8,
+        "successor": 4,
+        "outcome": 4,
+        "replies": 4,
+        "nativeLegal": 8,
+        "nativeAdmission": 8
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "04-en-passant": {
+      "rows": 5,
+      "legalMoves": 3,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 5,
+        "afterCheck": 5,
+        "kingSafe": 5,
+        "successor": 3,
+        "outcome": 3,
+        "replies": 3,
+        "nativeLegal": 5,
+        "nativeAdmission": 5
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "05-castling": {
+      "rows": 20,
+      "legalMoves": 8,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 20,
+        "afterCheck": 8,
+        "kingSafe": 8,
+        "successor": 8,
+        "outcome": 8,
+        "replies": 8,
+        "nativeLegal": 20,
+        "nativeAdmission": 20
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "06-composition": {
+      "rows": 10,
+      "legalMoves": 9,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 10,
+        "afterCheck": 10,
+        "kingSafe": 10,
+        "successor": 9,
+        "outcome": 9,
+        "replies": 9,
+        "nativeLegal": 10,
+        "nativeAdmission": 10
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "07-terminal": {
+      "rows": 10,
+      "legalMoves": 10,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 10,
+        "afterCheck": 10,
+        "kingSafe": 10,
+        "successor": 10,
+        "outcome": 10,
+        "replies": 10,
+        "nativeLegal": 10,
+        "nativeAdmission": 10
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "file-pins/native": {
+      "rows": 7,
+      "legalMoves": 3,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 7,
+        "afterCheck": 7,
+        "nativeLegal": 7
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "file-pins/cost-native": {
+      "rows": 1,
+      "legalMoves": 1,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 1,
+        "afterCheck": 1,
+        "nativeLegal": 1
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "file-pins/path-native": {
+      "rows": 2,
+      "legalMoves": 0,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "beforeCheck": 2,
+        "nativeLegal": 2
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "bare-defender-v1": {
+      "rows": 1992,
+      "legalMoves": 1992,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 1992,
+        "successor": 1992,
+        "outcome": 1992,
+        "replyCount": 1992,
+        "replySha256": 1992,
+        "nativeLegal": 1992,
+        "nativeAdmission": 1992
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "interior-v1": {
+      "rows": 384,
+      "legalMoves": 384,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 384,
+        "successor": 384,
+        "outcome": 384,
+        "replyCount": 384,
+        "replySha256": 384,
+        "nativeLegal": 384,
+        "nativeAdmission": 384
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "king-last-v1": {
+      "rows": 288,
+      "legalMoves": 276,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 276,
+        "successor": 276,
+        "outcome": 276,
+        "replyCount": 276,
+        "replySha256": 276,
+        "nativeLegal": 288,
+        "nativeAdmission": 288
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "promotions-v1": {
+      "rows": 904,
+      "legalMoves": 904,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 904,
+        "successor": 904,
+        "outcome": 904,
+        "replyCount": 904,
+        "replySha256": 904,
+        "nativeLegal": 904,
+        "nativeAdmission": 904
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "replies-v1": {
+      "rows": 378,
+      "legalMoves": 378,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 378,
+        "successor": 378,
+        "outcome": 378,
+        "replies": 378,
+        "replyCount": 378,
+        "nativeLegal": 378,
+        "nativeAdmission": 378
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "rights-claims-v1": {
+      "rows": 2048,
+      "legalMoves": 2048,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "successor": 2048,
+        "nativeAdmission": 2048
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "rights-v1": {
+      "rows": 1736,
+      "legalMoves": 1736,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 1736,
+        "successor": 1736,
+        "outcome": 1736,
+        "replyCount": 1736,
+        "replySha256": 1736,
+        "nativeLegal": 1736,
+        "nativeAdmission": 1736
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "self-check-v1": {
+      "rows": 4440,
+      "legalMoves": 1042,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "nativeAdmission": 4440
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "successor-claims-v1": {
+      "rows": 762,
+      "legalMoves": 762,
+      "invalidSourceRows": 0,
+      "checkedFields": {
+        "kingSafe": 762,
+        "successor": 762,
+        "outcome": 762,
+        "replyCount": 762,
+        "replySha256": 762,
+        "nativeLegal": 762,
+        "nativeAdmission": 762
+      },
+      "invalidSourceReasons": {},
+      "firstInvalid": {},
+      "disagreements": {},
+      "firstDisagreement": {}
+    },
+    "v1": {
+      "rows": 2481,
+      "legalMoves": 1682,
+      "invalidSourceRows": 28,
+      "checkedFields": {
+        "kingSafe": 2252,
+        "successor": 1682,
+        "outcome": 1682,
+        "replyCount": 1682,
+        "replySha256": 1682,
+        "nativeLegal": 2481,
+        "nativeAdmission": 2481
+      },
+      "invalidSourceReasons": {
+        "STATUS_TOO_MANY_CHECKERS": 24,
+        "STATUS_IMPOSSIBLE_CHECK": 28
+      },
+      "firstInvalid": {
+        "STATUS_TOO_MANY_CHECKERS": {
+          "id": "rising-pinned-capture-0-0-7",
+          "fen": "B7/k1p2rb1/q1q1q1Nq/1n1N4/8/2B1q1q1/rb6/K5r1 w - -"
+        },
+        "STATUS_IMPOSSIBLE_CHECK": {
+          "id": "rising-pinned-capture-0-0-7",
+          "fen": "B7/k1p2rb1/q1q1q1Nq/1n1N4/8/2B1q1q1/rb6/K5r1 w - -"
+        }
+      },
+      "disagreements": {},
+      "firstDisagreement": {}
+    }
+  }
+}

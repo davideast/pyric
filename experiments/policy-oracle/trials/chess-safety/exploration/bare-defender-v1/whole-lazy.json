@@ -1,0 +1,79 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "246042791e2798ee8b04a822210ffacce9c61a4f5f337c4311718c785b183dc7",
+  "corpusSha256": "daad023b62917d4ccce4e758268bfea82b97c3ba525bf2d12f987dc10d5bb0e6",
+  "caseCount": 1992,
+  "scoreSha256": "894b717cc8fc5e4ac456869d56c32d435f736876086cc89fd06634600eec05a1",
+  "domains": {
+    "bare": {
+      "cases": 1896,
+      "outcomes": {
+        "match": 1636,
+        "false-allow": 260
+      },
+      "peakExpressions": 994,
+      "examples": {
+        "false-allow": {
+          "group": "w/quiet/2/b/stalemate",
+          "case": {
+            "id": "bare-0817",
+            "fen": "6k1/8/6K1/8/8/2B5/4P3/8 w - -",
+            "uci": "c3g7",
+            "claim": {
+              "status": "playing",
+              "winner": ""
+            },
+            "nativeLegal": true,
+            "kingSafe": true,
+            "nativeAdmission": false,
+            "successor": "6k1/6B1/6K1/8/8/8/4P3/8 b - -",
+            "outcome": "stalemate",
+            "replyCount": 0
+          },
+          "result": {
+            "actual": "ALLOW",
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow",
+            "expressions": 832
+          }
+        }
+      }
+    },
+    "nonbare": {
+      "cases": 96,
+      "outcomes": {
+        "match": 64,
+        "false-allow": 32
+      },
+      "peakExpressions": 979,
+      "examples": {
+        "false-allow": {
+          "group": "w/nonbare/stalemate/one-p-reply",
+          "case": {
+            "id": "bare-1623",
+            "fen": "8/2Q2p1P/k7/5RP1/8/8/K4B2/8 w - -",
+            "uci": "f2a7",
+            "claim": {
+              "status": "draw",
+              "winner": ""
+            },
+            "nativeLegal": true,
+            "kingSafe": true,
+            "nativeAdmission": false,
+            "successor": "8/B1Q2p1P/k7/5RP1/8/8/K7/8 b - -",
+            "outcome": "playing",
+            "replyCount": 1
+          },
+          "result": {
+            "actual": "ALLOW",
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow",
+            "expressions": 935
+          }
+        }
+      }
+    }
+  }
+}

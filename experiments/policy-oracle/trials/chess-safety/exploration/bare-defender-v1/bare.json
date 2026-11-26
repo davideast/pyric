@@ -1,0 +1,79 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f",
+  "corpusSha256": "daad023b62917d4ccce4e758268bfea82b97c3ba525bf2d12f987dc10d5bb0e6",
+  "caseCount": 1992,
+  "scoreSha256": "efa78a3cc26c1b0a8cbcabf312a1ea65c205d678aa694a9fda8d499fd621638f",
+  "domains": {
+    "bare": {
+      "cases": 1896,
+      "outcomes": {
+        "match": 1893,
+        "false-refusal/resource-limit": 3
+      },
+      "peakExpressions": 1000,
+      "examples": {
+        "false-refusal/resource-limit": {
+          "group": "w/castle",
+          "case": {
+            "id": "bare-1963",
+            "fen": "7k/8/8/8/8/8/1N6/R3K3 w Q -",
+            "uci": "e1c1",
+            "claim": {
+              "status": "playing",
+              "winner": ""
+            },
+            "nativeLegal": true,
+            "kingSafe": true,
+            "nativeAdmission": true,
+            "successor": "7k/8/8/8/8/8/1N6/2KR4 b - -",
+            "outcome": "playing",
+            "replyCount": 3
+          },
+          "result": {
+            "actual": "DENY",
+            "status": "false-refusal",
+            "cause": "resource-limit",
+            "kind": "false-refusal/resource-limit",
+            "expressions": 1000
+          }
+        }
+      }
+    },
+    "nonbare": {
+      "cases": 96,
+      "outcomes": {
+        "match": 64,
+        "false-allow": 32
+      },
+      "peakExpressions": 954,
+      "examples": {
+        "false-allow": {
+          "group": "w/nonbare/stalemate/one-p-reply",
+          "case": {
+            "id": "bare-1623",
+            "fen": "8/2Q2p1P/k7/5RP1/8/8/K4B2/8 w - -",
+            "uci": "f2a7",
+            "claim": {
+              "status": "draw",
+              "winner": ""
+            },
+            "nativeLegal": true,
+            "kingSafe": true,
+            "nativeAdmission": false,
+            "successor": "8/B1Q2p1P/k7/5RP1/8/8/K7/8 b - -",
+            "outcome": "playing",
+            "replyCount": 1
+          },
+          "result": {
+            "actual": "ALLOW",
+            "status": "false-allow",
+            "cause": null,
+            "kind": "false-allow",
+            "expressions": 914
+          }
+        }
+      }
+    }
+  }
+}
