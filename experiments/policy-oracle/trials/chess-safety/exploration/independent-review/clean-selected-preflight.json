@@ -1,0 +1,75 @@
+{
+  "checkout": "8c90570275eea888452f099f2f44be7ce402ea84",
+  "tree": "6e4a3c810f334ee314a04febc6c9df70ab65a4db",
+  "cleanAfterReplay": true,
+  "command": "python3 replay.py --sealed-referee <private referee> --archive <archived controller journals> --report <json> --scorecard <markdown>",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "qualification": {
+    "status": "reproduced",
+    "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+    "historicalProofs": 28
+  },
+  "targetCompilation": "compiled",
+  "nativeSignedInputs": {
+    "inputs": 190,
+    "legalSubmissions": 92,
+    "illegalSubmissions": 98,
+    "judgmentsSha256": "bec547a181038742ebb5263cba50bf9914d9ae49078f57914d60e59512977473",
+    "thirdRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39"
+  },
+  "productionComparedToNative": {
+    "priorStrongerBaseline": {
+      "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "cases": 190,
+      "nativeMatches": 97,
+      "falseAllows": 93,
+      "falseRefusals": 0,
+      "localVerdictMatches": 190
+    },
+    "selected": {
+      "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+      "cases": 190,
+      "nativeMatches": 182,
+      "falseAllows": 7,
+      "falseRefusals": 1,
+      "localVerdictMatches": 190
+    }
+  },
+  "privateJournalChecked": true,
+  "localHoldout": {
+    "match": 15678,
+    "false-allow": 223,
+    "false-refusal/resource-limit": 4
+  },
+  "localHistory": {
+    "played": {
+      "writes": 1553,
+      "allow": 1553,
+      "falseRefusals": 0
+    },
+    "legal": {
+      "writes": 47087,
+      "allow": 47087,
+      "falseRefusals": 0
+    }
+  },
+  "localLifecycle": {
+    "completePrefixes": 37,
+    "outcomes": {
+      "match": 9584,
+      "false-allow": 3
+    }
+  },
+  "localSealed": {
+    "each-legal-successor": {
+      "match": 46385
+    },
+    "three-claims-per-board": {
+      "match": 4563
+    }
+  },
+  "localConformance": false,
+  "matchesObservedProductionCases": false,
+  "reportSha256": "4ebbd0222b2e48234cbc2549a65272807da7bc1f443457aae30f9eecfce245aa",
+  "scorecardSha256": "9f0f0af91e082543e5b1321bcb6740656385878cf85c75b3f1826ec4ef6dc5b1"
+}
