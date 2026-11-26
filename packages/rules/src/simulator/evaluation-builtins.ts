@@ -38,6 +38,16 @@ import { getFunctionScope } from './match-resolution.js';
 
 type LookupName = 'get' | 'exists' | 'getAfter' | 'existsAfter';
 
+const FINAL_DELETED_PATHS_KEY = Symbol.for('pyric.firestore.batchFinalDeletedPaths');
+
+function isFinalDeletedInBatch(
+  batchProjection: SimulationContext['batchProjection'],
+  normalizedPath: string,
+): boolean {
+  const deleted = (batchProjection as { [FINAL_DELETED_PATHS_KEY]?: ReadonlySet<string> } | undefined)?.[FINAL_DELETED_PATHS_KEY];
+  return deleted !== undefined && deleted.has(normalizedPath);
+}
+
 /** The budget slot kind each lookup charges ({@link chargeLookup}). */
 const LOOKUP_KIND: Record<LookupName, 'doc' | 'after'> = {
   get: 'doc',
@@ -147,6 +157,9 @@ export function evaluateFunctionCall(
       // both charges two slots. The fall-through resolveGet below does NOT
       // re-charge, because charging lives only here.
       chargeLookup(ctx, 'after', normalized);
+      if (isFinalDeletedInBatch(ctx.batchProjection, normalized)) {
+        throw new EvalError(`getAfter() of non-existent document '${pathStr}' (guard with existsAfter() first)`);
+      }
       if (normalized === afterTargetPath(ctx)) {
         // RULES-B8: getAfter() of a doc that won't exist post-write (delete,
         // or projected-null) ERRORS like get() — guard with existsAfter().
@@ -222,6 +235,9 @@ export function evaluateFunctionCall(
       // existsAfter() counts against the per-request lookup budget and
       // shares getAfter()'s post-write slot for the same path.
       chargeLookup(ctx, 'after', normalized);
+      if (isFinalDeletedInBatch(ctx.batchProjection, normalized)) {
+        return false;
+      }
       if (normalized === afterTargetPath(ctx)) {
         return ctx.existsAfter;
       }
@@ -358,16 +374,7 @@ export function evaluateMethodCall(
       throw new EvalError((e as Error).message);
     }
     if (result === NO_OP) {
-      if (
-        method === 'size' ||
-        method === 'toSet' ||
-        LIST_METHOD_NAMES.has(method) ||
-        SET_ALGEBRA_NAMES.has(method) ||
-        MAP_METHOD_NAMES.has(method)
-      ) {
-        throw new EvalError(functionNotFoundMessage(method));
-      }
-      throw new UnsupportedError(`Unknown method '${method}' on ${obj.typeName}`);
+      throw new EvalError(functionNotFoundMessage(method));
     }
     if (obj instanceof LatLng && typeof result === 'number') {
       return new RulesFloat(result);
