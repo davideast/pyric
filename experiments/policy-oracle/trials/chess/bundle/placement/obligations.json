@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "requirements": [
+        "signed-match-reads", "opening-board-and-fields", "open-seat-and-join",
+        "cancel-waiting-match", "resignation-and-winning-seat", "finished-parent-rematch",
+        "rematch-pointer-and-new-match-atomicity"
+      ],
+      "stock": "firestore-rules", "compatibility": "firestore-rules",
+      "stronger": "firestore-rules", "referee": "firestore-rules"
+    },
+    {
+      "requirements": ["playing-match", "authenticated-current-seat"],
+      "stock": "firestore-rules", "compatibility": "firestore-rules",
+      "stronger": "firestore-rules", "referee": "match.admit"
+    },
+    {
+      "requirements": ["turn-flip", "counter-increment", "last-move-encoding", "winner-and-status-shape"],
+      "stock": "firestore-rules", "compatibility": "firestore-rules",
+      "stronger": "firestore-rules", "referee": "match.metadata"
+    },
+    {
+      "requirements": ["previous-board-and-rights", "protected-fields", "unchanged-unrelated-squares"],
+      "stock": "firestore-rules", "compatibility": "firestore-rules",
+      "stronger": "firestore-rules", "referee": "referee-persistence"
+    },
+    {
+      "requirements": ["own-piece-and-target-owner", "source-emptied", "target-piece-and-promotion-choice", "king-capture-forbidden"],
+      "stock": "firestore-rules", "compatibility": "firestore-rules",
+      "stronger": "firestore-rules", "referee": "board.apply"
+    },
+    {
+      "requirements": [
+        "pawn-geometry", "knight-geometry", "bishop-geometry", "rook-geometry",
+        "queen-geometry", "king-geometry", "sliding-path-clearance", "double-pawn-push",
+        "mandatory-final-rank-promotion", "castling-rights-and-rook-path",
+        "castling-rook-transition", "corner-rook-capture-rights",
+        "en-passant-target-and-expiry", "en-passant-captured-pawn", "complete-successor-board"
+      ],
+      "stock": "residual", "compatibility": "residual",
+      "stronger": "firestore-rules", "referee": "board.apply"
+    },
+    {
+      "requirements": ["king-safety-and-pins", "castling-attacked-squares", "en-passant-exposing-king"],
+      "stock": "residual", "compatibility": "residual", "stronger": "residual", "referee": "board.legalMoves"
+    },
+    {
+      "requirements": ["has-legal-reply", "checkmate-and-winning-seat", "stalemate-and-draw"],
+      "stock": "residual", "compatibility": "residual", "stronger": "residual", "referee": "board.outcome"
+    }
+  ],
+  "refereeAdmission": {
+    "reject-direct-player-move": "firestore-rules",
+    "authenticate-before-admission": "referee-auth",
+    "expected-match-ply": "match.admit",
+    "compare-and-commit-stored-version": "referee-persistence"
+  }
+}
