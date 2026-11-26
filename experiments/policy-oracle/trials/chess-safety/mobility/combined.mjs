@@ -30,6 +30,7 @@ const variants=new Map(Object.entries({
   'combined-bare-direct-grouped-packed-v5':groupedDirect,
   'combined-bare-slim-packed-v5':slim,
   'combined-bare-simple-packed-v5':{...slim,simple:true},
+  'combined-bare-pairs-packed-v5':{...slim,simple:true,width:2},
   'combined-bare-line-packed-v5':{...slim,lines:true},
 }));
 
@@ -39,7 +40,7 @@ export function compile(compileFunction,variant,options={mode:'both'}) {
   const base=terminal.compile(compileFunction,config.base,options);
   const {packNormal,packedSafe}=packedSources(true);
   const mobility=config.reply
-    ? compileDirect(compileFunction,options,packNormal,packedSafe,config.reply==='direct-grouped')
+    ? compileDirect(compileFunction,options,packNormal,packedSafe,config.reply==='direct-grouped',config.width)
     : compileMobility(compileFunction,{...options,specialized:true,grouped:true});
   const out={...base,modules:{...base.modules,...mobility.modules},hasKingReply:mobility.hasReply,inCheck:mobility.inCheck};
   if(config.domain==='three') {
@@ -129,7 +130,7 @@ export async function link(modules,resolveModules,{variant}) {
   const whole=config.domain==='three',bare=config.domain==='bare';
   let customReply=null;
   if(config.reply==='direct')customReply={names:Object.keys(directSources()),wrapper:directWrapper()};
-  if(config.reply==='direct-grouped')customReply={names:Object.keys(directGroupedSources()),wrapper:directGroupedWrapper()};
+  if(config.reply==='direct-grouped')customReply={names:Object.keys(directGroupedSources(config.width)),wrapper:directGroupedWrapper(config.width)};
   const extra=whole?[...Object.keys(threeSources()),'replyCapture']:bare?['replyCapture']:[];
   if(config.lines)extra.push(...Object.keys(lineSources()));
   const names=new Set([...(customReply?.names??Object.keys(groupedSources())),...extra]);

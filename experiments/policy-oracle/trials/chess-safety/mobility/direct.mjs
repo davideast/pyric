@@ -73,10 +73,10 @@ export function directWrapper() {
   const any=color=>directions.map(([name])=>'direct'+color+name+'(text)').join(' || ');
   return "function hasKingReply(text,color) { return color == 'w' ? ("+any('w')+") : ("+any('b')+"); }";
 }
-export function compileDirect(compileFunction,{mode},packSource,safeSource,grouped=false) {
+export function compileDirect(compileFunction,{mode},packSource,safeSource,grouped=false,width=4) {
   const pack=compileFunction(packSource),safe=compileFunction(safeSource);
   const functions=Object.fromEntries(Object.entries(directSources()).map(([name,s])=>[name,compileFunction(s)]));
-  const groupedFns=grouped?Object.fromEntries(Object.entries(directGroupedSources()).map(([n,s])=>[n,compileFunction(s)])):null;
+  const groupedFns=grouped?Object.fromEntries(Object.entries(directGroupedSources(width)).map(([n,s])=>[n,compileFunction(s)])):null;
   const modules=mode==='standalone'?{}:Object.fromEntries(Object.entries(groupedFns??functions).map(([name,f])=>[name,f.firestoreModule()]));
   return {
     modules,
@@ -84,8 +84,9 @@ export function compileDirect(compileFunction,{mode},packSource,safeSource,group
     hasReply(board,color){
       const text=pack(board);
       if(!groupedFns)return directions.some(([name])=>functions['direct'+color+name](text));
-      const records=(text+';').repeat(4);
-      return !(groupedFns['allRefused'+color+'0'](records) && groupedFns['allRefused'+color+'1'](records));
+      const records=(text+';').repeat(width);
+      return Array.from({length:directions.length/width},(_,i)=>groupedFns['allRefused'+color+i])
+        .some(f=>!f(records));
     },
     inCheck(board,color){return !safe(pack(board),color);},
   };
@@ -94,11 +95,11 @@ export function compileDirect(compileFunction,{mode},packSource,safeSource,group
 // Each semicolon-delimited copy of the same unchanged board supplies one
 // directional predicate. Four failed directions fit in one authorable module;
 // their conjunction across both groups rules out every adjacent king step.
-export function directGroupedSources() {
+export function directGroupedSources(width=4) {
   const out={};
-  for(const color of ['w','b']) for(let batch=0;batch<2;batch++) {
+  for(const color of ['w','b']) for(let batch=0;batch<directions.length/width;batch++) {
     const name='allRefused'+color+batch;
-    const test=directions.slice(4*batch,4*batch+4).map(([,offset])=>{
+    const test=directions.slice(width*batch,width*(batch+1)).map(([,offset])=>{
       const r=directTests(color,offset).rejected.replaceAll('.*','[^;]*').replaceAll('[^,]','[^,;]');
       return r+';';
     }).join('');
@@ -106,7 +107,14 @@ export function directGroupedSources() {
   }
   return out;
 }
-export function directGroupedWrapper() {
+export function directGroupedWrapper(width=4) {
+  if(width===2) {
+    const invalid=color=>Array.from({length:4},(_,i)=>'allRefused'+color+i+'(records)').join(' && ');
+    return `function hasKingReply(text,color) {
+      let records = text+';'+text+';';
+      return color=='w' ? !(${invalid('w')}) : !(${invalid('b')});
+    }`;
+  }
   return `function hasKingReply(text,color) {
     let part=text+';'+text+';';
     let records=part+part;
