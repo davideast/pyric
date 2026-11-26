@@ -76,3 +76,7 @@ The [direct authoring form](direct.mjs) describes each neighboring destination r
 The simple variant uses the same general movement proof for every bare defender. All 1,896 eligible writes agreed. Its 260 incorrect admissions were terminal claims with another defender, including 32 individual writes in the new scope-boundary controls. Zero local errors or limit denials were counted as successes. [Full cohort score](direct-simple-score.json) · [600-decision application regression](status-matrix.json)
 
 The line variant also specializes horizontal and vertical sliding paths, branching once at the central square before checking the bounded halves. [Its 262,144 rank/file decisions](line-proof.json) exhaust every occupancy mask, endpoint pair, file and rank. It reduced the largest expression count on the primary composition cohort from 895 to 872 compared with the simple variant.
+
+## Knight replies and bounded composition
+
+The [knight witness](knights.md) returns concrete legal responses by a defending knight. The selected complete candidate uses the pawn witness when defending pawns remain and the knight witness in pawn-free material. The signed winner, moving king, opposing king, original capture and application constraints still apply. [Independent score](knight-score.json)

@@ -1,0 +1,259 @@
+{
+  "authority": "independent pinned local full Rules evaluator and separate frozen native outcomes",
+  "candidate": "knight-endgame-paired-pawn-combined-bare-simple-packed-v5",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "sourceBytes": 115831,
+  "holdout": {
+    "authority": "independent pinned local full Rules evaluator",
+    "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+    "cases": 15905,
+    "allMatch": false,
+    "outcomes": {
+      "match": 15682,
+      "false-allow": 223
+    },
+    "cohorts": {
+      "v1": {
+        "cases": 2481,
+        "outcomes": {
+          "match": 2463,
+          "false-allow": 18
+        },
+        "decisionsSha256": "62279344239e0ce9450b09ce61a30d94f39e17d673a3bb17ce6452fb99b1fc56"
+      },
+      "replies-v1": {
+        "cases": 378,
+        "outcomes": {
+          "match": 328,
+          "false-allow": 50
+        },
+        "decisionsSha256": "a6250af256d3b60398b4accdf994cdca002bef08f783648257c73f96a807fc85"
+      },
+      "rights-v1": {
+        "cases": 1736,
+        "outcomes": {
+          "match": 1736
+        },
+        "decisionsSha256": "4446114a7c51945cf7e29561635276dc033d137f907c1f94d805f5f56db65eaf"
+      },
+      "promotions-v1": {
+        "cases": 904,
+        "outcomes": {
+          "match": 904
+        },
+        "decisionsSha256": "9d575cb8c116ce8e0462bb88b208624ba634b9ab57aa0e4ec45c7a9fd195e8c2"
+      },
+      "interior-v1": {
+        "cases": 384,
+        "outcomes": {
+          "match": 354,
+          "false-allow": 30
+        },
+        "decisionsSha256": "4964b53fe5fb554d26f5358332b5c5f863825d11f1bf1558761e5273f897f88c"
+      },
+      "rights-claims-v1": {
+        "cases": 2048,
+        "outcomes": {
+          "match": 2048
+        },
+        "decisionsSha256": "5830179595ffae6becf4f5edf772712a5cbd4a65147e9d1377d67aeb34e83bb3"
+      },
+      "self-check-v1": {
+        "cases": 4440,
+        "outcomes": {
+          "match": 4440
+        },
+        "decisionsSha256": "1adf59139ae9ba228358c208ff926822ac55bb73e1718ced42ea8ff5b95be94d"
+      },
+      "king-last-v1": {
+        "cases": 288,
+        "outcomes": {
+          "match": 288
+        },
+        "decisionsSha256": "150c0b4594b10292aa6872e7aa6b88d2082e7f8833f6821e958291649d4fec9c"
+      },
+      "successor-claims-v1": {
+        "cases": 762,
+        "outcomes": {
+          "match": 701,
+          "false-allow": 61
+        },
+        "decisionsSha256": "7d24717af48b7b5b532326a8a9a435472241ba7f62f6289bb6b1eb062b142d92"
+      },
+      "bare-defender-v1": {
+        "cases": 1992,
+        "outcomes": {
+          "match": 1976,
+          "false-allow": 16
+        },
+        "decisionsSha256": "20b5266fb9972c1f8d47f03070ecbffd52b5b0237479de43f0cb22fc0e8d8773"
+      },
+      "knight-replies-v1": {
+        "cases": 492,
+        "outcomes": {
+          "match": 444,
+          "false-allow": 48
+        },
+        "decisionsSha256": "e8cafb208bee20da1eb1c1db24951895e86e8868ae3a3a160a341260bfc1c339"
+      }
+    }
+  },
+  "signedHistory": {
+    "nativeSha256": "cbdc6ab1d37ac33078426e29e6f6e21a2b8440f5bb9ab115003327232bb7a7c0",
+    "traces": 37,
+    "completePrefixes": 37,
+    "positiveWrites": 1621,
+    "negativeProbes": 7966,
+    "outcomes": {
+      "match": 9584,
+      "false-allow": 3
+    },
+    "decisionsSha256": "2f056592d18ad82f9191ead44875ddbf15037bca18b8e57d78753b45edf9a73a"
+  },
+  "foolsMate": {
+    "uci": "d8h4",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3",
+    "afterFen": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+    "honest": {
+      "decision": "ALLOW",
+      "expressions": 959,
+      "status": "match",
+      "cause": null,
+      "kind": "match"
+    },
+    "claims": {
+      "won": {
+        "decision": "ALLOW",
+        "expressions": 959,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "playing": {
+        "decision": "ALLOW",
+        "expressions": 839,
+        "status": "false-allow",
+        "cause": null,
+        "kind": "false-allow"
+      },
+      "draw": {
+        "decision": "DENY",
+        "expressions": 713,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      },
+      "wrongWinner": {
+        "decision": "DENY",
+        "expressions": 110,
+        "status": "match",
+        "cause": null,
+        "kind": "match"
+      }
+    },
+    "atPly16": {
+      "decision": "ALLOW",
+      "expressions": 959,
+      "status": "match",
+      "cause": null,
+      "kind": "match"
+    }
+  },
+  "signedMatrix": {
+    "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+    "cases": 150,
+    "profiles": [
+      "stock",
+      "compatibility",
+      "stronger",
+      "referee"
+    ],
+    "decisions": 600,
+    "changed": [
+      [
+        "pinned-slider",
+        "stronger",
+        "ALLOW",
+        "DENY"
+      ],
+      [
+        "castle-attacked-transit",
+        "stronger",
+        "ALLOW",
+        "DENY"
+      ],
+      [
+        "false-terminal-claim",
+        "stronger",
+        "ALLOW",
+        "DENY"
+      ]
+    ],
+    "peak": {
+      "id": "native-2-a8a1",
+      "evaluatedExpressions": 906
+    }
+  },
+  "nativeMaterialSweep": {
+    "native": "f24c917c026ca56eab185bd7555c3d8b348334eb1ddc495076a2632f98221ec5",
+    "rulesSha": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+    "positions": 240,
+    "legal": 2914,
+    "peakByCount": {
+      "1": 227,
+      "2": 227,
+      "3": 252,
+      "4": 252,
+      "5": 277,
+      "6": 277,
+      "7": 302,
+      "8": 302,
+      "9": 318,
+      "10": 318
+    }
+  },
+  "concreteMoveReplay": {
+    "limitedExamples": [
+      {
+        "fen": "k7/8/8/8/8/2b3b1/3NNN2/4K3 w - -",
+        "found": [
+          "e2c1",
+          "e2c3",
+          "e2d4",
+          "e2f4",
+          "e2g1",
+          "e2g3"
+        ],
+        "missed": []
+      },
+      {
+        "fen": "4k3/3nnn2/2B3B1/8/8/8/8/K7 b - -",
+        "found": [
+          "e7c6",
+          "e7c8",
+          "e7d5",
+          "e7f5",
+          "e7g6",
+          "e7g8"
+        ],
+        "missed": []
+      }
+    ],
+    "unique": 1722,
+    "extraCorpus": "d86a76e978fda19b225777cef344d937ecb7d9edaa21920ed160fe4c4ecb90fc",
+    "counts": {
+      "0": 24,
+      "1": 324,
+      "2": 1370,
+      "3": 4
+    },
+    "eligibility": {
+      "legal": 1610,
+      "absent": 24,
+      "unable": 88
+    },
+    "projectedWitnesses": 8497,
+    "missingOnThreeOrMore": 0
+  }
+}
