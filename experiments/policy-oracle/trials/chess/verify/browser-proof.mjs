@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {sha} from '../../../arcade/corpus.mjs';
+import {fresh,afterMove,snapshot,transition} from './document.mjs';
+
+const absent=path=>({path,data:null,version:null});
+export async function browserProof(receipt,j,history,engine) {
+  const b=receipt.browser;
+  assert.match(b.browser,/^\d+\.\d+\.\d+\.\d+$/);
+  assert.notEqual(b.match,b.rematch);
+  for(const id of [b.match,b.rematch]) assert.match(id,/^[a-zA-Z0-9_-]{1,90}$/);
+  assert.deepEqual(b.referee,j.all('referee'));
+  assert.deepEqual(b.observations,j.all('browser-state'));
+  const race=j.only('concurrent-admission');
+  const game='chess/'+receipt.runId;
+  assert.deepEqual(race.race,b.race);
+  assert.deepEqual(b.race.toSorted(),['committed','matchVersion']);
+  const winning=b.race[0]==='committed'?'e2e4':'d2d4';
+  assert.deepEqual(race.initial,history.get(game));
+  const independent=(before,uci)=>{
+    const native=afterMove(before,uci);
+    assert.deepEqual(afterMove(before,uci,engine),native,uci+' candidate replay agrees with native');
+    return native;
+  };
+  transition(race.initial,race.current,independent(race.initial.data,winning),'race exactly one wins');
+  const testRecords=b.referee.filter(record=>record.id===receipt.runId);
+  assert.equal(testRecords.length,3);
+  const blocked=testRecords.find(r=>r.uci==='a1a2');
+  assert.equal(blocked.verdict,'legalMove'); assert.deepEqual(blocked.before,blocked.after);
+  assert.equal(blocked.beforeVersion,blocked.afterVersion); assert.deepEqual(blocked.before,race.initial.data);
+  for(const [i,uci] of ['e2e4','d2d4'].entries()) {
+    const record=testRecords.find(r=>r.uci===uci);
+    assert.equal(record.verdict,b.race[i]);
+    assert.equal(record.ply,0); assert.deepEqual(record.after,race.current.data);
+    assert.equal(record.afterVersion,race.current.version);
+    const prior=record.beforeVersion===race.initial.version ? race.initial : race.current;
+    assert.deepEqual([record.beforeVersion,record.before],[prior.version,prior.data]);
+    if(record.verdict==='committed') assert.equal(record.beforeVersion,race.initial.version);
+  }
+  const path='chess/'+b.match,next='chess/'+b.rematch,pointer='rematches/chess/matches/'+b.match,draw='chess/'+receipt.runId+'-endgame';
+  const prev=new Map();const moves=['f2f3','e7e5','g2g4','d8h4'];
+  const names=['create','join',...moves,'rematch-offered','rematch-joined','rematch-e2e4','rematch-resignation','stalemate'];
+  assert.deepEqual(b.observations.map(o=>o.id),names.map(n=>'browser-'+n));
+  const host=b.observations[0].snapshots[0].data.host,guest=b.observations[1].snapshots[0].data.guest;
+  assert.ok(host && guest); assert.notEqual(host,guest);
+  const expectedReferee=[];
+  for(const [i,obs] of b.observations.entries()) {
+    const label=names[i],paths=label==='rematch-offered'||label==='rematch-resignation'?[next,pointer,path]:
+      [label==='stalemate'?draw:label.startsWith('rematch')?next:path];
+    j.proof(obs.proof);
+    assert.deepEqual(obs.snapshots.map(s=>s.path),paths);
+    for(const s of obs.snapshots) {
+      snapshot(s,s.path);
+      let before=prev.get(s.path) ?? absent(s.path);
+      let target=before.data;
+      if(label==='create') target=fresh(host,s.data.createdAt);
+      if(label==='join'||label==='rematch-joined') target={...target,guest,status:'playing'};
+      if(label==='rematch-offered' && s.path===next) target=fresh(host,s.data.createdAt,b.match);
+      if(label==='rematch-offered' && s.path===pointer) target={game:'chess',match:b.rematch,by:host};
+      if(label==='rematch-resignation' && s.path===next) target={...target,status:'resigned',winner:'host'};
+      let uci=moves.includes(label)?label:label==='rematch-e2e4'?'e2e4':label==='stalemate'?'b5b6':null;
+      if(uci) {
+        const id=s.path.split('/')[1];
+        const rec=b.referee.find(r=>r.id===id && r.uci===uci);
+        assert.ok(rec,label+' authoritative referee record');
+        assert.equal(rec.verdict,'committed');
+        if(label==='stalemate') {
+          const board=Object.fromEntries(Object.keys(fresh(host,rec.before.createdAt).board).map(k=>[k,'']));
+          Object.assign(board,{a8:'bk',c6:'wk',b5:'wq'});
+          const seed={...fresh(host,rec.before.createdAt),guest,status:'playing',board,prevBoard:board,castling:'',prevCastling:''};
+          assert.deepEqual(rec.before,seed);
+          before={path:s.path,data:seed,created:s.created,version:rec.beforeVersion};
+        }
+        assert.equal(rec.uid,before.data[before.data.currentTurn]);
+        assert.equal(rec.ply,before.data.moveCount);
+        assert.deepEqual([rec.beforeVersion,rec.before],[before.version,before.data]);
+        target=independent(before.data,uci);
+        assert.deepEqual([rec.afterVersion,rec.after],[s.version,target]);
+        expectedReferee.push(rec);
+      }
+      transition(before,s,target,obs.id);
+      prev.set(s.path,s);
+    }
+  }
+  assert.deepEqual(b.referee.filter(r=>r.id!==receipt.runId),expectedReferee);
+  for(const record of b.referee) {j.proof(record.proof);j.proof(record.end);}
+  assert.equal(prev.get(path).data.winner,'guest');
+  assert.equal(prev.get(next).data.status,'resigned');
+  assert.equal(prev.get(draw).data.status,'draw');
+  const namesPNG=['opening','checkmate','rematch-resignation','stalemate'];
+  assert.deepEqual(b.pictures.map(q=>q.file),namesPNG.map(n=>n+'.png'));
+  for(const picture of b.pictures) {
+    const bytes=readFileSync(join(j.dir,picture.file));
+    assert.equal(sha(bytes),picture.sha256);
+    assert.equal(bytes.subarray(0,8).toString('hex'),'89504e470d0a1a0a');
+    assert.ok(bytes.readUInt32BE(16)>0 && bytes.readUInt32BE(20)>0);
+  }
+  return {chromium:b.browser,engineSha256:b.engineSha256,screenshots:b.pictures,moveCount:expectedReferee.length,
+    race:b.race,checkmateWinner:prev.get(path).data.winner,rematchWinner:prev.get(next).data.winner,
+    stalemate:prev.get(draw).data.status,states:b.observations.length};
+}

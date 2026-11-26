@@ -1,0 +1,41 @@
+{
+  "id": "stock-discovery",
+  "receipt": "34526baa433de0af51f8c474d35c5de6b407635e006d2187f83ebebccc70675d",
+  "bundle": "../../../arcade/v1/rules/stock.rules",
+  "report": {
+    "mode": "stock",
+    "runId": "96467751-f34d-458c-9522-2fc639212e4c",
+    "receipt": "34526baa433de0af51f8c474d35c5de6b407635e006d2187f83ebebccc70675d",
+    "rulesSha256": "59b6e23b4727912311ffd45dcba50d4bcb69fe9ed79c6627584e385c338e422b",
+    "activeRuleset": "projects/digame-mas/rulesets/ad6ff60b-eec1-4c81-817a-40addb73e927",
+    "restoredRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "journalSha256": "c84c0cbf7cb203c2fb28c92a0045b8fa214e9ce59509c77eadc993b96a8b3c38",
+    "signedReadersExplicit": false,
+    "exactProtocolIntents": 0,
+    "decisions": {
+      "opening-counter": "DENY",
+      "create": "ALLOW",
+      "cancel-by-guest": "DENY",
+      "cancel-by-host": "ALLOW",
+      "open-match": "ALLOW",
+      "join": "ALLOW",
+      "wrong-turn": "DENY",
+      "wrong-counter": "DENY",
+      "f2f3": "ALLOW",
+      "e7e5": "ALLOW",
+      "g2g4": "ALLOW",
+      "d8h4": "ALLOW",
+      "terminal-move": "DENY",
+      "pointer-alone": "DENY",
+      "offer-rematch": "ALLOW",
+      "duplicate-offer": "DENY",
+      "join-rematch": "ALLOW",
+      "resign-rematch": "ALLOW"
+    },
+    "special": {},
+    "sensitivity": {
+      "changedMoveCount": "f2f3",
+      "missingAtomicPointer": "offer-rematch"
+    }
+  }
+}
