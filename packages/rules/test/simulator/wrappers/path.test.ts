@@ -258,12 +258,16 @@ describe('path() builtin — through evaluator', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test('unknown method on path → UNSUPPORTED', () => {
+  test('unknown method on path throws absorbable EvalError (DENY)', () => {
     const r = sim.simulate(
       rules("path('a/b').mystery() == 'x'"),
-      [tc('unknown path method', 'ALLOW')],
+      [tc('unknown path method', 'DENY')],
     );
-    expect(r.success && r.data.unsupported).toBe(1);
+    expect(r.success && r.data.passed).toBe(1);
+    if (r.success) {
+      expect(r.data.results[0]?.trace[0]?.verdict).toBe('ERROR');
+      expect(r.data.results[0]?.trace[0]?.message).toBe('Function not found error: Name: [mystery].');
+    }
   });
 
   test('Path.bind() ignores Object.prototype keys like toString (FS-SIM-7a, FS-COV-3a)', () => {

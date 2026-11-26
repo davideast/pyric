@@ -358,16 +358,7 @@ export function evaluateMethodCall(
       throw new EvalError((e as Error).message);
     }
     if (result === NO_OP) {
-      if (
-        method === 'size' ||
-        method === 'toSet' ||
-        LIST_METHOD_NAMES.has(method) ||
-        SET_ALGEBRA_NAMES.has(method) ||
-        MAP_METHOD_NAMES.has(method)
-      ) {
-        throw new EvalError(functionNotFoundMessage(method));
-      }
-      throw new UnsupportedError(`Unknown method '${method}' on ${obj.typeName}`);
+      throw new EvalError(functionNotFoundMessage(method));
     }
     if (obj instanceof LatLng && typeof result === 'number') {
       return new RulesFloat(result);

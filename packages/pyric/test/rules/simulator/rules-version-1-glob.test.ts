@@ -94,10 +94,10 @@ describe('version 1: a recursive wildcard needs one or more segments', () => {
         expect((await getDocs(collection(db, 'cities/SF/landmarks'))).size).toBe(1);
       });
 
-      // The sandbox lists through the document-style path
-      // `cities/__listPlaceholder__`, which the handler widens one segment
-      // deeper when nothing matches it, so the glob still grants it (#1428).
-      test.todo('the in-page sandbox denies getDocs on cities (#1428)');
+      test('the in-page sandbox denies getDocs on cities (#1428)', async () => {
+        const db = sandboxDb(source);
+        await expect(getDocs(collection(db, 'cities'))).rejects.toMatchObject(DENIED);
+      });
 
       test('a nested block under a final recursive wildcard needs one segment in it', () => {
         const nested = rules(header, "match /cities/{rest=**} { match /tag/{id} { allow read: if true; } }");
@@ -116,9 +116,13 @@ describe('version 1: a recursive wildcard needs one or more segments', () => {
         expect(decide(everything, 'get', 'cities/SF').decision).toBe('ALLOW');
       });
 
-      // Firestore's docs say collection group queries need version 2, and no
-      // capture shows what production does with one under version 1 (#1440).
-      test.todo('a collection-group query under a version 1 whole-database glob (#1440)');
+      test('a collection-group query under a version 1 whole-database or group glob is denied (#1440)', async () => {
+        const everything = rules(header, 'match /{document=**} { allow read: if true; }');
+        await expect(getDocs(collectionGroup(sandboxDb(everything), 'landmarks'))).rejects.toMatchObject(DENIED);
+
+        const groupGlob = rules(header, 'match /{path=**}/landmarks/{id} { allow read: if true; }');
+        await expect(getDocs(collectionGroup(sandboxDb(groupGlob), 'landmarks'))).rejects.toMatchObject(DENIED);
+      });
 
       test('a root ending in a recursive wildcard after documents does not govern every document', async () => {
         const recursiveRoot = rules(header, 'match /{document=**} { allow read: if true; }', '/databases/{db}/documents/{rest=**}');
@@ -162,6 +166,14 @@ describe('version 2: a recursive wildcard matches zero or more segments', () => 
         const recursiveRoot = rules(header, 'match /c/{id} { allow read: if true; }', '/databases/{db}/documents/{rest=**}');
         expect(decide(recursiveRoot, 'get', 'c/1').decision).toBe('ALLOW');
         expect(rootGovernsEveryDocument(parseToAST(recursiveRoot)!)).toBe(true);
+      });
+
+      test('a collection-group query under version 2 whole-database or group glob is allowed', async () => {
+        const everything = rules(header, 'match /{document=**} { allow read: if true; }');
+        expect((await getDocs(collectionGroup(sandboxDb(everything), 'landmarks'))).size).toBe(1);
+
+        const groupGlob = rules(header, 'match /{path=**}/landmarks/{id} { allow read: if true; }');
+        expect((await getDocs(collectionGroup(sandboxDb(groupGlob), 'landmarks'))).size).toBe(1);
       });
     });
   }
