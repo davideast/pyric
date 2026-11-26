@@ -6,6 +6,8 @@ The [board policy](policies/chess.policy) derives legal moves, board changes, ri
 
 The source of the qualified compiler is on `experiment/chess-policy-engine` at `7edfec782d7d7a9b4a4bb40eb3a879118dda1cae`. Both policies opt into the bounded standalone language explicitly. The packed release also emits importable Rules helpers through its existing compiler entry point. The [release lock](policies/lock.json) pins the compiler tarball and both portable modules.
 
+The chess policies also motivated a [design proposal for bounded loops and immutable map updates](bounded-loops-and-map-updates.md).
+
 ## Verified game and rematch
 
 Two independently authenticated Chromium players played **1. f3 e5 2. g4 Qh4#** on the isolated live Firestore database. White offered the rematch, Black joined, White played **e4** and Black resigned. Separate endgame fixtures reached stalemate and promoted a pawn to a knight through the rendered selector. Pyric and the native Arcade control agreed on all seven played board transitions. The corrected client passed all 16 per-seat replay checks with an empty illegal-move warning list. The original client flagged all 16 observations on the same documents. [Verified browser receipt](verify/releases/referee.json) · [Original false warning](verify/diagnostics/first-checkmate.png) · [Corrected checkmate](verify/screens/4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d/checkmate.png) · [Rematch result](verify/screens/4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d/rematch-resignation.png)
