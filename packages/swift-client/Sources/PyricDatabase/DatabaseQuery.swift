@@ -272,7 +272,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         if ConnectionInfo.isInfoPath(path) {
             // `.info` is answered here, so the turn is passed without sending anything.
             await client.pass(turn: turn)
-            let connected = await ConnectionInfo.currentlyConnected(database)
+            let connected = ConnectionInfo.currentlyConnected(database)
             return DataSnapshot(wire: ConnectionInfo.wire(at: path, connected: connected), ref: ref)
         }
         var params: [String: AnySendable] = [

@@ -58,6 +58,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         private let deliveryContinuation: AsyncStream<ViewDelivery>.Continuation
         private var deliveryTask: Task<Void, Never>?
         private var feedTask: Task<Void, Never>?
+        private var feedCleanup: (@Sendable () -> Void)?
 
         init(key: ViewKey, coordinator: DatabaseViewCoordinator) {
             self.key = key
@@ -95,15 +96,17 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             }
         }
 
-        func startFeed(_ builder: (ActiveView) -> Task<Void, Never>) {
-            let task = builder(self)
+        func startFeed(_ builder: (ActiveView) -> (task: Task<Void, Never>?, cleanup: (@Sendable () -> Void)?)) {
+            let built = builder(self)
             lock.lock()
             if closed {
                 lock.unlock()
-                task.cancel()
+                built.task?.cancel()
+                built.cleanup?()
                 return
             }
-            feedTask = task
+            feedTask = built.task
+            feedCleanup = built.cleanup
             lock.unlock()
         }
 
@@ -165,9 +168,12 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             deliveryContinuation.yield(.cancel(entries: entries, error: error))
             deliveryContinuation.finish()
             let fTask = feedTask
+            let cleanup = feedCleanup
             feedTask = nil
+            feedCleanup = nil
             lock.unlock()
             fTask?.cancel()
+            cleanup?()
             return handles
         }
 
@@ -177,17 +183,21 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             let becameEmpty = records.isEmpty
             var fTask: Task<Void, Never>?
             var dTask: Task<Void, Never>?
+            var cleanup: (@Sendable () -> Void)?
             if becameEmpty && !closed {
                 closed = true
                 latestSnapshot = nil
                 deliveryContinuation.finish()
                 fTask = feedTask
                 dTask = deliveryTask
+                cleanup = feedCleanup
                 feedTask = nil
                 deliveryTask = nil
+                feedCleanup = nil
             }
             lock.unlock()
             fTask?.cancel()
+            cleanup?()
             dTask?.cancel()
             return becameEmpty
         }
@@ -206,10 +216,13 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             deliveryContinuation.finish()
             let fTask = feedTask
             let dTask = deliveryTask
+            let cleanup = feedCleanup
             feedTask = nil
             deliveryTask = nil
+            feedCleanup = nil
             lock.unlock()
             fTask?.cancel()
+            cleanup?()
             dTask?.cancel()
         }
     }
@@ -348,70 +361,131 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         path: String,
         subscriptionTarget: AnySendable,
         queryRef: DatabaseReference
-    ) -> Task<Void, Never> {
+    ) -> (task: Task<Void, Never>?, cleanup: (@Sendable () -> Void)?) {
         if ConnectionInfo.isInfoPath(path) {
-            return Task {
-                var lastWire: AnySendable?
-                for await connected in ConnectionInfo.connectedValues(of: database) {
-                    if Task.isCancelled { break }
-                    let wire = ConnectionInfo.wire(at: path, connected: connected)
-                    guard wire["exists"]?.boolValue == true else { continue }
-                    if wire == lastWire { continue }
+            final class WireDedup: @unchecked Sendable {
+                private let lock = NSLock()
+                private var lastWire: AnySendable?
+                func shouldEmit(_ wire: AnySendable) -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if wire == lastWire { return false }
                     lastWire = wire
-                    activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef))
+                    return true
                 }
+            }
+            let dedup = WireDedup()
+            let hub = database.connectionInfoHub
+            let token = hub.addObserver { [weak activeView] connected in
+                guard let activeView else { return }
+                let wire = ConnectionInfo.wire(at: path, connected: connected)
+                guard wire["exists"]?.boolValue == true, dedup.shouldEmit(wire) else { return }
+                activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef))
+            }
+            return (nil, { hub.removeObserver(token) })
+        }
+
+        // Open the lens stream and initial bridge subscription synchronously so
+        // `observe(...)` reserves its admission turn before returning (D7, S16).
+        let initialLens = database.currentAuthLens()
+        let lensStream = database.authLensStream
+        let initialIterator = database.bridgeClient.subscribe(
+            target: subscriptionTarget,
+            actAs: initialLens.toAnySendable()
+        ).makeAsyncIterator()
+
+        final class IteratorBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var current: PyricSubscriptionStream.Iterator?
+            private var cancelled = false
+
+            init(_ initial: PyricSubscriptionStream.Iterator) {
+                self.current = initial
+            }
+
+            func replace(with next: PyricSubscriptionStream.Iterator) -> Bool {
+                lock.lock()
+                let prev = current
+                if cancelled {
+                    current = nil
+                    lock.unlock()
+                    prev?.cancel()
+                    next.cancel()
+                    return false
+                }
+                current = next
+                lock.unlock()
+                prev?.cancel()
+                return true
+            }
+
+            func cancelAll() {
+                lock.lock()
+                cancelled = true
+                let prev = current
+                current = nil
+                lock.unlock()
+                prev?.cancel()
             }
         }
 
-        return Task { [weak coordinator] in
-            for await currentLens in database.authLensStream {
+        let iteratorBox = IteratorBox(initialIterator)
+
+        let task = Task { [weak coordinator] in
+            var activeLens = initialLens
+            var activeChild = Self.startSnapshotConsumer(
+                iterator: initialIterator,
+                coordinator: coordinator,
+                activeView: activeView,
+                queryRef: queryRef
+            )
+            defer { activeChild.cancel() }
+
+            for await nextLens in lensStream {
                 if Task.isCancelled { break }
-
-                let subStream = database.bridgeClient.subscribe(
+                if nextLens == activeLens { continue }
+                activeLens = nextLens
+                activeChild.cancel()
+                let nextIterator = database.bridgeClient.subscribe(
                     target: subscriptionTarget,
-                    actAs: currentLens.toAnySendable()
+                    actAs: nextLens.toAnySendable()
+                ).makeAsyncIterator()
+                guard iteratorBox.replace(with: nextIterator) else { break }
+                activeChild = Self.startSnapshotConsumer(
+                    iterator: nextIterator,
+                    coordinator: coordinator,
+                    activeView: activeView,
+                    queryRef: queryRef
                 )
+            }
+        }
+        return (task, { iteratorBox.cancelAll() })
+    }
 
-                final class LensChangeFlag: @unchecked Sendable {
-                    private let lock = NSLock()
-                    private var _value = false
-                    var value: Bool {
-                        get { lock.lock(); defer { lock.unlock() }; return _value }
-                        set { lock.lock(); defer { lock.unlock() }; _value = newValue }
-                    }
-                }
-                let lensChanged = LensChangeFlag()
-                let lensMonitorTask = Task {
-                    for await newLens in database.authLensStream {
-                        if newLens != currentLens {
-                            lensChanged.value = true
-                            break
-                        }
-                    }
-                }
-
-                do {
-                    for try await wireSnap in subStream {
-                        if Task.isCancelled || lensChanged.value { break }
-                        if let errDict = wireSnap["__error"] {
-                            let msg = errDict["message"]?.stringValue ?? "Permission denied"
-                            lensMonitorTask.cancel()
-                            coordinator?.evictErroredView(
-                                activeView,
-                                error: PyricBridgeError.permissionDenied(msg)
-                            )
-                            return
-                        }
-                        activeView.handleSnapshot(DataSnapshot(wire: wireSnap, ref: queryRef))
-                    }
-                } catch {
-                    if !Task.isCancelled && !lensChanged.value {
-                        lensMonitorTask.cancel()
-                        coordinator?.evictErroredView(activeView, error: error)
+    private static func startSnapshotConsumer(
+        iterator: PyricSubscriptionStream.Iterator,
+        coordinator: DatabaseViewCoordinator?,
+        activeView: ActiveView,
+        queryRef: DatabaseReference
+    ) -> Task<Void, Never> {
+        Task { [weak coordinator] in
+            do {
+                while let wireSnap = try await iterator.next() {
+                    if Task.isCancelled { break }
+                    if let errDict = wireSnap["__error"] {
+                        let msg = errDict["message"]?.stringValue ?? "Permission denied"
+                        coordinator?.evictErroredView(
+                            activeView,
+                            error: PyricBridgeError.permissionDenied(msg)
+                        )
                         return
                     }
+                    activeView.handleSnapshot(DataSnapshot(wire: wireSnap, ref: queryRef))
                 }
-                lensMonitorTask.cancel()
+            } catch {
+                if !Task.isCancelled {
+                    coordinator?.evictErroredView(activeView, error: error)
+                }
             }
         }
     }

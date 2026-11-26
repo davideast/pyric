@@ -36,12 +36,14 @@ enum WriteOutcome {
 }
 
 /// A live subscription and what it needs to be restored after a drop.
-struct ActiveSub {
+struct ActiveSub: Sendable {
+    let sequence: Int
     let continuation: AsyncThrowingStream<BridgeSubscriptionEvent, Error>.Continuation
     let payload: [String: AnySendable]
     let includeMetadataChanges: Bool
     var lastValue: AnySendable?
     var awaitsRestoredValue = false
+    var sentInGeneration: Int?
 }
 
 /// The bridge client's transport state.
