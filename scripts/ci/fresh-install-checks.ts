@@ -5,27 +5,36 @@
  * problem; an empty list is a pass. The checks can move to the shared
  * crash-watch module under test/apps/ once that lands.
  */
-import { createServer, type Server } from 'node:http';
-import { connect, type Socket } from 'node:net';
+import {
+  auditAdvisoryFindings,
+  auditAdvisoryNotes,
+  auditNote,
+  auditSummary,
+  type AuditRun,
+} from './fresh-install-audit.ts';
+import {
+  installEnvironment,
+  isRegistryRequest,
+  REGISTRY_HOST,
+  REGISTRY_PORT,
+  startEgressProxy,
+  type EgressEntry,
+} from './fresh-install-egress.ts';
 import { UPSTREAM_ADVISORIES } from './upstream-advisories.ts';
 
-/** The only host an install may reach, and only over TLS. */
-export const REGISTRY_HOST = 'registry.npmjs.org';
-export const REGISTRY_PORT = 443;
+export {
+  auditAdvisoryNotes,
+  auditSummary,
+  installEnvironment,
+  isRegistryRequest,
+  startEgressProxy,
+  type AuditRun,
+  type EgressEntry,
+};
 
 /** Prefixes the page init script writes with `console.error`, so the browser log carries them. */
 export const UNHANDLED_REJECTION_MARK = '[fresh-install unhandled rejection]';
 export const WORKER_ERROR_MARK = '[fresh-install worker error]';
-
-/** One request the egress guard saw: a CONNECT tunnel or a plain proxied request. */
-export interface EgressEntry {
-  method: string;
-  host: string;
-  port: number;
-  allowed: boolean;
-  /** When the guard saw it, as an ISO time. */
-  time?: string;
-}
 
 /** One driver step, with the commands it started and the ones running while it ran (steps.jsonl). */
 export interface StepRecord {
@@ -77,18 +86,14 @@ export interface RunEvidence {
   steps?: readonly StepRecord[];
 }
 
-export function isRegistryRequest(host: string, port: number): boolean {
-  return host.toLowerCase() === REGISTRY_HOST && port === REGISTRY_PORT;
-}
-
 /**
  * A V8 stack frame line: `    at fn (<location>:1:2)` or `    at <location>:1:2`
  * for any location (absolute, relative, `file:`, `node:`, `webpack-internal:`,
  * `<anonymous>`), or a frame with no position, `(<anonymous>)` or `(index 0)`.
  */
 const STACK_FRAME = /^\s+at\s+\S.*(?::\d+:\d+\)?|\(<anonymous>\)|\(index \d+\))\s*$/;
-/** Next prints every server error after this mark, with or without a stack. */
-const NEXT_ERROR = /^\s*⨯\s/;
+/** Next prints every server error after this mark (U+2A2F), with or without a stack. */
+const NEXT_ERROR = /^\s*\u2a2f\s/;
 const PAGE_ERROR = /^\[page \d+ error\] /;
 const SERVER_ERROR_RESPONSE = /^\[page \d+ response 5\d\d\] /;
 const BLOCKED_EGRESS = /^\[blocked external (?:request|WebSocket)\] /;
@@ -113,22 +118,22 @@ function browserFindings(evidence: TemplateEvidence): string[] {
 }
 
 /**
- * One finding per error in the dev output: each Next `⨯` line, and the line
- * above each run of stack frames (the error the stack belongs to). A stack
- * under a `⨯` line is the same error, reported once.
+ * One finding per error in the dev output: each Next cross-mark (U+2A2F) line,
+ * and the line above each run of stack frames (the error the stack belongs to).
+ * A stack under a cross-mark line is the same error, reported once.
  */
 function serverErrorFindings(output: string): string[] {
   const lines = output.split('\n');
   const headers = new Set<number>();
   for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
+    const line = lines[index] ?? '';
     const startsStack = STACK_FRAME.test(line) && !STACK_FRAME.test(lines[index - 1] ?? '');
     const hasHeaderAbove = index > 0 && (lines[index - 1] ?? '').trim() !== '';
     if (NEXT_ERROR.test(line)) headers.add(index);
     else if (startsStack && hasHeaderAbove) headers.add(index - 1);
     else if (startsStack) headers.add(index);
   }
-  return [...headers].sort((a, b) => a - b).map((index) => `error in dev server output: ${lines[index]!.trim()}`);
+  return [...headers].sort((a, b) => a - b).map((index) => `error in dev server output: ${(lines[index] ?? '').trim()}`);
 }
 
 function hostErrorFindings(hostErrors: readonly string[] = []): string[] {
@@ -145,10 +150,10 @@ function chipFindings(evidence: TemplateEvidence): string[] {
   });
 }
 
-// ─── Dev commands ──────────────────────────────────────────────────────
+// --- Dev commands ---
 
 /** Whether a template's plane mounts the runtime chip on its pages. */
-export type ChipExpectation = 'expected' | 'not expected';
+type ChipExpectation = 'expected' | 'not expected';
 
 /** How the driver starts one page template: plain `npm run dev`, on the template's own host and port. */
 export interface DevSetup {
@@ -186,181 +191,6 @@ export function devCommandLine(setup: DevSetup): string {
   return [...env, 'npm', 'run', 'dev'].join(' ');
 }
 
-/**
- * The line npm's audit prints at the end of `npm install`: `found 0
- * vulnerabilities`, or `3 moderate severity vulnerabilities`, or
- * `7 vulnerabilities (2 low, 5 moderate)`.
- */
-const AUDIT_SUMMARY = /^(?:found \d+ vulnerabilit(?:y|ies)|\d+ (?:\w+ severity )?vulnerabilit(?:y|ies)\b.*)$/;
-
-export function auditSummary(installOutput: string): string | undefined {
-  return installOutput.split('\n').map((line) => line.trim()).find((line) => AUDIT_SUMMARY.test(line));
-}
-
-function auditNote(installOutput: string | undefined): string[] {
-  if (installOutput === undefined) return [];
-  return [`npm audit: ${auditSummary(installOutput) ?? 'npm install printed no audit summary'}`];
-}
-
-/** One `npm audit --json` run: its exit code and stdout and stderr as one stream, or why it did not finish. */
-export interface AuditRun {
-  code: number | null;
-  output: string;
-  /** Set when the command threw or timed out instead of exiting. */
-  error?: string;
-}
-
-interface AuditAdvisory {
-  severity: string;
-  name: string;
-  id: string;
-  /** Where the vulnerable package is installed, such as `node_modules/shadcn/node_modules/undici`. */
-  nodes: string[];
-}
-
-type AuditReading = { advisories: AuditAdvisory[] } | { problem: string };
-
-const NOTED_SEVERITIES = ['critical', 'high'];
-const AUDIT_NOTE = 'npm audit --json';
-/** The most install locations one advisory line lists. */
-const LISTED_NODES = 3;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * The JSON document in `output`: from the first line that starts with `{` to
- * the last that ends with `}`. npm writes it to stdout, and its `npm warn` and
- * `npm error` lines may come before or after it on the same stream.
- */
-function auditJsonText(output: string): string | undefined {
-  const lines = output.split('\n').map((line) => line.trim());
-  const first = lines.findIndex((line) => line.startsWith('{'));
-  const last = lines.findLastIndex((line) => line.endsWith('}'));
-  if (first === -1 || last < first) return undefined;
-  return lines.slice(first, last + 1).join('\n');
-}
-
-/** GitHub's advisory id from the advisory URL, else npm's numeric source id. */
-function advisoryId(via: Record<string, unknown>): string {
-  const ghsa = typeof via.url === 'string' ? /GHSA(?:-[a-z0-9]{4}){3}/i.exec(via.url)?.[0] : undefined;
-  if (ghsa !== undefined) return ghsa;
-  return typeof via.source === 'number' ? `advisory ${via.source}` : '(no advisory id)';
-}
-
-/**
- * The advisories a vulnerable package lists in `via`. A string entry names
- * another vulnerable package (npm's metavuln), whose own entry lists the advisory.
- */
-function packageAdvisories(key: string, entry: unknown): AuditAdvisory[] {
-  if (!isRecord(entry) || !Array.isArray(entry.via)) return [];
-  const nodes = Array.isArray(entry.nodes) ? entry.nodes.filter((node): node is string => typeof node === 'string') : [];
-  return entry.via.filter(isRecord).map((via) => ({
-    severity: typeof via.severity === 'string' ? via.severity : 'unknown',
-    name: typeof via.name === 'string' ? via.name : key,
-    id: advisoryId(via),
-    nodes,
-  }));
-}
-
-/** A string with something in it, trimmed. */
-function nonEmptyText(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const text = value.trim();
-  if (text === '') return undefined;
-  return text;
-}
-
-function joinedParts(parts: Array<string | undefined>): string | undefined {
-  const present = parts.filter((part) => part !== undefined);
-  if (present.length === 0) return undefined;
-  return present.join(': ');
-}
-
-/**
- * What npm's error object says: `{"error":{"code":"ENOLOCK","summary":"..."}}`
- * reads `npm error ENOLOCK: ...`. Undefined when it names neither.
- */
-function npmErrorText(error: unknown): string | undefined {
-  if (!isRecord(error)) return undefined;
-  const named = joinedParts([nonEmptyText(error.code), nonEmptyText(error.summary)]);
-  if (named === undefined) return undefined;
-  return `npm error ${named}`;
-}
-
-/** Why a JSON object with no vulnerabilities is not a report: npm's message and its error object. */
-function npmProblem(report: Record<string, unknown>): string | undefined {
-  return joinedParts([nonEmptyText(report.message), npmErrorText(report.error)]);
-}
-
-function compareAdvisories(a: AuditAdvisory, b: AuditAdvisory): number {
-  const severity = NOTED_SEVERITIES.indexOf(a.severity) - NOTED_SEVERITIES.indexOf(b.severity);
-  return severity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-}
-
-/** Reads `npm audit --json` (report version 2) output; never throws. */
-function readAudit(output: string): AuditReading {
-  const text = auditJsonText(output);
-  if (text === undefined) return { problem: 'npm printed no JSON' };
-  let report: unknown;
-  try {
-    report = JSON.parse(text);
-  } catch {
-    return { problem: 'npm printed JSON that does not parse' };
-  }
-  if (!isRecord(report)) return { problem: 'the JSON is not an object' };
-  const npmSaid = report.vulnerabilities === undefined && npmProblem(report);
-  if (npmSaid) return { problem: npmSaid };
-  if (!isRecord(report.vulnerabilities)) return { problem: 'the JSON has no vulnerabilities object' };
-  const seen = new Set<string>();
-  const advisories = Object.entries(report.vulnerabilities)
-    .flatMap(([key, entry]) => packageAdvisories(key, entry))
-    .filter((advisory) => NOTED_SEVERITIES.includes(advisory.severity))
-    .filter((advisory) => {
-      const key = `${advisory.name} ${advisory.id}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  return { advisories: advisories.sort(compareAdvisories) };
-}
-
-/** `at a, b, c and 2 more`: where npm installed the vulnerable package, so a reader can tell what brings it in. */
-function nodesText(nodes: string[]): string | undefined {
-  if (nodes.length === 0) return undefined;
-  const more = nodes.length - LISTED_NODES;
-  const listed = nodes.slice(0, LISTED_NODES).join(', ');
-  return more > 0 ? `at ${listed} and ${more} more` : `at ${listed}`;
-}
-
-function advisoryNote({ severity, name, id, nodes }: AuditAdvisory): string {
-  const upstream = Object.hasOwn(UPSTREAM_ADVISORIES, id) ? `(upstream: ${UPSTREAM_ADVISORIES[id]})` : undefined;
-  return [`${AUDIT_NOTE}: ${severity} ${name} ${id}`, nodesText(nodes), upstream].filter((part) => part !== undefined).join(' ');
-}
-
-/** The first line of a command's error, without the output a timeout message carries after it. */
-function errorHeadline(error: string): string {
-  const line = error.split('\n').map((part) => part.trim()).find((part) => part !== '') ?? '';
-  return line.replace(/:$/, '');
-}
-
-/**
- * One line per high or critical advisory `npm audit --json` reported: its
- * severity, package, advisory id and install locations, and the reason when
- * the advisory is known upstream and unreachable. A run with no report, or
- * one that did not finish, gets one line saying so. These lines never fail
- * the run.
- */
-export function auditAdvisoryNotes(run: AuditRun | undefined): string[] {
-  if (run === undefined) return [];
-  if (run.error !== undefined) return [`${AUDIT_NOTE}: did not finish: ${errorHeadline(run.error)}`];
-  const reading = readAudit(run.output);
-  if ('problem' in reading) return [`${AUDIT_NOTE}: no report (exit ${run.code}): ${reading.problem}`];
-  if (reading.advisories.length === 0) return [`${AUDIT_NOTE}: no high or critical advisory`];
-  return reading.advisories.map(advisoryNote);
-}
-
 function devCommandNote(run: DevCommandRun | undefined): string[] {
   if (run === undefined) return [];
   return [
@@ -392,7 +222,7 @@ export function runNotes(run: RunEvidence): string[] {
       .map((note) => `${evidence.template}: ${note}`));
 }
 
-// ─── Allowances ────────────────────────────────────────────────────────
+// --- Allowances ---
 
 /**
  * A refused request or firewall reject that does not fail the run, because
@@ -457,7 +287,10 @@ export function canonicalAddress(address: string): string {
   if (!address.includes(':')) return address;
   try {
     return new URL(`http://[${address}]/`).hostname.replace(/^\[|\]$/g, '');
-  } catch {
+  } catch (error) {
+    if (!(error instanceof TypeError)) {
+      throw error;
+    }
     return address.toLowerCase();
   }
 }
@@ -621,7 +454,7 @@ function describeStep(record: StepRecord): string {
  * Which step `time` fell in: the step whose window holds it, or the last
  * step that ended before it when it fell between steps.
  */
-export function stepAt(time: string | undefined, steps: readonly StepRecord[]): string {
+function stepAt(time: string | undefined, steps: readonly StepRecord[]): string {
   const at = time === undefined ? Number.NaN : Date.parse(time);
   if (Number.isNaN(at)) return '(at an unrecorded time)';
   const holding = steps.find((record) => Date.parse(record.start) <= at && at <= Date.parse(record.end));
@@ -645,12 +478,15 @@ export function parseFirewallRejects(text: string): FirewallReject[] {
     const destination = line.match(/\bDST=(\S+)/)?.[1];
     if (destination === undefined) continue;
     const port = line.match(/\bDPT=(\d+)/)?.[1];
-    rejects.push({
+    const entry: FirewallReject = {
       time: isoFromDmesg(stamp),
       protocol: line.match(/\bPROTO=(\S+)/)?.[1] ?? 'unknown',
       destination,
-      ...(port === undefined ? {} : { port: Number(port) }),
-    });
+    };
+    if (port !== undefined) {
+      entry.port = Number(port);
+    }
+    rejects.push(entry);
   }
   return rejects;
 }
@@ -677,83 +513,39 @@ export function firewallFindings(
  * uncaught page error; an unhandled rejection; a worker error or crashed
  * page; a 5xx response or a pyric host error to a page; a page request the
  * browser guard blocked; a runtime chip that is not Ready, or absent where the
- * template mounts it; an error stack or a Next `⨯` error in the dev server's
- * output; and any request the egress guard refused, or no guarded traffic at
- * all. Refused requests an
- * allowance covers are listed in `allowed` instead.
+ * template mounts it; an error stack or a Next cross-mark (U+2A2F) error in
+ * the dev server's output; any unallowlisted high or critical advisory or
+ * unreadable audit report from `npm audit --json`; and any request the egress
+ * guard refused, or no guarded traffic at all. Refused requests covered by an
+ * allowance and advisories named in `upstreamAdvisories` are listed in
+ * `allowed` instead.
  */
-export function crashFindings(run: RunEvidence, allowances: readonly Allowance[] = ALLOWANCES): Verdict {
+export function crashFindings(
+  run: RunEvidence,
+  allowances: readonly Allowance[] = ALLOWANCES,
+  upstreamAdvisories: Readonly<Record<string, string>> = UPSTREAM_ADVISORIES,
+): Verdict {
   const findings: string[] = [];
+  const allowedFindings: string[] = [];
   for (const evidence of run.templates) {
     const own: string[] = [];
-    if (evidence.failedStep) own.push(`${evidence.failedStep.step} failed: ${firstLine(evidence.failedStep.reason)}`);
-    own.push(...browserFindings(evidence), ...hostErrorFindings(evidence.hostErrors), ...chipFindings(evidence), ...serverErrorFindings(evidence.serverOutput));
+    if (evidence.failedStep) {
+      own.push(`${evidence.failedStep.step} failed: ${firstLine(evidence.failedStep.reason)}`);
+    }
+    const auditVerdict = auditAdvisoryFindings(evidence.audit, upstreamAdvisories);
+    own.push(
+      ...browserFindings(evidence),
+      ...hostErrorFindings(evidence.hostErrors),
+      ...chipFindings(evidence),
+      ...serverErrorFindings(evidence.serverOutput),
+      ...auditVerdict.failing,
+    );
     findings.push(...own.map((finding) => `${evidence.template}: ${finding}`));
+    allowedFindings.push(...auditVerdict.allowed.map((entry) => `${evidence.template}: ${entry}`));
   }
   const egress = egressVerdict(run.egress, run.steps ?? [], allowances);
-  return { failing: [...findings, ...egress.failing], allowed: egress.allowed };
-}
-
-// ─── Egress guard ──────────────────────────────────────────────────────
-
-/**
- * The environment of create and install: the egress guard as the proxy and
- * the registry, and nothing else, so npm's audit and funding notices run as
- * they do for a new user. Both reach only the registry. The driver's
- * processes inherit nothing else, so these are set here, not in the workflow.
- */
-export function installEnvironment(proxyUrl: string): Record<string, string> {
   return {
-    HTTPS_PROXY: proxyUrl,
-    HTTP_PROXY: proxyUrl,
-    https_proxy: proxyUrl,
-    http_proxy: proxyUrl,
-    NO_PROXY: '127.0.0.1,localhost,::1',
-    no_proxy: '127.0.0.1,localhost,::1',
-    npm_config_https_proxy: proxyUrl,
-    npm_config_proxy: proxyUrl,
-    npm_config_registry: `https://${REGISTRY_HOST}/`,
+    failing: [...findings, ...egress.failing],
+    allowed: [...allowedFindings, ...egress.allowed],
   };
-}
-
-function splitHostPort(authority: string): { host: string; port: number } {
-  const colon = authority.lastIndexOf(':');
-  if (colon === -1) return { host: authority, port: 443 };
-  return { host: authority.slice(0, colon).replace(/^\[|\]$/g, ''), port: Number(authority.slice(colon + 1)) };
-}
-
-function tunnel(client: Socket, head: Buffer, host: string, port: number): void {
-  let opened = false;
-  const upstream = connect(port, host, () => {
-    opened = true;
-    client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    upstream.write(head);
-    upstream.pipe(client);
-    client.pipe(upstream);
-  });
-  // Before the tunnel opens the client still waits for a status line.
-  upstream.on('error', () => {
-    if (opened) client.destroy();
-    else client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-  });
-  client.on('error', () => upstream.destroy());
-}
-
-/** A proxy on 127.0.0.1:`port` that tunnels only to the registry and passes every request to `record`. */
-export function startEgressProxy(port: number, record: (entry: EgressEntry) => void): Promise<Server> {
-  const server = createServer((request, response) => {
-    // Plain HTTP never reaches the registry, which is TLS only.
-    const raw = request.url ?? '';
-    const target = URL.canParse(raw) ? new URL(raw) : undefined;
-    record({ method: request.method ?? 'GET', host: target?.hostname ?? raw, port: Number(target?.port || 80), allowed: false, time: new Date().toISOString() });
-    response.writeHead(403).end(`fresh-install egress guard: only https://${REGISTRY_HOST} may be reached\n`);
-  });
-  server.on('connect', (request, client: Socket, head: Buffer) => {
-    const { host, port: targetPort } = splitHostPort(request.url ?? '');
-    const allowed = isRegistryRequest(host, targetPort);
-    record({ method: 'CONNECT', host, port: targetPort, allowed, time: new Date().toISOString() });
-    if (allowed) tunnel(client, head, host, targetPort);
-    else client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
-  });
-  return new Promise((done) => server.listen(port, '127.0.0.1', () => done(server)));
 }

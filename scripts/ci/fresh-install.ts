@@ -368,9 +368,10 @@ async function runScriptFlow(run: TemplateRun): Promise<void> {
 }
 
 /**
- * `npm audit --json` in the installed app, for the advisory lines in
- * findings.txt. npm exits 1 when it finds an advisory, and a failed or timed
- * out audit is recorded, never thrown: the audit does not fail the run.
+ * `npm audit --json` in the installed app, for the audit gate and advisory
+ * lines in findings.txt. npm exits 1 when it finds an advisory, and a failed
+ * or timed out audit is recorded rather than thrown so the template's dev flow
+ * still runs before `crashFindings` evaluates the audit gate.
  */
 async function auditApp(run: TemplateRun, env: Record<string, string>): Promise<AuditRun> {
   return run.app.step('npm audit --json', async () => {
