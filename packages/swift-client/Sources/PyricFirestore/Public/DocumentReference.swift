@@ -337,7 +337,9 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
                 ) {
-                    box.callback(snapshot, nil)
+                    stateBox.runIfActive {
+                        box.callback(snapshot, nil)
+                    }
                 }
             },
             onOffline: {
@@ -355,7 +357,9 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
                 ) {
-                    box.callback(snapshot, nil)
+                    stateBox.runIfActive {
+                        box.callback(snapshot, nil)
+                    }
                 }
             },
             onGap: {
@@ -370,20 +374,24 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                     settings: db.settings,
                     isCancelled: { stateBox.isCancelled }
                 ) {
-                    box.callback(snapshot, nil)
+                    stateBox.runIfActive {
+                        box.callback(snapshot, nil)
+                    }
                 }
             },
             onError: { error in
                 db.settings.dispatchCallback {
-                    guard !stateBox.isCancelled else { return }
-                    box.callback(nil, error)
+                    stateBox.runIfActive {
+                        box.callback(nil, error)
+                    }
                 }
             }
         )
 
         return SimpleListenerRegistration {
-            stateBox.markCancelled()
+            stateBox.setCancelled()
             coordinator.cancel()
+            stateBox.waitForInFlightCallback()
         }
     }
 
@@ -426,6 +434,7 @@ private final class CallbackBox<T: Sendable>: @unchecked Sendable {
 }
 
 private final class DocListenerStateBox: @unchecked Sendable {
+    private let callbackLock = NSRecursiveLock()
     private let lock = NSLock()
     private var cancelled = false
     private var hasDelivered = false
@@ -447,10 +456,22 @@ private final class DocListenerStateBox: @unchecked Sendable {
         return _lastWire
     }
 
-    func markCancelled() {
+    func setCancelled() {
         lock.lock()
         cancelled = true
         lock.unlock()
+    }
+
+    func waitForInFlightCallback() {
+        callbackLock.lock()
+        callbackLock.unlock()
+    }
+
+    func runIfActive(_ block: () -> Void) {
+        callbackLock.lock()
+        defer { callbackLock.unlock() }
+        guard !isCancelled else { return }
+        block()
     }
 
     func recordOfflineAndShouldSuppress(

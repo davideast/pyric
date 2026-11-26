@@ -87,12 +87,10 @@ public final class PyricDebugDiagnostics: @unchecked Sendable {
         if _history.count > maxHistoryCount {
             _history.removeLast()
         }
-        let conts = Array(continuations.values)
-        lock.unlock()
-
-        for continuation in conts {
+        for continuation in continuations.values {
             continuation.yield(denial)
         }
+        lock.unlock()
     }
 
     /// Records an intercepted `PyricBridgeError` if it carries a Security Rules denial context.

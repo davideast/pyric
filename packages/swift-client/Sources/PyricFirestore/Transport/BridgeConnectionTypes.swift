@@ -38,12 +38,51 @@ enum WriteOutcome {
 /// A live subscription and what it needs to be restored after a drop.
 struct ActiveSub: Sendable {
     let sequence: Int
-    let continuation: AsyncThrowingStream<BridgeSubscriptionEvent, Error>.Continuation
+    let continuation: AsyncThrowingStream<BridgeSubscriptionEvent, Error>.Continuation?
+    let onEvent: (@Sendable (BridgeSubscriptionEvent) -> Void)?
+    let onFinish: (@Sendable (Error?) -> Void)?
     let payload: [String: AnySendable]
     let includeMetadataChanges: Bool
     var lastValue: AnySendable?
     var awaitsRestoredValue = false
     var sentInGeneration: Int?
+
+    func deliver(_ event: BridgeSubscriptionEvent) {
+        continuation?.yield(event)
+        onEvent?(event)
+    }
+
+    func finish(throwing error: Error? = nil) {
+        if let error {
+            continuation?.finish(throwing: error)
+        } else {
+            continuation?.finish()
+        }
+        onFinish?(error)
+    }
+}
+
+/// Handle returned by `PyricBridgeClient.openOrderedSubscription(...)`.
+package final class OrderedSubscriptionHandle: @unchecked Sendable {
+    package let subId: String
+    private let lock = NSLock()
+    private var onCancel: (@Sendable () -> Void)?
+
+    init(subId: String, onCancel: (@Sendable () -> Void)?) {
+        self.subId = subId
+        self.onCancel = onCancel
+    }
+
+    package func cancel() {
+        let action: (@Sendable () -> Void)? = {
+            lock.lock()
+            defer { lock.unlock() }
+            let fn = onCancel
+            onCancel = nil
+            return fn
+        }()
+        action?()
+    }
 }
 
 /// The bridge client's transport state.

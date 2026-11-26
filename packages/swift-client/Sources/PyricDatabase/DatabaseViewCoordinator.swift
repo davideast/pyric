@@ -27,16 +27,51 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         }
     }
 
-    fileprivate struct ObserverEntry: Sendable {
+    fileprivate final class ObserverEntry: @unchecked Sendable {
         let handle: UInt
-        let onEvent: @Sendable (DatabaseChildEvent) -> Void
-        let onCancel: (@Sendable (Error) -> Void)?
-    }
+        private let onEvent: @Sendable (DatabaseChildEvent) -> Void
+        private let onCancel: (@Sendable (Error) -> Void)?
+        private let stateLock = NSLock()
+        private let callbackLock = NSRecursiveLock()
+        private var cancelled = false
 
-    fileprivate enum ViewDelivery: Sendable {
-        case initial(entry: ObserverEntry, events: [DatabaseChildEvent])
-        case fanout(batches: [(entry: ObserverEntry, events: [DatabaseChildEvent])])
-        case cancel(entries: [ObserverEntry], error: Error)
+        init(
+            handle: UInt,
+            onEvent: @escaping @Sendable (DatabaseChildEvent) -> Void,
+            onCancel: (@Sendable (Error) -> Void)?
+        ) {
+            self.handle = handle
+            self.onEvent = onEvent
+            self.onCancel = onCancel
+        }
+
+        private var isCancelled: Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return cancelled
+        }
+
+        func cancel() {
+            stateLock.lock()
+            cancelled = true
+            stateLock.unlock()
+            callbackLock.lock()
+            callbackLock.unlock()
+        }
+
+        func deliverEvent(_ event: DatabaseChildEvent) {
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            guard !isCancelled else { return }
+            onEvent(event)
+        }
+
+        func deliverCancel(_ error: Error) {
+            callbackLock.lock()
+            defer { callbackLock.unlock() }
+            guard !isCancelled else { return }
+            onCancel?(error)
+        }
     }
 
     private final class RegistrationRecord {
@@ -51,46 +86,26 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
 
     private final class ActiveView: @unchecked Sendable {
         let key: ViewKey
+        private let deliveryQueue: DispatchQueue
         private let lock = NSLock()
         private var records: [RegistrationRecord] = []
         private var latestSnapshot: DataSnapshot?
         private var closed = false
-        private let deliveryContinuation: AsyncStream<ViewDelivery>.Continuation
-        private var deliveryTask: Task<Void, Never>?
         private var feedTask: Task<Void, Never>?
         private var feedCleanup: (@Sendable () -> Void)?
 
-        init(key: ViewKey, coordinator: DatabaseViewCoordinator) {
+        init(key: ViewKey, deliveryQueue: DispatchQueue) {
             self.key = key
-            var capturedContinuation: AsyncStream<ViewDelivery>.Continuation?
-            let stream = AsyncStream<ViewDelivery> { continuation in
-                capturedContinuation = continuation
-            }
-            self.deliveryContinuation = capturedContinuation!
+            self.deliveryQueue = deliveryQueue
+        }
 
-            self.deliveryTask = Task { [weak coordinator] in
-                for await item in stream {
-                    if Task.isCancelled { break }
-                    switch item {
-                    case let .initial(entry, events):
-                        for event in events {
-                            guard coordinator?.isHandleActive(entry.handle) == true else { break }
-                            entry.onEvent(event)
-                        }
-                    case let .fanout(batches):
-                        for kind in SnapshotEvents.canonicalEventOrder {
-                            for batch in batches {
-                                for event in batch.events where event.type == kind {
-                                    if coordinator?.isHandleActive(batch.entry.handle) == true {
-                                        batch.entry.onEvent(event)
-                                    }
-                                }
-                            }
-                        }
-                    case let .cancel(entries, error):
-                        for entry in entries {
-                            entry.onCancel?(error)
-                        }
+        private static func deliverFanout(
+            _ batches: [(entry: ObserverEntry, events: [DatabaseChildEvent])]
+        ) {
+            for kind in SnapshotEvents.canonicalEventOrder {
+                for batch in batches {
+                    for event in batch.events where event.type == kind {
+                        batch.entry.deliverEvent(event)
                     }
                 }
             }
@@ -126,7 +141,13 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             if let snap = latestSnapshot {
                 let initialEvents = differ.collectEvents(for: snap)
                 if !initialEvents.isEmpty {
-                    deliveryContinuation.yield(.initial(entry: entry, events: initialEvents))
+                    // Enqueue under `lock` so initial delivery stays strictly
+                    // ordered ahead of any subsequent snapshot diff (D8, S20).
+                    deliveryQueue.async {
+                        for event in initialEvents {
+                            entry.deliverEvent(event)
+                        }
+                    }
                 }
             }
             lock.unlock()
@@ -149,12 +170,18 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 }
             }
             if !batches.isEmpty {
-                deliveryContinuation.yield(.fanout(batches: batches))
+                let pendingBatches = batches
+                deliveryQueue.async {
+                    Self.deliverFanout(pendingBatches)
+                }
             }
             lock.unlock()
         }
 
-        func handleError(_ error: Error) -> [UInt] {
+        func handleError(
+            _ error: Error,
+            onEntryReleased: (@Sendable (UInt) -> Void)? = nil
+        ) -> [UInt] {
             lock.lock()
             if closed {
                 lock.unlock()
@@ -165,8 +192,14 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             let handles = entries.map(\.handle)
             records.removeAll()
             latestSnapshot = nil
-            deliveryContinuation.yield(.cancel(entries: entries, error: error))
-            deliveryContinuation.finish()
+            if !entries.isEmpty {
+                deliveryQueue.async {
+                    for entry in entries {
+                        entry.deliverCancel(error)
+                        onEntryReleased?(entry.handle)
+                    }
+                }
+            }
             let fTask = feedTask
             let cleanup = feedCleanup
             feedTask = nil
@@ -177,29 +210,31 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             return handles
         }
 
-        func removeHandles(_ targetHandles: Set<UInt>) -> Bool {
+        func removeHandles(_ targetHandles: Set<UInt>) -> (becameEmpty: Bool, removed: [ObserverEntry]) {
             lock.lock()
-            records.removeAll { targetHandles.contains($0.entry.handle) }
+            var removed: [ObserverEntry] = []
+            records.removeAll { record in
+                if targetHandles.contains(record.entry.handle) {
+                    removed.append(record.entry)
+                    return true
+                }
+                return false
+            }
             let becameEmpty = records.isEmpty
             var fTask: Task<Void, Never>?
-            var dTask: Task<Void, Never>?
             var cleanup: (@Sendable () -> Void)?
             if becameEmpty && !closed {
                 closed = true
                 latestSnapshot = nil
-                deliveryContinuation.finish()
                 fTask = feedTask
-                dTask = deliveryTask
                 cleanup = feedCleanup
                 feedTask = nil
-                deliveryTask = nil
                 feedCleanup = nil
             }
             lock.unlock()
             fTask?.cancel()
             cleanup?()
-            dTask?.cancel()
-            return becameEmpty
+            return (becameEmpty, removed)
         }
 
         func allHandles() -> [UInt] {
@@ -211,19 +246,19 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         func shutdown() {
             lock.lock()
             closed = true
+            let removed = records.map(\.entry)
             records.removeAll()
             latestSnapshot = nil
-            deliveryContinuation.finish()
             let fTask = feedTask
-            let dTask = deliveryTask
             let cleanup = feedCleanup
             feedTask = nil
-            deliveryTask = nil
             feedCleanup = nil
             lock.unlock()
             fTask?.cancel()
             cleanup?()
-            dTask?.cancel()
+            for entry in removed {
+                entry.cancel()
+            }
         }
     }
 
@@ -231,6 +266,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
     private var nextHandle: UInt = 1
     private var viewsByKey: [ViewKey: ActiveView] = [:]
     private var keyByHandle: [UInt: ViewKey] = [:]
+    private var entriesByHandle: [UInt: ObserverEntry] = [:]
 
     internal func registerObserver(
         database: Database,
@@ -253,17 +289,19 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             let entry = ObserverEntry(handle: handle, onEvent: onEvent, onCancel: onCancel)
             if let existing = viewsByKey[key] {
                 keyByHandle[handle] = key
+                entriesByHandle[handle] = entry
                 lock.unlock()
                 if existing.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec) {
                     return handle
                 }
                 lock.lock()
                 keyByHandle.removeValue(forKey: handle)
+                entriesByHandle.removeValue(forKey: handle)
                 lock.unlock()
                 continue
             }
 
-            let created = ActiveView(key: key, coordinator: self)
+            let created = ActiveView(key: key, deliveryQueue: database.bridgeClient.deliveryQueue)
             _ = created.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec)
             created.startFeed { [weak self] activeView in
                 Self.makeFeedTask(
@@ -277,6 +315,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             }
             viewsByKey[key] = created
             keyByHandle[handle] = key
+            entriesByHandle[handle] = entry
             lock.unlock()
             return handle
         }
@@ -295,8 +334,12 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
     internal func removeObservers(handles: Set<UInt>) {
         guard !handles.isEmpty else { return }
         var affectedViews: [ViewKey: Set<UInt>] = [:]
+        var removedEntriesByHandle: [UInt: ObserverEntry] = [:]
         lock.lock()
         for handle in handles {
+            if let entry = entriesByHandle.removeValue(forKey: handle) {
+                removedEntriesByHandle[handle] = entry
+            }
             if let key = keyByHandle.removeValue(forKey: handle) {
                 affectedViews[key, default: []].insert(handle)
             }
@@ -308,13 +351,21 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         lock.unlock()
 
         for (key, view, hSet) in targetViews {
-            if view.removeHandles(hSet) {
+            let result = view.removeHandles(hSet)
+            for entry in result.removed {
+                removedEntriesByHandle[entry.handle] = entry
+            }
+            if result.becameEmpty {
                 lock.lock()
                 if let current = viewsByKey[key], current === view {
                     viewsByKey.removeValue(forKey: key)
                 }
                 lock.unlock()
             }
+        }
+        // Synchronize with any in-flight event or cancel callback outside all locks (D9, S27).
+        for entry in removedEntriesByHandle.values {
+            entry.cancel()
         }
     }
 
@@ -333,16 +384,29 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
     internal func shutdown() {
         lock.lock()
         let views = Array(viewsByKey.values)
+        let entries = Array(entriesByHandle.values)
         viewsByKey.removeAll()
         keyByHandle.removeAll()
+        entriesByHandle.removeAll()
         lock.unlock()
         for view in views {
             view.shutdown()
         }
+        for entry in entries {
+            entry.cancel()
+        }
+    }
+
+    private func releaseEntry(handle: UInt) {
+        lock.lock()
+        entriesByHandle.removeValue(forKey: handle)
+        lock.unlock()
     }
 
     private func evictErroredView(_ view: ActiveView, error: Error) {
-        let removedHandles = view.handleError(error)
+        let removedHandles = view.handleError(error) { [weak self] handle in
+            self?.releaseEntry(handle: handle)
+        }
         lock.lock()
         if let current = viewsByKey[view.key], current === view {
             viewsByKey.removeValue(forKey: view.key)
@@ -387,34 +451,48 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         }
 
         // Open the lens stream and initial bridge subscription synchronously so
-        // `observe(...)` reserves its admission turn before returning (D7, S16).
+        // `observe(...)` reserves its admission turn before returning (D7, S16)
+        // and delivers snapshots on the client's serial delivery queue (D8, S20).
         let initialLens = database.currentAuthLens()
         let lensStream = database.authLensStream
-        let initialIterator = database.bridgeClient.subscribe(
-            target: subscriptionTarget,
-            actAs: initialLens.toAnySendable()
-        ).makeAsyncIterator()
 
-        final class IteratorBox: @unchecked Sendable {
+        final class HandleBox: @unchecked Sendable {
             private let lock = NSLock()
-            private var current: PyricSubscriptionStream.Iterator?
+            private var activeToken: UUID?
+            private var currentHandle: OrderedSubscriptionHandle?
             private var cancelled = false
 
-            init(_ initial: PyricSubscriptionStream.Iterator) {
-                self.current = initial
+            func isActive(token: UUID) -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                return !cancelled && activeToken == token
             }
 
-            func replace(with next: PyricSubscriptionStream.Iterator) -> Bool {
+            func begin(token: UUID) -> Bool {
                 lock.lock()
-                let prev = current
+                let prev = currentHandle
+                currentHandle = nil
                 if cancelled {
-                    current = nil
+                    activeToken = nil
                     lock.unlock()
                     prev?.cancel()
-                    next.cancel()
                     return false
                 }
-                current = next
+                activeToken = token
+                lock.unlock()
+                prev?.cancel()
+                return true
+            }
+
+            func attach(token: UUID, handle: OrderedSubscriptionHandle) -> Bool {
+                lock.lock()
+                if cancelled || activeToken != token {
+                    lock.unlock()
+                    handle.cancel()
+                    return false
+                }
+                let prev = currentHandle
+                currentHandle = handle
                 lock.unlock()
                 prev?.cancel()
                 return true
@@ -423,71 +501,55 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             func cancelAll() {
                 lock.lock()
                 cancelled = true
-                let prev = current
-                current = nil
+                activeToken = nil
+                let prev = currentHandle
+                currentHandle = nil
                 lock.unlock()
                 prev?.cancel()
             }
         }
 
-        let iteratorBox = IteratorBox(initialIterator)
-
-        let task = Task { [weak coordinator] in
-            var activeLens = initialLens
-            var activeChild = Self.startSnapshotConsumer(
-                iterator: initialIterator,
-                coordinator: coordinator,
-                activeView: activeView,
-                queryRef: queryRef
-            )
-            defer { activeChild.cancel() }
-
-            for await nextLens in lensStream {
-                if Task.isCancelled { break }
-                if nextLens == activeLens { continue }
-                activeLens = nextLens
-                activeChild.cancel()
-                let nextIterator = database.bridgeClient.subscribe(
-                    target: subscriptionTarget,
-                    actAs: nextLens.toAnySendable()
-                ).makeAsyncIterator()
-                guard iteratorBox.replace(with: nextIterator) else { break }
-                activeChild = Self.startSnapshotConsumer(
-                    iterator: nextIterator,
-                    coordinator: coordinator,
-                    activeView: activeView,
-                    queryRef: queryRef
-                )
-            }
-        }
-        return (task, { iteratorBox.cancelAll() })
-    }
-
-    private static func startSnapshotConsumer(
-        iterator: PyricSubscriptionStream.Iterator,
-        coordinator: DatabaseViewCoordinator?,
-        activeView: ActiveView,
-        queryRef: DatabaseReference
-    ) -> Task<Void, Never> {
-        Task { [weak coordinator] in
-            do {
-                while let wireSnap = try await iterator.next() {
-                    if Task.isCancelled { break }
+        let handleBox = HandleBox()
+        let openForLens: @Sendable (AuthLens) -> Bool = { [weak coordinator] lens in
+            let token = UUID()
+            guard handleBox.begin(token: token) else { return false }
+            let capturedCoordinator = coordinator
+            let handle = database.bridgeClient.openOrderedSubscription(
+                target: subscriptionTarget,
+                actAs: lens.toAnySendable(),
+                dispatchOnDeliveryQueue: false,
+                onEvent: { [weak capturedCoordinator] event in
+                    guard handleBox.isActive(token: token) else { return }
+                    guard case .value(let wireSnap) = event else { return }
                     if let errDict = wireSnap["__error"] {
                         let msg = errDict["message"]?.stringValue ?? "Permission denied"
-                        coordinator?.evictErroredView(
+                        capturedCoordinator?.evictErroredView(
                             activeView,
                             error: PyricBridgeError.permissionDenied(msg)
                         )
                         return
                     }
                     activeView.handleSnapshot(DataSnapshot(wire: wireSnap, ref: queryRef))
+                },
+                onFinish: { [weak capturedCoordinator] error in
+                    guard let error, handleBox.isActive(token: token) else { return }
+                    capturedCoordinator?.evictErroredView(activeView, error: error)
                 }
-            } catch {
-                if !Task.isCancelled {
-                    coordinator?.evictErroredView(activeView, error: error)
-                }
+            )
+            return handleBox.attach(token: token, handle: handle)
+        }
+
+        _ = openForLens(initialLens)
+
+        let task = Task {
+            var activeLens = initialLens
+            for await nextLens in lensStream {
+                if Task.isCancelled { break }
+                if nextLens == activeLens { continue }
+                activeLens = nextLens
+                guard openForLens(nextLens) else { break }
             }
         }
+        return (task, { handleBox.cancelAll() })
     }
 }

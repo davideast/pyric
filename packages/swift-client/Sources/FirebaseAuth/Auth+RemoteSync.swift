@@ -1,24 +1,52 @@
 import Foundation
 import PyricFirestore
 
+internal enum RemoteAuthEvent: Sendable {
+    case authState(AnySendable)
+    case idToken(AnySendable)
+}
+
+private final class RemainingSubsCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: Int
+
+    init(_ count: Int) {
+        self.remaining = count
+    }
+
+    func decrementAndIsZero() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        remaining -= 1
+        return remaining <= 0
+    }
+}
+
 extension Auth {
 
     internal func applyBridgeClient(_ nextClient: PyricBridgeClient) {
-        let (hadRemoteSync, previousIterators): (Bool, [PyricSubscriptionStream.Iterator]) = {
+        let (hadRemoteSync, previousHandles, previousContinuation): (
+            Bool,
+            [OrderedSubscriptionHandle],
+            AsyncStream<RemoteAuthEvent>.Continuation?
+        ) = {
             stateLock.lock()
             defer { stateLock.unlock() }
             _bridgeClient = nextClient
             let activeSync = subTask != nil
             subTask?.cancel()
             subTask = nil
-            let prev = remoteSyncIterators
-            remoteSyncIterators.removeAll()
+            let prev = remoteSyncHandles
+            remoteSyncHandles.removeAll()
+            let prevCont = remoteSyncContinuation
+            remoteSyncContinuation = nil
             remoteLensTask?.cancel()
             remoteLensTask = nil
-            return (activeSync, prev)
+            return (activeSync, prev, prevCont)
         }()
-        for iterator in previousIterators {
-            iterator.cancel()
+        previousContinuation?.finish()
+        for handle in previousHandles {
+            handle.cancel()
         }
         startRemoteLensSync()
         installAuthRestorer()
@@ -28,21 +56,28 @@ extension Auth {
     }
 
     internal func detachFromApp() {
-        let (observerId, previousIterators): (UUID?, [PyricSubscriptionStream.Iterator]) = {
+        let (observerId, previousHandles, previousContinuation): (
+            UUID?,
+            [OrderedSubscriptionHandle],
+            AsyncStream<RemoteAuthEvent>.Continuation?
+        ) = {
             stateLock.lock()
             defer { stateLock.unlock() }
             let id = bridgeObserverId
             bridgeObserverId = nil
             subTask?.cancel()
             subTask = nil
-            let prev = remoteSyncIterators
-            remoteSyncIterators.removeAll()
+            let prev = remoteSyncHandles
+            remoteSyncHandles.removeAll()
+            let prevCont = remoteSyncContinuation
+            remoteSyncContinuation = nil
             remoteLensTask?.cancel()
             remoteLensTask = nil
-            return (id, prev)
+            return (id, prev, prevCont)
         }()
-        for iterator in previousIterators {
-            iterator.cancel()
+        previousContinuation?.finish()
+        for handle in previousHandles {
+            handle.cancel()
         }
         if let observerId {
             app.removeBridgeObserver(observerId)
@@ -82,7 +117,8 @@ extension Auth {
     }
 
     private func applyRemoteUserWire(_ userWire: AnySendable) async {
-        guard let wireDict = userWire.dictionaryValue,
+        guard !Task.isCancelled,
+              let wireDict = userWire.dictionaryValue,
               let incomingUid = wireDict["uid"]?.stringValue else {
             return
         }
@@ -91,15 +127,18 @@ extension Auth {
             applyUserTransition(existing)
             return
         }
+        let versionBeforeEnrich = currentUserTransitionVersion()
         if let user = User.fromWire(auth: self, wire: userWire) {
             await enrichUserClaimsIfLive(user)
-            applyUserTransition(user)
+            guard !Task.isCancelled else { return }
+            applyUserTransition(user, expectedVersion: versionBeforeEnrich)
         }
     }
 
     /// Opens `authState` and `idToken` subscriptions synchronously before
     /// returning so both reserve their admission turns ahead of subsequent ops
-    /// (D7, S18).
+    /// (D7, S18) and drains both through one serial stream in socket frame
+    /// arrival order (D8, S21).
     public func startRemoteSync() {
         stateLock.lock()
         guard subTask == nil else {
@@ -107,45 +146,53 @@ extension Auth {
             return
         }
         let client = _bridgeClient
-        let authIterator = client.subscribe(target: .string("authState")).makeAsyncIterator()
-        let idTokenIterator = client.subscribe(target: .string("idToken")).makeAsyncIterator()
-        remoteSyncIterators = [authIterator, idTokenIterator]
+        let (mergedStream, mergedContinuation) = AsyncStream<RemoteAuthEvent>.makeStream()
+        let remaining = RemainingSubsCounter(2)
+        let onSubFinish: @Sendable (Error?) -> Void = { _ in
+            if remaining.decrementAndIsZero() {
+                mergedContinuation.finish()
+            }
+        }
+        let authHandle = client.openOrderedSubscription(
+            target: .string("authState"),
+            onEvent: { event in
+                if case .value(let payload) = event {
+                    mergedContinuation.yield(.authState(payload))
+                }
+            },
+            onFinish: onSubFinish
+        )
+        let idTokenHandle = client.openOrderedSubscription(
+            target: .string("idToken"),
+            onEvent: { event in
+                if case .value(let payload) = event {
+                    mergedContinuation.yield(.idToken(payload))
+                }
+            },
+            onFinish: onSubFinish
+        )
+        remoteSyncHandles = [authHandle, idTokenHandle]
+        remoteSyncContinuation = mergedContinuation
 
         let task = Task { [weak self] in
-            guard let self else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { [weak self] in
-                    guard let self else { return }
-                    do {
-                        while let event = try await authIterator.next() {
-                            guard !Task.isCancelled else { break }
-                            let userWire = event["user"] ?? event
-                            if event.isNull || userWire.isNull {
-                                self.applyUserTransition(nil)
-                            } else {
-                                await self.applyRemoteUserWire(userWire)
-                            }
-                        }
-                    } catch {
-                        // Subscription terminated or bridge disconnected
+            for await remoteEvent in mergedStream {
+                guard !Task.isCancelled, let self else { break }
+                switch remoteEvent {
+                case .authState(let event):
+                    let userWire = event["user"] ?? event
+                    if event.isNull || userWire.isNull {
+                        self.applyUserTransition(nil)
+                    } else {
+                        await self.applyRemoteUserWire(userWire)
                     }
-                }
-                group.addTask { [weak self] in
-                    guard let self else { return }
-                    do {
-                        while let event = try await idTokenIterator.next() {
-                            guard !Task.isCancelled else { break }
-                            let userWire = event["user"] ?? event
-                            if event.isNull || userWire.isNull {
-                                self.applyUserTransition(nil)
-                            } else if userWire.dictionaryValue?["uid"]?.stringValue != nil {
-                                await self.applyRemoteUserWire(userWire)
-                            } else {
-                                self.notifyIdTokenChanged()
-                            }
-                        }
-                    } catch {
-                        // Subscription terminated or bridge disconnected
+                case .idToken(let event):
+                    let userWire = event["user"] ?? event
+                    if event.isNull || userWire.isNull {
+                        self.applyUserTransition(nil)
+                    } else if userWire.dictionaryValue?["uid"]?.stringValue != nil {
+                        await self.applyRemoteUserWire(userWire)
+                    } else {
+                        self.notifyIdTokenChanged()
                     }
                 }
             }

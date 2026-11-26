@@ -16,8 +16,8 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     private let onError: @Sendable (Error) -> Void
 
     private var coordinatorTask: Task<Void, Never>?
-    private var activeChildTask: Task<Void, Never>?
-    private var activeIterator: PyricSubscriptionEventStream.Iterator?
+    private var activeHandle: OrderedSubscriptionHandle?
+    private var activeSubToken: UUID?
     private var lifecycleToken: UUID?
     private let lock = NSLock()
     private var isCancelled = false
@@ -125,14 +125,13 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     }
 
     private func suspendForOffline() {
-        let prevIterator: PyricSubscriptionEventStream.Iterator? = withLock {
-            activeChildTask?.cancel()
-            activeChildTask = nil
-            let it = activeIterator
-            activeIterator = nil
-            return it
+        let prevHandle: OrderedSubscriptionHandle? = withLock {
+            activeSubToken = nil
+            let handle = activeHandle
+            activeHandle = nil
+            return handle
         }
-        prevIterator?.cancel()
+        prevHandle?.cancel()
     }
 
     private func resumeForOnline() {
@@ -161,11 +160,10 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     }
 
     private func reconnect(with lens: AuthLens) {
-        let prevIterator: PyricSubscriptionEventStream.Iterator? = withLock {
-            activeChildTask?.cancel()
-            activeChildTask = nil
-            let previous = activeIterator
-            activeIterator = nil
+        let prevHandle: OrderedSubscriptionHandle? = withLock {
+            activeSubToken = nil
+            let previous = activeHandle
+            activeHandle = nil
             guard !isCancelled, firestore.lifecycle.isNetworkEnabled else { return previous }
 
             let client = firestore.bridgeClient
@@ -175,50 +173,57 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
             let onEvent = self.onEvent
             let onGap = self.onGap
             let onError = self.onError
+            let subToken = UUID()
+            activeSubToken = subToken
 
-            // Open the iterator synchronously so the subscription reserves its turn before returning.
-            let iterator = client.subscribe(
-                target: target,
-                actAs: lens,
+            // Open synchronously on the bridge's serial delivery queue so the
+            // subscription reserves its turn before returning (D7) and delivers
+            // snapshots in exact wire frame arrival order across listeners (D8, S20).
+            activeHandle = client.openOrderedSubscription(
+                target: target.toAnySendable(),
+                actAs: lens.toAnySendable(),
                 includeMetadataChanges: includeMeta,
-                listenSource: listenSource
-            ).events.makeAsyncIterator()
-            activeIterator = iterator
-
-            activeChildTask = Task { [weak self] in
-                do {
-                    while let event = try await iterator.next() {
-                        guard !Task.isCancelled, let self else { break }
-                        let active = self.withLock { () -> Bool in
-                            guard !self.isCancelled, self.firestore.lifecycle.isNetworkEnabled else { return false }
-                            self.deliveredAny = true
-                            switch event {
-                            case .value:
-                                self.deliveredOnline = true
-                            case .gap:
-                                self.deliveredOnline = false
-                            }
-                            return true
+                listenSource: listenSource,
+                onEvent: { [weak self] event in
+                    guard let self else { return }
+                    let active = self.withLock { () -> Bool in
+                        guard !self.isCancelled,
+                              self.activeSubToken == subToken,
+                              self.firestore.lifecycle.isNetworkEnabled else {
+                            return false
                         }
-                        guard active else { break }
+                        self.deliveredAny = true
                         switch event {
-                        case .value(let value):
-                            onEvent(value)
+                        case .value:
+                            self.deliveredOnline = true
                         case .gap:
-                            onGap()
+                            self.deliveredOnline = false
                         }
+                        return true
                     }
-                } catch {
-                    guard !Task.isCancelled, let self else { return }
-                    let shouldReport = self.withLock { !self.isCancelled && self.firestore.lifecycle.isNetworkEnabled }
+                    guard active else { return }
+                    switch event {
+                    case .value(let value):
+                        onEvent(value)
+                    case .gap:
+                        onGap()
+                    }
+                },
+                onFinish: { [weak self] error in
+                    guard let error, let self else { return }
+                    let shouldReport = self.withLock {
+                        !self.isCancelled
+                            && self.activeSubToken == subToken
+                            && self.firestore.lifecycle.isNetworkEnabled
+                    }
                     if shouldReport {
                         onError(error)
                     }
                 }
-            }
+            )
             return previous
         }
-        prevIterator?.cancel()
+        prevHandle?.cancel()
     }
 
     func cancel() {
@@ -226,19 +231,18 @@ internal final class SnapshotSubscriptionCoordinator: @unchecked Sendable {
     }
 
     private func cancelInternal(unregisterFromLifecycle: Bool) {
-        let (tokenToRemove, prevIterator): (UUID?, PyricSubscriptionEventStream.Iterator?) = withLock {
+        let (tokenToRemove, prevHandle): (UUID?, OrderedSubscriptionHandle?) = withLock {
             isCancelled = true
             coordinatorTask?.cancel()
             coordinatorTask = nil
-            activeChildTask?.cancel()
-            activeChildTask = nil
-            let it = activeIterator
-            activeIterator = nil
+            activeSubToken = nil
+            let handle = activeHandle
+            activeHandle = nil
             let token = lifecycleToken
             lifecycleToken = nil
-            return (token, it)
+            return (token, handle)
         }
-        prevIterator?.cancel()
+        prevHandle?.cancel()
         if unregisterFromLifecycle, let tokenToRemove {
             firestore.lifecycle.unregisterManagedListener(tokenToRemove)
         }

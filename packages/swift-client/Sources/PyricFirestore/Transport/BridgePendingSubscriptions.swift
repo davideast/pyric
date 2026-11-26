@@ -1,26 +1,30 @@
 import Foundation
 
-/// Synchronous pre-registration table for subscriptions opened before their
-/// admission task reaches the `PyricBridgeClient` actor (ADR-0019 D5, D7:
-/// S9, S16, S17, S18).
+/// Synchronous pre-registration and cancellation table for subscriptions opened
+/// before their admission or unregister task reaches the `PyricBridgeClient`
+/// actor (ADR-0019 D5, D7, D10: S9, S16, S17, S18, S28).
 ///
-/// Storing the reserved `ActiveSub` with its monotonic `sequence` under a lock
-/// ensures:
 /// - `finishAttach` drains subscriptions registered synchronously right before
 ///   a reconnect completes, preserving exact creation order.
-/// - Cancelling a subscription before its admission task runs drops it cleanly
-///   without sending a ghost `worker-sub`.
+/// - Cancelling a subscription before admission removes it immediately so no
+///   ghost `worker-sub` is sent.
+/// - Cancelling an already-admitted subscription records its id synchronously in
+///   `cancelledIds` so an immediate re-attach never restores a cancelled listener
+///   before `unregisterSubscription` reaches the actor (S28).
 final class BridgePendingSubscriptions: @unchecked Sendable {
     private let lock = NSLock()
     private var nextSequence = 0
     private var pending: [String: ActiveSub] = [:]
+    private var cancelledIds: Set<String> = []
 
     func reserve(
         target: AnySendable,
         actAs: AnySendable?,
         includeMetadataChanges: Bool,
         listenSource: String?,
-        continuation: AsyncThrowingStream<BridgeSubscriptionEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<BridgeSubscriptionEvent, Error>.Continuation? = nil,
+        onEvent: (@Sendable (BridgeSubscriptionEvent) -> Void)? = nil,
+        onFinish: (@Sendable (Error?) -> Void)? = nil
     ) -> String {
         var payload: [String: AnySendable] = [
             "target": target
@@ -42,6 +46,8 @@ final class BridgePendingSubscriptions: @unchecked Sendable {
         pending[subId] = ActiveSub(
             sequence: seq,
             continuation: continuation,
+            onEvent: onEvent,
+            onFinish: onFinish,
             payload: payload,
             includeMetadataChanges: includeMetadataChanges
         )
@@ -63,18 +69,39 @@ final class BridgePendingSubscriptions: @unchecked Sendable {
         return snapshot.sorted { $0.value.sequence < $1.value.sequence }
     }
 
-    /// Removes `id` if it has not yet been moved onto the actor. Returns `true`
-    /// when cancelled before admission so the caller skips `worker-unsub`.
-    func cancelIfPending(id: String) -> Bool {
+    /// Removes `id` synchronously if still pending; otherwise records `id` in
+    /// `cancelledIds` so an immediate re-attach skips restoring it (D10, S28).
+    /// Returns `true` when removed before actor admission (no `worker-unsub` needed).
+    func cancel(id: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return pending.removeValue(forKey: id) != nil
+        if pending.removeValue(forKey: id) != nil {
+            return true
+        }
+        cancelledIds.insert(id)
+        return false
+    }
+
+    func isCancelled(id: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelledIds.contains(id)
+    }
+
+    func clearCancelled(id: String) {
+        lock.lock()
+        cancelledIds.remove(id)
+        lock.unlock()
     }
 
     func failAll(error: PyricBridgeError) {
-        let drained = drainAllSorted()
-        for (_, sub) in drained {
-            sub.continuation.finish(throwing: error)
+        lock.lock()
+        let snapshot = pending
+        pending.removeAll()
+        cancelledIds.removeAll()
+        lock.unlock()
+        for (_, sub) in snapshot.sorted(by: { $0.value.sequence < $1.value.sequence }) {
+            sub.finish(throwing: error)
         }
     }
 }

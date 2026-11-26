@@ -12,10 +12,8 @@ extension Auth {
             let id = UUID()
             stateLock.lock()
             authStateContinuations[id] = continuation
-            let current = _currentUser
+            continuation.yield(_currentUser)
             stateLock.unlock()
-
-            continuation.yield(current)
 
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
@@ -31,10 +29,8 @@ extension Auth {
             let id = UUID()
             stateLock.lock()
             idTokenContinuations[id] = continuation
-            let current = _currentUser
+            continuation.yield(_currentUser)
             stateLock.unlock()
-
-            continuation.yield(current)
 
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
@@ -57,10 +53,32 @@ extension Auth {
 
     // -- Internal State Fan-Out --
 
-    internal func applyUserTransition(_ newUser: User?) {
+    private func isStateListenerActive(_ handle: AuthStateDidChangeListenerHandle) -> Bool {
         stateLock.lock()
+        defer { stateLock.unlock() }
+        return stateListeners[handle] != nil
+    }
+
+    private func isIDTokenListenerActive(_ handle: AuthStateDidChangeListenerHandle) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return idTokenListeners[handle] != nil
+    }
+
+    internal func applyUserTransition(_ newUser: User?, expectedVersion: UInt64? = nil) {
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
+
+        stateLock.lock()
+        if let expectedVersion, userTransitionVersion != expectedVersion {
+            stateLock.unlock()
+            return
+        }
+        userTransitionVersion &+= 1
+        let version = userTransitionVersion
         let previousUid = _currentUser?.uid
         let newUid = newUser?.uid
+        let uidChanged = (previousUid != newUid)
         _currentUser = newUser
 
         let currentLens = computeCurrentLensLocked()
@@ -70,37 +88,67 @@ extension Auth {
             yieldLensLocked(currentLens)
         }
 
-        let stateCallbacks = Array(stateListeners.values)
-        let tokenCallbacks = Array(idTokenListeners.values)
-        let stateConts = Array(authStateContinuations.values)
-        let tokenConts = Array(idTokenContinuations.values)
-        stateLock.unlock()
-
-        #if canImport(Combine)
-        if previousUid != newUid {
-            authStateSubject.send(newUser)
-        }
-        idTokenSubject.send(newUser)
-        #endif
-
-        if previousUid != newUid {
-            for callback in stateCallbacks {
-                callback(self, newUser)
-            }
-            for cont in stateConts {
+        if uidChanged {
+            for cont in authStateContinuations.values {
                 cont.yield(newUser)
             }
         }
-
-        for callback in tokenCallbacks {
-            callback(self, newUser)
-        }
-        for cont in tokenConts {
+        for cont in idTokenContinuations.values {
             cont.yield(newUser)
+        }
+
+        pendingUserTransitions.append(
+            PendingUserTransition(version: version, uidChanged: uidChanged, user: newUser)
+        )
+        if isDrainingUserTransitions {
+            stateLock.unlock()
+            return
+        }
+        isDrainingUserTransitions = true
+        stateLock.unlock()
+
+        while true {
+            stateLock.lock()
+            if pendingUserTransitions.isEmpty {
+                isDrainingUserTransitions = false
+                stateLock.unlock()
+                return
+            }
+            let item = pendingUserTransitions.removeFirst()
+            let stateEntries = Array(stateListeners)
+            let tokenEntries = Array(idTokenListeners)
+            stateLock.unlock()
+
+            #if canImport(Combine)
+            if item.uidChanged {
+                authStateSubject.send(item.user)
+            }
+            idTokenSubject.send(item.user)
+            #endif
+
+            if item.uidChanged {
+                for (handle, entry) in stateEntries {
+                    guard entry.registeredVersion < item.version,
+                          isStateListenerActive(handle) else {
+                        continue
+                    }
+                    entry.callback(self, item.user)
+                }
+            }
+
+            for (handle, entry) in tokenEntries {
+                guard entry.registeredVersion < item.version,
+                      isIDTokenListenerActive(handle) else {
+                    continue
+                }
+                entry.callback(self, item.user)
+            }
         }
     }
 
     internal func notifyIdTokenChanged(user: User? = nil) {
+        transitionLock.lock()
+        defer { transitionLock.unlock() }
         stateLock.lock()
         let targetUser = user ?? _currentUser
         stateLock.unlock()
@@ -124,6 +172,8 @@ extension Auth {
     internal func handleSessionInvalidationIfNeeded(for user: User, error: AuthError) {
         switch error.code {
         case .userDisabled, .userTokenExpired, .userNotFound:
+            transitionLock.lock()
+            defer { transitionLock.unlock() }
             if currentUser?.uid == user.uid {
                 applyUserTransition(nil)
             }
