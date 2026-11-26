@@ -1,0 +1,11 @@
+{
+  "candidatePackageSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+  "variant": "knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5",
+  "command": "python3 replay.py --candidate-package ../../arcade/vendor/pyric-rules-0.1.0.tgz --summary",
+  "exit": 1,
+  "kingSafety": {"standalone-error": 94},
+  "standaloneBoard": {"standalone-error": 94},
+  "linkedWrites": {"cannot-compile": 94},
+  "rulesSha256": null,
+  "hosted": "unmeasured"
+}

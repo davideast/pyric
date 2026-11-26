@@ -1,0 +1,19 @@
+# What the cumulative chess oracle establishes
+
+The primary checkpoint is the same move on two boards. For instance, lift the last blocker from a rook's line to its own king and the move is illegal. Leave a second blocker on that line and the same move is legal. The package scorer runs the public compiler API on a fixed source program and links its output into the complete Arcade ruleset. Native chess, standalone Pyric, the independent Rules evaluator, Google's source compiler and authenticated Firestore writes each have their own evidence. [Native batches](batches/) · [Package scorer](score.py) · [Four-hour queue](GOAL.md)
+
+## The smallest case that changed the design
+
+White has a king on a1. Black has a king on b3 and queen on d2. After **Qb2#**, White has zero legal replies. Submit the identical board with three different result claims. The earlier stronger Arcade release accepted all three. A first terminal check refused all three. A later generated release accepted only the correct win on live Firestore. This three-piece position separated storing a result, detecting check and proving checkmate. Both kings and the mating piece are necessary for this example. [Native position and reply list](exploration/hosted-holdout-v1/controls/native.json) · [Stronger baseline receipts](live/receipts/523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda/) · [First terminal check](live/receipts/2d793f903e7d1b517ca34d92887a30a233e5246452228e35a136a730b4a10bf0/) · [Revised terminal check](live/receipts/a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b/)
+
+## Where local success stopped predicting the target
+
+A compiler output that passed all 94 primary local cases contained four regexes too large for Google's compiler. Splitting them exposed a second limit on regex groups. Four small, otherwise identical source controls locate the two boundaries at 4,096 versus 4,097 ASCII characters and 100 versus 101 sequential noncapturing groups. A fixed-width board encoding met both constraints. Google separately compiled the selected 118,285-byte source. [Official compiler results](live/diagnostics/) · [Literal checks](compiler-boundaries/regex-literal-v1/) · [Geometry equivalence](mobility/fixed-direct-proof.json)
+
+Running all terminal checks on every claim had also caused a valid fourth-ply Fool's Mate to exhaust the local expression budget. The selected program evaluates an ordinary pawn reply witness when the defender has pawns. It evaluates knight replies in pawn-free material. It accepts the honest win locally and preserves all 37 recorded game histories. Three false result claims remain among 9,587 local proposals with a simulated authenticated actor. [Complete history and head digests](reachable/lifecycle-v1/scores/5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380.json)
+
+## The next compiler obligation
+
+After **Qg4–g8+** on the four-piece rook fixture, the black king has no move. A rook on c5 can play **...Rc8**, the only legal response. Move just that rook to h5 and the same queen move is mate. A candidate should derive the existence of that legal interposition from the post-move board, refuse the premature win, and still accept the mating twin. A separate obligation is to refuse a claim of continued play after mate. [Two positions under all three claims](exploration/rook-interposition-v1/controls/native.json)
+
+This choice follows the errors. Among 109 premature wins and draws on the 15,905-case local corpus, 105 have at least one legal bishop, rook or queen response. A further 114 proposals incorrectly declare continued play after a real mate or stalemate. Four legal promotions were refused at the local budget. These counts guide the next experiment. The scorecard identifies which specific submissions Firestore actually saw. [Residual census](exploration/residuals-v1/README.md)

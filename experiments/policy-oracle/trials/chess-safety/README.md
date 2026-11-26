@@ -5,7 +5,7 @@ Submit the same rook move on two boards. When the rook is the last blocker betwe
 From this directory, run the archived experiment offline with one command.
 
 ```sh
-python3 replay.py
+python3 replay.py --summary --scorecard /tmp/chess-oracle.md
 ```
 
 The command rebuilds the reference compiler from pinned local archives, checks the native answers and mutation controls, invokes the compiler in isolation, evaluates the complete linked Arcade ruleset, scores the discovery and historical corpora, and replays the completed Firestore receipts. Use `--archive /absolute/private/captures` to authenticate those receipts against the original private journals. Each release has independent results. A digest with no completed signed capture appears as `unmeasured`. [Hosted measurement protocol](live/README.md)
@@ -25,3 +25,5 @@ The source programs combine public-API-compiled helpers, reviewed Rules that sel
 The campaign baseline is the earlier **stronger** Arcade release, digest `523c4c13…`. The separate original stock contract has digest `59b6e23b…`. The four-profile local regression matrix exercises both. Each hosted row belongs only to the named release digest. [Original release profiles](../chess/bundle/README.md) · [Baseline source review](live/reviews/523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda.json)
 
 Four results describe different questions. The package can emit Rules text, the independent local evaluator can run it, Google can compile that exact source, and a signed client can attempt a write after activation. The [Google compiler observations](live/diagnostics/) include length and grouping limits missed by the local evaluator. A preflight rejection has zero match writes. The scorecard records which target digests have real write outcomes, including the full stored documents and versions. [Regex boundary](compiler-boundaries/regex-literal-v1/) · [Historical program replay](revisions/README.md) · [Four-hour queue](GOAL.md)
+
+The [findings](FINDINGS.md) explain the three-piece decision that changed the compiler, the Google regex boundaries, and the next missing reply check. The 190-proposal native reference can independently judge the actual submitted match documents via the hash-pinned python-chess source when `--sealed-referee` is supplied. It reads the pre-write match and submitted patch without consulting Firestore’s permission result. [Document-level third-referee implementation](reference/signed-inputs.py)

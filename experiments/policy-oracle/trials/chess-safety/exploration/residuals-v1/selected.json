@@ -72,7 +72,7 @@
   },
   "examples": {
     "refute-won-with-legal-reply": {
-      "writeSha256": "40c14296dc978bb17474b0d1cbd72482b0b72a003262da517e751c9d31797912",
+      "writeSha256": "014b1714fb1cbd7eef4b7ac1e9aae161b643e6f7465850e93acbe9c30757f28f",
       "pieces": 4,
       "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
       "uci": "g4g8",
@@ -97,7 +97,7 @@
       }
     },
     "refute-draw-with-legal-reply": {
-      "writeSha256": "6d2f2bd6406a34273a1d1f0dbf2fe0be032eb86b4ce6eee728ab05513b1250f1",
+      "writeSha256": "fd7a501c0e8521db7e45d00c5c66c1876bb449ce588d5a52bc2d3e504578991a",
       "pieces": 4,
       "fen": "7k/4Q3/6K1/8/7q/8/8/8 w - -",
       "uci": "e7f7",
@@ -141,7 +141,7 @@
       }
     },
     "reject-playing-after-checkmate": {
-      "writeSha256": "cbb6f7472e4893fb8a06b965ad21438b327769b617f785812b28515075d9d4d7",
+      "writeSha256": "115b24bc62abc4d75f752c450073c0c3201391d5e24b0873aa1d87e604b290c9",
       "pieces": 4,
       "fen": "7k/4Q3/6K1/8/4p3/8/8/8 w - -",
       "uci": "e7g7",
@@ -162,7 +162,7 @@
       }
     },
     "evaluation-budget": {
-      "writeSha256": "9a3d2615deeec9a981dccb2ca6c643715ec3fe14639fc713207d3b7ce35b7cbc",
+      "writeSha256": "2ce7f32d869ff4c116a9a9302b10241ea54bcd229352e606a3388a3ce679dd57",
       "pieces": 4,
       "fen": "8/8/8/8/8/4k3/6p1/4K2R b K -",
       "uci": "g2h1q",
@@ -181,7 +181,7 @@
       }
     },
     "reject-playing-after-stalemate": {
-      "writeSha256": "d5e86d76203f910f3569f7c0cf98bc15305f3cb2ab94ea55f85a8e5b3e58b8b7",
+      "writeSha256": "7073eff3769111533fde5bc96837aaec5940582f8d34d2a3340647fbe2df4ede",
       "pieces": 4,
       "fen": "7k/8/7p/7K/8/8/6Q1/8 w - -",
       "uci": "g2g6",
@@ -202,5 +202,5 @@
       }
     }
   },
-  "recordsSha256": "d90389f780dcc07942e749db6968f17c4b30e2b7379211953179e03e41ecc401"
+  "recordsSha256": "7f3876b9561fa20d48e07baeeeaf6b9b97f5d200815084dfd615b5f143093f42"
 }

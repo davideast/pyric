@@ -15,6 +15,7 @@ from corpus import BATCHES, HERE, OLD, load
 from score import score, score_rows, summarize
 from receipt_comparison import compare
 from scorecard import render
+from qualification import verify_thresholds
 
 REFERENCE = runpy.run_path(str(HERE.parent / 'for-of/replay.py'))
 DISCOVERY = runpy.run_path(str(HERE / 'exploration/replay.py'))
@@ -138,6 +139,8 @@ def replay(args, temp):
     result = {'packageSha256':core['candidateSha256'],'variant':args.variant,'coreBatches':core['batches'],
               'corePass':core['passed'],'diagnostics':core['diagnostics'],'nativeEndgames':geometry,
               'originalFilePins':len(batches['00-legacy-file'])}
+    result['primaryNative'] = {name:{'allow':sum(native[key] for key in ids),'deny':sum(not native[key] for key in ids)}
+                             for name,ids in batches.items()}
     result['coreDiagnostics'] = {}
     for plane in ('kingSafety','standaloneBoard','linkedWrites'):
         rows = core[plane]
@@ -158,6 +161,9 @@ def replay(args, temp):
     sdk = REFERENCE['install_rules'](REFERENCE['VENDOR']/'pyric-rules-0.1.0.tgz',temp/'ref')/'@pyric/rules'
     discovery = DISCOVERY['run'](bundle,sdk,True,extended_endings=True,bare_defender=True,knight_replies=True)
     result['discovery'] = {k:v for k,v in discovery.items() if k != 'reports'}
+    reference_report = temp/'scored-cohorts.json'
+    reference_report.write_text(json.dumps(result['discovery']))
+    result['residuals'] = observed('bun','exploration/residuals-v1/measure.mjs',sdk,bundle,reference_report)
     rays = HERE/'exploration/absolute-rays-v1'
     equal(observed('bun',rays/'freeze.mjs'),read(rays/'freeze.json'),'absolute pin ray geometry and successors')
     result['absolutePinRays'] = observed('bun','exploration/self-check-v1/measure.mjs',sdk,bundle,'absolute-rays-v1')
@@ -213,6 +219,7 @@ def replay(args, temp):
         'publicationRejections':[r for r in observations['compilerRejections'] if r['intendedRulesSha256']==digest]}
     if target_compilation=='compile-error' and result['hosted']['distinctCases']:
         raise ValueError('Conflicting official compiler and data-plane evidence for identical bytes')
+    result['targetCompilerControls'] = verify_thresholds(observations['compileDiagnostics'])
     result['openings'] = []
     for pin in sorted((HERE/'live/openings').glob('*/*.pin.json')):
         name = pin.name.removesuffix('.pin.json')
@@ -222,6 +229,10 @@ def replay(args, temp):
         # All retained deployments can be replayed from the same entry point. A plan can
         # exist before a receipt if an activation failed before Firestore saw any writes.
         result['releaseComparisons'] = compare(native,sdk,captures)
+    if args.sealed_referee:
+        digests = sorted({digest,'523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda'})
+        result['independentSignedInputs'] = observed(sys.executable,'reference/signed-inputs.py',
+            args.sealed_referee/'chess-1.11.2.tar.gz',*digests)
     target = result['hosted']
     local_pass = (sealed_pass and run['matchedAll'] and core['passed'] and discovery['allMatch']
                   and all(r['status']=='match' for r in result['namedSnapshots'])

@@ -1,4 +1,5 @@
 """Test live attribution through two real, separately packaged public compiler entry points."""
+import argparse
 import gzip
 from hashlib import sha256
 import io
@@ -42,8 +43,7 @@ def renamed(path, dest):
                 body=WRAPPER.encode();info.size=len(body)
                 out.addfile(info,io.BytesIO(body))
 
-def verify():
-    variant='combined-pattern-fast-packed-v5'
+def verify(variant):
     expected=json.loads((HERE/'scores'/f'{variant}-through-7.json').read_bytes())
     reports=[]
     with tempfile.TemporaryDirectory(prefix='chess-identity-') as scratch:
@@ -69,4 +69,7 @@ def verify():
                 'production':cloud['status'],'controllerReceipts':[r['receipt'] for r in cloud['captures']]})
     return reports
 
-if __name__=='__main__':print(json.dumps(verify(),indent=2))
+if __name__=='__main__':
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--variant',default='combined-pattern-fast-packed-v5')
+    print(json.dumps(verify(parser.parse_args().variant),indent=2))

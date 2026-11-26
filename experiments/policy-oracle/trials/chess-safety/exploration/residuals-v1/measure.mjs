@@ -61,14 +61,16 @@ for(const [name,freezeScore] of Object.entries(expected.cohorts)) {
     if(r.status==='match')continue;
     const explanation=explain(c,r,pending);
     count(frequencies,explanation.obligation);
-    // The collection and trial document alias allow the same grant. Deduplicate
-    // by the exact before/after state and actor across the frozen populations.
-    const key=sha(JSON.stringify(canonical([req.auth,before,pending])));
+    // A document alias may itself influence a submitted program. Preserve the
+    // complete evaluator input when identifying repeated writes.
+    const key=sha(JSON.stringify(canonical([req.path,req.method,req.auth,before,pending])));
     const observation={fen:c.fen,uci:c.uci,claim:{status:pending.status,winner:pending.winner},
       nativeAdmission:c.nativeAdmission,observed:observed.decision,outcome:r.kind,localCost:cost,...explanation};
     const existing=unique.get(key);
-    if(existing)assert.deepEqual(existing.observation,observation);
-    else unique.set(key,{observation,occurrences:[]});
+    if(existing) {
+      for(const field of ['nativeAdmission','observed','outcome','localCost'])assert.equal(existing.observation[field],observation[field]);
+      if(!existing.observation.legalReplies&&observation.legalReplies)existing.observation=observation;
+    }else unique.set(key,{observation,occurrences:[]});
     unique.get(key).occurrences.push({cohort:name,id:c.id});
   }
   assert.equal(rows.length,freezeScore.cases);

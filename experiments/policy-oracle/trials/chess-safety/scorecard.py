@@ -9,7 +9,7 @@ LABELS = {'00-legacy-file':'Existing file pins','01-rank-diagonal':'Rank and dia
           '02-king-destinations':'King destinations','03-check-evasions':'Escapes from check','04-en-passant':'En passant',
           '05-castling':'Castling','06-composition':'Composition and cost','07-terminal':'Terminal claims','08-minimized':'Minimized cases',
           '09-corner-rights':'Corner rights','10-promotion-claims':'Promotion claims','11-successor-rights':'Submitted rights',
-          '12-terminal-holdout':'Ten moves × three result claims','13-sole-pawn':'Sole pawn reply or stalemate','14-bare-king':'Bare king and sole knight reply'}
+          '12-terminal-holdout':'Ten moves × three result claims','13-sole-pawn':'Sole pawn reply or stalemate','14-bare-king':'Bare king and sole knight reply','15-fourth-ply-and-knight':'Actual fourth ply and knight interposition','16-held-rook-promotion':'Mating promotion with or without a castling right','17-rook-interposition':'Sole rook interposition or mate'}
 
 
 def render(report):
@@ -30,19 +30,29 @@ def render(report):
             '9b31d40d':'Bare king','d0a6af91':'Packed v3','fe6ae708':'Long-ray optimization'}
     names=[labels.get(r['sha256'][:8], 'Selected' if r['sha256']==report['hosted'].get('rulesSha256') else Path(r['rules']).stem) for r in releases]
     output = ['# Cumulative chess oracle scorecard','',
-              'Each live cell gives native matches divided by distinct signed proposals on that release. A dash means the corresponding bytes have no completed measurement for that batch. The local columns use the selected candidate program `'+report['variant']+'`.','',
-              '| Batch | Standalone king safety | Standalone board | Local linked writes | '+' | '.join(names)+' |',
-              '| --- | ---: | ---: | ---: | '+' | '.join('---:' for _ in releases)+' |']
-    groups = sorted(set(report['coreBatches']).union(*(r['batches'] for r in releases)))
-    for group in groups:
-        row = [LABELS.get(group,group)]
-        for field in ['kingSafety','standaloneBoard','linkedWrites']:
-            s = report['coreBatches'].get(group,{}).get(field)
-            row.append(f"{s['counts'].get('match',0)}/{s['cases']}" if s else '—')
-        for release in releases:
-            s = release['batches'].get(group)
-            row.append(f"{s['nativeMatches']}/{s['cases']}" if s else '—')
+              'Each score counts agreements with the independently frozen native answer. The safety column asks whether the moving king is safe. The board and write columns additionally cover move legality and the claimed successor.',
+              '',f"Selected program `{report['variant']}`.",'',
+              '| Primary batch | Native allow / deny | Standalone safety | Standalone board | Local linked write |',
+              '| --- | ---: | ---: | ---: | ---: |']
+    for group,planes in sorted(report['coreBatches'].items()):
+        admission=report.get('primaryNative',{}).get(group)
+        row=[LABELS.get(group,group), f"{admission['allow']} / {admission['deny']}" if admission else '—']
+        for field in ('kingSafety','standaloneBoard','linkedWrites'):
+            plane=planes[field]
+            row.append(f"{plane['counts'].get('match',0)}/{plane['cases']}")
         output.append('| '+' | '.join(row)+' |')
+    output+=['','## Live observations by batch','',
+             'Each cell gives native matches divided by distinct authenticated writes. A dash means that the release has no completed observation for that batch.']
+    # Limit the width of each table as additional releases accumulate.
+    for offset in range(0,len(releases),4):
+        selected=releases[offset:offset+4]
+        output+=['','| Batch | '+' | '.join(names[offset:offset+4])+' |','| --- | '+' | '.join('---:' for _ in selected)+' |']
+        for group in sorted(set().union(*(r['batches'] for r in selected))):
+            row=[LABELS.get(group,group)]
+            for release in selected:
+                batch=release['batches'].get(group)
+                row.append(f"{batch['nativeMatches']}/{batch['cases']}" if batch else '—')
+            output.append('| '+' | '.join(row)+' |')
     output += ['','## Signed releases','',
                '| Release and exact source review | Cases | False allows | False refusals | Same verdict in local evaluator | Signed readbacks |',
                '| --- | ---: | ---: | ---: | ---: | --- |']
@@ -70,7 +80,7 @@ def render(report):
         output+=['','## Same move, different result claim or defender','',
             'The first two submissions use the genuine fourth-ply match snapshot after 1.f3 e5 2.g4. The last two both submit Ra8–h8 and claim a draw. Taking the white queen off b4 frees a black knight. [Complete inputs and independently frozen native replies](reachable/lifecycle-v1/named/v1/)',
             '', '| Case | Native | Selected local | '+' | '.join(n for n,_ in names_for_cases)+' |',
-            '| --- | --- | --- | '+' | '.join('---' for _ in names_for_cases)+' |']
+            '| '+' | '.join('---' for _ in range(3+len(names_for_cases)))+' |']
         for key,v in keys.items():
             output.append('| '+' | '.join([key,v['expected'],v['decision'],*[r['examples'].get(key,{}).get('production','—') for _,r in names_for_cases]])+' |')
     output += ['','## Sensitivity to faulty implementations','',
@@ -99,6 +109,12 @@ def render(report):
         for key,data in report['sealedReferee']['groups'].items():append('Private traces, '+key,data)
     else:output += ['','The optional private trace corpus was not scored in this replay.']
     output+=['','The cohort totals are independent measurements. Some corpora share positions or requests. [Native answers and mutation controls](batches/) · [Third-referee checks](exploration/independent-review/) · [Public package scoring](README.md)']
+    if report.get('residuals'):
+        breakdown=report['residuals']
+        output+=['','## Remaining obligations on the broader local corpus','',
+                 f"{breakdown['distinctWrites']} distinct writes disagreed with native. The second replay independently reproduced every original decision and expression-count digest.",'',
+                 '| Obligation | Distinct writes |','| --- | ---: |']
+        output.extend(f"| {kind} | {count} |" for kind,count in sorted(breakdown['obligations'].items()))
     for record in report.get('openings',[]):
         output += ['', '## Authenticated opening under '+record['rulesSha256'][:12], '',
                    ' | '.join(f'{action} {verdict} (ply {ply})' for action,verdict,ply in record['rows']),
