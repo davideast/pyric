@@ -39,8 +39,9 @@ export function retryable(archive,runId) {
 }
 
 export async function measure(name,archive,options=[]) {
+  let captureOptions=options;
   for(let attempt=1;attempt<=3;attempt++) {
-    const child=spawnSync(process.execPath,[cli,'capture',name,archive,...options],{
+    const child=spawnSync(process.execPath,[cli,'capture',name,archive,...captureOptions],{
       encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:2*1024*1024,
     });
     if(child.error) throw child.error;
@@ -50,7 +51,11 @@ export async function measure(name,archive,options=[]) {
       const started=lines.find(l=>l.startsWith('Private run '));
       const id=started?.split(' ')[2];
       if(!id || !retryable(archive,id)) throw Error('Capture incomplete; no observations admitted');
-      record(archive,id,name,reviewedPlan(name).plan.rulesSha256);
+      const observation=record(archive,id,name,reviewedPlan(name).plan.rulesSha256);
+      // A failed activation can leave a correct, immutable Google Ruleset
+      // behind. Its original journal is independently checked on the retry.
+      if(!captureOptions.length && observation.journalBoundRulesSha256)
+        captureOptions=['--reuse-run',id];
       if(attempt===3) throw Error('Three management failures; no observations admitted');
       console.log('Retrying temporary management failure after verified closure and zero scored writes',attempt);
       await delay(30000*attempt);
