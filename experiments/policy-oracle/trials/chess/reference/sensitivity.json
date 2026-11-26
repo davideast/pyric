@@ -1,0 +1,71 @@
+{
+  "retain-turn": {
+    "case": "opening",
+    "ply": 0,
+    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+    "move": "a2a3",
+    "field": "turn",
+    "expected": "b",
+    "actual": "w"
+  },
+  "truncate-bishop-rays": {
+    "case": "kiwipete",
+    "ply": 0,
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
+    "field": "legalMoves",
+    "missing": [
+      "d2f4",
+      "d2g5",
+      "d2h6",
+      "e2a6",
+      "e2b5",
+      "e2c4"
+    ],
+    "extra": []
+  },
+  "retain-rook-rights": {
+    "case": "kiwipete",
+    "ply": 0,
+    "fen": "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -",
+    "move": "a1b1",
+    "field": "castling",
+    "expected": "Kkq",
+    "actual": "KQkq"
+  },
+  "retain-en-passant": {
+    "case": "ordinary-en-passant",
+    "ply": 0,
+    "fen": "4k3/8/8/3pP3/8/8/8/4K3 w - d6",
+    "move": "e1d1",
+    "field": "enPassant",
+    "expected": -1,
+    "actual": 19
+  },
+  "promote-knight-to-queen": {
+    "case": "king-evasion",
+    "ply": 0,
+    "fen": "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ -",
+    "move": "d7c8n",
+    "field": "board.c8",
+    "expected": "wn",
+    "actual": "wq"
+  },
+  "allow-pinned-rook-sideways": {
+    "case": "underpromotion-tactics",
+    "ply": 0,
+    "fen": "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq -",
+    "field": "legalMoves",
+    "missing": [],
+    "extra": [
+      "a1b1"
+    ]
+  },
+  "report-mate-as-stalemate": {
+    "case": "mate",
+    "ply": 0,
+    "fen": "7k/6Q1/6K1/8/8/8/8/8 b - -",
+    "field": "outcome",
+    "expected": "checkmate",
+    "actual": "stalemate"
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "description": "For an orthodox Arcade position the complete set of legal moves and its playing, checkmate or stalemate result agree with the independent native chess referee.",
+  "authority": "native-model"
+}

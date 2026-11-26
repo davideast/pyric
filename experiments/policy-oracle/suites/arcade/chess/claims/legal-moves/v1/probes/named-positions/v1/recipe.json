@@ -1,0 +1,40 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/arcade",
+    "revision": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "path": "games/chess/src/chess.ts"
+  },
+  "cases": [
+    "opening",
+    "kiwipete",
+    "rook-endgame",
+    "underpromotion-tactics",
+    "king-evasion",
+    "castle-both-white",
+    "castle-both-black",
+    "no-rights",
+    "attacked-transit",
+    "blocked-castling",
+    "ordinary-en-passant",
+    "en-passant-opens-rook-line",
+    "promote-white-quiet-or-capture",
+    "promote-black-quiet-or-capture",
+    "absolute-pin",
+    "discovered-check",
+    "double-check",
+    "king-adjacency",
+    "mate",
+    "stalemate",
+    "one-escape"
+  ],
+  "pins": {
+    "replay.mjs": "da38100bc3d0df66f502f2f461489ec7eac78af0bf83d88f50b4df42683fe9e4",
+    "@oracle/trials/chess/reference/arcade-reference.ts": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+    "@oracle/trials/chess/reference/native.mjs": "d66059ca4dd51793fa6534fadb4b8c88da54a7c2b9ec8488f6a1075b25b53ae9",
+    "@oracle/trials/chess/reference/score.mjs": "2a41fd77f19a993490e566e0d27632c79b5c9b7d607f476ec37893d85949b12f",
+    "@oracle/trials/chess/reference/public.json": "7eef423dbdfa5ed04b89104ddbe636226a94cf4b51ac054fd3784ad0cca1bd98",
+    "@oracle/trials/chess/reference/generate.py": "0965ca151e7288b9e109f37f0a968502e723c0b8f6d960ee16ad298dce3d1d72",
+    "@oracle/trials/chess/reference/public.json.gz": "c2a0ee05ec81ce32998cb58281363a3a96cdee07b950fb697df204283d6e6d71"
+  },
+  "replay": "replay.mjs"
+}

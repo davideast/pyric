@@ -1,0 +1,47 @@
+{
+  "candidateSha256": "1a7e7e066617404b0eff6846755a127b803ac7f9fd009b368212f3a765a70e3f",
+  "policySha256": "d3fda575ff3463b083a79798b94b2a78b1e033a4bbb11d45a909483ec3538a8e",
+  "includeDivides": true,
+  "results": [
+    {
+      "inputDigest": "7eef423dbdfa5ed04b89104ddbe636226a94cf4b51ac054fd3784ad0cca1bd98",
+      "counts": {
+        "namedPositions": 21,
+        "traces": 37,
+        "tracesReplayedFromInitial": 37,
+        "positions": 1611,
+        "successorChecks": 1883,
+        "dividedRoots": 416,
+        "deepestLeafNodes": 369801,
+        "falseAccepts": 0,
+        "falseRefusals": 0,
+        "duplicateMoves": 0,
+        "successorMismatches": 0,
+        "outcomeMismatches": 0,
+        "divideMismatches": 0,
+        "mutatedInputs": 0
+      },
+      "firstDivergence": null
+    },
+    {
+      "inputDigest": "34808f9b4e2269920c7458a3da62e720167492d56e3cb609c27530b0df26ebff",
+      "counts": {
+        "namedPositions": 5,
+        "traces": 32,
+        "tracesReplayedFromInitial": 32,
+        "positions": 1573,
+        "successorChecks": 1590,
+        "dividedRoots": 0,
+        "deepestLeafNodes": 0,
+        "falseAccepts": 0,
+        "falseRefusals": 0,
+        "duplicateMoves": 0,
+        "successorMismatches": 0,
+        "outcomeMismatches": 0,
+        "divideMismatches": 0,
+        "mutatedInputs": 0
+      },
+      "firstDivergence": null
+    }
+  ]
+}

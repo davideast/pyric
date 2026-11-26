@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "seeds": [193, 997, 503, 97, 67, 43, 211, 257, 263, 331, 433, 443, 449, 467, 491, 599, 607, 613, 673, 701, 743, 757, 863, 887, 907, 983, 1021, 1033, 1061, 1087, 1097, 1151],
+  "plies": 48,
+  "positions": [
+    {"name":"opening","depth":4,"fen":"startpos"},
+    {"name":"kiwipete","depth":3,"fen":"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1"},
+    {"name":"rook-endgame","depth":3,"fen":"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1"},
+    {"name":"underpromotion-tactics","depth":3,"fen":"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1"},
+    {"name":"king-evasion","depth":3,"fen":"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8"},
+    {"name":"castle-both-white","fen":"r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"},
+    {"name":"castle-both-black","fen":"r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1"},
+    {"name":"no-rights","fen":"r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1"},
+    {"name":"attacked-transit","fen":"k4r2/8/8/8/8/8/8/4K2R w K - 0 1"},
+    {"name":"blocked-castling","fen":"4k3/8/8/8/8/8/8/R2BKBNR w KQ - 0 1"},
+    {"name":"ordinary-en-passant","fen":"4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"},
+    {"name":"en-passant-opens-rook-line","fen":"4k3/8/8/r4pPK/8/8/8/8 w - f6 0 1"},
+    {"name":"promote-white-quiet-or-capture","fen":"1r2k3/P7/8/8/8/8/8/4K3 w - - 0 1"},
+    {"name":"promote-black-quiet-or-capture","fen":"4k3/8/8/8/8/8/p7/1R2K3 b - - 0 1"},
+    {"name":"absolute-pin","fen":"k3r3/8/8/8/8/8/4R3/4K3 w - - 0 1"},
+    {"name":"discovered-check","fen":"4k3/8/8/8/8/4N3/8/K3R3 w - - 0 1"},
+    {"name":"double-check","fen":"4r2k/8/8/8/1b6/8/8/4K3 w - - 0 1"},
+    {"name":"king-adjacency","fen":"8/8/8/4k3/8/4K3/8/8 w - - 0 1"},
+    {"name":"mate","fen":"7k/6Q1/6K1/8/8/8/8/8 b - - 0 1"},
+    {"name":"stalemate","fen":"7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"},
+    {"name":"one-escape","fen":"7k/4Q3/6K1/8/8/8/8/8 b - - 0 1"}
+  ],
+  "scripts": [
+    {"name":"rooks-return-rights-expire","fen":"r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1","moves":"h1h2 a8a7 h2h1 a7a8"},
+    {"name":"home-rook-captured","fen":"r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1","moves":"a1a8 e8f7"},
+    {"name":"en-passant-expires","fen":"startpos","moves":"e2e4 a7a6 e4e5 d7d5 g1f3 b7b6"},
+    {"name":"fools-mate","fen":"startpos","moves":"f2f3 e7e5 g2g4 d8h4","outcome":"checkmate"},
+    {"name":"deliver-stalemate","fen":"7k/4Q3/6K1/8/8/8/8/8 w - - 0 1","moves":"e7f7","outcome":"stalemate"}
+  ]
+}
