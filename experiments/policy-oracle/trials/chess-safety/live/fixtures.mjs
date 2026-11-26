@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
+import {basename,join} from 'node:path';
 import {sha} from '../../../arcade/corpus.mjs';
 import {sample} from '../reference/fixtures.mjs';
 
@@ -16,7 +17,9 @@ export function reviewedPlan(name) {
   assert.match(plan.rulesSha256,digest);
   const review = JSON.parse(read(new URL('reviews/'+plan.rulesSha256+'.json',here)));
   assert.equal(review.rulesSha256,plan.rulesSha256);
-  const bundle = fileURLToPath(new URL(review.file,here));
+  const bundle = review.file.startsWith('../artefacts/') && process.env.CHESS_SAFETY_ARTEFACTS
+    ? join(process.env.CHESS_SAFETY_ARTEFACTS,basename(review.file))
+    : fileURLToPath(new URL(review.file,here));
   function checkBundle(mode,source,supplied) {
     assert.equal(mode,name);
     assert.equal(supplied,plan.rulesSha256);
@@ -25,7 +28,7 @@ export function reviewedPlan(name) {
     // allow clause stay identical to the handwritten bundle on this target.
     const bindings = s => {
       const lines=s.trimEnd().split('\n');
-      assert.ok(lines.pop().startsWith('// @pyric-source-map: '));
+      if(lines.at(-1).startsWith('// @pyric-source-map: ')) lines.pop();
       const i=lines.findIndex(l=>l.trim()==='match /databases/{database}/documents {');
       assert.ok(i>=0);
       return lines.slice(i).join('\n');
@@ -38,7 +41,13 @@ export function reviewedPlan(name) {
     assert.match(input.sha256,digest);
     const bytes = readFileSync(new URL(input.file,here));
     assert.equal(sha(bytes),input.sha256,'frozen positions changed for '+input.batch);
-    for (const raw of JSON.parse(bytes)) {
+    let selected=JSON.parse(bytes);
+    if(input.ids) {
+      const byId=new Map(selected.map(c=>[c.id,c]));
+      assert.equal(byId.size,selected.length);
+      selected=input.ids.map(id=>{assert.ok(byId.has(id),'missing selected case '+id);return byId.get(id);});
+    }
+    for (const raw of selected) {
       const {id,fen,uci,claim} = raw;
       assert.match(id,slug);
       assert.ok(!batches.has(id),'duplicate case '+id);

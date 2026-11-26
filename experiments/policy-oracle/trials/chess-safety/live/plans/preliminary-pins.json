@@ -1,0 +1,27 @@
+{
+  "rulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
+  "inputs": [
+    {
+      "batch": "00-file-pin",
+      "file": "../../king-safety/reference/positions.json",
+      "sha256": "e094b8218691bf7efe0070db356ab88bace68680fa23dc06e58cf4607e0f2588",
+      "ids": [
+        "rook-safe",
+        "rook-exposed",
+        "black-safe"
+      ]
+    },
+    {
+      "batch": "01-rank-diagonal",
+      "file": "../batches/01-rank-diagonal/v1/positions.json",
+      "sha256": "fcfdc099e9667fccd083139742ec4a8ec27322605c462db58a2b5948c14444e7",
+      "ids": [
+        "rank-rook-safe",
+        "rank-rook-exposed",
+        "rank-surviving-blocker",
+        "rank-pinned-slide",
+        "rank-pinned-capture"
+      ]
+    }
+  ]
+}

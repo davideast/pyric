@@ -1,0 +1,5 @@
+{
+  "rulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
+  "file": "../artefacts/pins.rules",
+  "basis": "Relative to the reviewed file safety release, the source adds 64 pure square predicates, a square dispatcher, king locator and transition helper. It replaces fileSafe by that transition as the last conjunct in boardTransition. All other existing functions, including path geometry and match/allow clauses, are identical. Source-map comment omitted."
+}
