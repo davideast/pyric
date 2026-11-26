@@ -1,0 +1,38 @@
+{
+  "authority": "isolated compiled Rules helper under pinned independent local evaluator",
+  "bundleSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+  "helperScopeSha256": "2168fdfc41b45810330f448fde875de612c5929d075fbfbf01857a86d5beedfe",
+  "nativeSha256": "a10246386d4565af1cf3ee10af7ffcf659ffc60df1832071150a6672e7cb14dc",
+  "positions": 1791552,
+  "claims": 5374656,
+  "counts": {
+    "draw-ALLOW": 2232,
+    "draw-DENY": 1789320,
+    "playing-ALLOW": 1788160,
+    "playing-DENY": 3392,
+    "won-ALLOW": 1160,
+    "won-DENY": 1790392
+  },
+  "runtimeErrors": 0,
+  "mismatches": 0,
+  "firstByShard": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+  ],
+  "shardDecisionHashes": [
+    "64646e13759ee64a6d951ac53f41a65db03e4856cc975827069c158bd5e56c1c",
+    "90ac58ca7101beddf1a609a3bc4803701c27676fce6d5f4209efe3a72e0bd627",
+    "58cead75ed1c5c69c703d602caaae49dd00e8071e53180f103de63c171eb5798",
+    "63185812d35b1347a9044347c87ce320ff24f72f88b1fcd600038689faab2283",
+    "bac931ff1c37bba4267ab2847f5870324cab84b931dcff4916258a4cd950408f",
+    "394fb4dffea81ce3e675f2f6d33fda90e1779833d0dadcae8e26e62299b89c95",
+    "2812a9b499b9b06e3f8d16d7204fe8a3b6e724634c2ccfc581d34a2f2a095745",
+    "9257454abdaa3cc63ccf7ad8168f2132543372273c2e75ecc13f401a076e72a7"
+  ]
+}

@@ -165,6 +165,14 @@ def render(report):
         for key,data in report['sealedReferee']['groups'].items():append('Private traces, '+key,data)
     else:output += ['','The optional private trace corpus was not scored in this replay.']
     output+=['','The cohort totals are independent measurements. Some corpora share positions or requests. [Native answers and mutation controls](batches/) · [Third-referee checks](exploration/independent-review/) · [Public package scoring](README.md)']
+    if report.get('archivedBareHelpers'):
+        output+=['','## Exhaustive three-piece helper results','',
+            'Each emitted helper was evaluated in isolation with the bare king to move against a king and one queen, rook, bishop or knight. Every position received three result claims under Arcade’s status convention. [Enumeration and native scope](terminal/emitted-bare-v1/README.md)','',
+            '| Emitted source | Positions | Claims | Disagreements | Runtime errors |',
+            '| --- | ---: | ---: | ---: | ---: |']
+        for row in report['archivedBareHelpers']:
+            short=row['bundleSha256'][:8]
+            output.append(f"| [`{short}`](terminal/emitted-bare-v1/{short}/summary.json) | {row['positions']:,} | {row['claims']:,} | {row['mismatches']} | {row['runtimeErrors']} |")
     if report.get('residuals'):
         breakdown=report['residuals']
         output+=['','## Remaining obligations on the broader local corpus','',

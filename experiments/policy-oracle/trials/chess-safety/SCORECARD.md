@@ -171,6 +171,15 @@ Matching cloud and local decisions establishes agreement on the submitted writes
 
 The cohort totals are independent measurements. Some corpora share positions or requests. [Native answers and mutation controls](batches/) · [Third-referee checks](exploration/independent-review/) · [Public package scoring](README.md)
 
+## Exhaustive three-piece helper results
+
+Each emitted helper was evaluated in isolation with the bare king to move against a king and one queen, rook, bishop or knight. Every position received three result claims under Arcade’s status convention. [Enumeration and native scope](terminal/emitted-bare-v1/README.md)
+
+| Emitted source | Positions | Claims | Disagreements | Runtime errors |
+| --- | ---: | ---: | ---: | ---: |
+| [`5365dc51`](terminal/emitted-bare-v1/5365dc51/summary.json) | 1,791,552 | 5,374,656 | 0 | 0 |
+| [`d582f74a`](terminal/emitted-bare-v1/d582f74a/summary.json) | 1,791,552 | 5,374,656 | 0 | 0 |
+
 ## Remaining obligations on the broader local corpus
 
 227 distinct writes disagreed with native. The second replay independently reproduced every original decision and expression-count digest.
