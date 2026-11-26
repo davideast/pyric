@@ -1,0 +1,30 @@
+{
+  "authority": "Google Rules Test API",
+  "subject": "preliminary-pins",
+  "rulesSha256": "3d8c9d8dc097accaaedada29421787c7b15aee4f55965fcb1aa269512cf06696",
+  "requestSha256": "f37d7cc7e3566498f149aec68d763b51c03cd6d05ef4511d7486a2a37f861f11",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [
+    {
+      "severity": "WARNING",
+      "line": 325,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 661,
+      "column": 55,
+      "message": "Unused variable: old."
+    },
+    {
+      "severity": "WARNING",
+      "line": 661,
+      "column": 83,
+      "message": "Unused variable: castle."
+    }
+  ],
+  "caseWrites": 0,
+  "receipt": "6abefb52addcab288c51a56eec0f51c8af283a850132624580e234d910e9984f"
+}
