@@ -1,0 +1,35 @@
+[
+  {
+    "id": "minimal-black-rook",
+    "fen": "8/6k1/7r/8/8/8/8/6K1 b - -",
+    "uci": "h6d6"
+  },
+  {
+    "id": "minimal-white-castle",
+    "fen": "k7/8/8/8/8/8/8/4K2R w K -",
+    "uci": "e1g1"
+  },
+  {
+    "id": "minimal-ep",
+    "fen": "3k4/8/8/KPp5/8/8/8/8 w - c6",
+    "uci": "b5c6"
+  },
+  {
+    "id": "minimal-stalemate-claim",
+    "fen": "k7/3Q4/1K6/8/8/8/8/8 w - -",
+    "uci": "d7c7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "minimal-stalemate-control",
+    "fen": "k7/3Q4/1K6/8/8/8/8/8 w - -",
+    "uci": "d7c7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  }
+]
