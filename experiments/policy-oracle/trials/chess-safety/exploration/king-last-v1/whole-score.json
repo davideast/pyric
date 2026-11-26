@@ -1,0 +1,278 @@
+{
+  "authority": "pinned local full Firestore Rules simulator",
+  "rulesSha256": "b3f55c94fd2353305e3d5750cb74c341fd57d375fc2e9b72df1c171848de794c",
+  "corpusSha256": "822a6e32aa04626cfd1c0bd6a280803fd9add01064ea7d3212c328504aa0d58a",
+  "caseCount": 288,
+  "scoreSha256": "ae79502c5f3b55d269d0787cf9cd94e7c8a8a98eddaacc8ef8cb0e528c16612e",
+  "groups": {
+    "w/q/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/q/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/q/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 803
+    },
+    "b/q/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 806
+    },
+    "w/q/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/q/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/r/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/r/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/r/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 803
+    },
+    "b/r/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 806
+    },
+    "w/r/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/r/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/b/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 803
+    },
+    "b/b/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 806
+    },
+    "w/b/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/b/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/b/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/b/playing-checked": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/n/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 809
+    },
+    "b/n/playing": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 824
+    },
+    "w/n/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 803
+    },
+    "b/n/stalemate": {
+      "cases": 12,
+      "outcomes": {
+        "match": 12
+      },
+      "peakExpressions": 806
+    },
+    "w/castle/kingside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 959
+    },
+    "b/castle/kingside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 989
+    },
+    "w/castle/kingside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 376
+    },
+    "b/castle/kingside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 387
+    },
+    "w/castle/queenside/held": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 982
+    },
+    "b/castle/queenside/held": {
+      "cases": 3,
+      "outcomes": {
+        "false-refusal/resource-limit": 1,
+        "match": 2
+      },
+      "peakExpressions": 1000
+    },
+    "w/castle/queenside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 384
+    },
+    "b/castle/queenside/expired": {
+      "cases": 3,
+      "outcomes": {
+        "match": 3
+      },
+      "peakExpressions": 395
+    }
+  },
+  "reachableByMove": {},
+  "divergences": {
+    "b/castle/queenside/held/false-refusal/resource-limit": {
+      "first": {
+        "case": {
+          "id": "king-last-280",
+          "fen": "r3k3/8/8/8/8/8/8/7K b q -",
+          "uci": "e8c8",
+          "claim": {
+            "status": "playing",
+            "winner": ""
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "2kr4/8/8/8/8/8/8/7K w - -",
+          "outcome": "playing",
+          "replyCount": 3
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "kind": "false-refusal/resource-limit",
+          "expressions": 1000
+        }
+      },
+      "minimized": {
+        "beforePieces": 3,
+        "afterPieces": 3,
+        "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+        "removedSquares": [],
+        "positionsTried": 2,
+        "case": {
+          "id": "king-last-280",
+          "fen": "r3k3/8/8/8/8/8/8/7K b q -",
+          "uci": "e8c8",
+          "claim": {
+            "status": "playing",
+            "winner": ""
+          },
+          "nativeLegal": true,
+          "kingSafe": true,
+          "nativeAdmission": true,
+          "successor": "2kr4/8/8/8/8/8/8/7K w - -",
+          "outcome": "playing",
+          "replyCount": 3
+        },
+        "result": {
+          "actual": "DENY",
+          "status": "false-refusal",
+          "cause": "resource-limit",
+          "kind": "false-refusal/resource-limit",
+          "expressions": 1000
+        }
+      }
+    }
+  }
+}

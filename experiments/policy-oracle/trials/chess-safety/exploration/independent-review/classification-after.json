@@ -1,0 +1,49 @@
+{
+  "purpose": "nonboolean safety function and linked runtime error",
+  "passed": false,
+  "diagnostics": {},
+  "kingSafety": {
+    "byExpectedAndResult": {
+      "ALLOW/standalone-error": 19,
+      "DENY/standalone-error": 10
+    },
+    "controls": [
+      {
+        "id": "rook-safe",
+        "expected": "ALLOW",
+        "error": "square safety must return a boolean",
+        "status": "standalone-error"
+      },
+      {
+        "id": "rook-exposed",
+        "expected": "DENY",
+        "error": "square safety must return a boolean",
+        "status": "standalone-error"
+      }
+    ]
+  },
+  "linkedWrites": {
+    "byExpectedAndResult": {
+      "ALLOW/false-refusal": 17,
+      "DENY/evaluation-error": 12
+    },
+    "controls": [
+      {
+        "id": "rook-safe",
+        "expected": "ALLOW",
+        "decision": "DENY",
+        "cost": 766,
+        "error": "rule-error",
+        "status": "false-refusal"
+      },
+      {
+        "id": "rook-exposed",
+        "expected": "DENY",
+        "decision": "DENY",
+        "cost": 766,
+        "error": "rule-error",
+        "status": "evaluation-error"
+      }
+    ]
+  }
+}

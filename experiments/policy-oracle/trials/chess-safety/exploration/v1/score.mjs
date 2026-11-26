@@ -11,12 +11,13 @@ import {inCheck,squareName,squareOf} from '../../../chess/reference/arcade-refer
 import {nativeEvidence} from '../../reference/native.mjs';
 import {sample} from '../../reference/fixtures.mjs';
 import {bucket} from '../replies-v1/family.mjs';
+import {classify} from '../classify.mjs';
 import {encode,plausible} from './corpus.mjs';
 
 const args=process.argv.slice(2);
 const scopeReport=args.includes('--scope-report');
 const [simulator,bundle,cohort]=args.filter(a=>a!=='--scope-report');
-const locations=new Map([[undefined,'./'],['--terminal-replies','../replies-v1/'],['--rights','../rights-v1/'],['--promotions','../promotions-v1/'],['--interior','../interior-v1/']]);
+const locations=new Map([[undefined,'./'],['--terminal-replies','../replies-v1/'],['--rights','../rights-v1/'],['--promotions','../promotions-v1/'],['--interior','../interior-v1/'],['--king-last','../king-last-v1/'],['--all-claims','../successor-claims-v1/']]);
 assert.ok(locations.has(cohort),'unknown discovery cohort');
 const base=new URL(locations.get(cohort),import.meta.url);
 const read=path=>readFileSync(new URL(path,base));
@@ -37,13 +38,7 @@ function decision(c) {
   const {before,proposal}=sample(c,'writer','other');
   const [r]=sim.simulate([{description:c.id,method:'update',path:'chess/explore',resource:before,
     data:{...before,...proposal},auth:{uid:'writer'},expectation:'ALLOW'}]).cases;
-  const error=r.trace?.find(t=>t.verdict==='ERROR');
-  const refused=r.decision==='DENY', limit=r.resourceLimit?.kind??null;
-  const cause=r.unsupported?'unsupported':limit?'resource-limit':refused&&error?'rule-error':null;
-  const actual=r.decision==='ALLOW';
-  const status=cause==='unsupported'?'unsupported':cause && refused && !c.nativeAdmission?'evaluation-error'
-    :actual===c.nativeAdmission?'match':actual?'false-allow':'false-refusal';
-  return {actual:r.decision,status,cause,expressions:r.evaluatedExpressions};
+  return {actual:r.decision,...classify(r,c.nativeAdmission),expressions:r.evaluatedExpressions};
 }
 // Independent subset membership uses native chess material and legal replies.
 function terminalScope(c) {
@@ -63,11 +58,11 @@ for(const c of rows) {
   if(scopeReport) {
     const label=terminalScope(c), sub=coverage[label]??={cases:0,outcomes:{},first:{}};
     sub.cases++;
-    const outcome=[result.status,result.cause].filter(Boolean).join('/');
+    const outcome=result.kind;
     sub.outcomes[outcome]=(sub.outcomes[outcome]??0)+1;
     if(result.status!=='match') sub.first[outcome]??=c.id;
   }
-  const kind=[result.status,result.cause].filter(Boolean).join('/');
+  const kind=result.kind;
   group.outcomes[kind]=(group.outcomes[kind]??0)+1;
   group.peakExpressions=Math.max(group.peakExpressions,result.expressions);
   if (c.group==='reachable-traces') {

@@ -15,19 +15,21 @@ TRIAL = HERE.parent.parent
 external = runpy.run_path(str(TRIAL.parent / "chess/reference/generate.py"))
 
 
-def cases(trial):
+def cases(trial, extended_endings):
     for path in sorted((trial / "batches").glob("*/v1/native.json")):
         yield path.parents[1].name, json.loads(path.read_bytes())["cases"]
     for name in ("native", "cost-native", "path-native"):
         path = trial.parent / "king-safety/reference" / (name + ".json")
         yield "file-pins/" + name, json.loads(path.read_bytes())["cases"]
     for path in sorted((trial / "exploration").glob("*/corpus.json.gz")):
+        if path.parent.name in ("king-last-v1", "successor-claims-v1") and not extended_endings:
+            continue
         yield path.parent.name, json.loads(gzip.decompress(path.read_bytes()))
 
 
-def check(chess, trial):
+def check(chess, trial, extended_endings):
     reports = {}
-    for name, rows in cases(trial):
+    for name, rows in cases(trial, extended_endings):
         faults, invalid = collections.Counter(), collections.Counter()
         first, invalid_first = {}, {}
         legal_checked = invalid_rows = 0
@@ -92,10 +94,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("archive", type=Path)
     p.add_argument("--trial", type=Path, default=TRIAL)
+    p.add_argument("--extended-endings", action="store_true", help="also audit the king-last and remaining-claims inputs")
     args = p.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         chess = external["load_chess"](args.archive, Path(tmp))
-        print(json.dumps(check(chess, args.trial.resolve()), indent=2))
+        receipt = check(chess, args.trial.resolve(), args.extended_endings)
+        print(json.dumps(receipt, indent=2))
+        if any(cohort["disagreements"] for cohort in receipt["cohorts"].values()):
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

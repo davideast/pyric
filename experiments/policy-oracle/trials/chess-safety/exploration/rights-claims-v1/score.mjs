@@ -6,6 +6,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {gunzipSync} from 'node:zlib';
 import {sha} from '../../../../arcade/corpus.mjs';
 import {sampleRights} from './fixture.mjs';
+import {classify} from '../classify.mjs';
 
 const [reference,file]=process.argv.slice(2);
 assert.ok(reference && file,'usage: bun score.mjs INSTALLED_REFERENCE COMPLETE_RULES');
@@ -20,10 +21,7 @@ for(const row of JSON.parse(corpus)) {
   const {before,proposal}=sampleRights(row,'writer','other');
   const [v]=handle.simulate([{description:row.id,method:'update',path:'chess/explore',auth:{uid:'writer'},
     resource:before,data:{...before,...proposal},expectation:'ALLOW'}]).cases;
-  const error=v.unsupported?'unsupported':v.resourceLimit?'resource-limit':v.decision==='DENY'&&
-    v.trace.some(t=>t.verdict==='ERROR')?'evaluation-error':null;
-  const status=error?(row.nativeAdmission&&v.decision==='DENY'?'false-refusal/'+error:error)
-    :(v.decision==='ALLOW')===row.nativeAdmission?'match':v.decision==='ALLOW'?'false-allow':'false-refusal';
+  const {kind:status}=classify(v,row.nativeAdmission);
   const g=groups[row.group]??={cases:0,outcomes:{},peakExpressions:0};
   g.cases++;g.outcomes[status]=(g.outcomes[status]??0)+1;
   g.peakExpressions=Math.max(g.peakExpressions,v.evaluatedExpressions);

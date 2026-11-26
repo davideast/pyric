@@ -30,3 +30,18 @@ python3 exploration/replay.py --rules candidate-complete.rules --report discover
 ```
 
 The command uses a fresh offline install of the pinned independent referee. The summary identifies each cohort, its actual outcome counts and its decision digest. The optional report retains the first divergences and reduced examples. Add `--rebuild-native` to regenerate the frozen native evidence, `--strict` to return a failure exit code on any mismatch, or `--reference` to use an existing byte-verified install. The assembled campaign includes the additional self-check holdout when its independently frozen files are present.
+
+Add `--extended-endings` to score 1,050 more submissions. The [king-last corpus](king-last-v1/freeze.json) holds the nonking piece stationary, moves the attacking king, and makes all three status claims on the identical move. It also covers both castling wings with retained and expired rights. The [remaining-claims corpus](successor-claims-v1/freeze.json) completes all four status and winner combinations on 381 existing edge and interior moves. It excludes the 762 submissions already scored in the parent cohorts.
+
+### Independent review
+
+The independent python-chess run cross-checked all 94 core rows and the original 12,371 supplemental submissions. It reported zero differences on fields present in the individual receipts. The 941 legal trace moves carry construction histories. Among the synthetic density variants, 28 have an impossible checking configuration according to python-chess. Those rows measure behavior on composed maps and should be excluded from claims about reachable chess positions. The report counts actual comparisons separately for each field. [Independent receipt](independent-review/python-chess.json)
+
+Reproduce the external check with the source archive pinned in the chess trial and an assembled campaign checkout.
+
+```sh
+python3 exploration/independent-review/check.py "$CHESS_ARCHIVE"
+python3 exploration/independent-review/controls.py
+```
+
+The second command installs a deliberately malformed compiler through the normal package scorer. Its square predicates return a string, and its emitted Rules evaluate an invalid list index. The scorer must report a standalone type error. An evaluation failure on a legal write is a false refusal. The same failure on an illegal write is an evaluation error. [Earlier classification](independent-review/classification-before.json) · [After the type check](independent-review/classification-after.json)
