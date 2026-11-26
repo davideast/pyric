@@ -1,0 +1,9 @@
+[
+  {"id":"rook-safe","fen":"5r1k/8/8/8/8/8/4R3/4K3 w - -","uci":"e2d2"},
+  {"id":"rook-exposed","fen":"4r2k/8/8/8/8/8/4R3/4K3 w - -","uci":"e2d2"},
+  {"id":"mirrored-file","fen":"k2r4/8/8/8/8/8/3R4/3K4 w - -","uci":"d2e2"},
+  {"id":"surviving-blocker","fen":"4r2k/8/8/8/4P3/8/4R3/4K3 w - -","uci":"e2d2"},
+  {"id":"black-exposed","fen":"4k3/4r3/8/8/8/8/8/4R2K b - -","uci":"e7d7"},
+  {"id":"black-safe","fen":"4k3/4r3/8/8/8/8/8/5R1K b - -","uci":"e7d7"},
+  {"id":"queen-exposed","fen":"4q2k/8/8/8/8/8/4R3/4K3 w - -","uci":"e2d2"}
+]
