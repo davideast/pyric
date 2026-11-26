@@ -1,0 +1,13 @@
+{
+  "description": "native-legal corner moves exercising castling rights expiry",
+  "cases": 1736,
+  "groups": {
+    "departure-straight-sparse": 288,
+    "departure-straight-dense": 232,
+    "capture-diagonal-sparse": 352,
+    "capture-straight-sparse": 384,
+    "capture-straight-dense": 312,
+    "capture-diagonal-dense": 168
+  },
+  "sha256": "f9575a83cda9bdb89d17d2245b213b966801416ac72867f259a227c952773feb"
+}
