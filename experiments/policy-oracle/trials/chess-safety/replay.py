@@ -133,6 +133,12 @@ def replay(args, temp):
     result = {'packageSha256':core['candidateSha256'],'variant':args.variant,'coreBatches':core['batches'],
               'corePass':core['passed'],'diagnostics':core['diagnostics'],'nativeEndgames':geometry,
               'originalFilePins':len(batches['00-legacy-file'])}
+    result['coreDiagnostics'] = {}
+    for plane in ('kingSafety','standaloneBoard','linkedWrites'):
+        rows = core[plane]
+        errors = Counter(row['error'] for row in rows if row.get('error'))
+        result['coreDiagnostics'][plane] = {'outcomes':dict(Counter(row['status'] for row in rows)),
+            'errors':dict(errors),'firstResourceLimit':next((row for row in rows if row.get('error')=='resource-limit'),None)}
     if not args.candidate_package and args.variant == DEFAULT:
         equal(core,read(HERE/'scores'/f'{DEFAULT}-through-7.json'),'qualified complete score and per-write local diagnostics')
     digest = core['linkedRulesSha256']
@@ -185,7 +191,15 @@ def replay(args, temp):
     observations = observed('bun','live/run.mjs','observed',*journal_args)
     captures = {r['rulesSha256']:r for r in observations['releases']}
     result['hosted'] = hosted(native,digest,captures.get(digest,{'status':'unmeasured','captures':[]}),observations)
-    result['management'] = {k:observations[k] for k in ['managementFailures','unqualified','privateJournalChecked']}
+    result['management'] = {k:observations[k] for k in ['managementFailures','unqualified','privateJournalChecked','compilerRejections','compileDiagnostics']}
+    diagnostics = [r for r in observations['compileDiagnostics'] if r['rulesSha256']==digest]
+    if len(diagnostics)>1:
+        raise ValueError('Expected one official static diagnostic for these bytes')
+    target_compilation = diagnostics[0]['state'] if diagnostics else ('compiled' if result['hosted']['distinctCases'] else 'unmeasured')
+    result['targetCompilation'] = {'status':target_compilation,'staticTest':diagnostics[0] if diagnostics else None,
+        'publicationRejections':[r for r in observations['compilerRejections'] if r['intendedRulesSha256']==digest]}
+    if target_compilation=='compile-error' and result['hosted']['distinctCases']:
+        raise ValueError('Conflicting official compiler and data-plane evidence for identical bytes')
     result['openings'] = []
     for pin in sorted((HERE/'live/openings').glob('*/*.pin.json')):
         name = pin.name.removesuffix('.pin.json')
@@ -203,7 +217,7 @@ def replay(args, temp):
     matches = all(set(counts) <= {'match'} for counts in target['comparison'].values()) if target['distinctCases'] else None
     result['localConformance'] = local_pass
     result['matchesObservedProductionCases'] = matches
-    return result, local_pass and matches is not False
+    return result, local_pass and matches is not False and target_compilation!='compile-error'
 
 
 def main():

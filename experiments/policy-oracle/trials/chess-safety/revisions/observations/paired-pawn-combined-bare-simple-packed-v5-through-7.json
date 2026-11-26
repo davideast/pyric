@@ -1,0 +1,41 @@
+{
+  "archive": "paired-pawn-combined-bare-simple-packed-v5-through-7.json",
+  "variant": "paired-pawn-combined-bare-simple-packed-v5",
+  "linkedRulesSha256": "12c714bb2c32abc6ec3ffc41e15227370829c5313458d4638ab130d764ce475f",
+  "standalone": {
+    "match": 94
+  },
+  "standaloneBoard": {
+    "match": 94
+  },
+  "linked": {
+    "match": 94
+  },
+  "byBatch": {
+    "00-legacy-file": {
+      "match": 10
+    },
+    "01-rank-diagonal": {
+      "match": 19
+    },
+    "02-king-destinations": {
+      "match": 12
+    },
+    "03-check-evasions": {
+      "match": 8
+    },
+    "04-en-passant": {
+      "match": 5
+    },
+    "05-castling": {
+      "match": 20
+    },
+    "06-composition": {
+      "match": 10
+    },
+    "07-terminal": {
+      "match": 10
+    }
+  },
+  "firstDivergence": null
+}

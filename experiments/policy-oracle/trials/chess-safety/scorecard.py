@@ -26,7 +26,9 @@ def render(report):
         return '\n'.join(lines)+'\n'
     releases = [r for r in report['releaseComparisons'] if r['productionCases']]
     releases.sort(key=lambda r:(0 if r['sha256'].startswith('523c4c') else 1,r['rules']))
-    names = [('Prior stronger baseline' if r['sha256'].startswith('523c4c') else Path(r['rules']).stem) for r in releases]
+    labels={'523c4c13':'Prior stronger baseline','2d793f90':'Quick status','a53c2fed':'Three-piece status',
+            '9b31d40d':'Bare king','d0a6af91':'Packed v3','fe6ae708':'Long-ray optimization'}
+    names=[labels.get(r['sha256'][:8], 'Selected' if r['sha256']==report['hosted'].get('rulesSha256') else Path(r['rules']).stem) for r in releases]
     output = ['# Cumulative chess oracle scorecard','',
               'Each live cell gives native matches divided by distinct signed proposals on that release. A dash means the corresponding bytes have no completed measurement for that batch. The local columns use the selected candidate program `'+report['variant']+'`.','',
               '| Batch | Standalone king safety | Standalone board | Local linked writes | '+' | '.join(names)+' |',
@@ -93,6 +95,16 @@ def render(report):
                    ' | '.join(f'{action} {verdict} (ply {ply})' for action,verdict,ply in record['rows']),
                    '', f"Final stored status was **{record['finalStatus']}**. [Full signed readbacks](live/openings/{record['rulesSha256']}/{record['plan']}.json.gz)"]
     evidence=report.get('management',{})
+    if evidence.get('compileDiagnostics'):
+        output+=['','## Official source compilation','',
+                 'Each static test submitted source to Google’s Rules service. A successful static result qualifies that compiler observation; the signed-write table reports live match decisions.',
+                 '','| Source or control | Static result | First diagnostic |','| --- | --- | --- |']
+        for item in sorted(evidence['compileDiagnostics'],key=lambda r:r['subject']):
+            issue=next((a['message'] for a in item['issues'] if a['severity']=='ERROR'),'—')
+            output.append(f"| [{item['subject']}](live/diagnostics/{item['rulesSha256']}.json) | {item['state']} | {issue} |")
+        for item in evidence['compilerRejections']:
+            output+=['',f"Google returned HTTP {item['httpStatus']} on publication of the intended `{item['plan']}` release and received {item['caseWrites']} case writes. "
+                      f"[Management journal summary](live/failures/{item['journalSha256']}.json)"]
     if evidence.get('managementFailures') or evidence.get('unqualified'):
         output += ['', '## Unscored live attempts','',
                    f"{len(evidence.get('managementFailures',[]))} management failures produced no qualifying case observations. {len(evidence.get('unqualified',[]))} completed attempts failed the evidence checks. [Management journal summaries](live/failures/) · [Excluded receipts](live/unqualified/)"]

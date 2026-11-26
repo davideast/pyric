@@ -69,7 +69,7 @@ if __name__=='__main__':
     result=verify(args.only)
     for row in result:
         name=row['archive']
-        leaf=HERE/'revisions/results'/name
+        leaf=HERE/'revisions/observations'/name
         if name in earlier:
             expected=earlier[name]
         elif leaf.is_file():
