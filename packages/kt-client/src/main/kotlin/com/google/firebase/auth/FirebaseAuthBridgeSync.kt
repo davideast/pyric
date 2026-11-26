@@ -239,26 +239,30 @@ internal class FirebaseAuthBridgeSync(
         auth.notifyIdTokenChanged()
     }
 
-    fun notifyTokenRefreshed(user: FirebaseUser, wireSeq: Long = 0L) {
-        synchronized(authStateLock) {
-            if (sessionState.user?.uid == user.uid) {
+    fun commitUserMutation(user: FirebaseUser, wireSeq: Long = 0L, mutate: () -> Unit): Boolean {
+        val updated = synchronized(authStateLock) {
+            if (sessionState.user?.uid != user.uid || isStaleInboundWireSeq(wireSeq)) {
+                false
+            } else {
+                mutate()
                 authStateEpoch += 1
                 lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
                 commitSessionStateLocked(user = user)
+                true
             }
         }
-        auth.notifyIdTokenChanged()
+        if (updated) {
+            auth.notifyIdTokenChanged()
+        }
+        return updated
+    }
+
+    fun notifyTokenRefreshed(user: FirebaseUser, wireSeq: Long = 0L) {
+        commitUserMutation(user, wireSeq) {}
     }
 
     fun notifyUserUpdated(user: FirebaseUser, wireSeq: Long = 0L) {
-        synchronized(authStateLock) {
-            if (sessionState.user?.uid == user.uid) {
-                authStateEpoch += 1
-                lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
-                commitSessionStateLocked(user = user)
-            }
-        }
-        auth.notifyIdTokenChanged()
+        commitUserMutation(user, wireSeq) {}
     }
 
     fun clearCurrentUserIfInvalidated(error: Exception, targetUid: String) {
@@ -267,17 +271,22 @@ internal class FirebaseAuthBridgeSync(
             authEx.errorCode == "ERROR_USER_DISABLED" ||
             authEx.errorCode == "ERROR_USER_NOT_FOUND"
         if (!invalidated) return
-        clearIfMatchingUid(targetUid, wireSeq = auth.bridgeClient.currentInboundWireSeq())
+        clearIfMatchingUid(targetUid, wireSeq = auth.bridgeClient.currentInboundWireSeq(), enforceFreshSeq = false)
     }
 
     fun clearCurrentUserAfterDelete(targetUid: String, wireSeq: Long = 0L) {
-        val effectiveSeq = maxOf(wireSeq, auth.bridgeClient.currentInboundWireSeq())
-        clearIfMatchingUid(targetUid, effectiveSeq)
+        if (wireSeq > 0L) {
+            clearIfMatchingUid(targetUid, wireSeq, enforceFreshSeq = true)
+        } else {
+            clearIfMatchingUid(targetUid, auth.bridgeClient.currentInboundWireSeq(), enforceFreshSeq = false)
+        }
     }
 
-    private fun clearIfMatchingUid(targetUid: String, wireSeq: Long) {
+    private fun clearIfMatchingUid(targetUid: String, wireSeq: Long, enforceFreshSeq: Boolean) {
         val cleared = synchronized(authStateLock) {
-            if (sessionState.user?.uid == targetUid) {
+            if (enforceFreshSeq && isStaleInboundWireSeq(wireSeq)) {
+                false
+            } else if (sessionState.user?.uid == targetUid) {
                 authStateEpoch += 1
                 lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
                 commitSessionStateLocked(user = null)
@@ -308,13 +317,20 @@ internal class FirebaseAuthBridgeSync(
         if (resClaims != null && user.customClaims.isEmpty()) {
             user.customClaims = FirebaseUser.extractCustomClaims(resClaims)
         }
-        synchronized(authStateLock) {
-            authStateEpoch += 1
-            lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
-            commitSessionStateLocked(user = user)
+        val applied = synchronized(authStateLock) {
+            if (isStaleInboundWireSeq(wireSeq)) {
+                false
+            } else {
+                authStateEpoch += 1
+                lastAuthoritativeWireSeq = maxOf(lastAuthoritativeWireSeq, wireSeq)
+                commitSessionStateLocked(user = user)
+                true
+            }
         }
-        auth.notifyAuthStateChanged()
-        auth.notifyIdTokenChanged()
+        if (applied) {
+            auth.notifyAuthStateChanged()
+            auth.notifyIdTokenChanged()
+        }
         val providerId = explicitProviderId
             ?: user.providerData.firstOrNull { it.providerId.isNotBlank() && it.providerId != "firebase" }?.providerId
         val isNew = (addInfo?.get("isNewUser") as? Boolean)

@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FirebaseAuth internal constructor(
     val app: FirebaseApp,
@@ -69,8 +70,12 @@ class FirebaseAuth internal constructor(
         _languageCode = java.util.Locale.getDefault().toLanguageTag().ifBlank { "en" }
     }
 
-    private val authStateListeners = CopyOnWriteArrayList<AuthStateListener>()
-    private val idTokenListeners = CopyOnWriteArrayList<IdTokenListener>()
+    private class ActiveListenerEntry<T>(val listener: T) {
+        val active = AtomicBoolean(true)
+    }
+
+    private val authStateListeners = CopyOnWriteArrayList<ActiveListenerEntry<AuthStateListener>>()
+    private val idTokenListeners = CopyOnWriteArrayList<ActiveListenerEntry<IdTokenListener>>()
 
     init {
         // A replaced bridge host holds no user for this session. Sign the session
@@ -245,26 +250,46 @@ class FirebaseAuth internal constructor(
         } finally {
             removeIdTokenListener(listener)
             channel.close()
+            while (channel.tryReceive().isSuccess) {}
         }
     }
 
     fun addAuthStateListener(listener: AuthStateListener) {
-        authStateListeners.add(listener)
-        listener.onAuthStateChanged(this)
+        val entry = ActiveListenerEntry(listener)
+        authStateListeners.add(entry)
+        if (entry.active.get()) {
+            listener.onAuthStateChanged(this)
+        }
     }
 
     fun removeAuthStateListener(listener: AuthStateListener) {
-        authStateListeners.remove(listener)
+        val entry = authStateListeners.firstOrNull {
+            it.listener == listener && it.active.compareAndSet(true, false)
+        }
+        if (entry != null) {
+            authStateListeners.remove(entry)
+        }
     }
 
     fun addIdTokenListener(listener: IdTokenListener) {
-        idTokenListeners.add(listener)
-        listener.onIdTokenChanged(this)
+        val entry = ActiveListenerEntry(listener)
+        idTokenListeners.add(entry)
+        if (entry.active.get()) {
+            listener.onIdTokenChanged(this)
+        }
     }
 
     fun removeIdTokenListener(listener: IdTokenListener) {
-        idTokenListeners.remove(listener)
+        val entry = idTokenListeners.firstOrNull {
+            it.listener == listener && it.active.compareAndSet(true, false)
+        }
+        if (entry != null) {
+            idTokenListeners.remove(entry)
+        }
     }
+
+    internal fun commitUserMutation(user: FirebaseUser, wireSeq: Long = 0L, mutate: () -> Unit): Boolean =
+        sync.commitUserMutation(user, wireSeq, mutate)
 
     internal fun notifyTokenRefreshed(user: FirebaseUser, wireSeq: Long = 0L) {
         sync.notifyTokenRefreshed(user, wireSeq)
@@ -283,11 +308,15 @@ class FirebaseAuth internal constructor(
     }
 
     internal fun notifyAuthStateChanged() {
-        for (l in authStateListeners) l.onAuthStateChanged(this)
+        for (entry in authStateListeners) {
+            if (entry.active.get()) entry.listener.onAuthStateChanged(this)
+        }
     }
 
     internal fun notifyIdTokenChanged() {
-        for (l in idTokenListeners) l.onIdTokenChanged(this)
+        for (entry in idTokenListeners) {
+            if (entry.active.get()) entry.listener.onIdTokenChanged(this)
+        }
     }
 
     internal fun wrapException(e: Exception): Exception {

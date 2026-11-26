@@ -186,13 +186,13 @@ internal class DocumentSnapshotRegistration(
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    active = false
+                    cleanupResources()
                     onImmediateClose?.invoke(err)
                     deliveryQueue.enqueue { deliverErrorOnce(err) }
                 }
             )
         } catch (e: FirebaseFirestoreException) {
-            active = false
+            cleanupResources()
             onImmediateClose?.invoke(e)
             deliveryQueue.enqueue { deliverErrorOnce(e) }
             return
@@ -395,13 +395,13 @@ internal class QuerySnapshotRegistration(
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    active = false
+                    cleanupResources()
                     onImmediateClose?.invoke(err)
                     deliveryQueue.enqueue { deliverErrorOnce(err) }
                 }
             )
         } catch (e: FirebaseFirestoreException) {
-            active = false
+            cleanupResources()
             onImmediateClose?.invoke(e)
             deliveryQueue.enqueue { deliverErrorOnce(e) }
             return

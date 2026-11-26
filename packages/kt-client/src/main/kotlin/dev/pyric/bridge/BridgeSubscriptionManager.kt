@@ -173,7 +173,7 @@ class BridgeSubscriptionManager internal constructor(
             appCheckToken = null,
             sequenced = true,
             sequencedChannel = channel,
-            onCloseError = { err -> channel.close(err) }
+            onCloseError = { err -> closeAndDrain(channel, err) }
         )
         dispatchOrConnect(
             record = record,
@@ -187,10 +187,15 @@ class BridgeSubscriptionManager internal constructor(
         val handle = object : BridgeSubscriptionHandle {
             override fun cancel() {
                 cancelRecord(record, isAttached, sendJson, jsonSerializer)
-                channel.close()
+                closeAndDrain(channel)
             }
         }
         return SequencedSubscriptionHandle(channel, handle)
+    }
+
+    private fun closeAndDrain(channel: Channel<BridgeSequencedSnapshot>, cause: Throwable? = null) {
+        channel.close(cause)
+        while (channel.tryReceive().isSuccess) {}
     }
 
     fun subscribe(
@@ -252,7 +257,7 @@ class BridgeSubscriptionManager internal constructor(
             appCheckToken = null,
             sequenced = true,
             sequencedChannel = channel,
-            onCloseError = { err -> channel.close(err) }
+            onCloseError = { err -> closeAndDrain(channel, err) }
         )
         try {
             if (!dispatchInitialSend(record, isAttached, keepsSubscriptionOnConnectFailure, sendJson, jsonSerializer)) {
@@ -263,7 +268,7 @@ class BridgeSubscriptionManager internal constructor(
             }
         } finally {
             cancelRecord(record, isAttached, sendJson, jsonSerializer)
-            channel.close()
+            closeAndDrain(channel)
         }
     }
 
