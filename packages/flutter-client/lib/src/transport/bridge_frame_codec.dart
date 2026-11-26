@@ -90,8 +90,12 @@ ParsedBridgeError parseBridgeError(
     denialContext: denialContext,
     envelope: envelope,
   );
+  final lowerCode = code.toLowerCase();
+  final isStorageDenial =
+      lowerCode == 'storage/unauthorized' || lowerCode == 'unauthorized';
   final isDenial = denialContext != null ||
-      code.toLowerCase().contains('permission') ||
+      lowerCode.contains('permission') ||
+      isStorageDenial ||
       message.toLowerCase().contains('permission_denied');
   return ParsedBridgeError(exception: exception, isDenial: isDenial);
 }
