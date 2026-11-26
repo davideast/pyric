@@ -15,7 +15,7 @@ from corpus import BATCHES, HERE, OLD, load
 from score import score, score_rows, summarize
 from receipt_comparison import compare
 from scorecard import render
-from qualification import verify_thresholds
+from qualification import check as verify_qualification, verify_thresholds
 
 REFERENCE = runpy.run_path(str(HERE.parent / 'for-of/replay.py'))
 DISCOVERY = runpy.run_path(str(HERE / 'exploration/replay.py'))
@@ -258,6 +258,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='chess-safety-replay-') as scratch:
         result, matches = replay(args,Path(scratch))
     result['passesScoredCases'] = matches
+    if args.candidate_package is None and args.variant == DEFAULT:
+        directory = HERE/'qualification/v1'/result['hosted']['rulesSha256']
+        result['qualification'] = verify_qualification(result, directory)
     output = json.dumps(result,indent=2)+'\n'
     if args.report:
         args.report.write_text(output)

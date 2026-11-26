@@ -1,0 +1,17 @@
+{
+  "status": "scored",
+  "authority": "pinned hidden-trace reference and independent local evaluator",
+  "archiveSha256": "26a9eb7b807c0b18774008af09aa413e92336b43a38a852685e4b8079103dd4e",
+  "successorDigest": "228dc23018aff06bac3414959a57a0f74231901bbfc46008fa864259be275518",
+  "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+  "decisionsSha256": "20d1af1c0a7c802b8ce2126b883753d400e34f9f432718f14f26682796065976",
+  "groups": {
+    "each-legal-successor": {
+      "match": 46385
+    },
+    "three-claims-per-board": {
+      "match": 4563
+    }
+  },
+  "first": {}
+}
