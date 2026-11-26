@@ -26,7 +26,7 @@ def render(report):
         return '\n'.join(lines)+'\n'
     releases = [r for r in report['releaseComparisons'] if r['productionCases']]
     releases.sort(key=lambda r:(0 if r['sha256'].startswith('523c4c') else 1,r['rules']))
-    labels={'5365dc51':'Selected fixed-width policy','911e4b24':'Packed v4','fa5ed317':'Pawn witness','523c4c13':'Prior stronger baseline','2d793f90':'Quick status','a53c2fed':'Three-piece status',
+    labels={'5365dc51':'Fixed-width policy','911e4b24':'Packed v4','fa5ed317':'Pawn witness','523c4c13':'Prior stronger baseline','2d793f90':'Quick status','a53c2fed':'Three-piece status',
             '9b31d40d':'Bare king','d0a6af91':'Packed v3','fe6ae708':'Long-ray optimization'}
     names=[labels.get(r['sha256'][:8], 'Selected' if r['sha256']==report['hosted'].get('rulesSha256') else Path(r['rules']).stem) for r in releases]
     output = ['# Cumulative chess oracle scorecard','',
@@ -83,6 +83,25 @@ def render(report):
             '| '+' | '.join('---' for _ in range(3+len(names_for_cases)))+' |']
         for key,v in keys.items():
             output.append('| '+' | '.join([key,v['expected'],v['decision'],*[r['examples'].get(key,{}).get('production','—') for _,r in names_for_cases]])+' |')
+    for cohort,title,description in [
+        ('rook-interposition-v1','A rook with one legal reply',
+         'White plays Qg4–g8 on both boards. A black rook on c5 can block with Rc8. A black rook on h5 has no legal reply.'),
+        ('held-rook-promotion-v1','A legal mating promotion with different prior rights',
+         'Black plays g2xh1=Q# on both boards. The only change is whether White still holds the kingside castling right before the capture.'),
+    ]:
+        source = Path('exploration')/cohort/'controls/native.json'
+        cases = json.loads((HERE/source).read_bytes())['cases']
+        observed = [(name,rel['examples']) for name,rel in zip(names,releases,strict=True)
+                    if any(case['id'] in rel['examples'] for case in cases)]
+        if observed:
+            output += ['', '## '+title, '', f'{description} [Native successors and replies]({source})', '',
+                       '| Case | Native | '+' | '.join(label for label,_ in observed)+' |',
+                       '| '+' | '.join('---' for _ in range(2+len(observed)))+' |']
+            for case in cases:
+                key=case['id']
+                row=[key,'ALLOW' if case['nativeAdmission'] else 'DENY']
+                row += [examples.get(key,{}).get('production','—') for _,examples in observed]
+                output.append('| '+' | '.join(row)+' |')
     output += ['','## Sensitivity to faulty implementations','',
         '| Batch | Fault | First case | Native | Faulty |','| --- | --- | --- | --- | --- |']
     for record in sorted((HERE/'batches').glob('*/v1/mutations.json')):
