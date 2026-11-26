@@ -16,7 +16,7 @@ import { specialCases } from '../bundle/special-cases.mjs';
 
 const [mode, archive, bundle, digest, gameBuild, enginePath, cohort] = process.argv.slice(2);
 assert.ok(['stock','compatibility','stronger','referee'].includes(mode));
-assert.ok(!cohort || (cohort === 'supplement' && mode !== 'referee'));
+assert.ok(!cohort || (cohort === 'supplement' && mode !== 'referee') || (cohort === 'boundary' && mode === 'referee'));
 const source = readFileSync(bundle,'utf8');
 assert.equal(sha(source), digest);
 assert.equal(mode === 'stock',digest === manifest.files['v1/rules/stock.rules']);
@@ -47,13 +47,20 @@ try {
       async capture(verify) {
         const unauth = lite.getFirestore(unauthedApp,manifest.target.database);
         const args = {runId,writer,guest,reader,verify,journal,native,mode,unauth};
-        if (cohort === 'supplement') {
-          const {supplementalCases} = await import('../bundle/supplement/cases.mjs');
+        if (cohort) {
           const path = 'chess/' + runId;
           const observed = await decision(() => lite.getDoc(lite.doc(unauth,path)));
           assert.equal(observed,'DENY'); journal.event('unauthenticated-read',{path,observed});
-          const rows = await supplementalCases(args);
-          return journal.retain({runId,mode,cohort,rulesSha256:digest,target:manifest.target,rows});
+          const identity = {runId,mode,cohort,rulesSha256:digest,target:manifest.target};
+          if (cohort === 'boundary') {
+            const {admissionCases} = await import('../bundle/supplement/admission.mjs');
+            const boardUrl = pathToFileURL(resolve(enginePath));
+            const pins = {engineSha256:sha(readFileSync(boardUrl)),
+              matchPolicySha256:sha(readFileSync(new URL('./chess-match.mjs',boardUrl)))};
+            return journal.retain({...identity,...pins,...await admissionCases({...args,config,gameBuild,enginePath})});
+          }
+          const {supplementalCases} = await import('../bundle/supplement/cases.mjs');
+          return journal.retain({...identity,rows:await supplementalCases(args)});
         }
         const rows = [...await protocol(args), ...await specialCases(args)];
         let browser;

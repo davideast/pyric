@@ -6,6 +6,14 @@ The [board policy](policies/chess.policy) derives legal moves, board changes, ri
 
 The source of the qualified compiler is on `experiment/chess-policy-engine` at `7edfec782d7d7a9b4a4bb40eb3a879118dda1cae`. Both policies opt into the bounded standalone language explicitly. The packed release also emits importable Rules helpers through its existing compiler entry point. The [release lock](policies/lock.json) pins the compiler tarball and both portable modules.
 
+## Verified game and rematch
+
+Two independently authenticated Chromium players played **1. f3 e5 2. g4 Qh4#** on the isolated live Firestore database. White offered the rematch, Black joined, White played **e4** and Black resigned. Separate endgame fixtures reached stalemate and promoted a pawn to a knight through the rendered selector. Pyric and the native Arcade control agreed on all seven played board transitions. The corrected client passed all 16 per-seat replay checks with an empty illegal-move warning list. The original client flagged all 16 observations on the same documents. [Verified browser receipt](verify/releases/referee.json) · [Original false warning](verify/diagnostics/first-checkmate.png) · [Corrected checkmate](verify/screens/4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d/checkmate.png) · [Rematch result](verify/screens/4dd266ebce15bfeca187bdf59962a9f23dbb63d84fe419334d38e42c064e8a6d/rematch-resignation.png)
+
+In a separate contention fixture, the two submissions read the same stored document version, then each attempted a real conditional commit. The winner stored one move. The losing request returned `matchVersion`. A pinned rook that would expose its king returned `legalMove` before the commit, with every field and the server version unchanged. [Referee verification](verify/releases/referee.json)
+
+The four primary releases produced 101 authenticated SDK write-attempt fixtures and 242 signed or signed-out read comparisons. Stock and compatibility matched on all 24 paired writes, including complete before/after state. The stronger release passed 30 hosted writes. The referee release passed 23 direct-client writes plus its separate browser and admission checks. Each qualified capture restored the pinned deny-all release and verified its behavior before releasing the controller lease. During development, a management-API rate limit interrupted one capture. The controller reverified ownership of its lease, restored the original rules and confirmed signed read and write denial. The four primary receipts cover completed captures only. [Stock](verify/releases/stock.json) · [Compatibility](verify/releases/compatibility.json) · [Stronger](verify/releases/stronger.json) · [Referee](verify/releases/referee.json)
+
 ## Enforcement
 
 | Complete linked release | Contract |

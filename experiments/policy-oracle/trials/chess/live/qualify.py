@@ -15,7 +15,9 @@ def main():
     parser.add_argument("client_build", type=Path)
     parser.add_argument("engine", type=Path)
     parser.add_argument("profiles", nargs="+", choices=PROFILES)
-    parser.add_argument("--supplement", action="store_true")
+    cohort = parser.add_mutually_exclusive_group()
+    cohort.add_argument("--supplement", action="store_true")
+    cohort.add_argument("--boundary", action="store_true")
     args = parser.parse_args()
     embedded = args.client_build / "games/chess/src/policy.mjs"
     if embedded.read_bytes() != args.engine.read_bytes():
@@ -44,6 +46,8 @@ def main():
                    digest, args.client_build, args.engine]
         if args.supplement:
             command.append("supplement")
+        if args.boundary:
+            command.append("boundary")
         result = subprocess.run(command)
         results[profile] = result.returncode
         # Each next profile independently checks the closed release and lease.
