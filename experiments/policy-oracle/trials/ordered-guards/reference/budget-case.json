@@ -1,0 +1,6 @@
+{
+  "id": "native-2-a8a1",
+  "fen": "r3k2r/8/8/8/8/8/8/R3K2R b KQkq -",
+  "uci": "a8a1",
+  "expected": "ALLOW"
+}
