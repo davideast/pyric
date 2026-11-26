@@ -2,16 +2,26 @@ import assert from 'node:assert/strict';
 import * as terminal from '../terminal/table-v2/policy.mjs';
 import {compileMobility,linkOnto} from './adapter.mjs';
 import {groupedSources} from './grouped.mjs';
+import {threeSources,compileThree,wholeBinding} from './three-piece.mjs';
+import {replySource} from '../terminal/v1/reply.mjs';
 
-const variants=new Set(['combined-quick-packed-v5','combined-pattern-packed-v5','combined-pattern-fast-packed-v5']);
+const variants=new Set(['combined-whole-packed-v5','combined-whole-fast-packed-v5','combined-quick-packed-v5','combined-pattern-packed-v5','combined-pattern-fast-packed-v5']);
 
-const backend=variant=>variant.slice(9).replace('pattern-fast-','pattern-');
+const backend=variant=>variant.slice(9).replace('pattern-fast-','pattern-').replace(/^whole-(?:fast-)?/,'');
 
 export function compile(compileFunction,variant,options={mode:'both'}) {
   if (!variants.has(variant)) return terminal.compile(compileFunction,variant,options);
   const base=terminal.compile(compileFunction,backend(variant),options);
   const mobility=compileMobility(compileFunction,{...options,specialized:true,grouped:true});
-  return {...base,modules:{...base.modules,...mobility.modules},hasKingReply:mobility.hasReply,inCheck:mobility.inCheck};
+  const out={...base,modules:{...base.modules,...mobility.modules},hasKingReply:mobility.hasReply,inCheck:mobility.inCheck};
+  if(variant.startsWith('combined-whole-')) {
+    const three=compileThree(compileFunction,options);
+    Object.assign(out.modules,three.modules);
+    const reply=compileFunction(replySource());
+    if(options.mode!=='standalone')out.modules.replyCapture=reply.firestoreModule();
+    out.threePieceStatus=three.threePieceStatus;
+  }
+  return out;
 }
 
 // The exact material branch decides all three status values. In other material,
@@ -50,7 +60,9 @@ function fuseTerminal(source,fast=false) {
 
 export async function link(modules,resolveModules,{variant}) {
   if (!variants.has(variant)) return terminal.link(modules,resolveModules,{variant});
-  const names=new Set(Object.keys(groupedSources()));
+  const whole=variant.startsWith('combined-whole-');
+  const extra=whole?[...Object.keys(threeSources()),'replyCapture']:[];
+  const names=new Set([...Object.keys(groupedSources()),...extra]);
   const group=Object.fromEntries(Object.entries(modules).filter(([key])=>names.has(key)));
   const original=Object.fromEntries(Object.entries(modules).filter(([key])=>!names.has(key)));
   let source=await terminal.link(original,resolveModules,{variant:backend(variant)});
@@ -64,6 +76,6 @@ export async function link(modules,resolveModules,{variant}) {
       .replace(swap,()=>"stripped.replace('([wb])(,*)([wb])','$3$2$1')");
   }
   return linkOnto(source,group,resolveModules,{specialized:true,grouped:true,
-    fuseTerminal:source=>fuseTerminal(source,fast)});
+    extra,fuseTerminal:whole ? source=>wholeBinding(source,variant.includes('whole-fast-')) : source=>fuseTerminal(source,fast)});
 
 }

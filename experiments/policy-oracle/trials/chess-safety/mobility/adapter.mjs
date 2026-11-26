@@ -73,8 +73,8 @@ export async function link(modules,resolveModules,{variant='king-reply'}={}) {
 /** Append the positive witness after the caller's existing terminal conjunct.
  * A caller that already decided an exact material class may pass its reviewed
  * Rules guard as covered; this value is supplied at link time only. */
-export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=false,grouped=false,checkStatus=false,covered,fuseTerminal=false}={}) {
-  const names=Object.keys(grouped?groupedSources():moveSources(specialized));
+export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=false,grouped=false,checkStatus=false,covered,fuseTerminal=false,extra=[]}={}) {
+  const names=[...Object.keys(grouped?groupedSources():moveSources(specialized)),...extra];
   assert.deepEqual(Object.keys(moves).sort(),[...names].sort());
   const imports=names.map(n=>"import { "+n+" } from './"+n+"';").join('\n');
   const libraries=Object.fromEntries(names.map(n=>['./'+n,moves[n]]));

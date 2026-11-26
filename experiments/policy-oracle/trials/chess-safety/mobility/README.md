@@ -37,3 +37,16 @@ A reported win must put the defending king in check. A reported stalemate must l
 | combined-pattern-fast-packed-v5 | a53c2fedb742710fc3aa3db055741b82842382fed457c5ab781cbf7259cb851b | 94/94 | 12,182 | 62 |
 
 All three permitted 127 incorrect terminal declarations in the independent corpus. The fast variant preserved each correct declaration tested and exceeded the local expression budget on 38 right-changing captures and 24 promotions. It skips the table for distant kings in rook, bishop and knight three-piece positions, and uses two regex substitutions to prepare the remaining search key. These figures describe local whole-write admission. `python3 pack.py --split output.tgz` reproduces the combined compiler package, SHA-256 `98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356`.
+
+## Complete three-piece positions
+
+The whole-board variants derive the exact playing, mate or stalemate status when the moving side retains its king and one queen, rook, bishop or knight against a bare defending king. They recognize terminal positions from the board independent of the last move. This includes moves by the attacking king, promotions and castling. `threePieceStatus(board, movingColor)` returns the Arcade status or null outside that material class. To check a castle, the linker converts its validated virtual-king path into the real successor by replacing the contiguous original king, transit king, destination king and rook.
+
+[The generator](three-piece.mjs) enumerates the three occupied squares from chess attack geometry and compresses common gap sequences into regular expressions. [The exhaustive replay](prove-three.mjs) independently recovers the frozen native digest across 1,791,552 positions, including all 3,392 mates and stalemates. A second, conservative pattern skips the exact lookup for positions guaranteed to be playing. It includes close kings and all eight queen-at-knight-distance possibilities next to a corner king. [Digest](three-proof.json)
+
+| Variant | Complete Rules SHA-256 | Bytes | Correct local complete writes out of 12,371 | Signed king-last and castling writes |
+| --- | --- | ---: | ---: | ---: |
+| combined-whole-packed-v5 | b3f55c94fd2353305e3d5750cb74c341fd57d375fc2e9b72df1c171848de794c | 160,856 | 12,189 | 287/288 |
+| combined-whole-fast-packed-v5 | 1c54afb25341a008e08b831e0cfd1b8a489dab8681e7d917d384fd77b8018b36 | 161,446 | 12,239 | 288/288 |
+
+The fast variant encountered five resource limits on legal writes and three on incorrect declarations. Its 124 incorrect allows involved broader terminal claims. Among another 762 complementary claims it matched 618 and allowed 144 incorrect results. Its complete-write observations and exhaustive pure geometry proof answer different questions.
