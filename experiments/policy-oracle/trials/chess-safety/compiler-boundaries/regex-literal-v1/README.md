@@ -1,0 +1,5 @@
+# Firestore regex literal length
+
+The pinned Pyric evaluator accepted the complete first scoped knight-and-pawn ruleset. Google's Rules service rejected its source before activation. The four diagnostics pointed to column 28 on lines 28, 31, 34 and 37, inside four functions that check king destinations. Their literal lengths were 7,093, 7,379, 7,163 and 7,477 characters. The service reported a maximum of 4,096. [Exact complete source](../../artefacts/knight-endgame-paired-pawn-combined-bare-simple-packed-v5.rules) · [Literal locations and digests](rejected-source.json)
+
+Run `python3 compiler-boundaries/regex-literal-v1/inspect.py /path/to/complete.rules` from the trial directory. The source check measures direct calls to `matches()` with one unescaped ASCII string literal. It reports other argument forms separately. These lengths can explain a deployment diagnostic. Only an observation for the exact source digest records what Google's compiler did, and only an authenticated SDK attempt measures a live chess write.

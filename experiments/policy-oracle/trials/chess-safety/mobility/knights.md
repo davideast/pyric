@@ -2,7 +2,7 @@
 
 A proposed checkmate or stalemate is premature if a defending knight can legally move. Pyric receives the game's canonical successor board and the defending color. It derives the source, target, capture and king safety of each response. An absolute pin can make every apparent jump illegal; a check can leave only one interposition.
 
-For white's `a8h8`, the signed [knight corpus](../exploration/knight-replies-v1/freeze.json) contains a pair that differs only by a white queen on b4. Both positions leave the black king immobile. With the queen on b4, White has pinned the black knight on g4 to the king on h4, and the draw claim is correct. Remove that queen and the knight can play `g4e3` among six legal responses. The same draw claim is premature. The frozen submissions are `knight-reply-477` and `knight-reply-483`.
+For white's `a8h8`, the [knight corpus](../exploration/knight-replies-v1/freeze.json) contains a pair that differs only by a white queen on b4. Both positions leave the black king immobile. With the queen on b4, White has pinned the black knight on g4 to the king on h4, and the draw claim is correct. Remove that queen and the knight can play `g4e3` among six legal responses. The same draw claim is premature. The frozen submissions are `knight-reply-477` and `knight-reply-483`.
 
 ## Derivation
 
@@ -22,8 +22,8 @@ The unrestricted combination applied both families. Even after the cheaper metad
 
 | Independent local panel | Matched | Incorrect allows | Incorrect refusals or budget errors |
 | --- | ---: | ---: | ---: |
-| 15,905 complete signed conformance writes | 15,682 | 223 | 0 |
-| 492 signed knight challenges, included above | 444 | 48 | 0 |
-| 9,587 signed history writes and forks | 9,584 | 3 | 0 |
+| 15,905 simulated full-document writes | 15,682 | 223 | 0 |
+| 492 simulated knight challenges, included above | 444 | 48 | 0 |
+| 9,587 simulated history writes and alternate proposals | 9,584 | 3 | 0 |
 
 All 48 residual knight-panel mismatches declare continued play when the native position has ended. The scope choice repaired one previously refused legal move on the 15,905-input panel and admitted four false claims that the unrestricted combination had caught. Compared with the paired-pawn-only control, the selected joint candidate had 138 more matching verdicts on that panel. The native and complete local scores are recorded separately from hosted observations. [Digests and exact test results](knight-score.json)

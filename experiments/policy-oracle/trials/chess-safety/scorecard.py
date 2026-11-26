@@ -48,6 +48,12 @@ def render(report):
         digest=rel['sha256']; counts=Counter()
         for batch in rel['batches'].values(): counts.update(batch)
         output.append(f"| [{name} `{digest[:12]}`](live/reviews/{digest}.json) | {counts['cases']} | {counts['falseAllows']} | {counts['falseRefusals']} | {counts['localVerdictMatches']}/{counts['cases']} | [Receipts](live/receipts/{digest}/) |")
+    scope=report.get('targetRegexLiterals',{})
+    if scope:
+        output += ['', '## Target compiler check','',
+            f"The emitted source has {scope['directAsciiLiterals']} direct unescaped ASCII `matches()` literals. The largest is {scope['largest']} characters. "
+            f"{len(scope['exceeding'])} exceed the observed 4,096-character limit. {scope['otherMatchesArguments']} other arguments are outside this source check. "
+            '[Official diagnostic and measured samples](compiler-boundaries/regex-literal-v1/)']
     queen = [(name,r) for name,r in zip(names,releases,strict=True) if 'holdout-black-queen-corner-playing' in r.get('examples',{})]
     if queen:
         output += ['','## The same checkmate under three claims','',
@@ -71,7 +77,8 @@ def render(report):
         rest=', '.join(f'{v} {k}' for k,v in rows.items() if k!='match' and v)
         output.append(f"| {label} | {sum(rows.values())} | {rows.get('match',0)} | {rest or '—'} |")
     for group,data in report['discovery']['cohorts'].items():append(group,data['outcomes'])
-    append('Pinned knight and safe twin on every slider ray',report['absolutePinRays']['stats'])
+    if 'absolutePinRays' in report:
+        append('Pinned knight and safe twin on every slider ray',report['absolutePinRays']['stats'])
     for group,h in report['history'].items():append('Recorded traces, '+group,{'match':h['allow'],'false refusal':h['falseRefusals']})
     append('Consecutive saved match histories and refusal probes',report['lifecycle']['outcomes'])
     ep=report['enPassantContinuations']; counts=Counter()

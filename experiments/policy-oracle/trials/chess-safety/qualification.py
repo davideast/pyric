@@ -8,7 +8,7 @@ HERE = Path(__file__).resolve().parent
 def local_projection(result):
     """Pin exact decision streams where the referee exposes one. Omit changing cloud totals."""
     return {key: result[key] for key in (
-        'packageSha256', 'variant', 'coreBatches', 'corePass', 'nativeEndgames', 'originalFilePins',
+        'packageSha256', 'variant', 'coreBatches', 'corePass', 'nativeEndgames', 'originalFilePins', 'targetRegexLiterals',
         'discovery', 'absolutePinRays', 'supplementalControls', 'enPassantContinuations', 'history', 'lifecycle'
     )}
 

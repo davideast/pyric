@@ -14,6 +14,7 @@ sys.dont_write_bytecode = True
 from corpus import BATCHES, HERE, OLD, load
 from score import score, score_rows, summarize
 from receipt_comparison import compare
+from scorecard import render
 
 REFERENCE = runpy.run_path(str(HERE.parent / 'for-of/replay.py'))
 DISCOVERY = runpy.run_path(str(HERE / 'exploration/replay.py'))
@@ -140,6 +141,9 @@ def replay(args, temp):
                        'localConformance':False,'matchesObservedProductionCases':None})
         return result, False
     equal(sha256(bundle.read_bytes()).hexdigest(),digest,'exported release bytes')
+    target_scan = observed(sys.executable,'compiler-boundaries/regex-literal-v1/inspect.py',bundle)
+    equal(target_scan['rulesSha256'],digest,'complete source scanned for literal constraints')
+    result['targetRegexLiterals'] = target_scan
     sdk = REFERENCE['install_rules'](REFERENCE['VENDOR']/'pyric-rules-0.1.0.tgz',temp/'ref')/'@pyric/rules'
     discovery = DISCOVERY['run'](bundle,sdk,True,extended_endings=True,bare_defender=True,knight_replies=True)
     result['discovery'] = {k:v for k,v in discovery.items() if k != 'reports'}
@@ -218,7 +222,6 @@ def main():
     if args.report:
         args.report.write_text(output)
     if args.scorecard:
-        from scorecard import render
         args.scorecard.write_text(render(result))
     print(output,end='')
     return int(args.candidate_package is not None and not matches)
