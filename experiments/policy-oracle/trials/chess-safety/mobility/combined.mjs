@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as terminal from '../terminal/table-v2/policy.mjs';
-import {compileMobility,linkOnto} from './adapter.mjs';
+import {compile as compileKingReply,link as linkKingReply,compileMobility,linkOnto} from './adapter.mjs';
 import {groupedSources} from './grouped.mjs';
 import {threeSources,compileThree,wholeBinding} from './three-piece.mjs';
 import {directSources,directWrapper,compileDirect,directGroupedSources,directGroupedWrapper} from './direct.mjs';
@@ -31,6 +31,7 @@ const variants=new Map(Object.entries({
   'combined-bare-slim-packed-v5':slim,
   'combined-bare-simple-packed-v5':{...slim,simple:true},
   'combined-bare-pairs-packed-v5':{...slim,simple:true,width:2},
+  'combined-bare-factored-pairs-packed-v5':{...slim,simple:true,width:2,compact:'historical-factored'},
   'combined-bare-fixed-packed-v5':{...slim,simple:true,width:2,compact:true},
   'combined-bare-fixed-comma-packed-v5':{...slim,simple:true,width:2,compact:'comma'},
   'combined-bare-projections-packed-v5':{...bare,simple:true,specialize:true},
@@ -38,6 +39,7 @@ const variants=new Map(Object.entries({
 }));
 
 export function compile(compileFunction,variant,options={mode:'both'}) {
+  if(/^king-reply(?:-v[2-5])?$/.test(variant))return compileKingReply(compileFunction,variant,options);
   const config=variants.get(variant);
   if(!config)return terminal.compile(compileFunction,variant,options);
   const base=terminal.compile(compileFunction,config.base,options);
@@ -128,6 +130,7 @@ function specializeMove(source) {
 }
 
 export async function link(modules,resolveModules,{variant}) {
+  if(/^king-reply(?:-v[2-5])?$/.test(variant))return linkKingReply(modules,resolveModules,{variant});
   const config=variants.get(variant);
   if(!config)return terminal.link(modules,resolveModules,{variant});
   const whole=config.domain==='three',bare=config.domain==='bare';

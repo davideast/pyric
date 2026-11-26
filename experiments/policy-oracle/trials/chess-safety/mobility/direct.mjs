@@ -30,7 +30,7 @@ export function directTests(color,offset,compact=false) {
   const enemy=color==='w'?'b':'w',king=compact?'K':color+'k,';
   const skip=compact?(n=>!n?'':n===1?'[^;]':'[^;]{'+n+'}'):gap;
   const head=compact?'[^;]*':prefix, tail=compact?'[^;]*':'.*';
-  const empty=compact===true?'_':',';
+  const empty=compact && compact!=='comma'?'_':',';
   const target=compact?'['+empty+'prnbq]':'(?:'+enemy+'[prnbq])?,';
   const valid=head+ordered(new Map([[0,king],[offset,target]]),skip).join('')+tail;
   const threats=[];
@@ -59,7 +59,7 @@ export function directTests(color,offset,compact=false) {
   const beyond=offset>0?tail+king+tooShort:tooShort+king+tail;
   const absent=compact?'[^;K]*':'(?:[,#]|[wb][prnbq],|'+enemy+'k,)*';
   const blocked=ordered(new Map([[0,king],[offset,bad]]),skip);
-  const failure=compact?choice([...threats,blocked].map(parts=>parts.join(''))):alternation([...threats,blocked]);
+  const failure=compact && compact!=='historical-factored'?choice([...threats,blocked].map(parts=>parts.join(''))):alternation([...threats,blocked]);
   const rejected=choice([beyond,absent,head+failure+tail]);
   return {valid,attacked:head+alternation(threats)+tail,rejected};
 }
@@ -117,7 +117,7 @@ export function directGroupedSources(width=4,compact=false) {
       const r=directTests(color,offset,compact).rejected.replaceAll('.*','[^;]*').replaceAll('[^,]','[^,;]');
       return r+';';
     }).join('');
-    if(compact && (test.length>4096 || test.split('(').length-1>100)) {
+    if(compact && compact!=='historical-factored' && (test.length>4096 || test.split('(').length-1>100)) {
       throw new Error('Directional regex exceeds the hosted compiler limits: '+name);
     }
     out[name]="function "+name+"(records) { return records.matches('"+test+"'); }";

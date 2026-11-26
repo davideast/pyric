@@ -104,7 +104,9 @@ def build_recorded_package(variant, temp):
     target = temp/'candidate.tgz'
     def build(*args):
         subprocess.run([sys.executable,*args],cwd=HERE,check=True,stdout=subprocess.DEVNULL)
-    if 'combined-' in variant:
+    if variant in ('king-reply', 'king-reply-v2', 'king-reply-v3', 'king-reply-v4', 'king-reply-v5'):
+        build('mobility/pack.py',target)
+    elif 'combined-' in variant:
         build('mobility/pack.py','--split',target)
     elif variant.startswith('indexed-'):
         source = temp/'split.tgz'
