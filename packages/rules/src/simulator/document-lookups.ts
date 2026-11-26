@@ -27,6 +27,7 @@ export function isDocumentPath(segmentsOrPath: string | readonly string[]): bool
 interface LookupPathInspection {
   readonly malformedDatabaseRoot: boolean;
   readonly foreignDatabase?: string;
+  readonly foreignRelativePath?: string;
   readonly normalizedPath: string;
 }
 
@@ -69,6 +70,7 @@ function inspectLookupPath(rawPath: string, expectedDatabase?: string): LookupPa
       return {
         malformedDatabaseRoot: false,
         foreignDatabase: rawSegments[1],
+        foreignRelativePath: resolveRelativeSegments(rawSegments.slice(3)),
         normalizedPath: resolveRelativeSegments(rawSegments),
       };
     }
@@ -102,6 +104,57 @@ export function normalizeDocumentPath(rawPath: string, expectedDatabase?: string
   return inspectLookupPath(rawPath, expectedDatabase).normalizedPath;
 }
 
+/**
+ * Canonical `/databases/<db>/documents/<rel>` key when `rawPath` names a valid
+ * document inside a database other than `expectedDatabase`, or `undefined`.
+ */
+export function canonicalForeignLookupKey(
+  rawPath: string,
+  expectedDatabase?: string,
+): string | undefined {
+  const inspected = inspectLookupPath(rawPath, expectedDatabase);
+  if (inspected.malformedDatabaseRoot || inspected.foreignDatabase === undefined) {
+    return undefined;
+  }
+  const rel = inspected.foreignRelativePath ?? '';
+  if (!isDocumentPath(rel.split('/').filter(Boolean))) {
+    return undefined;
+  }
+  return `/databases/${inspected.foreignDatabase}/documents/${rel}`;
+}
+
+/** True when an explicit Rules Test API mock satisfies a cross-database lookup. */
+export function hasForeignFunctionMock(
+  fnName: 'get' | 'exists',
+  rawPath: string,
+  context: SimulationContext,
+): boolean {
+  const key = canonicalForeignLookupKey(rawPath, context.database);
+  if (key === undefined) return false;
+  if (fnName === 'get') {
+    return context.foreignMockDocuments?.has(key) === true;
+  }
+  if (context.foreignExistsMocks?.has(key) === true) return true;
+  return context.foreignMockDocuments?.has(key) === true;
+}
+
+/** Error wording for an unmocked cross-database document lookup. */
+export function crossDatabaseLookupMessage(
+  fnName: 'get' | 'exists' | 'getAfter' | 'existsAfter',
+  foreignDatabase: string,
+  expectedDatabase: string | undefined,
+  rawPath: string,
+): string {
+  let targetDb = '(default)';
+  if (expectedDatabase !== undefined && expectedDatabase.length > 0) {
+    targetDb = expectedDatabase;
+  }
+  if (targetDb === '(default)') {
+    return `${fnName}() cannot access non-default database '${foreignDatabase}' in path '${rawPath}'`;
+  }
+  return `${fnName}() cannot access database '${foreignDatabase}' from database '${targetDb}' in path '${rawPath}'`;
+}
+
 function validateAndNormalizeLookupPath(
   fnName: 'get' | 'exists',
   rawPath: string,
@@ -115,7 +168,7 @@ function validateAndNormalizeLookupPath(
   }
   if (inspected.foreignDatabase !== undefined) {
     throw new EvalError(
-      `${fnName}() cannot access non-default database '${inspected.foreignDatabase}' in path '${rawPath}'`,
+      crossDatabaseLookupMessage(fnName, inspected.foreignDatabase, expectedDatabase, rawPath),
     );
   }
   const path = inspected.normalizedPath;
@@ -144,6 +197,13 @@ export function makeGetResource(
 }
 
 export function resolveGet(rawPath: string, context: SimulationContext): SimResource {
+  const foreignKey = canonicalForeignLookupKey(rawPath, context.database);
+  if (foreignKey !== undefined) {
+    const foreignDoc = context.foreignMockDocuments?.get(foreignKey);
+    if (foreignDoc !== undefined) {
+      return { data: reviveFirestoreNumbers(foreignDoc) as Record<string, unknown> };
+    }
+  }
   const path = validateAndNormalizeLookupPath('get', rawPath, context.database);
   let document = context.mockDocuments.get(path);
   if (!document && context.getDoc) {
@@ -165,6 +225,12 @@ export function resolveGet(rawPath: string, context: SimulationContext): SimReso
 }
 
 export function resolveExists(rawPath: string, context: SimulationContext): boolean {
+  const foreignKey = canonicalForeignLookupKey(rawPath, context.database);
+  if (foreignKey !== undefined) {
+    const mockedForeign = context.foreignExistsMocks?.get(foreignKey);
+    if (mockedForeign !== undefined) return mockedForeign;
+    if (context.foreignMockDocuments?.has(foreignKey) === true) return true;
+  }
   const path = validateAndNormalizeLookupPath('exists', rawPath, context.database);
   // An exists mock answers exists() first, whatever else is known about
   // the path (FS-CON-6).

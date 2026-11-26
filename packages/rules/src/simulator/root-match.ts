@@ -14,16 +14,21 @@ import { DOCUMENT_PATH_FORM } from './request-path.js';
 /**
  * The service's root `match` is a path like any other. Production compares
  * it with the full resource name of the request,
- * `/databases/(default)/documents/<document path>`, so a root that names
+ * `/databases/<database>/documents/<document path>`, so a root that names
  * another database, another subtree, or a misspelled `documents` grants
- * nothing (capture `rules-firestore-service-root-match-path`). The sandbox
- * models one database, `(default)`, so every request carries that name.
+ * nothing (capture `rules-firestore-service-root-match-path` and
+ * `firestore-named-database-rules-api`).
  */
-const REQUEST_PREFIX = ['databases', '(default)', 'documents'] as const;
+const DEFAULT_DATABASE = '(default)';
+
+function requestPrefix(database = DEFAULT_DATABASE): readonly [string, string, string] {
+  const targetDb = database.length > 0 ? database : DEFAULT_DATABASE;
+  return ['databases', targetDb, 'documents'];
+}
 
 /** The full resource name of a document-relative request path. */
-export function requestResourceName(documentPath: string): string {
-  return `/${[...REQUEST_PREFIX, ...splitPath(documentPath)].join('/')}`;
+export function requestResourceName(documentPath: string, database = DEFAULT_DATABASE): string {
+  return `/${[...requestPrefix(database), ...splitPath(documentPath)].join('/')}`;
 }
 
 export interface RootMatch {
@@ -52,16 +57,21 @@ export function resolveRootBlockMatch(
   rootBlock: MatchBlock,
   rulesVersion: string,
   documentPath: string,
+  database = DEFAULT_DATABASE,
 ): RootMatch | null {
-  const request = [...REQUEST_PREFIX, ...splitPath(documentPath)];
+  const request = [...requestPrefix(database), ...splitPath(documentPath)];
   return resolveRootSegments(rootBlock.path.segments, request, recursiveWildcardMinimum(rulesVersion));
 }
 
-export function resolveRootMatch(ast: FirestoreRules, documentPath: string): RootMatch | null {
+export function resolveRootMatch(
+  ast: FirestoreRules,
+  documentPath: string,
+  database = DEFAULT_DATABASE,
+): RootMatch | null {
   const service = firestoreServiceBlock(ast);
   if (!service) return null;
   for (const rootBlock of topLevelMatches(service)) {
-    const matched = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
+    const matched = resolveRootBlockMatch(rootBlock, ast.version, documentPath, database);
     if (matched !== null) return matched;
   }
   return null;
@@ -154,12 +164,13 @@ export function collectRootMatches(
   documentPath: string,
   functions: FunctionDef[],
   recorder?: { push(entry: PathResolutionEntry): void },
+  database = DEFAULT_DATABASE,
 ): MatchResult[] {
   const service = firestoreServiceBlock(ast);
   if (!service) return [];
   const allMatches: MatchResult[] = [];
   for (const rootBlock of topLevelMatches(service)) {
-    const root = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
+    const root = resolveRootBlockMatch(rootBlock, ast.version, documentPath, database);
     if (!root) continue;
     const blockFunctions = mergeRootFunctions(functions, rootBlock.functions);
     const tail = root.recursiveTail;
@@ -296,8 +307,12 @@ function collectBelowRootRecursive(
  * version 1 a recursive wildcard needs a segment, so one right after
  * `documents` misses the top-level documents and does not govern them all.
  */
-export function rootBlockGovernsEveryDocument(rootBlock: MatchBlock, rulesVersion: string): boolean {
-  const root = resolveRootBlockMatch(rootBlock, rulesVersion, '');
+export function rootBlockGovernsEveryDocument(
+  rootBlock: MatchBlock,
+  rulesVersion: string,
+  database = DEFAULT_DATABASE,
+): boolean {
+  const root = resolveRootBlockMatch(rootBlock, rulesVersion, '', database);
   if (!root) return false;
   const endsAtDocuments = root.recursiveTail === undefined && root.remaining.length === 0;
   // `remaining` is what the empty document path leaves the tail: under
@@ -308,18 +323,25 @@ export function rootBlockGovernsEveryDocument(rootBlock: MatchBlock, rulesVersio
   return endsAtDocuments || tailReachesEveryDocument;
 }
 
-export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
+export function rootGovernsEveryDocument(
+  ast: FirestoreRules,
+  database = DEFAULT_DATABASE,
+): boolean {
   const service = firestoreServiceBlock(ast);
   if (!service) return false;
   return topLevelMatches(service).some((rootBlock) =>
-    rootBlockGovernsEveryDocument(rootBlock, ast.version),
+    rootBlockGovernsEveryDocument(rootBlock, ast.version, database),
   );
 }
 
 /** The notes for a request no match block resolves: a non-Firestore service
  *  declares no Firestore rules, the root names the request it does not apply
  *  to, and otherwise no block under it matched. */
-export function noMatchNotes(ast: FirestoreRules, documentPath: string): string[] {
+export function noMatchNotes(
+  ast: FirestoreRules,
+  documentPath: string,
+  database = DEFAULT_DATABASE,
+): string[] {
   const service = firestoreServiceBlock(ast);
   if (!service) {
     const declared = ast.service?.name ?? '(none)';
@@ -327,17 +349,18 @@ export function noMatchNotes(ast: FirestoreRules, documentPath: string): string[
       `Ruleset declares 'service ${declared}', not 'service cloud.firestore', so no match block applies and the request is denied.`,
     ];
   }
-  const rootApplies = resolveRootMatch(ast, documentPath) !== null;
+  const rootApplies = resolveRootMatch(ast, documentPath, database) !== null;
   if (rootApplies) {
     return [`No match block found for path '${documentPath}', so the request is denied by default.`, DOCUMENT_PATH_FORM];
   }
+  const resourceName = requestResourceName(documentPath, database);
   const roots = topLevelMatches(service);
   if (roots.length <= 1) {
     const rootPath = renderMatchBlockPath(service.match);
-    return [`The root match '${rootPath}' does not match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
+    return [`The root match '${rootPath}' does not match '${resourceName}', so no match block applies and the request is denied.`];
   }
   const rootPaths = roots.map((r) => `'${renderMatchBlockPath(r)}'`).join(', ');
-  return [`None of the root matches (${rootPaths}) match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
+  return [`None of the root matches (${rootPaths}) match '${resourceName}', so no match block applies and the request is denied.`];
 }
 
 function splitPath(path: string): string[] {

@@ -48,6 +48,7 @@ import { SandboxClock } from '../../sandbox/clock.js';
 
 export interface RulesListAuthorizerHost {
   readonly state: DocStore;
+  readonly databaseId?: string;
 }
 
 export interface ListAuthorizationRequest {
@@ -118,9 +119,10 @@ export class RulesListAuthorizer {
       return { allowed: true };
     }
 
+    const database = this.host.databaseId ?? '(default)';
     const deployedAst = this.rules.ast();
     const evaluationAst = request.collectionGroup
-      ? proveCollectionGroupRules(deployedAst, path)
+      ? proveCollectionGroupRules(deployedAst, path, database)
       : deployedAst;
     if (request.collectionGroup && !evaluationAst) {
       const message =
@@ -165,6 +167,7 @@ export class RulesListAuthorizer {
         auth,
         armConstraints,
         this.rules.source,
+        database,
       );
       if (proof.kind === 'unprovable') {
         return this.denyQuery(
@@ -193,10 +196,11 @@ export class RulesListAuthorizer {
       const simulation = residualAst
         ? this.simulator.simulateParsed(residualAst, this.rules.source, [testCase], {
           getDoc,
+          database,
           sourceMap: this.rules.sourceMap(),
           skipQueryProof: true,
         })
-        : this.simulator.simulate(this.rules.source, [testCase], { getDoc });
+        : this.simulator.simulate(this.rules.source, [testCase], { getDoc, database });
       const evalMs = performance.now() - evalStart;
       if (!simulation.success) {
         this.emitRequest({

@@ -690,6 +690,7 @@ export function queryResidual(
   pathVariables?: Readonly<Record<string, string>>,
   functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
   pathInvariance?: PathInvarianceContext,
+  database?: string,
 ): { condition: Expression; partial: boolean } | undefined {
   let partial = false;
   const filterSetsByField = computeFieldFilterSets(constraints);
@@ -713,6 +714,7 @@ export function queryResidual(
     candidateVariables: pathInvariance?.candidateVariables,
     ambiguousNames: pathInvariance?.ambiguousNames,
     checkResourceDependence: true,
+    database,
   };
   const residuals: Expression[] = [];
   for (const pins of variants) {
@@ -1135,6 +1137,7 @@ export function buildRuleBudgetCondition(
   functions: ReadonlyMap<string, FunctionDef>,
   functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
   pathInvariance?: PathInvarianceContext,
+  database?: string,
 ): Expression {
   const singlePins = new Map<string, Expression>();
   for (const [field, values] of computeWhereDomains(constraints)) {
@@ -1150,6 +1153,7 @@ export function buildRuleBudgetCondition(
     candidateVariables: pathInvariance?.candidateVariables,
     ambiguousNames: pathInvariance?.ambiguousNames,
     checkResourceDependence: true,
+    database,
   };
 
   let budget = 2000;

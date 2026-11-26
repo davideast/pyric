@@ -103,12 +103,6 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'confo
 const NOT_APPLICABLE: Record<string, string> = {
   'firestore-bare-getfirestore-no-default-app.json':
     "exercises the prod fallthrough (getFirestore() with no argument and no default Firebase App) — the app/no-app FirebaseError is a firebase-app concern of the prod path, not modeled by the sandbox target (which always takes an explicit Sandbox/ctx). Mirrors the auth suite's NOT_APPLICABLE for auth-bare-getauth-no-default-app.",
-  'firestore-named-database-absent.json':
-    "records production's answer to a read from a database the project lacks (ADR-0021 C3). The sandbox models one database per app today (row MD1), so every id reads (default); #1316 replaces this entry with a replay once a missing database answers as production does.",
-  'firestore-named-database-rules-api.json':
-    "records what the Rules Test API binds `database` and `request.path` to for a request in the named database `probes` (ADR-0021 C1). The rules simulator binds `(default)` for every request today (row MD4); #1316 replaces this entry with a replay once `database` binds the handle's id.",
-  'firestore-named-database-cross-database.json':
-    "records deployed rules in the named database `probes` reading `(default)` through get() and exists() (ADR-0021 C2): every cross-database lookup is an error value that denies, and `|| true` still grants. The sandbox models one database per app today (row MD4); #1316 replaces this entry with a replay (row MD6).",
 };
 
 // Instrumented completeness gate: `load(name)` records which behavior fields are

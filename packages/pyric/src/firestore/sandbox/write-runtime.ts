@@ -29,6 +29,7 @@ registerDefaultConverters();
 
 export interface WriteRuntimeHost {
   readonly state: DocStore;
+  readonly databaseId?: string;
   notifyListenersForPaths(paths: Set<string>, ops?: TriggeringOps): void;
 }
 
@@ -168,6 +169,7 @@ export class WriteRuntime {
       testCases,
       bypassRules,
       batchProjection,
+      this.host.databaseId ?? '(default)',
     );
   }
 

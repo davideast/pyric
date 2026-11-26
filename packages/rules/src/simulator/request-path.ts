@@ -37,3 +37,17 @@ export function documentRelativePath(path: string): string {
   if (hasResourcePrefix) return segments.slice(PREFIX_SEGMENTS).join('/');
   return segments.join('/');
 }
+
+/**
+ * The database id carried by a full `/databases/<database>/documents/...`
+ * request path, or `undefined` when the path is already document-relative.
+ */
+export function requestDatabaseId(path: string): string | undefined {
+  const segments = path.split('/').filter(Boolean);
+  const hasResourcePrefix =
+    segments.length > PREFIX_SEGMENTS &&
+    segments[0] === 'databases' &&
+    segments[2] === 'documents';
+  if (!hasResourcePrefix) return undefined;
+  return segments[1];
+}
