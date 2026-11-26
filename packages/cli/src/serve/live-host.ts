@@ -42,7 +42,9 @@ import {
   fetchLoopbackTarget,
   resolveSessionTokenLookup,
 } from './local-session-token.js';
+import { ADMIN_PASS_THROUGH, passThroughSet } from './vite-supplied-rows.js';
 
+export { livePassThroughLine } from 'pyric/sandbox/internal';
 export { LiveProjectMissingError, liveProjectId } from './live-project.js';
 
 /** The `@pyric/live` export whose presence opens this seam: the package's own command. */
@@ -86,6 +88,22 @@ export interface LiveHostStart {
   liveRoot?: string;
   /** Explicit second opt-in from `pyric-live --allow-remote-live` admitting non-loopback peers. */
   allowRemotePeers?: boolean;
+  /**
+   * Served `firebase/*` specifiers with no live row to pass through unwrapped
+   * and unobserved (`pyric-live --pass-through`). Validated with `passThroughSet`.
+   */
+  passThrough?: readonly string[];
+}
+
+function validateLiveHostPassThrough(listed: readonly string[] | undefined): readonly string[] {
+  if (listed === undefined || listed.length === 0) return [];
+  const validated = passThroughSet(listed);
+  if (validated.has(ADMIN_PASS_THROUGH)) {
+    throw new Error(
+      `pyric: ${ADMIN_PASS_THROUGH} cannot pass through on the live host: live mode already serves and observes it in a Node process.`,
+    );
+  }
+  return [...validated];
 }
 
 export interface LiveHostProbeOptions extends LiveHostStart {
@@ -116,6 +134,7 @@ export function checkLiveRunRuntime(
 export async function runLiveHost(argv: readonly string[], start: LiveHostStart = {}): Promise<number> {
   const projectRoot = liveHostProjectRoot(process.cwd());
   const from = requireInstalledLive(projectRoot, start.liveRoot, 'The live host did not start.');
+  const passThrough = validateLiveHostPassThrough(start.passThrough);
   // `runServe` reads its project from the working directory: firebase.json, pyric.json, rules and Hosting files.
   process.chdir(projectRoot);
   const parsed = parseArgs(['sandbox', ...argv]);
@@ -133,6 +152,7 @@ export async function runLiveHost(argv: readonly string[], start: LiveHostStart 
       project,
       writeRefusal: refusal.fn as unknown as PyricWriteRefusal,
       allowRemotePeers: start.allowRemotePeers === true,
+      passThrough,
     },
   });
 }
