@@ -92,7 +92,8 @@ def score(package, through, variant, save_artifact=None, board_policy=False):
     inputs = [{k:r[k] for k in ("resource","data")} for r in requests]
     files = {REL+"/consumer.mjs", REL+"/policy","trials/king-safety/policy/public-api.mjs",
              "trials/king-safety/policy/horizontal-path.policy"}
-    terminal_files = {REL+"/terminal/v1/"+f for f in ("policy.mjs","geometry.mjs","compact.mjs")}
+    terminal_files = {REL+"/terminal/v1/"+f for f in ("policy.mjs","geometry.mjs","compact.mjs","reply.mjs")}
+    terminal_files.update({REL+"/terminal/table-v2/"+f for f in ("policy.mjs","endings.mjs")})
     files.update(terminal_files)
     tasks = {"emit":task("consumer.mjs", ["emit",variant,PKG]),
              "standalone":task("consumer.mjs", ["standalone",variant,PKG,*chunks(inputs)])}

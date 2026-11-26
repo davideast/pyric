@@ -1,0 +1,47 @@
+{
+  "authority": "pinned Arcade native",
+  "tally": {
+    "wr": {
+      "playing": 223660,
+      "checkmate": 216,
+      "stalemate": 68
+    },
+    "wq": {
+      "playing": 222708,
+      "checkmate": 364,
+      "stalemate": 872
+    },
+    "wb": {
+      "playing": 223808,
+      "checkmate": 0,
+      "stalemate": 136
+    },
+    "wn": {
+      "playing": 223904,
+      "checkmate": 0,
+      "stalemate": 40
+    },
+    "br": {
+      "playing": 223660,
+      "checkmate": 216,
+      "stalemate": 68
+    },
+    "bq": {
+      "playing": 222708,
+      "checkmate": 364,
+      "stalemate": 872
+    },
+    "bb": {
+      "playing": 223808,
+      "checkmate": 0,
+      "stalemate": 136
+    },
+    "bn": {
+      "playing": 223904,
+      "checkmate": 0,
+      "stalemate": 40
+    }
+  },
+  "positions": 1791552,
+  "sha256": "a10246386d4565af1cf3ee10af7ffcf659ffc60df1832071150a6672e7cb14dc"
+}

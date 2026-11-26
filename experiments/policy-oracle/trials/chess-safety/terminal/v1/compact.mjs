@@ -30,7 +30,7 @@ function tree(lo,hi) {
   const mid=(lo+hi)>>1;
   return '(index <= '+mid+' ? '+tree(lo,mid)+' : '+tree(mid+1,hi)+')';
 }
-export function installCompact(rules) {
+export function installCompact(rules,withReply=false,fast=false) {
   const marker='  function chessMove() {';
   const guard='return packedSafe(text, color);';
   if(rules.split(guard).length!==2||rules.split(marker).length!==2)throw Error('unexpected packed binding');
@@ -41,6 +41,19 @@ export function installCompact(rules) {
   // A canonical board contains exactly one king of each color. The guarded
   // three-piece language admits only these kings and the slider at the destination.
   const three="text.matches('[,#]*(?:[wb][kqr][,#]+){3}')";
-  const check="(castle || !("+three+") || !(next.board[next.lastMove.to] in [color + 'q',color + 'r']) || compareEnding(text, color, xTo+yTo*8, next.board[next.lastMove.to] == color + 'q', next.status))";
-  return rules.replace(guard,'return packedSafe(text, color) && '+check+';').replace(marker,helpers+'\n'+marker);
+  let check="(castle || !("+three+") || !(next.board[next.lastMove.to] in [color + 'q',color + 'r']) || compareEnding(text, color, xTo+yTo*8, next.board[next.lastMove.to] == color + 'q', next.status))";
+  if(fast) {
+    // Exhaustive bare-king geometry proves KR/K terminal states require the
+    // two kings to be exactly two king steps apart. Each distance below is a
+    // possible absolute difference on the sentinel-padded 10-column board.
+    const gap="(?:[^,]*,)";
+    const offsets=[2,8,12,18,19,20,21,22].map(n=>gap+"{"+(n-1)+"}").join("|");
+    const between="(?:"+offsets+")";
+    const near=".*(?:wk,"+between+"bk,|bk,"+between+"wk,).*";
+    const normal="(next.board[next.lastMove.to] == color + 'r' && !text.matches('"+near+"'))";
+    const regular="compareEnding(text, color, xTo+yTo*8, next.board[next.lastMove.to] == color + 'q', next.status)";
+    check=check.replace(regular,"("+normal+" ? next.status == 'playing' : "+regular+")");
+  }
+  const reply=withReply?" && (next.status == 'playing' || !replyCapture(text,color))":"";
+  return rules.replace(guard,'return packedSafe(text, color) && '+check+reply+';').replace(marker,helpers+'\n'+marker);
 }

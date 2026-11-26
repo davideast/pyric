@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {groups,squares} from './geometry.mjs';
+import {replySource} from './reply.mjs';
 import {compactSources,installCompact} from './compact.mjs';
 import * as base from '../../policy/adapter.mjs';
 
@@ -20,9 +21,9 @@ function source(sq) {
 }
 const name=sq=>'ending'+sq;
 export function compile(compileFunction,variant,options) {
-  if(variant.startsWith('table-')) {
+  if(/^(quick|reply|table)-/.test(variant)) {
     const p=base.compile(compileFunction,variant.slice(6),options);
-    for(const [key,source] of Object.entries(compactSources())){
+    for(const [key,source] of Object.entries({...compactSources(),...(/^(quick|reply)-/.test(variant) && {replyCapture:replySource()})})){
       const invoke=compileFunction(source);
       if(options.mode!=='standalone')p.modules[key]=invoke.firestoreModule();
     }
@@ -43,11 +44,12 @@ function select(lo,hi) {
   return '(index <= '+mid+' ? '+select(lo,mid)+' : '+select(mid+1,hi)+')';
 }
 export async function link(modules,resolveModules,{variant}) {
-  if(variant.startsWith('table-')){
-    const names=new Set(Object.keys(compactSources()));
+  if(/^(quick|reply|table)-/.test(variant)){
+    const withReply=/^(quick|reply)-/.test(variant);
+    const names=new Set([...Object.keys(compactSources()),...(withReply?['replyCapture']:[])]);
     const originals=Object.fromEntries(Object.entries(modules).filter(([k])=>!names.has(k)));
     let rules=await base.link(originals,resolveModules,{variant:variant.slice(6)});
-    rules=installCompact(rules).replace("rules_version = '2';","rules_version = '2+modules';\n"+
+    rules=installCompact(rules,withReply,variant.startsWith('quick-')).replace("rules_version = '2';","rules_version = '2+modules';\n"+
       [...names].map(n=>"import { "+n+" } from './"+n+"';").join('\n'));
     const result=resolveModules(rules,{modules:Object.fromEntries([...names].map(n=>['./'+n,modules[n]])),sourceFile:'chess-endings.modules.rules'});
     assert.ok(result.success,result.error?.message);

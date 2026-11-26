@@ -1,0 +1,14 @@
+{
+  "authority": "pinned Arcade native and independent standalone legal lists",
+  "boards": 3905,
+  "writes": 4440,
+  "counts": {
+    "king-destination": 1124,
+    "legal-control": 1042,
+    "unanswered-check": 1726,
+    "newly-exposed": 369,
+    "castle-safety": 179
+  },
+  "inputsSha256": "0f5c9fdfaf6ff7201922bf77190cd0098268e1c5af8b5b8bbedd101da1a34750",
+  "successorsSha256": "5ce7342bbf4260abac6a96238fcd3c9e8f6b7b506b0b1e4f25d70ed39b4889da"
+}
