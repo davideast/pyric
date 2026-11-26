@@ -12,7 +12,10 @@ external = runpy.run_path(str(HERE.parents[2]/"chess/reference/generate.py"))
 
 def audit(chess, result):
     verified = []
-    for source in [result["original"], *result["minimizations"]]:
+    sources = [result["original"], *result["minimizations"]]
+    if "suppliedSeed" in result:
+        sources.append(result["suppliedSeed"])
+    for source in sources:
         board = chess.Board(source["seedFen"])
         assert board.is_valid() and len(board.piece_map())==source["pieces"]
         assert [s["uci"] for s in source["path"]]==["f2f3","e7e5","g2g4","d8h4"]

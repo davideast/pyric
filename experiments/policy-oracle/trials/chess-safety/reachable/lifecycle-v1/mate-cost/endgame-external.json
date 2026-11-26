@@ -1,0 +1,23 @@
+{
+  "refereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "rulesSha256": "a5a549b9bf2b0c1bd4835bbd9742a63629268df6f640bdb7dc8d0966fde5ef12",
+  "verifiedLines": [
+    {
+      "seedFen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -",
+      "pieces": 32,
+      "final": "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq -",
+      "finalReplies": 0,
+      "outcome": "checkmate",
+      "winningSeat": "guest"
+    },
+    {
+      "seedFen": "3qk2r/4p3/8/8/8/8/3PPPP1/1N1QKB2 w k -",
+      "pieces": 12,
+      "final": "4k2r/8/8/4p3/6Pq/5P2/3PP3/1N1QKB2 w k -",
+      "finalReplies": 0,
+      "outcome": "checkmate",
+      "winningSeat": "guest"
+    }
+  ],
+  "scoredResultSha256": "f8c86d3a3f2d43c47f84f10c733498938f320c5a326e01f091fb406da8b47815"
+}
