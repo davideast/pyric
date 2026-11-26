@@ -157,11 +157,13 @@ class FirebaseUser internal constructor(
                 val firebaseMap = claims["firebase"] as? Map<String, Any?>
                 val provider = (res["signInProvider"] as? String)
                     ?: (firebaseMap?.get("sign_in_provider") as? String)
-                if (!provider.isNullOrBlank()) {
-                    signInProviderOverride = provider
-                }
-                customClaims = extractCustomClaims(claims)
-                auth.notifyTokenRefreshed(this@FirebaseUser, seqRes.wireSeq)
+                val extracted = extractCustomClaims(claims)
+                auth.commitTokenMutation(
+                    user = this@FirebaseUser,
+                    wireSeq = seqRes.wireSeq,
+                    customClaims = extracted,
+                    signInProvider = provider
+                )
                 tcs.setResult(GetTokenResult(token, claims, exp, authTime, issuedAt, provider))
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -188,12 +190,15 @@ class FirebaseUser internal constructor(
                     includePhotoURL = request.photoUriSet
                 )
                 val updated = seqRes.data
-                rawData = updated
                 @Suppress("UNCHECKED_CAST")
-                (updated["customClaims"] as? Map<String, Any?> ?: updated["claims"] as? Map<String, Any?>)?.let {
-                    customClaims = extractCustomClaims(it)
-                }
-                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
+                val updatedClaims = (updated["customClaims"] as? Map<String, Any?> ?: updated["claims"] as? Map<String, Any?>)
+                    ?.let { extractCustomClaims(it) }
+                auth.commitUserProfileMutation(
+                    user = this@FirebaseUser,
+                    wireSeq = seqRes.wireSeq,
+                    rawData = updated,
+                    customClaims = updatedClaims
+                )
                 tcs.setResult(null)
             } catch (e: Exception) {
                 tcs.setException(auth.wrapException(e))
@@ -214,14 +219,17 @@ class FirebaseUser internal constructor(
                     BridgeAuthOperations.getCurrentUserSequenced(auth.bridgeClient)
                 }
                 val user = resolved.data
-                if (user != null) {
-                    rawData = user
-                    @Suppress("UNCHECKED_CAST")
-                    (user["customClaims"] as? Map<String, Any?> ?: user["claims"] as? Map<String, Any?>)?.let {
-                        customClaims = extractCustomClaims(it)
-                    }
+                @Suppress("UNCHECKED_CAST")
+                val reloadedClaims = user?.let {
+                    (it["customClaims"] as? Map<String, Any?> ?: it["claims"] as? Map<String, Any?>)
+                        ?.let { c -> extractCustomClaims(c) }
                 }
-                auth.notifyUserUpdated(this@FirebaseUser, resolved.wireSeq)
+                auth.commitUserProfileMutation(
+                    user = this@FirebaseUser,
+                    wireSeq = resolved.wireSeq,
+                    rawData = user,
+                    customClaims = reloadedClaims
+                )
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -330,10 +338,13 @@ class FirebaseUser internal constructor(
                 val res = seqRes.data
                 @Suppress("UNCHECKED_CAST")
                 val updated = (res["user"] as? Map<String, Any?>) ?: res
-                if (updated["uid"] is String) {
-                    applyUpdatedUserMap(updated)
-                }
-                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
+                val hasUid = updated["uid"] is String
+                auth.commitUserProfileMutation(
+                    user = this@FirebaseUser,
+                    wireSeq = seqRes.wireSeq,
+                    rawData = if (hasUid) updated else null,
+                    customClaims = if (hasUid) extractUserMapClaims(updated) else null
+                )
                 tcs.setResult(AuthResult(this@FirebaseUser, null))
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -352,10 +363,13 @@ class FirebaseUser internal constructor(
             try {
                 val seqRes = BridgeAuthOperations.updatePasswordSequenced(auth.bridgeClient, password)
                 val updated = seqRes.data
-                if (updated["uid"] is String) {
-                    applyUpdatedUserMap(updated)
-                }
-                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
+                val hasUid = updated["uid"] is String
+                auth.commitUserProfileMutation(
+                    user = this@FirebaseUser,
+                    wireSeq = seqRes.wireSeq,
+                    rawData = if (hasUid) updated else null,
+                    customClaims = if (hasUid) extractUserMapClaims(updated) else null
+                )
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -374,10 +388,13 @@ class FirebaseUser internal constructor(
             try {
                 val seqRes = BridgeAuthOperations.updateEmailSequenced(auth.bridgeClient, email)
                 val updated = seqRes.data
-                if (updated["uid"] is String) {
-                    applyUpdatedUserMap(updated)
-                }
-                auth.notifyUserUpdated(this@FirebaseUser, seqRes.wireSeq)
+                val hasUid = updated["uid"] is String
+                auth.commitUserProfileMutation(
+                    user = this@FirebaseUser,
+                    wireSeq = seqRes.wireSeq,
+                    rawData = if (hasUid) updated else null,
+                    customClaims = if (hasUid) extractUserMapClaims(updated) else null
+                )
                 tcs.setResult(null)
             } catch (e: Exception) {
                 val wrapped = auth.wrapException(e)
@@ -398,31 +415,29 @@ class FirebaseUser internal constructor(
         @Suppress("UNCHECKED_CAST")
         val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
         val explicitProviderId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
-        if (userMap["uid"] is String) {
-            applyUpdatedUserMap(userMap, res)
-        }
         val effectiveProvider = explicitProviderId ?: fallbackProvider
-        if (effectiveProvider.isNotBlank()) {
-            signInProviderOverride = effectiveProvider
-        }
-        auth.notifyUserUpdated(this, wireSeq)
+        val hasUid = userMap["uid"] is String
+        auth.commitUserProfileMutation(
+            user = this,
+            wireSeq = wireSeq,
+            rawData = if (hasUid) userMap else null,
+            customClaims = if (hasUid) extractUserMapClaims(userMap, res) else null,
+            signInProvider = effectiveProvider.takeIf { it.isNotBlank() }
+        )
         val isNew = (addInfo?.get("isNewUser") as? Boolean) ?: false
         return AuthResult(this, AdditionalUserInfo(explicitProviderId ?: fallbackProvider, isNew))
     }
 
-    private fun applyUpdatedUserMap(
+    private fun extractUserMapClaims(
         userMap: Map<String, Any?>,
         envelope: Map<String, Any?>? = null
-    ) {
-        rawData = userMap
+    ): Map<String, Any?>? {
         @Suppress("UNCHECKED_CAST")
         val claims = (userMap["customClaims"] as? Map<String, Any?>)
             ?: (userMap["claims"] as? Map<String, Any?>)
             ?: (envelope?.get("customClaims") as? Map<String, Any?>)
             ?: (envelope?.get("claims") as? Map<String, Any?>)
-        if (claims != null) {
-            customClaims = extractCustomClaims(claims)
-        }
+        return claims?.let { extractCustomClaims(it) }
     }
 
     companion object {

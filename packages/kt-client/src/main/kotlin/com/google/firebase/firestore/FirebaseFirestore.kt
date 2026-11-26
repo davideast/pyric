@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FirebaseFirestore(
     val bridgeClient: PyricBridgeClient,
@@ -41,7 +42,11 @@ class FirebaseFirestore(
     private val firestoreScope = CoroutineScope(firestoreJob + Dispatchers.IO)
     internal val listenerScope = CoroutineScope(SupervisorJob(firestoreJob) + Dispatchers.IO)
     internal val offlineCoordinator = FirestoreOfflineCoordinator(this, firestoreScope)
-    private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
+    private class DenialListenerEntry(val listener: RulesDenialListener) {
+        val active = AtomicBoolean(true)
+    }
+
+    private val rulesDenialListeners = CopyOnWriteArrayList<DenialListenerEntry>()
     private val terminationLock = Any()
     private val terminationObservers = LinkedHashSet<() -> Unit>()
     private val _terminatedStateFlow = MutableStateFlow(false)
@@ -83,24 +88,36 @@ class FirebaseFirestore(
         DocumentReference(this, cleanPath.trim('/'))
 
     fun addRulesDenialListener(listener: RulesDenialListener): ListenerRegistration {
-        rulesDenialListeners.add(listener)
+        val entry = DenialListenerEntry(listener)
+        rulesDenialListeners.add(entry)
         return ListenerRegistration {
-            rulesDenialListeners.remove(listener)
+            entry.active.set(false)
+            rulesDenialListeners.remove(entry)
+            synchronized(entry) {}
         }
     }
 
     fun removeRulesDenialListener(listener: RulesDenialListener) {
-        rulesDenialListeners.remove(listener)
+        val entry = rulesDenialListeners.firstOrNull {
+            it.listener == listener && it.active.compareAndSet(true, false)
+        }
+        if (entry != null) {
+            rulesDenialListeners.remove(entry)
+            synchronized(entry) {}
+        }
     }
 
     fun notifyRulesDenial(exception: FirebaseFirestoreException) {
         if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
             @Suppress("UNCHECKED_CAST")
             val contextMap = (exception.denialContext as? Map<String, Any?>) ?: emptyMap()
-            for (listener in rulesDenialListeners) {
-                try {
-                    listener.onDenial(exception, contextMap)
-                } catch (_: Throwable) {}
+            for (entry in rulesDenialListeners) {
+                synchronized(entry) {
+                    if (!entry.active.get()) return@synchronized
+                    try {
+                        entry.listener.onDenial(exception, contextMap)
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }
@@ -263,6 +280,7 @@ class FirebaseFirestore(
         }
         unregisterDenialObserver()
         instances.remove(Pair(app.name, databaseId), this)
+        rulesDenialListeners.forEach { it.active.set(false) }
         rulesDenialListeners.clear()
         offlineCoordinator.onTerminate()
         firestoreScope.cancel()

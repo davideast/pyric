@@ -173,7 +173,7 @@ class BridgeSubscriptionManager internal constructor(
             appCheckToken = null,
             sequenced = true,
             sequencedChannel = channel,
-            onCloseError = { err -> channel.close(err) }
+            onCloseError = { err -> closeAndDrain(channel, err) }
         )
         dispatchOrConnect(
             record = record,
@@ -187,10 +187,15 @@ class BridgeSubscriptionManager internal constructor(
         val handle = object : BridgeSubscriptionHandle {
             override fun cancel() {
                 cancelRecord(record, isAttached, sendJson, jsonSerializer)
-                channel.close()
+                closeAndDrain(channel)
             }
         }
         return SequencedSubscriptionHandle(channel, handle)
+    }
+
+    private fun closeAndDrain(channel: Channel<BridgeSequencedSnapshot>, cause: Throwable? = null) {
+        channel.close(cause)
+        while (channel.tryReceive().isSuccess) {}
     }
 
     fun subscribe(
@@ -244,6 +249,7 @@ class BridgeSubscriptionManager internal constructor(
         jsonSerializer: (Any?) -> String
     ): Flow<BridgeSequencedSnapshot> = flow {
         val channel = Channel<BridgeSequencedSnapshot>(Channel.UNLIMITED)
+        val closeCause = AtomicReference<Throwable?>(null)
         val record = registerRecord(
             target = target,
             actAs = null,
@@ -252,18 +258,23 @@ class BridgeSubscriptionManager internal constructor(
             appCheckToken = null,
             sequenced = true,
             sequencedChannel = channel,
-            onCloseError = { err -> channel.close(err) }
+            onCloseError = { err ->
+                closeCause.compareAndSet(null, err)
+                closeAndDrain(channel, err)
+            }
         )
         try {
             if (!dispatchInitialSend(record, isAttached, keepsSubscriptionOnConnectFailure, sendJson, jsonSerializer)) {
                 ensureConnectedOrFail(record, ensureConnected, keepsSubscriptionOnConnectFailure)
             }
             for (item in channel) {
+                closeCause.get()?.let { throw it }
                 emit(item)
             }
+            closeCause.get()?.let { throw it }
         } finally {
             cancelRecord(record, isAttached, sendJson, jsonSerializer)
-            channel.close()
+            closeAndDrain(channel)
         }
     }
 

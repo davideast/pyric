@@ -48,7 +48,19 @@ class FirebaseMessaging internal constructor(
     @Volatile
     private var notificationDelegationFlag: Boolean = false
 
-    private val registeredServices = CopyOnWriteArrayList<FirebaseMessagingService>()
+    private class ServiceEntry(val service: FirebaseMessagingService) {
+        val active = AtomicBoolean(true)
+    }
+
+    private val registeredServices = CopyOnWriteArrayList<ServiceEntry>()
+
+    private inline fun forEachActiveService(block: (FirebaseMessagingService) -> Unit) {
+        for (entry in registeredServices) {
+            synchronized(entry) {
+                if (entry.active.get()) block(entry.service)
+            }
+        }
+    }
     private val _newTokenFlow = MutableSharedFlow<String>(extraBufferCapacity = 1 shl 20)
     val newTokenFlow: SharedFlow<String> = _newTokenFlow.asSharedFlow()
 
@@ -136,7 +148,7 @@ class FirebaseMessaging internal constructor(
                     prev
                 }
                 if (previous != null) {
-                    for (service in registeredServices) {
+                    forEachActiveService { service ->
                         runCatching { service.onUnregistered(previous) }
                     }
                 }
@@ -208,12 +220,12 @@ class FirebaseMessaging internal constructor(
                 val acceptedId = message.messageId?.takeIf { it.isNotEmpty() }
                     ?: (rawAccepted?.get("messageId") as? String)
                     ?: fallbackMsgId
-                for (service in registeredServices) {
+                forEachActiveService { service ->
                     runCatching { service.onMessageSent(acceptedId) }
                 }
             } catch (t: Throwable) {
                 val sendException = SendException.fromBridgeFailure(t)
-                for (service in registeredServices) {
+                forEachActiveService { service ->
                     runCatching { service.onSendError(fallbackMsgId, sendException) }
                 }
             }
@@ -256,14 +268,22 @@ class FirebaseMessaging internal constructor(
         }
 
     fun registerService(service: FirebaseMessagingService) {
-        if (!registeredServices.contains(service)) {
-            registeredServices.add(service)
+        synchronized(stateLock) {
+            if (registeredServices.none { it.service == service && it.active.get() }) {
+                registeredServices.add(ServiceEntry(service))
+            }
         }
         ensureServiceSubscriptionsRunning()
     }
 
     fun unregisterService(service: FirebaseMessagingService) {
-        registeredServices.remove(service)
+        val entry = registeredServices.firstOrNull {
+            it.service == service && it.active.compareAndSet(true, false)
+        }
+        if (entry != null) {
+            registeredServices.remove(entry)
+            synchronized(entry) {}
+        }
         if (registeredServices.isEmpty()) {
             stopServiceSubscriptions()
         }
@@ -308,7 +328,7 @@ class FirebaseMessaging internal constructor(
                 target = target,
                 onValue = { raw ->
                     val msg = (raw as? Map<*, *>)?.let { RemoteMessage.fromDeliveredPayload(it) } ?: return@openSubscription
-                    for (svc in registeredServices) {
+                    forEachActiveService { svc ->
                         runCatching { svc.onMessageReceived(msg) }
                     }
                 },
@@ -386,9 +406,14 @@ class FirebaseMessaging internal constructor(
                 }
                 if (shouldAnnounce) {
                     _newTokenFlow.tryEmit(minted)
-                    for (service in registeredServices) {
-                        runCatching { service.onNewToken(minted) }
-                        runCatching { service.onRegistered(minted) }
+                    for (entry in registeredServices) {
+                        synchronized(entry) {
+                            if (!entry.active.get()) return@synchronized
+                            runCatching { entry.service.onNewToken(minted) }
+                            if (entry.active.get()) {
+                                runCatching { entry.service.onRegistered(minted) }
+                            }
+                        }
                     }
                 }
                 deferred.complete(minted)
@@ -406,6 +431,7 @@ class FirebaseMessaging internal constructor(
 
     fun close() {
         stopServiceSubscriptions()
+        registeredServices.forEach { it.active.set(false) }
         registeredServices.clear()
         scope.cancel()
     }

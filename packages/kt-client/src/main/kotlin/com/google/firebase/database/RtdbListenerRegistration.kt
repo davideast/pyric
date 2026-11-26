@@ -30,10 +30,15 @@ internal class RtdbSnapshotRegistration(
     private val singleEvent: Boolean,
     private val onSnapshot: (DataSnapshot) -> Unit,
     private val onError: (Throwable) -> Unit,
-    private val onImmediateClose: ((Throwable) -> Unit)? = null
+    private val onImmediateClose: ((Throwable) -> Unit)? = null,
+    private val activeFlag: AtomicBoolean = AtomicBoolean(true)
 ) {
     private val lock = Any()
-    @Volatile private var active: Boolean = true
+    private var active: Boolean
+        get() = activeFlag.get()
+        set(value) {
+            activeFlag.set(value)
+        }
     private val ended = AtomicBoolean(false)
     private val generation = AtomicLong(0)
     private var currentHandle: BridgeSubscriptionHandle? = null
@@ -120,12 +125,12 @@ internal class RtdbSnapshotRegistration(
                 },
                 onWireError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    cancel()
+                    cleanupResources()
                     deliverErrorOnce(err)
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    cancel()
+                    cleanupResources()
                     onImmediateClose?.invoke(err)
                     query.database.bridgeClient.deliveryQueue.enqueue {
                         deliverErrorOnce(err)
@@ -133,7 +138,7 @@ internal class RtdbSnapshotRegistration(
                 }
             )
         } catch (e: FirebaseFirestoreException) {
-            cancel()
+            cleanupResources()
             onImmediateClose?.invoke(e)
             query.database.bridgeClient.deliveryQueue.enqueue {
                 deliverErrorOnce(e)
@@ -155,13 +160,18 @@ internal class RtdbSnapshotRegistration(
     }
 
     private fun deliverErrorOnce(error: Throwable) {
-        cancel()
+        cleanupResources()
         if (ended.compareAndSet(false, true)) {
             onError(error)
         }
     }
 
     fun cancel() {
+        ended.set(true)
+        cleanupResources()
+    }
+
+    private fun cleanupResources() {
         val handleToCancel: BridgeSubscriptionHandle?
         val infoToCancel: InfoListenerHandle?
         val jobToCancel: Job?
@@ -203,8 +213,8 @@ internal class RtdbSnapshotRegistration(
         ): RtdbSnapshotRegistration {
             // Mutated exclusively on bridgeClient.deliveryQueue.
             var previousChildren: Map<String, DataSnapshot>? = null
-            lateinit var registration: RtdbSnapshotRegistration
-            registration = RtdbSnapshotRegistration(
+            val activeFlag = AtomicBoolean(true)
+            return RtdbSnapshotRegistration(
                 query = query,
                 scope = scope,
                 singleEvent = false,
@@ -213,7 +223,7 @@ internal class RtdbSnapshotRegistration(
                     val events = query.diffChildEvents(previousChildren, currentList)
                     previousChildren = currentList.associateBy { it.key ?: "" }
                     for (event in events) {
-                        if (!registration.active) break
+                        if (!activeFlag.get()) break
                         when (event) {
                             is ChildEvent.Added -> listener.onChildAdded(event.snapshot, event.previousChildName)
                             is ChildEvent.Changed -> listener.onChildChanged(event.snapshot, event.previousChildName)
@@ -224,9 +234,9 @@ internal class RtdbSnapshotRegistration(
                 },
                 onError = { err ->
                     listener.onCancelled(DatabaseError.fromException(err))
-                }
+                },
+                activeFlag = activeFlag
             )
-            return registration
         }
 
         fun snapshotsFlow(query: Query, scope: CoroutineScope): Flow<DataSnapshot> = flow {
