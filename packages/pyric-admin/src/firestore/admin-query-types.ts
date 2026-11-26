@@ -398,6 +398,7 @@ export interface AdminFirestore
     SandboxFirestore,
     'collection' | 'doc' | 'collectionGroup' | 'batch' | 'runTransaction'
   > {
+  readonly databaseId: string;
   collection(path: string): AdminCollectionReference<DocumentData>;
   doc(path: string): AdminDocumentReference<DocumentData>;
   collectionGroup(collectionId: string): AdminCollectionGroup<DocumentData>;

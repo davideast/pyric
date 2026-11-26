@@ -96,8 +96,8 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: 'firestore',
     owner: 'Firestore',
-    members: ['alwaysUseImplicitOrderBy', 'databaseId'],
-    reason: 'properties; the sandbox handle does not carry a database id or implicit-orderBy flag',
+    members: ['alwaysUseImplicitOrderBy'],
+    reason: 'property; the sandbox handle does not carry an implicit-orderBy flag',
   },
 
   // --- firebase-admin/storage --------------------------------------------
