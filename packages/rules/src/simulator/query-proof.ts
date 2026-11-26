@@ -140,6 +140,7 @@ export function evaluateQueryProof(
   pathVariables?: Readonly<Record<string, string>>,
   functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
   pathInvariance?: PathInvarianceContext,
+  database?: string,
 ): QueryProofResult {
   const wholeRulePathInvariant =
     !pathInvariance ||
@@ -165,6 +166,7 @@ export function evaluateQueryProof(
       pathVariables,
       functionScopes,
       pathInvariance,
+      database,
     );
     if (!residual) return pathFailure;
     const result: QueryProofResult = {
@@ -192,6 +194,7 @@ export function evaluateQueryProof(
     pathVariables,
     functionScopes,
     pathInvariance,
+    database,
   );
   if (residual) {
     const result: QueryProofResult = {

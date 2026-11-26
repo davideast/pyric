@@ -46,6 +46,7 @@ import { SandboxClock } from '../../sandbox/clock.js';
 
 interface WriteEngineHost {
   readonly state: DocStore;
+  readonly databaseId?: string;
   notifyListenersForPaths(paths: Set<string>, ops?: TriggeringOps): void;
 }
 

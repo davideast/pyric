@@ -45,10 +45,11 @@ import {
 export function proveCollectionGroupRules(
   ast: FirestoreRules | null,
   collectionId: string,
+  database = '(default)',
 ): FirestoreRules | null {
   if (!ast) return null;
   if (ast.version !== '2' && ast.version !== '2+modules') return null;
-  if (!rootGovernsEveryDocument(ast)) return null;
+  if (!rootGovernsEveryDocument(ast, database)) return null;
   indexRulesetScopes(ast);
 
   const serviceFunctions = [
@@ -61,8 +62,8 @@ export function proveCollectionGroupRules(
 
   const projectedRoots: MatchBlock[] = [];
   for (const rootBlock of topLevelMatches(ast.service)) {
-    if (!rootBlockGovernsEveryDocument(rootBlock, ast.version)) continue;
-    const rootMatch = resolveRootBlockMatch(rootBlock, ast.version, '');
+    if (!rootBlockGovernsEveryDocument(rootBlock, ast.version, database)) continue;
+    const rootMatch = resolveRootBlockMatch(rootBlock, ast.version, '', database);
     if (!rootMatch) continue;
 
     const outerFunctions = [...serviceFunctions, ...rootBlock.functions];
@@ -82,6 +83,7 @@ export function proveCollectionGroupRules(
         extraBound,
         rootScope.functions,
         rootScope.ambiguousNames,
+        database,
       );
       rootAllows = projectedRootAllows.allows;
       rootSteps = projectedRootAllows.blockSteps;
@@ -101,6 +103,7 @@ export function proveCollectionGroupRules(
         extraBound,
         outerFunctions,
         blockRequiredDefs,
+        database,
       );
       if (projected) {
         children.push(projected);
@@ -178,6 +181,7 @@ function projectPathInvariantCondition(
   bound: ReadonlySet<string>,
   functions: ReadonlyMap<string, FunctionDef>,
   ambiguousNames: ReadonlySet<string>,
+  database: string,
 ): { condition: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } | null {
   const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
   if (analysis.pathInvariant) {
@@ -196,6 +200,7 @@ function projectPathInvariantCondition(
         bound,
         functions,
         ambiguousNames,
+        database,
       );
     }
     if (inner.type === 'binaryOp' && inner.op === '||') {
@@ -209,10 +214,11 @@ function projectPathInvariantCondition(
         bound,
         functions,
         ambiguousNames,
+        database,
       );
     }
     if (inner.type === 'unaryOp' && inner.op === '!') {
-      const sub = projectPathInvariantCondition(inner.operand, bound, functions, ambiguousNames);
+      const sub = projectPathInvariantCondition(inner.operand, bound, functions, ambiguousNames, database);
       if (!sub) return null;
       return {
         condition: { type: 'unaryOp', op: '!', operand: { type: 'unaryOp', op: '!', operand: sub.condition } },
@@ -221,8 +227,8 @@ function projectPathInvariantCondition(
     }
   }
   if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
-    const left = projectPathInvariantCondition(expr.left, bound, functions, ambiguousNames);
-    const right = projectPathInvariantCondition(expr.right, bound, functions, ambiguousNames);
+    const left = projectPathInvariantCondition(expr.left, bound, functions, ambiguousNames, database);
+    const right = projectPathInvariantCondition(expr.right, bound, functions, ambiguousNames, database);
     if (left && right) {
       return {
         condition: { ...expr, left: left.condition, right: right.condition },
@@ -236,6 +242,7 @@ function projectPathInvariantCondition(
           candidateVariables: bound,
           ambiguousNames,
           checkResourceDependence: false,
+          database,
         });
         return {
           condition: attachOrBudgetStep(right.condition, {
@@ -255,6 +262,7 @@ function projectPathInvariantCondition(
           candidateVariables: bound,
           ambiguousNames,
           checkResourceDependence: false,
+          database,
         });
         return {
           condition: attachOrBudgetStep(left.condition, {
@@ -284,6 +292,7 @@ function projectAllowsWithBudget(
   bound: ReadonlySet<string>,
   scopeFunctions: ReadonlyMap<string, FunctionDef>,
   ambiguousNames: ReadonlySet<string>,
+  database: string,
 ): ProjectedBlockAllows {
   const retained: AllowRule[] = [];
   const blockSteps: ListBlockStep[] = [];
@@ -301,6 +310,7 @@ function projectAllowsWithBudget(
       bound,
       scopeFunctions,
       ambiguousNames,
+      database,
     );
     if (!projected) {
       const budgetBranch = projectWorstCaseBudgetExpr(rule.condition, {
@@ -308,6 +318,7 @@ function projectAllowsWithBudget(
         candidateVariables: bound,
         ambiguousNames,
         checkResourceDependence: false,
+        database,
       });
       let budgetRule = rule;
       if (budgetBranch.expr !== rule.condition) {
@@ -345,6 +356,7 @@ function projectGroupBlock(
   extraBound: ReadonlySet<string>,
   outerFunctions: readonly FunctionDef[],
   requiredFunctionDefs: Set<FunctionDef>,
+  database: string,
 ): MatchBlock | null {
   const localBound = groupBindings(block, collectionId, underRecursiveRoot);
   if (!localBound) return null;
@@ -356,6 +368,7 @@ function projectGroupBlock(
     bound,
     functionScope.functions,
     functionScope.ambiguousNames,
+    database,
   );
   const hasBudgetSteps = projected.blockSteps.some((step) => step.kind === 'budget');
   if (projected.allows.length === 0 && !hasBudgetSteps) return null;

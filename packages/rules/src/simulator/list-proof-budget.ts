@@ -47,6 +47,7 @@ export interface WorstCaseBudgetOptions {
   readonly candidateVariables?: ReadonlySet<string>;
   readonly ambiguousNames?: ReadonlySet<string>;
   readonly checkResourceDependence?: boolean;
+  readonly database?: string;
 }
 
 const LOOKUP_BUILTINS = new Set(['get', 'exists', 'getAfter', 'existsAfter']);
@@ -393,12 +394,16 @@ export function projectWorstCaseBudgetExpr(
       if (!argInv.invariant) {
         const projectedArg = project(singleArg, currentFunctions, currentCandidateVars, visiting);
         const token = budgetTokenForExpr(singleArg);
+        let targetDb = '(default)';
+        if (options.database !== undefined && options.database.length > 0) {
+          targetDb = options.database;
+        }
         const syntheticPath: Expression = {
           type: 'pathLiteral',
-          raw: `/databases/(default)/documents/__pyric_budget_ref__/${token}`,
+          raw: `/databases/${targetDb}/documents/__pyric_budget_ref__/${token}`,
           segments: [
             'databases',
-            '(default)',
+            targetDb,
             'documents',
             '__pyric_budget_ref__',
             token,

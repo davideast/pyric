@@ -244,13 +244,7 @@ function createNamedLocalEnvironment(
   clock: ReturnType<typeof getClock>,
   normalizedId: string,
 ): LocalEnvironment {
-  const env = new LocalEnvironment(clock);
-  Object.defineProperty(env, 'databaseId', {
-    value: normalizedId,
-    enumerable: false,
-    configurable: true,
-  });
-  return env;
+  return new LocalEnvironment(clock, normalizedId);
 }
 
 function applyInitialRules(env: LocalEnvironment, lockedByDefault: boolean): void {

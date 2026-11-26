@@ -21,6 +21,7 @@ import { SandboxClock } from '../../sandbox/clock.js';
 
 interface RulesOperationReaderHost {
   readonly state: DocStore;
+  readonly databaseId?: string;
 }
 
 /** Rules-gated user `get`/`list` execution, including history and events. */
@@ -70,6 +71,8 @@ export class RulesOperationReader {
       this.simulator,
       [testCase],
       bypassRules,
+      undefined,
+      this.host.databaseId ?? '(default)',
     );
     const evalMs = performance.now() - evalStart;
 

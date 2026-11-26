@@ -58,6 +58,7 @@ import { SandboxClock } from '../../sandbox/clock.js';
  */
 export interface RulesReadHost {
   readonly state: DocStore;
+  readonly databaseId?: string;
 }
 
 export class RulesReadEngine implements ListenerDispatchHost {
@@ -138,6 +139,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     const evalStart = performance.now();
     const simResult = simulateDeployedRules(this.rules, this.simulator, [testCase], {
       getDoc: (path) => this.state.get(path),
+      database: this.host.databaseId ?? '(default)',
     });
     const evalMs = performance.now() - evalStart;
     if (!simResult.success) {

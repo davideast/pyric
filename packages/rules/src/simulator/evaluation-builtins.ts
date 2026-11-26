@@ -21,6 +21,8 @@ import { MathFailure, applyMath } from './math-builtins.js';
 import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from './list-methods.js';
 import { UnsupportedError } from './unsupported-error.js';
 import {
+  crossDatabaseLookupMessage,
+  hasForeignFunctionMock,
   isDocumentPath,
   isMalformedDatabaseLookupPath,
   makeGetResource,
@@ -78,7 +80,12 @@ function requireLookupPath(
   }
   const foreignDb = nonDefaultDatabaseInLookupPath(lookupPath, ctx.database);
   if (foreignDb !== undefined) {
-    throw new EvalError(`${name}() cannot access non-default database '${foreignDb}' in path '${lookupPath}'`);
+    const mockedForeign =
+      (name === 'get' || name === 'exists') &&
+      hasForeignFunctionMock(name, lookupPath, ctx);
+    if (!mockedForeign) {
+      throw new EvalError(crossDatabaseLookupMessage(name, foreignDb, ctx.database, lookupPath));
+    }
   }
   return lookupPath;
 }
@@ -298,7 +305,7 @@ function invokeUserFunction(
       ...ctx,
       functions: fnScopeInfo.functions as Map<string, FunctionDef>,
       pathVariables: scopedVars,
-      database: fnScopeInfo.captures.has('database') ? ctx.database : '',
+      database: ctx.database,
     };
   } else if (lexicalVars) {
     fnCtx = {

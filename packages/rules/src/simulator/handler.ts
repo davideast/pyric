@@ -36,7 +36,7 @@ import {
 } from './list-query-proof.js';
 import { LookupBudget } from './lookup-budget.js';
 import { indexRulesetScopes, renderMatchBlockPath, type MatchResult } from './match-resolution.js';
-import { documentRelativePath } from './request-path.js';
+import { documentRelativePath, requestDatabaseId } from './request-path.js';
 import { collectRootMatches, noMatchNotes } from './root-match.js';
 import { evaluateRules, type Decision } from './rule-block-evaluator.js';
 import { buildContext, type CaseReviver } from './simulation-context.js';
@@ -70,6 +70,33 @@ export interface SimulateOptions {
    * different request is UNSUPPORTED with the reason (`caseShapeRefusal`).
    */
   publicCases?: boolean;
+  /**
+   * Active Firestore database id for root matching, `request.path`, and
+   * cross-database lookup checks. When omitted, inferred from a full
+   * `/databases/<database>/documents/...` request path or defaulted to
+   * `'(default)'`. If both are provided and differ, the case is refused.
+   */
+  database?: string;
+}
+
+function resolveTargetDatabase(tcPath: string, optionDatabase?: string): string {
+  const pathDb = requestDatabaseId(tcPath);
+  if (pathDb === '.' || pathDb === '..') {
+    throw new Error(`Invalid database id '${pathDb}' in request path '${tcPath}'.`);
+  }
+  let explicitDb: string | undefined;
+  if (optionDatabase !== undefined && optionDatabase.length > 0) {
+    if (optionDatabase === '.' || optionDatabase === '..') {
+      throw new Error(`Invalid database id '${optionDatabase}'.`);
+    }
+    explicitDb = optionDatabase;
+  }
+  if (explicitDb !== undefined && pathDb !== undefined && explicitDb !== pathDb) {
+    throw new Error(
+      `Request path database '${pathDb}' does not match target database '${explicitDb}'.`,
+    );
+  }
+  return explicitDb ?? pathDb ?? '(default)';
 }
 
 /** Why the simulator cannot run `tc` as it stands, or `undefined`. */
@@ -181,6 +208,7 @@ export class SimulateFirestoreRulesHandler {
           continue;
         }
 
+        const targetDatabase = resolveTargetDatabase(tc.path, opts?.database);
         const requestPath = documentRelativePath(tc.path);
         const pathSegments = requestPath.split('/').filter(Boolean);
         const isListMethod = tc.method === 'list';
@@ -205,6 +233,7 @@ export class SimulateFirestoreRulesHandler {
             tc.auth ? normalizeAuthState(tc.auth) : null,
             constraints,
             source,
+            targetDatabase,
           );
           if (rawProof.kind === 'no-rule') {
             queryProof = {
@@ -229,7 +258,7 @@ export class SimulateFirestoreRulesHandler {
               rawProof.evaluationAst,
               source,
               [{ ...tc, path: proofPath, resource: mergedResource, expectation: 'ALLOW' }],
-              { ...opts, sourceMap, skipQueryProof: true },
+              { ...opts, database: targetDatabase, sourceMap, skipQueryProof: true },
             );
             let residualResult: TestResult | undefined;
             if (residualCheck.success) {
@@ -284,7 +313,9 @@ export class SimulateFirestoreRulesHandler {
         ];
         let matches: MatchResult[] = [];
         const pathRecorder = new PathResolutionRecorder();
-        matches.push(...collectRootMatches(evalAst, requestPath, rootFunctions, pathRecorder));
+        matches.push(
+          ...collectRootMatches(evalAst, requestPath, rootFunctions, pathRecorder, targetDatabase),
+        );
 
         let syntheticListDoc = false;
         if (isListMethod && isCollectionPath) {
@@ -294,6 +325,7 @@ export class SimulateFirestoreRulesHandler {
             widened.join('/'),
             rootFunctions,
             pathRecorder,
+            targetDatabase,
           );
           if (widenedMatches.length > 0) {
             matches = widenedMatches;
@@ -315,7 +347,7 @@ export class SimulateFirestoreRulesHandler {
             decision: 'DENY',
             evaluatedExpressions: 0,
             trace: [],
-            notes: noMatchNotes(evalAst, requestPath),
+            notes: noMatchNotes(evalAst, requestPath, targetDatabase),
             pathResolution,
             ...(queryProof ? { queryProof } : {}),
           });
@@ -345,6 +377,7 @@ export class SimulateFirestoreRulesHandler {
             revive,
             match.recursiveVariables,
             match.functionScopes,
+            targetDatabase,
           );
 
           const blockPath = renderMatchBlockPath(match.block);

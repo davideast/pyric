@@ -1,6 +1,8 @@
 import type { SimulationContext } from './evaluation-context.js';
 import { ResourceLimitError } from './eval-error.js';
 import {
+  canonicalForeignLookupKey,
+  hasForeignFunctionMock,
   isDocumentPath,
   isMalformedDatabaseLookupPath,
   nonDefaultDatabaseInLookupPath,
@@ -192,9 +194,17 @@ export class LookupBudget {
 export function chargeLookup(ctx: SimulationContext, kind: 'doc' | 'after', rawPath: string): void {
   if (!ctx.lookupBudget) return;
   if (isMalformedDatabaseLookupPath(rawPath, ctx.database)) return;
-  if (nonDefaultDatabaseInLookupPath(rawPath, ctx.database) !== undefined) return;
-  const normalized = normalizeDocumentPath(rawPath, ctx.database);
-  if (!isDocumentPath(normalized)) return;
+  let normalized: string;
+  if (nonDefaultDatabaseInLookupPath(rawPath, ctx.database) !== undefined) {
+    const foreignKey = canonicalForeignLookupKey(rawPath, ctx.database);
+    if (foreignKey === undefined || !hasForeignFunctionMock('exists', rawPath, ctx)) {
+      return;
+    }
+    normalized = foreignKey;
+  } else {
+    normalized = normalizeDocumentPath(rawPath, ctx.database);
+    if (!isDocumentPath(normalized)) return;
+  }
   const isPreWriteLookup = kind === 'doc';
   if (isPreWriteLookup) {
     const collector = (globalThis as { [LOOKUP_COLLECTOR_KEY]?: Set<string> })[LOOKUP_COLLECTOR_KEY];

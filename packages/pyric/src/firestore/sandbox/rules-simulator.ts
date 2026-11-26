@@ -36,6 +36,7 @@ export function simulateRules(
   testCases: TestCase[],
   bypassRules: boolean | undefined,
   batchProjection?: Map<string, DocumentData | null>,
+  database?: string,
 ): TestFirestoreRulesResult {
   if (bypassRules) {
     const results = testCases.map((testCase) => adminBypassResult(testCase.description));
@@ -44,8 +45,14 @@ export function simulateRules(
       data: { passed: results.length, failed: 0, unsupported: 0, results },
     };
   }
-  return simulateDeployedRules(rules, simulator, testCases, {
+  const simOpts: NonNullable<Parameters<SimulateFirestoreRulesHandler['simulate']>[2]> = {
     getDoc: (path) => state.get(path),
-    ...(batchProjection ? { batchProjection } : {}),
-  });
+  };
+  if (batchProjection !== undefined) {
+    simOpts.batchProjection = batchProjection;
+  }
+  if (database !== undefined) {
+    simOpts.database = database;
+  }
+  return simulateDeployedRules(rules, simulator, testCases, simOpts);
 }

@@ -118,7 +118,11 @@ export class LocalEnvironment {
    * Defaults to a private wall clock, which is what an environment constructed
    * on its own did before the seam existed.
    */
-  constructor(clock: SandboxClock = new SandboxClock()) {
+  /** Active Firestore database id for rules evaluation (`'(default)'` unless named). */
+  readonly databaseId: string;
+
+  constructor(clock: SandboxClock = new SandboxClock(), databaseId = '(default)') {
+    this.databaseId = databaseId.length > 0 ? databaseId : '(default)';
     this.state = new LocalState({}, undefined, this.stateChanged);
     this.eventLog = new EventLog(clock);
     const engine = this;
@@ -132,7 +136,10 @@ export class LocalEnvironment {
       this.triggerScope,
       this.rules,
       this.simulator,
-      { get state() { return engine.state; } },
+      {
+        get state() { return engine.state; },
+        get databaseId() { return engine.databaseId; },
+      },
       this.eventLog,
       clock,
     );
@@ -142,6 +149,7 @@ export class LocalEnvironment {
     this.writes = new WriteEngine(
       {
         get state() { return engine.state; },
+        get databaseId() { return engine.databaseId; },
         notifyListenersForPaths: (paths, ops) => engine.listeners.notifyListenersForPaths(paths, ops),
       },
       this.rules,
@@ -388,7 +396,10 @@ export class LocalEnvironment {
     testCases: TestCase[],
     opts: Parameters<SimulateFirestoreRulesHandler['simulate']>[2],
   ): TestFirestoreRulesResult {
-    return simulateDeployedRules(this.rules, this.simulator, testCases, opts);
+    return simulateDeployedRules(this.rules, this.simulator, testCases, {
+      ...opts,
+      database: opts?.database ?? this.databaseId,
+    });
   }
 
   // ═══ Read operations (bypass rules — admin access) ═══

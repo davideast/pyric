@@ -1,7 +1,7 @@
 import { normalizeAuthState } from '../auth/auth-state.js';
 import type { FunctionDef } from '../grammar/FirestoreAST.js';
 import type { TestCase } from '../test/spec.js';
-import { normalizeDocumentPath } from './document-lookups.js';
+import { canonicalForeignLookupKey, normalizeDocumentPath } from './document-lookups.js';
 import type { SimulationContext } from './evaluator.js';
 import type { ExpressionBudget } from './expression-budget.js';
 import { requestQuery, reviveFirestoreNumbers } from './firestore-values.js';
@@ -105,20 +105,37 @@ export function buildContext(
   revive: CaseReviver = reviveFirestoreNumbers,
   recursiveVariables?: readonly string[],
   functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+  database = '(default)',
 ): SimulationContext {
+  let targetDb = '(default)';
+  if (database.length > 0) {
+    targetDb = database;
+  }
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
 
   // `get` and `exists` are separate Rules Test API functions with separate
   // mocks (FS-CON-6): a get mock seeds get()'s document, an exists mock only
-  // answers exists(). Both key on the normalized document path, the form
-  // lookups resolve and `buildFunctionMock` sends to production, so mock
-  // order and path spelling do not change the verdict.
+  // answers exists(). Same-database mocks key on the normalized relative path;
+  // explicit cross-database Rules Test API mocks stay isolated under their
+  // canonical `/databases/<db>/documents/<rel>` key so unmocked cross-database
+  // lookups remain fail-closed (ADR-0021 C1/C2).
   const mockDocs = new Map<string, Record<string, unknown>>();
   const identitylessFunctionMocks = new Set<string>();
   const existsMocks = new Map<string, boolean>();
+  const foreignMockDocs = new Map<string, Record<string, unknown>>();
+  const foreignExistsMocks = new Map<string, boolean>();
   for (const mock of tc.functionMocks ?? []) {
-    const mockPath = normalizeDocumentPath(mock.path);
+    const foreignKey = canonicalForeignLookupKey(mock.path, targetDb);
+    if (foreignKey !== undefined) {
+      if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
+        foreignMockDocs.set(foreignKey, revive(mock.result) as Record<string, unknown>);
+      } else if (mock.function === 'exists') {
+        foreignExistsMocks.set(foreignKey, mock.result === true);
+      }
+      continue;
+    }
+    const mockPath = normalizeDocumentPath(mock.path, targetDb);
     if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
       mockDocs.set(mockPath, revive(mock.result) as Record<string, unknown>);
       identitylessFunctionMocks.add(mockPath);
@@ -142,7 +159,7 @@ export function buildContext(
   // resource name; both name one document, so both give the single spec
   // form /databases/(default)/documents/<rel> (FS2-CON-1).
   const relPath = documentRelativePath(tc.path);
-  const fullPathSegs = ['databases', '(default)', 'documents', ...relPath.split('/').filter(Boolean)];
+  const fullPathSegs = ['databases', targetDb, 'documents', ...relPath.split('/').filter(Boolean)];
   // Pass pathVariables as bindings so `request.path.<name>` (where <name> is
   // a wildcard from the matched rule, e.g. {uid}) returns the bound segment
   // value instead of null.
@@ -253,7 +270,7 @@ export function buildContext(
     getDoc,
     pathVariables: boundPathVariables,
     functions: fnMap,
-    database: '(default)',
+    database: targetDb,
     afterStatePath: fullPath,
     afterState: projectedAfter,
     existsAfter,
@@ -261,6 +278,12 @@ export function buildContext(
     lookupBudget,
     expressionBudget,
   };
+  if (foreignMockDocs.size > 0) {
+    context.foreignMockDocuments = foreignMockDocs;
+  }
+  if (foreignExistsMocks.size > 0) {
+    context.foreignExistsMocks = foreignExistsMocks;
+  }
   if (functionPathVariables !== undefined) {
     context.functionPathVariables = functionPathVariables;
   }

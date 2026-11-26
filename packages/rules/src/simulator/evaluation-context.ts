@@ -77,6 +77,12 @@ export interface SimulationContext {
    *  Test API mocks `exists` and `get` as separate functions, so an exists
    *  mock answers exists() only and never supplies a get() document. */
   existsMocks?: ReadonlyMap<string, boolean>;
+  /** Explicit Rules Test API `get` mocks targeting a database other than
+   *  `database`, keyed by canonical `/databases/<db>/documents/<rel>` path. */
+  foreignMockDocuments?: ReadonlyMap<string, Record<string, unknown>>;
+  /** Explicit Rules Test API `exists` mocks targeting a database other than
+   *  `database`, keyed by canonical `/databases/<db>/documents/<rel>` path. */
+  foreignExistsMocks?: ReadonlyMap<string, boolean>;
   /** Lazy fault-in resolver. When a get()/exists() path misses
    *  {@link mockDocuments}, the evaluator resolves it through this (the DocStore
    *  point-read) and memoizes the result into mockDocuments. Lets the sandbox

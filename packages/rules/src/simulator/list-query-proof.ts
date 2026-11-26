@@ -159,6 +159,7 @@ export function proveListQuery(
   auth: ReadAuth,
   constraints: QueryConstraints,
   sourceString?: string,
+  database = '(default)',
 ): ListProofVerdict {
   const isAstDefined = ast !== null;
   if (isAstDefined === false) {
@@ -171,7 +172,7 @@ export function proveListQuery(
     ...(ast!.functions ?? []),
     ...(ast!.service.functions ?? []),
   ];
-  const matches: MatchResult[] = collectRootMatches(ast!, relPath, rootFunctions);
+  const matches: MatchResult[] = collectRootMatches(ast!, relPath, rootFunctions, undefined, database);
   const isMatchesEmpty = matches.length === 0;
   if (isMatchesEmpty) {
     return { kind: 'no-rule' };
@@ -208,6 +209,7 @@ export function proveListQuery(
         fnMap,
         match.functionScopes,
         pathInvariance,
+        database,
       );
       return projectedCondition === rule.condition
         ? rule
@@ -230,6 +232,7 @@ export function proveListQuery(
         parentPathVariables,
         match.functionScopes,
         pathInvariance,
+        database,
       );
       const isProvable = result.provable === true;
       if (isProvable) {
