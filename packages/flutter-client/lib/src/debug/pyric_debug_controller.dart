@@ -42,14 +42,20 @@ class PyricDebugController extends ChangeNotifier {
   }
 
   void _initSubscriptions() {
-    _lensSub = _authPlatform.authLensChanges.listen((lens) {
-      _currentLens = lens;
-      notifyListeners();
-    });
+    _lensSub = _authPlatform.authLensChanges.listen(
+      (lens) {
+        _currentLens = lens;
+        notifyListeners();
+      },
+      onError: (Object _, StackTrace __) {},
+    );
 
-    _remoteLensSub = _bridgeClient.remoteLensStream.listen((lens) {
-      _authPlatform.switchAuthLens(lens);
-    });
+    _remoteLensSub = _bridgeClient.remoteLensStream.listen(
+      (lens) {
+        _authPlatform.switchAuthLens(lens);
+      },
+      onError: (Object _, StackTrace __) {},
+    );
 
     _denialSub = _diagnostics.denials.listen((report) {
       _denials.insert(0, report);

@@ -56,14 +56,17 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
     _credentialsProvider = provider;
   }
 
-  /// Resolves the active [AuthLens] map for stamping on operations.
-  Map<String, dynamic> get effectiveAuthLens {
+  /// Resolves the active [AuthLens] for stamping on operations and listeners.
+  AuthLens get effectiveLens {
     final provider = credentialsProvider;
     if (provider != null) {
-      return provider.currentAuthLens.toMap();
+      return provider.currentAuthLens;
     }
-    return const {'mode': 'anon'};
+    return AuthLens.anon;
   }
+
+  /// Resolves the active [AuthLens] map for stamping on operations.
+  Map<String, dynamic> get effectiveAuthLens => effectiveLens.toMap();
 
   /// Emits whenever the active [AuthLens] transitions.
   Stream<AuthLens> get authLensChanges {

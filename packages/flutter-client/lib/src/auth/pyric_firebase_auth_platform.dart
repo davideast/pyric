@@ -1,12 +1,13 @@
 import 'dart:async';
 
-import 'package:async/async.dart';
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../transport/bridge_auth_operations.dart';
 import '../transport/bridge_client.dart';
 import 'auth_lens.dart';
+import 'auth_observer_reconciler.dart';
+import 'auth_stream_hub.dart';
 import 'auth_wire_codec.dart';
 import 'pyric_auth_credentials_provider.dart';
 import 'pyric_user_credential_platform.dart';
@@ -18,23 +19,14 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   PyricBridgeClient _bridgeClient;
   bool _ownsBridgeClient;
   UserPlatform? _currentUser;
-  String? _lastAuthStateUid;
-  int _pendingLocalAuthMutations = 0;
-
-  final StreamController<UserPlatform?> _authStateController =
-      StreamController<UserPlatform?>.broadcast();
-  final StreamController<UserPlatform?> _idTokenController =
-      StreamController<UserPlatform?>.broadcast();
-  final StreamController<UserPlatform?> _userChangesController =
-      StreamController<UserPlatform?>.broadcast();
+  AuthLens? _impersonatedLens;
+  final AuthObserverReconciler _reconciler = AuthObserverReconciler();
+  late final AuthStreamHub _streams;
 
   StreamSubscription<dynamic>? _bridgeAuthSub;
   StreamSubscription<dynamic>? _bridgeIdTokenSub;
   StreamSubscription<AuthLens>? _remoteLensSub;
-
-  AuthLens? _impersonatedLens;
-  final StreamController<AuthLens> _lensController =
-      StreamController<AuthLens>.broadcast();
+  StreamSubscription<BridgeConnectionState>? _bridgeStateSub;
 
   String? _tenantId;
   String? _languageCode;
@@ -46,6 +38,10 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     PyricBridgeClient? bridgeClient,
   })  : _bridgeClient = bridgeClient ?? PyricBridgeClient(),
         _ownsBridgeClient = bridgeClient == null {
+    _streams = AuthStreamHub(
+      readCurrentUser: () => _currentUser,
+      readCurrentLens: () => currentAuthLens,
+    );
     _initBridgeAuthListeners();
   }
 
@@ -63,7 +59,10 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
 
   @override
   FirebaseAuthPlatform delegateFor({required FirebaseApp app}) {
-    return PyricFirebaseAuthPlatform(appInstance: app, bridgeClient: _bridgeClient);
+    return PyricFirebaseAuthPlatform(
+      appInstance: app,
+      bridgeClient: _bridgeClient,
+    );
   }
 
   @override
@@ -78,38 +77,64 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
         details: currentUser,
         client: _bridgeClient,
       );
-      _lastAuthStateUid = _currentUser?.uid;
+      _streams.seedInitial(uid: _currentUser?.uid, lens: currentAuthLens);
     }
     return this;
   }
 
-  void beginLocalAuthMutation() => _pendingLocalAuthMutations += 1;
+  int allocateLocalAuthMutationSeq() => _reconciler.allocateMutationSeq();
+
+  int beginLocalAuthMutation() => _reconciler.beginLocalMutation();
 
   void endLocalAuthMutation() {
-    if (_pendingLocalAuthMutations > 0) _pendingLocalAuthMutations -= 1;
-  }
-
-  void _emitAuthStateIfChanged(UserPlatform? user) {
-    final nextUid = user?.uid;
-    if (nextUid != _lastAuthStateUid) {
-      _lastAuthStateUid = nextUid;
-      _authStateController.add(user);
+    final buffered = _reconciler.endLocalMutation();
+    for (final snap in buffered) {
+      _applyNormalizedObserverSnap(
+        snap.normalized,
+        isAuthState: snap.isAuthState,
+      );
     }
   }
 
-  void notifyUserMutation(PyricUserPlatform user, {required bool tokenChanged}) {
+  void notifyUserMutation(
+    PyricUserPlatform user, {
+    required bool tokenChanged,
+    int? mutationSeq,
+  }) {
+    if (mutationSeq != null && !_reconciler.tryClaimMutation(mutationSeq)) {
+      return;
+    }
+    final prevUid = _currentUser?.uid;
     _currentUser = user;
-    _emitAuthStateIfChanged(user);
-    if (tokenChanged) _idTokenController.add(user);
-    _userChangesController.add(user);
+    _reconciler.recordLocalTransition(
+      prevUid: prevUid,
+      nextUid: user.uid,
+      authStateChanged: prevUid != user.uid,
+      tokenChanged: tokenChanged,
+    );
+    _streams.emitAuthStateIfChanged(user);
+    if (tokenChanged) _streams.emitIdToken(user);
+    _streams.emitUserChanges(user);
+    _streams.emitLensIfChanged();
   }
 
-  void invalidateCurrentUserIfMatches(String uid) {
+  void invalidateCurrentUserIfMatches(String uid, {int? mutationSeq}) {
+    if (mutationSeq != null && !_reconciler.tryClaimMutation(mutationSeq)) {
+      return;
+    }
     if (_currentUser != null && _currentUser?.uid != uid) return;
+    final prevUid = _currentUser?.uid;
     _currentUser = null;
-    _emitAuthStateIfChanged(null);
-    _idTokenController.add(null);
-    _userChangesController.add(null);
+    _reconciler.recordLocalTransition(
+      prevUid: prevUid,
+      nextUid: null,
+      authStateChanged: true,
+      tokenChanged: true,
+    );
+    _streams.emitAuthStateIfChanged(null);
+    _streams.emitIdToken(null);
+    _streams.emitUserChanges(null);
+    _streams.emitLensIfChanged();
   }
 
   PyricUserPlatform _buildWireUserPreservingPrev(Map<String, dynamic> map) {
@@ -131,47 +156,73 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     return user;
   }
 
+  void _applyObserverSnap(dynamic data, {required bool isAuthState}) {
+    if (data != null && data is! Map) return;
+    final normalized =
+        data is Map ? normalizeBridgeSnapUserMap(data) : null;
+    _applyNormalizedObserverSnap(normalized, isAuthState: isAuthState);
+  }
+
+  void _applyNormalizedObserverSnap(
+    Map<String, dynamic>? normalized, {
+    required bool isAuthState,
+  }) {
+    final shouldApply = isAuthState
+        ? _reconciler.shouldApplyAuthStateSnap(normalized)
+        : _reconciler.shouldApplyIdTokenSnap(normalized);
+    if (!shouldApply) return;
+
+    if (normalized == null) {
+      if (_currentUser == null && _streams.lastAuthStateUid == null) return;
+      _currentUser = null;
+    } else {
+      _currentUser = _buildWireUserPreservingPrev(normalized);
+    }
+
+    if (isAuthState) {
+      _streams.emitAuthStateIfChanged(_currentUser);
+    } else {
+      _streams.emitIdToken(_currentUser);
+    }
+    _streams.emitUserChanges(_currentUser);
+    _streams.emitLensIfChanged();
+  }
+
   void _initBridgeAuthListeners() {
+    if (_bridgeClient.isDisposed) {
+      _streams.closeAllSync();
+      return;
+    }
+
     _bridgeAuthSub = _bridgeClient.subscribeRaw({'target': 'authState'}).listen(
-      (data) {
-        if (_pendingLocalAuthMutations > 0) return;
-        if (data == null) {
-          if (_currentUser == null && _lastAuthStateUid == null) return;
-          _currentUser = null;
-          _emitAuthStateIfChanged(null);
-          _userChangesController.add(null);
-        } else if (data is Map) {
-          _currentUser = _buildWireUserPreservingPrev(
-            normalizeBridgeSnapUserMap(data),
-          );
-          _emitAuthStateIfChanged(_currentUser);
-          _userChangesController.add(_currentUser);
-        }
-      },
-      onError: (Object err) => _authStateController.addError(mapBridgeAuthError(err)),
+      (data) => _applyObserverSnap(data, isAuthState: true),
+      onError: (Object err) =>
+          _streams.addAuthStateError(mapBridgeAuthError(err)),
+      onDone: _streams.closeAuthState,
     );
 
     _bridgeIdTokenSub =
         _bridgeClient.subscribeRaw({'target': 'idToken'}).listen(
-      (data) {
-        if (_pendingLocalAuthMutations > 0) return;
-        if (data == null) {
-          if (_currentUser == null && _lastAuthStateUid == null) return;
-          _currentUser = null;
-          _idTokenController.add(null);
-          _userChangesController.add(null);
-        } else if (data is Map) {
-          _currentUser = _buildWireUserPreservingPrev(
-            normalizeBridgeSnapUserMap(data),
-          );
-          _idTokenController.add(_currentUser);
-          _userChangesController.add(_currentUser);
-        }
-      },
-      onError: (Object err) => _idTokenController.addError(mapBridgeAuthError(err)),
+      (data) => _applyObserverSnap(data, isAuthState: false),
+      onError: (Object err) =>
+          _streams.addIdTokenError(mapBridgeAuthError(err)),
+      onDone: _streams.closeIdToken,
     );
 
-    _remoteLensSub = _bridgeClient.remoteLensStream.listen(switchAuthLens);
+    _remoteLensSub = _bridgeClient.remoteLensStream.listen(
+      switchAuthLens,
+      onError: (Object _, StackTrace __) {},
+    );
+
+    _bridgeStateSub = _bridgeClient.connectionStates.listen(
+      (state) {
+        if (state == BridgeConnectionState.interrupted) {
+          _reconciler.resetEchoes();
+        }
+      },
+      onDone: _streams.closeAllSync,
+    );
+
     _bridgeClient.restoreAuth = (op) async {
       final user = _currentUser;
       if (user == null) return;
@@ -188,17 +239,23 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   @override
   set currentUser(UserPlatform? userPlatform) {
     _currentUser = userPlatform;
-    _lastAuthStateUid = userPlatform?.uid;
+    _streams.setLastAuthStateUid(userPlatform?.uid);
+    _reconciler.resetEchoes();
+    _streams.emitLensIfChanged();
   }
 
   @override
   String? get tenantId => _tenantId;
 
   @override
-  set tenantId(String? value) => _tenantId = value;
+  set tenantId(String? value) {
+    _tenantId = value;
+    _streams.emitLensIfChanged();
+  }
 
   Future<void> setTenantId(String? tenantId) async {
     _tenantId = tenantId;
+    _streams.emitLensIfChanged();
   }
 
   @override
@@ -219,20 +276,31 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     _emulatorPort = port;
     if (!_isLiveBridge) return;
     final cleanHost = sanitizeEmulatorHost(host);
-    await _bridgeAuthSub?.cancel();
-    _bridgeAuthSub = null;
-    await _bridgeIdTokenSub?.cancel();
-    _bridgeIdTokenSub = null;
-    await _remoteLensSub?.cancel();
-    _remoteLensSub = null;
+    await _cancelBridgeSubscriptions();
     if (_ownsBridgeClient) await _bridgeClient.disconnect();
     _bridgeClient = PyricBridgeClient(
       uri: Uri.parse('ws://$cleanHost:$port/__pyric/sandbox'),
       headers: <String, dynamic>{'Host': '$cleanHost:$port'},
     );
     _ownsBridgeClient = true;
+    _reconciler.resetEchoes();
     _initBridgeAuthListeners();
     await _bridgeClient.connect();
+  }
+
+  Future<void> _cancelBridgeSubscriptions() async {
+    final authSub = _bridgeAuthSub;
+    _bridgeAuthSub = null;
+    final idTokenSub = _bridgeIdTokenSub;
+    _bridgeIdTokenSub = null;
+    final remoteSub = _remoteLensSub;
+    _remoteLensSub = null;
+    final stateSub = _bridgeStateSub;
+    _bridgeStateSub = null;
+    await authSub?.cancel();
+    await idTokenSub?.cancel();
+    await remoteSub?.cancel();
+    await stateSub?.cancel();
   }
 
   @override
@@ -276,35 +344,21 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   @override
   void sendAuthChangesEvent(String appName, UserPlatform? userPlatform) {
     _currentUser = userPlatform;
-    _lastAuthStateUid = userPlatform?.uid;
-    _authStateController.add(userPlatform);
-    _idTokenController.add(userPlatform);
-    _userChangesController.add(userPlatform);
-  }
-
-  Stream<UserPlatform?> _createReplayingStream(Stream<UserPlatform?> source) {
-    return Stream<UserPlatform?>.multi((controller) {
-      controller.add(_currentUser);
-      final sub = source.listen(
-        controller.add,
-        onError: controller.addError,
-        onDone: controller.close,
-      );
-      controller.onCancel = () => sub.cancel();
-    }, isBroadcast: true);
+    _reconciler.resetEchoes();
+    _streams.emitAuthStateForced(userPlatform);
+    _streams.emitIdToken(userPlatform);
+    _streams.emitUserChanges(userPlatform);
+    _streams.emitLensIfChanged();
   }
 
   @override
-  Stream<UserPlatform?> authStateChanges() =>
-      _createReplayingStream(_authStateController.stream);
+  Stream<UserPlatform?> authStateChanges() => _streams.authStateChanges();
 
   @override
-  Stream<UserPlatform?> idTokenChanges() =>
-      _createReplayingStream(_idTokenController.stream);
+  Stream<UserPlatform?> idTokenChanges() => _streams.idTokenChanges();
 
   @override
-  Stream<UserPlatform?> userChanges() =>
-      _createReplayingStream(_userChangesController.stream);
+  Stream<UserPlatform?> userChanges() => _streams.userChanges();
 
   AuthLens _lensForUser(UserPlatform? user) {
     if (user == null) return AuthLens.anon;
@@ -326,7 +380,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   /// Switches active auth lens, or clears impersonation if null.
   void switchAuthLens(AuthLens? lens) {
     _impersonatedLens = lens;
-    _lensController.add(currentAuthLens);
+    _streams.emitLensIfChanged();
   }
 
   @override
@@ -334,17 +388,12 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _impersonatedLens ?? _lensForUser(_currentUser);
 
   @override
-  Stream<AuthLens> get authLensChanges {
-    return StreamGroup.merge([
-      authStateChanges().map(_lensForUser),
-      idTokenChanges().map(_lensForUser),
-      _lensController.stream,
-    ]).distinct();
-  }
+  Stream<AuthLens> get authLensChanges => _streams.authLensChanges;
 
   Future<UserCredentialPlatform> _completeSignInResponse(
     Map<dynamic, dynamic> res, {
     required bool defaultIsNewUser,
+    required int mutationSeq,
     String? fallbackProviderId,
   }) async {
     final userMap = normalizeBridgeSnapUserMap(res);
@@ -376,10 +425,20 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       data: userMap,
       client: _bridgeClient,
     );
-    _currentUser = user;
-    _emitAuthStateIfChanged(user);
-    _idTokenController.add(user);
-    _userChangesController.add(user);
+    if (_reconciler.tryClaimMutation(mutationSeq)) {
+      final prevUid = _currentUser?.uid;
+      _currentUser = user;
+      _reconciler.recordLocalTransition(
+        prevUid: prevUid,
+        nextUid: user.uid,
+        authStateChanged: true,
+        tokenChanged: true,
+      );
+      _streams.emitAuthStateIfChanged(user);
+      _streams.emitIdToken(user);
+      _streams.emitUserChanges(user);
+      _streams.emitLensIfChanged();
+    }
     final addInfo = res['additionalUserInfo'] as Map?;
     final isNewUser = addInfo != null
         ? (addInfo['isNewUser'] as bool? ?? defaultIsNewUser)
@@ -403,12 +462,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     required bool defaultIsNewUser,
     String? fallbackProviderId,
   }) async {
-    beginLocalAuthMutation();
+    final seq = beginLocalAuthMutation();
     try {
       final res = await rpc();
       return await _completeSignInResponse(
         res as Map,
         defaultIsNewUser: defaultIsNewUser,
+        mutationSeq: seq,
         fallbackProviderId: fallbackProviderId,
       );
     } catch (e) {
@@ -469,13 +529,23 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
 
   @override
   Future<void> signOut() async {
-    beginLocalAuthMutation();
+    final seq = beginLocalAuthMutation();
     try {
       await _bridgeClient.authSignOut();
-      _currentUser = null;
-      _emitAuthStateIfChanged(null);
-      _idTokenController.add(null);
-      _userChangesController.add(null);
+      if (_reconciler.tryClaimMutation(seq)) {
+        final prevUid = _currentUser?.uid;
+        _currentUser = null;
+        _reconciler.recordLocalTransition(
+          prevUid: prevUid,
+          nextUid: null,
+          authStateChanged: true,
+          tokenChanged: true,
+        );
+        _streams.emitAuthStateIfChanged(null);
+        _streams.emitIdToken(null);
+        _streams.emitUserChanges(null);
+        _streams.emitLensIfChanged();
+      }
     } catch (e) {
       throw mapBridgeAuthError(e);
     } finally {
@@ -485,16 +555,8 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
 
   @override
   Future<void> dispose() async {
-    await _bridgeAuthSub?.cancel();
-    _bridgeAuthSub = null;
-    await _bridgeIdTokenSub?.cancel();
-    _bridgeIdTokenSub = null;
-    await _remoteLensSub?.cancel();
-    _remoteLensSub = null;
+    await _cancelBridgeSubscriptions();
     if (_ownsBridgeClient) await _bridgeClient.disconnect();
-    await _lensController.close();
-    await _authStateController.close();
-    await _idTokenController.close();
-    await _userChangesController.close();
+    await _streams.dispose();
   }
 }

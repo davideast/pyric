@@ -96,14 +96,17 @@ class PyricDatabase {
     _credentialsProvider = provider;
   }
 
-  /// Resolves the active [AuthLens] map for stamping on operations.
-  Map<String, dynamic> get effectiveAuthLens {
+  /// Resolves the active [AuthLens] for stamping on operations and listeners.
+  AuthLens get effectiveLens {
     final provider = credentialsProvider;
     if (provider != null) {
-      return provider.currentAuthLens.toMap();
+      return provider.currentAuthLens;
     }
-    return const {'mode': 'anon'};
+    return AuthLens.anon;
   }
+
+  /// Resolves the active [AuthLens] map for stamping on operations.
+  Map<String, dynamic> get effectiveAuthLens => effectiveLens.toMap();
 
   /// Emits whenever the active [AuthLens] transitions.
   Stream<AuthLens> get authLensChanges {
@@ -128,15 +131,17 @@ class PyricDatabase {
   }
 
   /// Suspends the Realtime Database connection to the Pyric worker and triggers queued disconnect ops.
-  Future<void> goOffline() async {
+  Future<void> goOffline() {
+    final future = op('rtdb.goOffline', const {});
     _connectionInfo.setOnline(false);
-    await op('rtdb.goOffline', const {});
+    return future;
   }
 
   /// Resumes the Realtime Database connection to the Pyric worker.
-  Future<void> goOnline() async {
+  Future<void> goOnline() {
+    final future = op('rtdb.goOnline', const {});
     _connectionInfo.setOnline(true);
-    await op('rtdb.goOnline', const {});
+    return future;
   }
 
   /// Wire `instance` selector derived from [databaseURL] (or [app] options),
@@ -174,41 +179,113 @@ class PyricDatabase {
     late StreamController<dynamic> controller;
     StreamSubscription<dynamic>? bridgeSub;
     StreamSubscription<AuthLens>? authLensSub;
+    var listenGeneration = 0;
+    AuthLens? activeLens;
 
-    void startListening(Map<String, dynamic> actAs) {
-      bridgeSub?.cancel();
+    void closeFromBridge() {
+      if (controller.isClosed) return;
+      listenGeneration++;
+      final prevBridgeSub = bridgeSub;
+      bridgeSub = null;
+      final prevAuthLensSub = authLensSub;
+      authLensSub = null;
+      activeLens = null;
+      prevBridgeSub?.cancel();
+      prevAuthLensSub?.cancel();
+      controller.close();
+    }
+
+    void startListening(AuthLens lens, int generation) {
+      if (generation != listenGeneration || controller.isClosed) return;
+      activeLens = lens;
+      final prevBridgeSub = bridgeSub;
+      bridgeSub = null;
+      prevBridgeSub?.cancel();
       final instance = wireInstance;
-      final subStream = _bridgeClient.subscribeRaw({
-        'target': {
-          'service': 'rtdb',
-          if (instance != null) 'instance': instance,
-          'path': path,
-          if (querySpec != null) 'query': querySpec,
-        },
-        'actAs': actAs,
-      });
-      bridgeSub = subStream.listen(
+      final Stream<dynamic> subStream;
+      try {
+        subStream = _bridgeClient.subscribeRaw({
+          'target': {
+            'service': 'rtdb',
+            if (instance != null) 'instance': instance,
+            'path': path,
+            if (querySpec != null) 'query': querySpec,
+          },
+          'actAs': lens.toMap(),
+        });
+      } catch (e, st) {
+        scheduleMicrotask(() {
+          if (generation != listenGeneration || controller.isClosed) return;
+          controller.addError(e, st);
+          closeFromBridge();
+        });
+        return;
+      }
+
+      late final StreamSubscription<dynamic> currentSub;
+      currentSub = subStream.listen(
         (event) {
-          controller.add(event);
+          if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
+            return;
+          }
+          if (!controller.isClosed) {
+            controller.add(event);
+          }
         },
         onError: (Object err, StackTrace st) {
-          controller.addError(err, st);
+          if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
+            return;
+          }
+          if (!controller.isClosed) {
+            controller.addError(err, st);
+          }
+        },
+        onDone: () {
+          if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
+            return;
+          }
+          bridgeSub = null;
+          closeFromBridge();
         },
       );
+      bridgeSub = currentSub;
     }
 
     controller = StreamController<dynamic>.broadcast(
+      sync: true,
       onListen: () {
-        startListening(effectiveAuthLens);
-        authLensSub = authLensChanges.listen((newLens) {
-          startListening(newLens.toMap());
-        });
+        final generation = ++listenGeneration;
+        if (_bridgeClient.isDisposed) {
+          scheduleMicrotask(() {
+            if (generation != listenGeneration || controller.isClosed) return;
+            controller.addError(const PyricBridgeException(
+              code: 'unavailable',
+              message: 'PyricBridgeClient has been disposed.',
+            ));
+            controller.close();
+          });
+          return;
+        }
+        final initialLens = effectiveLens;
+        startListening(initialLens, generation);
+        authLensSub = authLensChanges.listen(
+          (newLens) {
+            if (generation != listenGeneration) return;
+            if (newLens == activeLens) return;
+            startListening(newLens, generation);
+          },
+          onError: (Object _, StackTrace __) {},
+        );
       },
-      onCancel: () async {
-        await authLensSub?.cancel();
-        authLensSub = null;
-        await bridgeSub?.cancel();
+      onCancel: () {
+        listenGeneration++;
+        final prevBridgeSub = bridgeSub;
         bridgeSub = null;
+        final prevAuthLensSub = authLensSub;
+        authLensSub = null;
+        activeLens = null;
+        if (prevBridgeSub != null) unawaited(prevBridgeSub.cancel());
+        if (prevAuthLensSub != null) unawaited(prevAuthLensSub.cancel());
       },
     );
 

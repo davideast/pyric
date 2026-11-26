@@ -89,9 +89,11 @@ void main() {
 
   /// Drops the socket and keeps the client from re-attaching, so writes are held.
   Future<void> dropAndHold() async {
+    final interrupted = client.connectionStates
+        .firstWhere((s) => s == BridgeConnectionState.interrupted);
     bridge.refuseConnections = true;
     bridge.current.drop();
-    await until(() => !client.isConnected);
+    await interrupted;
   }
 
   Future<void> reattach() async {
@@ -109,7 +111,7 @@ void main() {
     await client.connect();
     await dropAndHold();
     final expected = issueSetUpdatePairs('held');
-    await settle();
+    await flushMicrotasks();
     expect(bridge.frames.where(isWrite), isEmpty, reason: 'nothing is sent while held');
 
     await reattach();
@@ -159,7 +161,7 @@ void main() {
     await dropAndHold();
     final sentBeforeHold = bridge.frames.length;
     final held = transact();
-    await settle();
+    await flushMicrotasks();
     expect(bridge.frames.length, sentBeforeHold, reason: 'nothing is sent while held');
     await reattach();
     await held;
