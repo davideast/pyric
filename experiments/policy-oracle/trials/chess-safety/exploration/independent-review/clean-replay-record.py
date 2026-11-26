@@ -48,6 +48,23 @@ def receipt(checkout, report, scorecard, *, scheduler=None):
         status=json.loads(scheduler.read_bytes())
         assert status['stage']=='finished' and status['exitCode']==0 and status['reported']
         assert status['revision']==revision and status['unexpectedWorkingTreeChanges']==[]
+        assert r['qualification']['historicalProofs']==45
+        helpers=r['archivedBareHelpers']
+        expected_helpers={
+            'd582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4':'685cd932bae8f58e3d2556c817842c9cb17b0650de9cc6c61f4c3e72874be32d',
+            SELECTED:'2168fdfc41b45810330f448fde875de612c5929d075fbfbf01857a86d5beedfe'}
+        assert {h['bundleSha256']:h['helperScopeSha256'] for h in helpers}==expected_helpers
+        for h in helpers:
+            assert h['positions']==1791552 and h['claims']==5374656 and h['runtimeErrors']==h['mismatches']==0
+        proof['archivedBareHelpers']=[{f:h[f] for f in ('bundleSha256','helperScopeSha256','nativeSha256','positions','claims','mismatches','runtimeErrors')}
+            for h in helpers]
+        recovery,=[entry for entry in r['management']['unqualified'] if entry['reason']=='management-401-during-restore']
+        assert recovery['attempted']==85 and recovery['scored']==0 and recovery['leaseReleased']
+        assert len(recovery['closedRounds'])==2
+        assert all(all(check[f]=='DENY' for f in ('beforeRead','write','afterRead')) and check['unchangedVersion']
+            for check in recovery['closedRounds'])
+        proof['interruptedCapture']={f:recovery[f] for f in ('controllerSha256','recoveryJournalSha256','attempted','scored','restoredRulesSha256',
+            'restoredReleaseVersion','leaseReleased','restorationControl','closedRounds')}
         proof['reservedFinalReplay']={'scheduledFor':'2026-11-26T18:37:30Z','finishedAt':status['utc'],'exitCode':0}
     return proof
 

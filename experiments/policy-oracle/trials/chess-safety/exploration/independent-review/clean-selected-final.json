@@ -1,0 +1,124 @@
+{
+  "checkout": "8318b65b2324742fa2bc373b0bd827984649b70b",
+  "tree": "9bae09d7f31d44b5beb1bf487e93ed0ef4fbab17",
+  "cleanAfterReplay": true,
+  "command": "python3 replay.py --sealed-referee <private referee> --archive <archived controller journals> --report <json> --scorecard <markdown>",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "qualification": {
+    "status": "reproduced",
+    "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+    "historicalProofs": 45
+  },
+  "targetCompilation": "compiled",
+  "nativeSignedInputs": {
+    "inputs": 190,
+    "legalSubmissions": 92,
+    "illegalSubmissions": 98,
+    "judgmentsSha256": "bec547a181038742ebb5263cba50bf9914d9ae49078f57914d60e59512977473",
+    "thirdRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39"
+  },
+  "productionComparedToNative": {
+    "priorStrongerBaseline": {
+      "rulesSha256": "523c4c137aa00c2c764264aa6c2cefeda7c692561544da45d4fcccf3a2056fda",
+      "cases": 190,
+      "nativeMatches": 97,
+      "falseAllows": 93,
+      "falseRefusals": 0,
+      "localVerdictMatches": 190
+    },
+    "selected": {
+      "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+      "cases": 190,
+      "nativeMatches": 182,
+      "falseAllows": 7,
+      "falseRefusals": 1,
+      "localVerdictMatches": 190
+    }
+  },
+  "privateJournalChecked": true,
+  "localHoldout": {
+    "match": 15678,
+    "false-allow": 223,
+    "false-refusal/resource-limit": 4
+  },
+  "localHistory": {
+    "played": {
+      "writes": 1553,
+      "allow": 1553,
+      "falseRefusals": 0
+    },
+    "legal": {
+      "writes": 47087,
+      "allow": 47087,
+      "falseRefusals": 0
+    }
+  },
+  "localLifecycle": {
+    "completePrefixes": 37,
+    "outcomes": {
+      "match": 9584,
+      "false-allow": 3
+    }
+  },
+  "localSealed": {
+    "each-legal-successor": {
+      "match": 46385
+    },
+    "three-claims-per-board": {
+      "match": 4563
+    }
+  },
+  "localConformance": false,
+  "matchesObservedProductionCases": false,
+  "reportSha256": "3a1b16e236fd8e14321aaa3b3ee7f10f922c1af8992016a38eff86d4af7e6d4d",
+  "scorecardSha256": "b6965015a0df63eadb8b7a6dba228d9b73c81cfdc9e4239ac23f8f89d577a0b8",
+  "archivedBareHelpers": [
+    {
+      "bundleSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+      "helperScopeSha256": "2168fdfc41b45810330f448fde875de612c5929d075fbfbf01857a86d5beedfe",
+      "nativeSha256": "a10246386d4565af1cf3ee10af7ffcf659ffc60df1832071150a6672e7cb14dc",
+      "positions": 1791552,
+      "claims": 5374656,
+      "mismatches": 0,
+      "runtimeErrors": 0
+    },
+    {
+      "bundleSha256": "d582f74aa912fcc158a052712d54927bd1df68fdfb5ef1331cfe4254e2ef6fd4",
+      "helperScopeSha256": "685cd932bae8f58e3d2556c817842c9cb17b0650de9cc6c61f4c3e72874be32d",
+      "nativeSha256": "a10246386d4565af1cf3ee10af7ffcf659ffc60df1832071150a6672e7cb14dc",
+      "positions": 1791552,
+      "claims": 5374656,
+      "mismatches": 0,
+      "runtimeErrors": 0
+    }
+  ],
+  "interruptedCapture": {
+    "controllerSha256": "bd46c53fe0db4a0718fa512463a6d0ad438c079901a6bce317c6a3f3890cff3a",
+    "recoveryJournalSha256": "ba78e48ba1720ca063498c90e3bdc8ae204aed89e02fa4affdfe613d606d3cdf",
+    "attempted": 85,
+    "scored": 0,
+    "restoredRulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+    "restoredReleaseVersion": "2026-11-26T17:58:22.307898Z",
+    "leaseReleased": true,
+    "restorationControl": "ac5d9735c456ff47440144fb370fac707996fde9f85824162665a7ff7d0b9519",
+    "closedRounds": [
+      {
+        "beforeRead": "DENY",
+        "write": "DENY",
+        "afterRead": "DENY",
+        "unchangedVersion": "2026-11-26T17:58:29.195848Z"
+      },
+      {
+        "beforeRead": "DENY",
+        "write": "DENY",
+        "afterRead": "DENY",
+        "unchangedVersion": "2026-11-26T17:58:31.962275Z"
+      }
+    ]
+  },
+  "reservedFinalReplay": {
+    "scheduledFor": "2026-11-26T18:37:30Z",
+    "finishedAt": "2026-11-26T18:47:22.497462+00:00",
+    "exitCode": 0
+  }
+}
