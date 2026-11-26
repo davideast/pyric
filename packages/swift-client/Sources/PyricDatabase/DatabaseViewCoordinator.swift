@@ -265,10 +265,6 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
 
             let created = ActiveView(key: key, coordinator: self)
             _ = created.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec)
-            viewsByKey[key] = created
-            keyByHandle[handle] = key
-            lock.unlock()
-
             created.startFeed { [weak self] activeView in
                 Self.makeFeedTask(
                     coordinator: self,
@@ -279,6 +275,9 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                     queryRef: ref
                 )
             }
+            viewsByKey[key] = created
+            keyByHandle[handle] = key
+            lock.unlock()
             return handle
         }
     }

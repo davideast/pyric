@@ -390,37 +390,36 @@ public final class Database: NSObject, @unchecked Sendable {
 
     private func setNetworkOnline(_ online: Bool) {
         stateLock.lock()
-        guard _networkOnline != online else {
-            stateLock.unlock()
-            return
-        }
+        defer { stateLock.unlock() }
+        guard _networkOnline != online else { return }
         _networkOnline = online
         for continuation in networkContinuations.values { continuation.yield(online) }
-        stateLock.unlock()
         connectionInfoHub.updateNetworkOnline(online)
     }
 
     public func goOffline() async throws {
         markUsed()
+        let turn = takeTurn()
         setNetworkOnline(false)
-        try await send(turn: takeTurn(), method: "rtdb.goOffline", params: [:])
+        try await send(turn: turn, method: "rtdb.goOffline", params: [:])
     }
 
     public func goOffline() {
         markUsed()
-        setNetworkOnline(false)
         sendInCallOrder(method: "rtdb.goOffline", params: [:]) { _ in }
+        setNetworkOnline(false)
     }
 
     public func goOnline() async throws {
         markUsed()
+        let turn = takeTurn()
         setNetworkOnline(true)
-        try await send(turn: takeTurn(), method: "rtdb.goOnline", params: [:])
+        try await send(turn: turn, method: "rtdb.goOnline", params: [:])
     }
 
     public func goOnline() {
         markUsed()
-        setNetworkOnline(true)
         sendInCallOrder(method: "rtdb.goOnline", params: [:]) { _ in }
+        setNetworkOnline(true)
     }
 }

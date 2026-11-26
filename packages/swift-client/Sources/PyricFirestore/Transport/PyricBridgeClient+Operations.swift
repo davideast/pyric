@@ -309,7 +309,7 @@ extension PyricBridgeClient {
         holdQueuedOperations()
     }
 
-    private func holdQueuedOperations() {
+    func holdQueuedOperations() {
         for (id, op) in pendingOps where op.holdable && op.write == .queued {
             pendingOps.removeValue(forKey: id)
             holdAgain(id: id, op)
@@ -403,7 +403,15 @@ extension PyricBridgeClient {
 
     func sendHeldOperations(generation: Int) async {
         await lastOpWrite?.value
-        while isCurrent(generation), isConnected, !socketRefusing, let held = heldOps.popFirst() {
+        while isCurrent(generation), isConnected, !socketRefusing {
+            let nextOpSeq = heldOps.firstSequence
+            let nextSubSeq = deferredSubsDuringDrain.first?.sequence
+            if let subSeq = nextSubSeq, nextOpSeq == nil || subSeq < nextOpSeq! {
+                let deferred = deferredSubsDuringDrain.removeFirst()
+                await sendSubFrame(id: deferred.subId, generation: generation)
+                continue
+            }
+            guard let held = heldOps.popFirst() else { break }
             held.deadlineTask.cancel()
             registerPendingOp(
                 id: held.id,

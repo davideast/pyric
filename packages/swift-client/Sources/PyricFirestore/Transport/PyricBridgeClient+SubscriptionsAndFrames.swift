@@ -113,9 +113,17 @@ extension PyricBridgeClient {
             return
         }
 
-        if isConnected && !restoringSubscriptions && !socketRefusing {
+        if isConnected && !restoringSubscriptions && !drainingHeldOps && !socketRefusing {
             if sub.sentInGeneration != connectionGeneration {
                 writeSubAfterLastOp(id: subId, generation: connectionGeneration)
+            }
+            releaseTurn(turn)
+            return
+        }
+        if isConnected && !restoringSubscriptions && drainingHeldOps && !socketRefusing {
+            if sub.sentInGeneration != connectionGeneration {
+                opCounter += 1
+                deferredSubsDuringDrain.append((sequence: opCounter, subId: subId))
             }
             releaseTurn(turn)
             return
@@ -155,7 +163,7 @@ extension PyricBridgeClient {
         }
     }
 
-    private func sendSubFrame(id subId: String, generation: Int) async {
+    func sendSubFrame(id subId: String, generation: Int) async {
         guard isCurrent(generation), isConnected, !restoringSubscriptions, !socketRefusing else {
             return
         }
@@ -170,6 +178,10 @@ extension PyricBridgeClient {
             if activeSubs[subId]?.sentInGeneration == generation {
                 activeSubs[subId]?.sentInGeneration = nil
             }
+            if isCurrent(generation) {
+                socketRefusing = true
+                holdQueuedOperations()
+            }
         } catch {
             if activeSubs[subId]?.sentInGeneration == generation,
                let removed = activeSubs.removeValue(forKey: subId) {
@@ -182,8 +194,9 @@ extension PyricBridgeClient {
         if pendingSubs.cancelIfPending(id: subId) {
             return
         }
-        guard activeSubs.removeValue(forKey: subId) != nil else { return }
-        if isConnected && !isDisposed {
+        deferredSubsDuringDrain.removeAll { $0.subId == subId }
+        guard let removed = activeSubs.removeValue(forKey: subId) else { return }
+        if removed.sentInGeneration == connectionGeneration && isConnected && !isDisposed {
             try? await sendRaw(WorkerUnsubFrame(subId: subId))
         }
     }

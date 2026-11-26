@@ -81,6 +81,7 @@ public actor PyricBridgeClient {
 
     var pendingOps: [String: PendingOp] = [:]
     var heldOps = HeldOperationQueue()
+    var deferredSubsDuringDrain: [(sequence: Int, subId: String)] = []
     var restoringSubscriptions = false
     var drainingHeldOps = false
     var socketRefusing = false
@@ -415,6 +416,9 @@ public actor PyricBridgeClient {
                     if activeSubs[subId]?.sentInGeneration == generation {
                         activeSubs[subId]?.sentInGeneration = nil
                     }
+                    if isCurrent(generation) {
+                        socketRefusing = true
+                    }
                     refused = true
                     break
                 } catch {
@@ -454,6 +458,7 @@ public actor PyricBridgeClient {
         isConnected = false
         restoringSubscriptions = false
         drainingHeldOps = false
+        deferredSubsDuringDrain.removeAll()
         socketRefusing = false
         attachDeadlineTask?.cancel()
         attachDeadlineTask = nil
@@ -531,6 +536,7 @@ public actor PyricBridgeClient {
         isConnected = false
         restoringSubscriptions = false
         drainingHeldOps = false
+        deferredSubsDuringDrain.removeAll()
         socketRefusing = false
         connectionGeneration += 1
         attemptTask?.cancel()
