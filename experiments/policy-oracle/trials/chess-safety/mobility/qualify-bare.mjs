@@ -7,14 +7,14 @@ import {squareName} from '../../chess/reference/arcade-reference.ts';
 import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
 import {compile} from './combined.mjs';
 
-const [pkg,corpus]=process.argv.slice(2);
+const [pkg,corpus,variant='combined-bare-packed-v5']=process.argv.slice(2);
 const expected='daad023b62917d4ccce4e758268bfea82b97c3ba525bf2d12f987dc10d5bb0e6';
 const bytes=gunzipSync(readFileSync(corpus));
 const hash=createHash('sha256').update(bytes).digest('hex');
 assert.equal(hash,expected);
 const rows=JSON.parse(bytes);
 const {compileFunction}=await loadPolicyApi(pkg);
-const policy=compile(compileFunction,'combined-bare-packed-v5',{mode:'standalone'});
+const policy=compile(compileFunction,variant,{mode:'standalone'});
 const results={nativeCorpus:hash,submissions:rows.length,uniqueSuccessors:0,eligible:0,outside:0,states:{won:0,draw:0,playing:0}};
 const seen=new Set();
 for(const row of rows) {

@@ -8,12 +8,16 @@ import {position} from '../../chess/reference/score.mjs';
 import {squareName} from '../../chess/reference/arcade-reference.ts';
 import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
 import {compileMobility} from './adapter.mjs';
+import {compileDirect} from './direct.mjs';
+import {packedSources} from '../policy/packed.mjs';
 import {squares} from '../policy/geometry.mjs';
 
-const [pkg,reference,bundle]=process.argv.slice(2);
+const [pkg,reference,bundle,direct]=process.argv.slice(2);
 const {firestoreRules}=await import(pathToFileURL(resolve(reference,'dist/index.js')));
 const {compileFunction}=await loadPolicyApi(pkg);
-const {directions}=compileMobility(compileFunction,{mode:'standalone',specialized:true});
+const {packNormal,packedSafe}=packedSources(true);
+const {directions}=direct==='--direct'?compileDirect(compileFunction,{mode:'standalone'},packNormal,packedSafe)
+  :compileMobility(compileFunction,{mode:'standalone',specialized:true});
 const source=readFileSync(bundle,'utf8');
 const marker='service cloud.firestore {';
 assert.equal(source.split(marker).length,2);

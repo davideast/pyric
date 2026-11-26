@@ -21,7 +21,7 @@ export function compileBare(compileFunction,mobility) {
   };
 }
 
-export function bareBinding(source) {
+export function bareBinding(source,simple=false) {
   assert.equal(source,'return packedSafe(text, color);');
   const test='return packedSafe(text, color) && admittedStatus(castle ? castleFinish(text,color,xTo) : text,color,next.status);';
   // An exact existing lower bound for king + one Q/R/B/N versus a bare king.
@@ -33,7 +33,7 @@ export function bareBinding(source) {
       let defender = white ? 'b' : 'w';
       return status == 'playing'
         ? otherDefenders(text,white)
-          || (!text.matches('${terminalEnvelope()}') && text.matches(${sparse}))
+          ${simple?'':"|| (!text.matches('"+terminalEnvelope()+"') && text.matches("+sparse+"))"}
           || hasKingReply(text,defender)
         : packedSafe(text,defender) == (status=='draw') && !replyCapture(text,color)
           && !hasKingReply(text,defender);

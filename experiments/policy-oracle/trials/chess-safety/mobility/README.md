@@ -58,3 +58,21 @@ The table-free `combined-bare-packed-v5` accepts an ongoing bare-king position e
 The frozen [standalone replay](qualify-bare.mjs) matched all 328 distinct eligible successor boards and returned null for 16 neighboring positions with other defenders. The [standalone score](bare-standalone.json) and independent full-write score measure different operations. Of 1,896 eligible complete writes in this corpus, 1,893 agreed and three legal castles exceeded the local expression budget. Across 15,413 signed local writes, the candidate agreed on 15,003, admitted 260 incorrect broader claims and exceeded the budget on 150 legal moves. Its 81,411-byte release has SHA-256 `9b31d40d5a1847c7ea8cfa9bb070b1b619919709c9bf4608c2ac977d4906f63f`.
 
 The separate `combined-whole-lazy-packed-v5` retains the narrower whole-board three-piece classifier and computes the en-passant capture square only on that branch. Its 161,432-byte release has SHA-256 `246042791e2798ee8b04a822210ffacce9c61a4f5f337c4311718c785b183dc7`. It agreed on 14,850 of the same 15,413 writes, permitting 563 incorrect terminal declarations, with no runtime or budget denials.
+
+## Direct king destinations
+
+The [direct authoring form](direct.mjs) describes each neighboring destination relative to the king on the original board. An enemy slider can attack through the square the king vacates. Occupancy on the destination affects capture legality and never blocks an attack on that same square. Wall tokens and the ends of the packed board handle edges. The grouped implementation checks four directions against four copies of the same board in each regex. It eliminates eight hypothetical board rewrites while preserving the eight independent legal move questions.
+
+[Native projection checks](prove-direct.mjs) covered 387,072 individual attacker/direction combinations, 74,368 occupied or captured targets and 60,480 intermediate blockers, all in agreement. The [public replay](direct-public.json) also recovered all 12,664 individual direction decisions from 1,583 frozen boards. Named complete-write and standalone native checks remain separate.
+
+| Variant | Complete Rules SHA-256 | Bytes | Matches / 15,413 | Legal writes refused for cost |
+| --- | --- | ---: | ---: | ---: |
+| combined-bare-direct-packed-v5 | 34678134902fa3c16501bfb0ac2a44041df655c862ef292d6fa8676162b1d1ab | 107,037 | 15,093 | 60 |
+| combined-bare-direct-grouped-packed-v5 | 1e4d4bf6a7036f1b6367b86fe3c4f816d7af5579fdaf62af581e7c0b3ed99d38 | 107,942 | 15,126 | 27 |
+| combined-bare-slim-packed-v5 | c1b8bb3574a37910b3c40bbef758782ce526cb59e7d2839f2b9655342fba3802 | 108,061 | 15,145 | 8 |
+| combined-bare-simple-packed-v5 | 8cb950ccbd1f33b2d68ebb317a45391ac9ffd7416c27bb5e7b801b8493b98f2d | 107,519 | 15,153 | 0 |
+| combined-bare-line-packed-v5 | 4ba6c1a88de65791d6a9ca8a3082bc0d595142bd56c7dfbfbc1206b7d57563e8 | 109,535 | 15,153 | 0 |
+
+The simple variant uses the same general movement proof for every bare defender. All 1,896 eligible writes agreed. Its 260 incorrect admissions were terminal claims with another defender, including 32 individual writes in the new scope-boundary controls. Zero local errors or limit denials were counted as successes. [Full cohort score](direct-simple-score.json) · [600-decision application regression](status-matrix.json)
+
+The line variant also specializes horizontal and vertical sliding paths, branching once at the central square before checking the bounded halves. [Its 262,144 rank/file decisions](line-proof.json) exhaust every occupancy mask, endpoint pair, file and rank. It reduced the largest expression count on the primary composition cohort from 895 to 872 compared with the simple variant.

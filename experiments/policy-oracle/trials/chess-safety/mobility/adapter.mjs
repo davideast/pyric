@@ -73,8 +73,8 @@ export async function link(modules,resolveModules,{variant='king-reply'}={}) {
 /** Append the positive witness after the caller's existing terminal conjunct.
  * A caller that already decided an exact material class may pass its reviewed
  * Rules guard as covered; this value is supplied at link time only. */
-export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=false,grouped=false,checkStatus=false,covered,fuseTerminal=false,extra=[]}={}) {
-  const names=[...Object.keys(grouped?groupedSources():moveSources(specialized)),...extra];
+export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=false,grouped=false,checkStatus=false,covered,fuseTerminal=false,extra=[],customReply=null}={}) {
+  const names=[...(customReply?.names??Object.keys(grouped?groupedSources():moveSources(specialized))),...extra];
   assert.deepEqual(Object.keys(moves).sort(),[...names].sort());
   const imports=names.map(n=>"import { "+n+" } from './"+n+"';").join('\n');
   const libraries=Object.fromEntries(names.map(n=>['./'+n,moves[n]]));
@@ -85,7 +85,7 @@ export function linkOnto(base,moves,resolveModules,{specialized=true,byRank=fals
     const bottom="[^#]*"+color+"k,[^#]*#,#,.*";
     return attempts(['E','W'])+" || (!text.matches('"+top+"') && ("+attempts(['N','NE','NW'])+")) || (!text.matches('"+bottom+"') && ("+attempts(['S','SE','SW'])+"))";
   };
-  const wrapper=grouped ? "function hasKingReply(text,color) {return color == 'w' ? anyKingReplyw(text) : anyKingReplyb(text);}" : specialized ? "function hasKingReply(text,color) { return color == 'w' ? ("+byColor('w')+") : ("+byColor('b')+"); }" : "function validKingStep(text, nextText, color) { return text != nextText && packedSafe(nextText, color); }\n"+
+  const wrapper=customReply ? customReply.wrapper : grouped ? "function hasKingReply(text,color) {return color == 'w' ? anyKingReplyw(text) : anyKingReplyb(text);}" : specialized ? "function hasKingReply(text,color) { return color == 'w' ? ("+byColor('w')+") : ("+byColor('b')+"); }" : "function validKingStep(text, nextText, color) { return text != nextText && packedSafe(nextText, color); }\n"+
     'function hasKingReply(text, color) { return '+names.map(n=>'validKingStep(text,'+n+'(text, color),color)').join(' || ')+'; }';
   const statements=base.match(/return packedSafe\(text, color\)[^;]*;/g)??[];
   assert.equal(statements.length,1,'expected one complete move king-safety return');

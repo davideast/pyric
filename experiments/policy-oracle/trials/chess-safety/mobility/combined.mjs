@@ -3,29 +3,57 @@ import * as terminal from '../terminal/table-v2/policy.mjs';
 import {compileMobility,linkOnto} from './adapter.mjs';
 import {groupedSources} from './grouped.mjs';
 import {threeSources,compileThree,wholeBinding} from './three-piece.mjs';
+import {directSources,directWrapper,compileDirect,directGroupedSources,directGroupedWrapper} from './direct.mjs';
+import {packedSources} from '../policy/packed.mjs';
 import {bareBinding,compileBare} from './bare.mjs';
+import {lineSources} from './lines.mjs';
 import {replySource} from '../terminal/v1/reply.mjs';
 
-const variants=new Set(['combined-bare-packed-v5','combined-whole-packed-v5','combined-whole-fast-packed-v5','combined-whole-lazy-packed-v5','combined-quick-packed-v5','combined-pattern-packed-v5','combined-pattern-fast-packed-v5']);
-
-const backend=variant=>variant.slice(9).replace('pattern-fast-','pattern-').replace(/^whole-(?:(?:fast|lazy)-)?/,'').replace('bare-','');
+// Named experiments remain independently reconstructible. Configure their
+// mechanics here so standalone emission and the trusted linker use the same
+// reply algorithm, complete-board class and application specialization.
+const bare={domain:'bare',base:'packed-v5',lazy:true};
+const direct={...bare,reply:'direct'};
+const groupedDirect={...bare,reply:'direct-grouped'};
+const slim={...groupedDirect,specialize:true};
+const whole={domain:'three',base:'packed-v5'};
+const pattern={domain:'table',base:'pattern-packed-v5'};
+const variants=new Map(Object.entries({
+  'combined-quick-packed-v5':{domain:'table',base:'quick-packed-v5'},
+  'combined-pattern-packed-v5':pattern,
+  'combined-pattern-fast-packed-v5':{...pattern,fast:true},
+  'combined-whole-packed-v5':whole,
+  'combined-whole-fast-packed-v5':{...whole,fast:true},
+  'combined-whole-lazy-packed-v5':{...whole,fast:true,lazy:true},
+  'combined-bare-packed-v5':bare,
+  'combined-bare-direct-packed-v5':direct,
+  'combined-bare-direct-grouped-packed-v5':groupedDirect,
+  'combined-bare-slim-packed-v5':slim,
+  'combined-bare-simple-packed-v5':{...slim,simple:true},
+  'combined-bare-line-packed-v5':{...slim,lines:true},
+}));
 
 export function compile(compileFunction,variant,options={mode:'both'}) {
-  if (!variants.has(variant)) return terminal.compile(compileFunction,variant,options);
-  const base=terminal.compile(compileFunction,backend(variant),options);
-  const mobility=compileMobility(compileFunction,{...options,specialized:true,grouped:true});
+  const config=variants.get(variant);
+  if(!config)return terminal.compile(compileFunction,variant,options);
+  const base=terminal.compile(compileFunction,config.base,options);
+  const {packNormal,packedSafe}=packedSources(true);
+  const mobility=config.reply
+    ? compileDirect(compileFunction,options,packNormal,packedSafe,config.reply==='direct-grouped')
+    : compileMobility(compileFunction,{...options,specialized:true,grouped:true});
   const out={...base,modules:{...base.modules,...mobility.modules},hasKingReply:mobility.hasReply,inCheck:mobility.inCheck};
-  if(variant.startsWith('combined-whole-')) {
+  if(config.domain==='three') {
     const three=compileThree(compileFunction,options);
     Object.assign(out.modules,three.modules);
-    const reply=compileFunction(replySource());
-    if(options.mode!=='standalone')out.modules.replyCapture=reply.firestoreModule();
     out.threePieceStatus=three.threePieceStatus;
   }
-  if(variant==='combined-bare-packed-v5') {
-    const reply=compileFunction(replySource());
-    if(options.mode!=='standalone')out.modules.replyCapture=reply.firestoreModule();
-    out.bareDefenderStatus=compileBare(compileFunction,mobility);
+  if(config.domain==='bare')out.bareDefenderStatus=compileBare(compileFunction,mobility);
+  if(config.domain!=='table') {
+    const extra={replyCapture:replySource(),...(config.lines?lineSources():{})};
+    for(const [name,source] of Object.entries(extra)) {
+      const func=compileFunction(source);
+      if(options.mode!=='standalone')out.modules[name]=func.firestoreModule();
+    }
   }
   return out;
 }
@@ -80,19 +108,44 @@ function trimMoveWork(source) {
   return source;
 }
 
+// nextEp's file slice and color flag are needed only for a double pawn
+// advance. During a castle the certified king starts on e1/e8 and arrives at
+// c1/c8 or g1/g8; neither endpoint changes the opponent's corner rights.
+function specializeMove(source) {
+  function edit(before,after) {
+    assert.equal(source.split(before).length,2,'unexpected move-specialization anchor '+before);
+    source=source.replace(before,after);
+  }
+  edit("nextEp(kind, color == 'w', dy, mv.from[0:1])",
+    "(kind == 'p' && dy == (color == 'w' ? 2 : -2) ? mv.from[0:1] + (color == 'w' ? '3' : '6') : '')");
+  const rights='_games_chess_chess_helpers__dropRights(old.castling, piece, mv.from, mv.to)';
+  edit(rights,"(castle ? old.castling.replace(color == 'w' ? '[KQ]' : '[kq]', '') : "+rights+")");
+  return source;
+}
+
 export async function link(modules,resolveModules,{variant}) {
-  if (!variants.has(variant)) return terminal.link(modules,resolveModules,{variant});
-  const whole=variant.startsWith('combined-whole-');
-  const bare=variant==='combined-bare-packed-v5';
+  const config=variants.get(variant);
+  if(!config)return terminal.link(modules,resolveModules,{variant});
+  const whole=config.domain==='three',bare=config.domain==='bare';
+  let customReply=null;
+  if(config.reply==='direct')customReply={names:Object.keys(directSources()),wrapper:directWrapper()};
+  if(config.reply==='direct-grouped')customReply={names:Object.keys(directGroupedSources()),wrapper:directGroupedWrapper()};
   const extra=whole?[...Object.keys(threeSources()),'replyCapture']:bare?['replyCapture']:[];
-  const names=new Set([...Object.keys(groupedSources()),...extra]);
+  if(config.lines)extra.push(...Object.keys(lineSources()));
+  const names=new Set([...(customReply?.names??Object.keys(groupedSources())),...extra]);
   const group=Object.fromEntries(Object.entries(modules).filter(([key])=>names.has(key)));
   const original=Object.fromEntries(Object.entries(modules).filter(([key])=>!names.has(key)));
-  let source=await terminal.link(original,resolveModules,{variant:backend(variant)});
-  const lazy=variant==='combined-whole-lazy-packed-v5';
-  if(lazy||bare)source=trimMoveWork(source);
-  const fast=variant==='combined-pattern-fast-packed-v5';
-  if(fast) {
+  let source=await terminal.link(original,resolveModules,{variant:config.base});
+  if(config.lazy)source=trimMoveWork(source);
+  if(config.specialize)source=specializeMove(source);
+  if(config.lines) {
+    for(const [name,replacement] of [['filePathClear','filedClear'],['horizontalPathClear','rankedClear']]) {
+      const call=name+'(old.board,';
+      assert.equal(source.split(call).length,2);
+      source=source.replace(call,replacement+'(old.board,');
+    }
+  }
+  if(config.domain==='table'&&config.fast) {
     const old="let stripped = text.split('#|[wb][qrnb]|k').join('');";
     const swap="stripped.split('w').join('X').split('b').join('w').split('X').join('b')";
     assert.equal(source.split(old).length,2);
@@ -100,7 +153,8 @@ export async function link(modules,resolveModules,{variant}) {
     source=source.replace(old,"let stripped = text.replace('#|[wb][qrnb]|k','');")
       .replace(swap,()=>"stripped.replace('([wb])(,*)([wb])','$3$2$1')");
   }
-  return linkOnto(source,group,resolveModules,{specialized:true,grouped:true,
-    extra,fuseTerminal:bare ? bareBinding : whole ? source=>wholeBinding(source,lazy||variant.includes('whole-fast-')) : source=>fuseTerminal(source,fast)});
-
+  let bind=source=>fuseTerminal(source,config.fast);
+  if(whole)bind=source=>wholeBinding(source,config.fast);
+  if(bare)bind=source=>bareBinding(source,config.simple);
+  return linkOnto(source,group,resolveModules,{specialized:true,grouped:true,extra,customReply,fuseTerminal:bind});
 }
