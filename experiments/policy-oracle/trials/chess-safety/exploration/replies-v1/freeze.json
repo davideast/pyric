@@ -1,0 +1,28 @@
+{
+  "seed": "0xaf88511e",
+  "authority": "native Arcade, checked against standalone Pyric",
+  "submissions": 378,
+  "distinctLegalMoves": 189,
+  "groupCounts": {
+    "only-k-move-in-check": 12,
+    "mate": 12,
+    "only-k-capture-in-check": 12,
+    "only-k-move-unchecked": 12,
+    "only-r-move-in-check": 12,
+    "only-p-move-unchecked": 12,
+    "only-b-move-in-check": 12,
+    "only-n-move-in-check": 12,
+    "only-q-move-in-check": 12,
+    "only-q-capture-in-check": 12,
+    "only-r-capture-in-check": 12,
+    "stalemate": 12,
+    "only-b-capture-in-check": 12,
+    "stalemate-pinned-defender": 9,
+    "only-p-capture-in-check": 7,
+    "only-q-capture-unchecked": 2,
+    "only-n-capture-in-check": 12,
+    "only-p-capture-unchecked": 1,
+    "only-b-capture-unchecked": 2
+  },
+  "sha256": "55076ee1dcd7ef64356574110aaea65f77d8a9c8548b30cfa46393dd8cd4226b"
+}
