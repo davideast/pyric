@@ -94,7 +94,17 @@ def render(result):
         output.append(table(['Case','Native','Prior live','Current local','Local diagnostic','Current live'], [
             (k,local[k]['native'],old[k]['decision'] if k in old else local[k]['native'],
              local[k]['decision'],local[k].get('diagnostic',''),observed.get(k,{}).get('verdict','—')) for k in ids]))
+    if observed:
+        admitted=[row for key,row in observed.items() if key in unique and row['verdict']=='ALLOW']
+        denied=[row for key,row in observed.items() if key in unique and row['verdict']=='DENY']
+        output.extend(['## Firestore readbacks',
+                       f"Among the {len(admitted)+len(denied)} measured proposals in this score, Firestore admitted {len(admitted)} and refused {len(denied)}. "
+                       f"A qualified capture checks every admitted document against the full submitted successor and every refused document against its complete starting snapshot. "
+                       f"Server versions changed on {sum(r['versionChanged'] for r in admitted)} admitted writes and "
+                       f"{sum(r['versionChanged'] for r in denied)} refusals."])
     for capture in live.get('captures',[]):
         output.append(f"Closed capture `{capture['name']}` measured {capture['rows']} proposals. "
-                      f"Private receipt `{capture['receipt']}`. Journal `{capture['journalSha256']}`.")
+                      f"Private receipt `{capture['receipt']}`. Journal `{capture['journalSha256']}`. "
+                      f"Authenticated read and write after restoration returned {capture['closure']['signedRead']} and "
+                      f"{capture['closure']['signedWrite']}.")
     return '\n\n'.join(output)+'\n'

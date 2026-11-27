@@ -59,6 +59,7 @@ def main():
             if not report.is_file():raise RuntimeError(result.stderr)
             r=json.loads(report.read_bytes())
             assert r['packageSha256']!=PIN and r['compile']['status']=='emitted'
+            assert result.returncode==int(not r['passes'])
             changed=[]
             if baseline is None:
                 baseline=r
@@ -77,7 +78,9 @@ def main():
                     'bishop-e5-d6-blocker' if name=='ignore-blockers' else 'bishop-b7-pinned'))
                 assert negative['expected']==[] and negative['outcome']=='illegal-witness'
             scores[name]={'packageSha256':r['packageSha256'],'rulesSha256':r['compile']['rulesSha256'],
-                          'exitCode':result.returncode,'standalone':r['standalone']['outcomes'],
+                          'exitCode':result.returncode,'passes':r['passes'],'localConforms':r['localConforms'],
+                          'live':{k:r['live'][k] for k in ('status','distinctCases','nativeMatches')},
+                          'standalone':r['standalone']['outcomes'],
                           'local':r['local']['groups'],'witnessBoards':witness['requiredFocused'],
                           'changedClaimDecisions':len(changed),'firstChangedClaim':changed[0] if changed else None,
                           'correctWitnesses':witness['verifiedFocused'],
