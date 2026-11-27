@@ -27,6 +27,7 @@ internal class FirestoreOfflineCoordinator(
         val authScope: String,
         val mutations: List<OfflineDocMutation>,
         val sendOnline: suspend () -> Unit,
+        val stagedOffline: Boolean,
         val tcs: TaskCompletionSource<Void?> = TaskCompletionSource(),
         val barrier: CompletableDeferred<Unit> = CompletableDeferred(),
         val startedFlush: AtomicBoolean = AtomicBoolean(false)
@@ -132,20 +133,22 @@ internal class FirestoreOfflineCoordinator(
         stageWhenOnline: Boolean = true,
         sendOnline: suspend () -> Unit
     ): Task<Void?> {
-        val entry = PendingWriteEntry(
-            id = nextWriteId.getAndIncrement(),
-            authScope = authScope,
-            mutations = mutations,
-            sendOnline = sendOnline
-        )
-        val (sendNow, staged) = synchronized(lock) {
-            pendingWrites[entry.id] = entry
-            val shouldStage = !isNetworkEnabled || stageWhenOnline
+        val (entry, sendNow, staged) = synchronized(lock) {
+            val onlineNow = isNetworkEnabled
+            val created = PendingWriteEntry(
+                id = nextWriteId.getAndIncrement(),
+                authScope = authScope,
+                mutations = mutations,
+                sendOnline = sendOnline,
+                stagedOffline = !onlineNow
+            )
+            pendingWrites[created.id] = created
+            val shouldStage = !onlineNow || stageWhenOnline
             if (shouldStage) {
-                stagedWrites[entry.id] = entry
+                stagedWrites[created.id] = created
                 _cacheVersionFlow.value += 1L
             }
-            isNetworkEnabled to shouldStage
+            Triple(created, onlineNow, shouldStage)
         }
 
         if (sendNow) {
@@ -166,7 +169,7 @@ internal class FirestoreOfflineCoordinator(
 
     private fun launchFlushUndispatched(entry: PendingWriteEntry, applyToCacheOnCommit: Boolean = true) {
         if (!entry.startedFlush.compareAndSet(false, true)) return
-        if (currentAuthScope() != entry.authScope) {
+        if (entry.stagedOffline && currentAuthScope() != entry.authScope) {
             synchronized(lock) {
                 val removedStaged = stagedWrites.remove(entry.id) != null
                 pendingWrites.remove(entry.id)
@@ -245,7 +248,7 @@ internal class FirestoreOfflineCoordinator(
             val matching = mutableListOf<PendingWriteEntry>()
             val mismatched = mutableListOf<PendingWriteEntry>()
             for (entry in allStaged) {
-                if (entry.authScope == activeScope) {
+                if (!entry.stagedOffline || entry.authScope == activeScope) {
                     matching.add(entry)
                 } else if (entry.startedFlush.compareAndSet(false, true)) {
                     stagedWrites.remove(entry.id)
