@@ -1,0 +1,5 @@
+{
+  "description": "Compare complete host and guest winning serves from 6\u20136 at the correct position and tick with horizontal puck velocity zero or one.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

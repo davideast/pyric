@@ -107,3 +107,16 @@ The [paired inputs](../../adapters/air-hockey-host-serve-side/v1/fixture.mjs) us
 | (48,32), native side | Allow · 7–6, over, host wins, puck at (48,32) on tick 3 | Allow · identical final match |
 
 The [production receipt](../../suites/arcade/air-hockey/claims/host-winner-serve-side/v1/probes/host-writes/v1/evidence/57d0febe-8cd2-4fc3-981a-555171ee7edc.json) retains all four complete match readbacks. Stock and generated rules digests match the guest serve-side capture. Recapture from the oracle directory with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" host-serve-side`, then import with `node adapters/air-hockey-host-serve-side/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
+
+## Moving serve after either winning goal
+
+The [paired inputs](../../adapters/air-hockey-moving-serve/v1/fixture.mjs) take each winner’s native atomic update from a 6–6 match. The puck starts the serve at (48,32) for a host win and (48,96) for a guest win. The moving variant changes only `vx` from 0 to 1. Both variants have `vy=0` on tick 3.
+
+| Winner and serve | Stock live readback | Generated live readback |
+|---|---|---|
+| Host, vx=0 | Allow · 7–6, host wins, vx=0 | Allow · same final match |
+| Host, vx=1 | Allow · 7–6, host wins, vx=1 | Deny · 6–6, playing, no winner, original puck at (38,7) on tick 0 |
+| Guest, vx=0 | Allow · 6–7, guest wins, vx=0 | Allow · same final match |
+| Guest, vx=1 | Allow · 6–7, guest wins, vx=1 | Deny · 6–6, playing, no winner, original puck at (38,121) on tick 0 |
+
+The [live receipt](../../suites/arcade/air-hockey/claims/winning-serve-velocity/v1/probes/host-writes/v1/evidence/a603d34f-7d78-456e-a1cc-3bbb4ab41fdc.json) retains all eight authenticated writes and full readbacks. Each denied write preserved the entire match and ETag. Recapture from the oracle directory with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" moving-serve`, then import with `node adapters/air-hockey-moving-serve/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
