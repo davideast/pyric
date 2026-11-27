@@ -1,0 +1,210 @@
+{
+  "rulesSha256": "f5af4feb40899a9ed1b8e02a0022e805f636869f538c795b70406d9e94c250db",
+  "criterion": "One-piece deletion preserving the actor, move, victim, castling and en-passant state, prior check, legality, mover safety, result, admission, sole reply identity when unique, and local diagnostic.",
+  "reductions": [
+    {
+      "group": "original-190",
+      "id": "black-ep-surviving-blocker",
+      "start": {
+        "fen": "8/8/8/8/R1n2Ppk/8/8/4K3 b - f3",
+        "uci": "g4f3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "successor": "8/8/8/8/R1n4k/5p2/8/4K3 w - -",
+        "replies": [
+          "a4a1",
+          "a4a2",
+          "a4a3",
+          "a4a5",
+          "a4a6",
+          "a4a7",
+          "a4a8",
+          "a4b4",
+          "a4c4",
+          "e1d1",
+          "e1f1",
+          "e1f2"
+        ],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "ALLOW",
+        "outcome": "playing",
+        "decision": "DENY",
+        "diagnostic": "resource-limit",
+        "expressions": 1000
+      },
+      "smallest": {
+        "fen": "8/8/8/8/R1n2Ppk/8/8/4K3 b - f3",
+        "uci": "g4f3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "successor": "8/8/8/8/R1n4k/5p2/8/4K3 w - -",
+        "replies": [
+          "a4a1",
+          "a4a2",
+          "a4a3",
+          "a4a5",
+          "a4a6",
+          "a4a7",
+          "a4a8",
+          "a4b4",
+          "a4c4",
+          "e1d1",
+          "e1f1",
+          "e1f2"
+        ],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "ALLOW",
+        "outcome": "playing",
+        "decision": "DENY",
+        "diagnostic": "resource-limit",
+        "expressions": 1000
+      },
+      "removed": [],
+      "fixedSquares": [
+        "g4",
+        "f3",
+        "h4",
+        "e1",
+        "f4"
+      ],
+      "trials": [
+        {
+          "removed": [
+            "a4"
+          ],
+          "preservesFailure": false
+        },
+        {
+          "removed": [
+            "c4"
+          ],
+          "preservesFailure": false
+        }
+      ]
+    },
+    {
+      "group": "bishop",
+      "id": "bishop-e5-d6-blocker-won",
+      "start": {
+        "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+        "uci": "g4g8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "successor": "k5Q1/8/K2p4/4b3/8/8/8/8 b - -",
+        "replies": [],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "ALLOW",
+        "outcome": "checkmate",
+        "decision": "DENY",
+        "diagnostic": "resource-limit",
+        "expressions": 1000
+      },
+      "smallest": {
+        "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+        "uci": "g4g8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "successor": "k5Q1/8/K2p4/4b3/8/8/8/8 b - -",
+        "replies": [],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "ALLOW",
+        "outcome": "checkmate",
+        "decision": "DENY",
+        "diagnostic": "resource-limit",
+        "expressions": 1000
+      },
+      "removed": [],
+      "fixedSquares": [
+        "g4",
+        "g8",
+        "a8",
+        "a6"
+      ],
+      "trials": [
+        {
+          "removed": [
+            "d6"
+          ],
+          "preservesFailure": false
+        },
+        {
+          "removed": [
+            "e5"
+          ],
+          "preservesFailure": false
+        }
+      ]
+    },
+    {
+      "group": "queen",
+      "id": "queen-rank-c4-blocker-won",
+      "start": {
+        "fen": "k7/8/K7/8/2p3Q1/8/8/2q5 w - -",
+        "uci": "g4g8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "successor": "k5Q1/8/K7/8/2p5/8/8/2q5 b - -",
+        "replies": [],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "ALLOW",
+        "outcome": "checkmate",
+        "decision": "DENY",
+        "diagnostic": "resource-limit",
+        "expressions": 1000
+      },
+      "smallest": {
+        "fen": "k7/8/K7/8/2p3Q1/8/8/2q5 w - -",
+        "uci": "g4g8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "successor": "k5Q1/8/K7/8/2p5/8/8/2q5 b - -",
+        "replies": [],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "ALLOW",
+        "outcome": "checkmate",
+        "decision": "DENY",
+        "diagnostic": "resource-limit",
+        "expressions": 1000
+      },
+      "removed": [],
+      "fixedSquares": [
+        "g4",
+        "g8",
+        "a8",
+        "a6"
+      ],
+      "trials": [
+        {
+          "removed": [
+            "c4"
+          ],
+          "preservesFailure": false
+        },
+        {
+          "removed": [
+            "c1"
+          ],
+          "preservesFailure": false
+        }
+      ]
+    }
+  ]
+}

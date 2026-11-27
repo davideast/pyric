@@ -1,0 +1,177 @@
+{
+  "original": {
+    "rulesSha256": "3069427933c11d350acbfc195290e478fd9ee78406bd567e9483f673c927c4e1",
+    "sourceSha256": "e039ff64cd0ff0b0f0fa6926e7cba7e913392da05587382c76c752417f907fb1",
+    "decisionsAndCostsSha256": "4c17d48a16c59f21fa6162775f98ed83197855d01baa70e6b3a3bb9be0d2eb0f",
+    "cases": 238,
+    "outcomes": {
+      "match": 215,
+      "false-refusal": 3,
+      "false-allow": 20
+    },
+    "changed": [],
+    "heldPromotion": {
+      "id": "promote-capturing-rook-right-held",
+      "decision": "DENY",
+      "cost": 1000,
+      "error": "resource-limit"
+    },
+    "wider": {
+      "rights": {
+        "cases": 1736,
+        "outcomes": {
+          "match": 1736
+        },
+        "decisionsSha256": "eb3f9445f2dbd1335db579a01af7f3078523f8e22915d1e37b7ddfec153e7220"
+      },
+      "rights-claims": {
+        "cases": 2048,
+        "outcomes": {
+          "match": 2048
+        },
+        "decisionsSha256": "0b4c190b52d15b947392b6177750d57d1d70f591b1a7aa18f4b23dc7f9c82b30"
+      },
+      "promotions": {
+        "cases": 904,
+        "outcomes": {
+          "match": 896,
+          "false-refusal/resource-limit": 8
+        },
+        "decisionsSha256": "94bc5e89aac576b88676a6d78df1361ef60671e9e01d2a66c36b41b83d2cffac"
+      }
+    }
+  },
+  "single-destination": {
+    "rulesSha256": "0eb99c4ce8ac221dfc2395207914066e9b58f9b29b0089e522bbe6f9f62d5edf",
+    "sourceSha256": "50dc79fcd8263c500226c3d3d8f442f2624964cec3da15ea14d2d934fa740c57",
+    "decisionsAndCostsSha256": "e5b739a12b3ec66cb626d668d842807bf0c620e203c173f67cae5d87516d94ef",
+    "cases": 238,
+    "outcomes": {
+      "match": 216,
+      "false-refusal": 2,
+      "false-allow": 20
+    },
+    "changed": [
+      {
+        "id": "promote-capturing-rook-right-held",
+        "decision": "ALLOW",
+        "cost": 956
+      }
+    ],
+    "heldPromotion": {
+      "id": "promote-capturing-rook-right-held",
+      "decision": "ALLOW",
+      "cost": 956
+    },
+    "wider": {
+      "rights": {
+        "cases": 1736,
+        "outcomes": {
+          "match": 1736
+        },
+        "decisionsSha256": "2d6f1eaeacb51cf077c8954b46de379449de8dd111657bbe5f2c9757b08b35f8"
+      },
+      "rights-claims": {
+        "cases": 2048,
+        "outcomes": {
+          "match": 2048
+        },
+        "decisionsSha256": "8a32f9fd744c79618c70ff0e7a68e3918aab59401f48656f2fa72b3944d3e868"
+      },
+      "promotions": {
+        "cases": 904,
+        "outcomes": {
+          "match": 904
+        },
+        "decisionsSha256": "6d3fe883bcf2b385e01908ade8e34729b541a6402b92504e477bd07fd1c0f974"
+      }
+    }
+  },
+  "single-either-corner": {
+    "rulesSha256": "b4e49e9e36d9ea14ff9cb28541608c66211337ac5ad9720f626da60fa8c82881",
+    "sourceSha256": "6e516154e2302cd89a44bb44ecc8848c3bfb752b6c2b771b37124409726769cb",
+    "decisionsAndCostsSha256": "6cba606efee45f5bed5c5540a475473d5f2c49744555a214328af27d44b02604",
+    "cases": 238,
+    "outcomes": {
+      "match": 213,
+      "false-refusal": 5,
+      "false-allow": 20
+    },
+    "changed": [
+      {
+        "id": "black-long-clear",
+        "decision": "DENY",
+        "cost": 1000,
+        "error": "resource-limit"
+      },
+      {
+        "id": "black-long-rook-attacked",
+        "decision": "DENY",
+        "cost": 1000,
+        "error": "resource-limit"
+      },
+      {
+        "id": "bare-holdout-black-castle-playing",
+        "decision": "DENY",
+        "cost": 1000,
+        "error": "resource-limit"
+      },
+      {
+        "id": "promote-capturing-rook-right-held",
+        "decision": "ALLOW",
+        "cost": 952
+      }
+    ],
+    "heldPromotion": {
+      "id": "promote-capturing-rook-right-held",
+      "decision": "ALLOW",
+      "cost": 952
+    }
+  },
+  "canonical-before-drop": {
+    "rulesSha256": "55f9f30d14e47db8c90ad7574dfdde1c58affe87e5cfe13bbc28b2916023c4b9",
+    "sourceSha256": "ae7cb3cc96f25adbd57ebe96e904cfbf58ea8ef65644ed9f0e1689afa515d366",
+    "decisionsAndCostsSha256": "0d242363ce267daab7c751c62847e745f849afca4e83d125a6923944a87ae789",
+    "cases": 238,
+    "outcomes": {
+      "match": 216,
+      "false-refusal": 2,
+      "false-allow": 20
+    },
+    "changed": [
+      {
+        "id": "promote-capturing-rook-right-held",
+        "decision": "ALLOW",
+        "cost": 993
+      }
+    ],
+    "heldPromotion": {
+      "id": "promote-capturing-rook-right-held",
+      "decision": "ALLOW",
+      "cost": 993
+    },
+    "wider": {
+      "rights": {
+        "cases": 1736,
+        "outcomes": {
+          "match": 1736
+        },
+        "decisionsSha256": "a30646f049756126bbb652d02d1a915ed170592dce68e101469beb5bc0928875"
+      },
+      "rights-claims": {
+        "cases": 2048,
+        "outcomes": {
+          "match": 2048
+        },
+        "decisionsSha256": "880e9337c86b42e0c2017e52cfbabc19779805139e96501ccc7da819f9c268db"
+      },
+      "promotions": {
+        "cases": 904,
+        "outcomes": {
+          "match": 904
+        },
+        "decisionsSha256": "11635ad79ffbd4f40ea59b5f5c436ec5006a43b7c2c74455d03e6e5bab5bc02b"
+      }
+    }
+  }
+}

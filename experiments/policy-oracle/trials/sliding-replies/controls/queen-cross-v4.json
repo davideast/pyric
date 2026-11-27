@@ -1,0 +1,119 @@
+{
+  "variant": "queen-cross-v4",
+  "controls": {
+    "equivalent-repack": {
+      "packageSha256": "b24d0f3e48e45f4041245089d2bfe2cf555b36e2cc3ea1eeb54ec9b7d1dd94c6",
+      "rulesSha256": "f5af4feb40899a9ed1b8e02a0022e805f636869f538c795b70406d9e94c250db",
+      "exitCode": 1,
+      "standalone": {
+        "match": 104
+      },
+      "local": {
+        "original-190": {
+          "cases": 190,
+          "outcomes": {
+            "match": 173,
+            "false-refusal": 13,
+            "false-allow": 4
+          },
+          "diagnostics": {
+            "resource-limit": 13
+          }
+        },
+        "rook": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "diagnostics": {}
+        },
+        "bishop": {
+          "cases": 18,
+          "outcomes": {
+            "match": 15,
+            "false-refusal": 3
+          },
+          "diagnostics": {
+            "resource-limit": 3
+          }
+        },
+        "queen": {
+          "cases": 30,
+          "outcomes": {
+            "match": 22,
+            "false-refusal": 7,
+            "evaluation-error": 1
+          },
+          "diagnostics": {
+            "resource-limit": 8
+          }
+        }
+      },
+      "witnessBoards": 18,
+      "correctWitnesses": 18,
+      "firstWrongWitness": null
+    },
+    "wrong-witness": {
+      "packageSha256": "a9deeb4b3b8ee76b8268bf9100f0c672e72ecd3fe0f971632738cde2f303f93e",
+      "rulesSha256": "b544117989313ba3bec3604cd57a461271ed336ca30d00e4aba3335660f029ca",
+      "exitCode": 1,
+      "standalone": {
+        "match": 104
+      },
+      "local": {
+        "original-190": {
+          "cases": 190,
+          "outcomes": {
+            "match": 173,
+            "false-refusal": 13,
+            "false-allow": 4
+          },
+          "diagnostics": {
+            "resource-limit": 13
+          }
+        },
+        "rook": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "diagnostics": {}
+        },
+        "bishop": {
+          "cases": 18,
+          "outcomes": {
+            "match": 15,
+            "false-refusal": 3
+          },
+          "diagnostics": {
+            "resource-limit": 3
+          }
+        },
+        "queen": {
+          "cases": 30,
+          "outcomes": {
+            "match": 22,
+            "false-refusal": 7,
+            "evaluation-error": 1
+          },
+          "diagnostics": {
+            "resource-limit": 8
+          }
+        }
+      },
+      "witnessBoards": 18,
+      "correctWitnesses": 9,
+      "firstWrongWitness": {
+        "id": "rook-c5-after-queen",
+        "supported": true,
+        "code": 3390,
+        "move": "c5a4",
+        "expected": [
+          "c5c8"
+        ],
+        "outcome": "illegal-witness",
+        "expressions": 152
+      }
+    }
+  }
+}
