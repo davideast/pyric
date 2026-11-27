@@ -13,6 +13,8 @@ import type {
 interface ExtendedServeInitPayload extends ServeInitPayload {
   instanceId?: string;
   projectKey?: string | null;
+  projectId?: string | null;
+  project?: string | null;
   hosted?: boolean;
   databaseInstances?: {
     defaultInstance?: string;
@@ -65,10 +67,16 @@ export function resolveBridgeMetadata(payload: ServeInitPayload | null): {
       ? stamped.projectKey
       : null);
   const projectId =
-    typeof extended?.databaseInstances?.projectId === 'string' &&
+    (typeof extended?.databaseInstances?.projectId === 'string' &&
     extended.databaseInstances.projectId.length > 0
       ? extended.databaseInstances.projectId
-      : null;
+      : null) ??
+    (typeof extended?.projectId === 'string' && extended.projectId.length > 0
+      ? extended.projectId
+      : null) ??
+    (typeof extended?.project === 'string' && extended.project.length > 0
+      ? extended.project
+      : null);
   const sessionToken =
     (typeof extended?.sessionToken === 'string' && extended.sessionToken.length > 0
       ? extended.sessionToken

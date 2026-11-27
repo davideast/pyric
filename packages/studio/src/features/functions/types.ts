@@ -46,6 +46,7 @@ interface FunctionsDiscoveryResult {
   triggers: DiscoveredTrigger[];
   unsupported: UnsupportedTrigger[];
   summary?: string;
+  projectId?: string | null;
 }
 
 export type FunctionExecutionStatus = 'fulfilled' | 'rejected' | 'timeout';

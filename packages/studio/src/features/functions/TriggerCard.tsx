@@ -3,7 +3,7 @@
  * event pattern, and an accessible inline Fire drawer for fireable triggers.
  */
 
-import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   classifyTriggerFamily,
   familyMeta,
@@ -55,19 +55,54 @@ export function TriggerCard({
   const badges = triggerMetaBadges(trigger);
   const capability = fireCapability(trigger);
 
+  const defaultRegion = regions[0] ?? 'us-central1';
   const [fireOpen, setFireOpen] = useState(false);
   const [firing, setFiring] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
-  const [selectedRegion, setSelectedRegion] = useState<string>(regions[0] ?? 'us-central1');
+  const [selectedRegion, setSelectedRegion] = useState<string>(defaultRegion);
   const [httpMethod, setHttpMethod] = useState<HttpFireMethod>('POST');
   const [pathInput, setPathInput] = useState<string>(() =>
     capability.mode === 'rtdb-fire' ? sampleRtdbPathFromPattern(trigger.reference) : '',
   );
+  const [pathDirty, setPathDirty] = useState(false);
   const [payloadInput, setPayloadInput] = useState<string>('');
   const [attributesInput, setAttributesInput] = useState<string>('');
   const [timeoutInput, setTimeoutInput] = useState<string>('');
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [validation, setValidation] = useState<{
+    field: 'path' | 'timeout' | 'payload' | 'attributes';
+    message: string;
+  } | null>(null);
   const [outcome, setOutcome] = useState<FireOutcome | null>(null);
+
+  const effectiveRegion = regions.includes(selectedRegion) ? selectedRegion : defaultRegion;
+  const regionsKey = regions.join(',');
+  const prevTriggerRef = useRef({ mode: capability.mode, reference: trigger.reference });
+
+  useEffect(() => {
+    if (!regions.includes(selectedRegion)) {
+      setSelectedRegion(defaultRegion);
+    }
+  }, [regionsKey, selectedRegion, defaultRegion]);
+
+  useEffect(() => {
+    const prev = prevTriggerRef.current;
+    if (prev.mode !== capability.mode) {
+      prevTriggerRef.current = { mode: capability.mode, reference: trigger.reference };
+      setPathInput(
+        capability.mode === 'rtdb-fire' ? sampleRtdbPathFromPattern(trigger.reference) : '',
+      );
+      setPathDirty(false);
+      setValidation(null);
+      setOutcome(null);
+      return;
+    }
+    if (prev.reference !== trigger.reference) {
+      prevTriggerRef.current = { mode: capability.mode, reference: trigger.reference };
+      if (capability.mode === 'rtdb-fire' && !pathDirty) {
+        setPathInput(sampleRtdbPathFromPattern(trigger.reference));
+      }
+    }
+  }, [capability.mode, trigger.reference, pathDirty]);
 
   const toggleRef = useRef<HTMLButtonElement>(null);
   const drawerId = useId();
@@ -100,24 +135,24 @@ export function TriggerCard({
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (firing) return;
-    setValidationError(null);
+    setValidation(null);
 
     const input: FireTriggerInput = {};
 
     if (capability.mode === 'rtdb-fire') {
       const trimmedPath = pathInput.trim();
       if (trimmedPath.length === 0) {
-        setValidationError('RTDB path is required to fire this trigger.');
+        setValidation({ field: 'path', message: 'RTDB path is required to fire this trigger.' });
         return;
       }
       const parsedValue = parseOptionalJsonPayload(payloadInput, {});
       if (!parsedValue.ok) {
-        setValidationError(parsedValue.error);
+        setValidation({ field: 'payload', message: parsedValue.error });
         return;
       }
       const parsedTimeout = parseOptionalTimeoutMs(timeoutInput);
       if (!parsedTimeout.ok) {
-        setValidationError(parsedTimeout.error);
+        setValidation({ field: 'timeout', message: parsedTimeout.error });
         return;
       }
       input.path = trimmedPath;
@@ -127,28 +162,28 @@ export function TriggerCard({
       }
     } else if (capability.mode === 'http') {
       input.httpMethod = httpMethod;
-      input.region = selectedRegion;
+      input.region = effectiveRegion;
       input.path = pathInput.trim();
       if (httpMethod !== 'GET') {
         const parsedBody = parseOptionalJsonPayload(payloadInput, undefined);
         if (!parsedBody.ok) {
-          setValidationError(parsedBody.error);
+          setValidation({ field: 'payload', message: parsedBody.error });
           return;
         }
         input.payload = parsedBody.value;
       }
     } else if (capability.mode === 'callable') {
-      input.region = selectedRegion;
+      input.region = effectiveRegion;
       const parsedData = parseOptionalJsonPayload(payloadInput, {});
       if (!parsedData.ok) {
-        setValidationError(parsedData.error);
+        setValidation({ field: 'payload', message: parsedData.error });
         return;
       }
       input.payload = parsedData.value;
     } else if (capability.mode === 'scheduler') {
       const parsedOpts = parseOptionalJsonPayload(payloadInput, {});
       if (!parsedOpts.ok) {
-        setValidationError(parsedOpts.error);
+        setValidation({ field: 'payload', message: parsedOpts.error });
         return;
       }
       if (
@@ -157,19 +192,19 @@ export function TriggerCard({
           parsedOpts.value === null ||
           Array.isArray(parsedOpts.value))
       ) {
-        setValidationError('Scheduler options must be a JSON object.');
+        setValidation({ field: 'payload', message: 'Scheduler options must be a JSON object.' });
         return;
       }
       input.payload = parsedOpts.value;
     } else if (capability.mode === 'pubsub') {
       const parsedPayload = parseOptionalJsonPayload(payloadInput, {});
       if (!parsedPayload.ok) {
-        setValidationError(parsedPayload.error);
+        setValidation({ field: 'payload', message: parsedPayload.error });
         return;
       }
       const parsedAttrs = parseOptionalStringMap(attributesInput);
       if (!parsedAttrs.ok) {
-        setValidationError(parsedAttrs.error);
+        setValidation({ field: 'attributes', message: parsedAttrs.error });
         return;
       }
       input.payload = parsedPayload.value;
@@ -179,7 +214,7 @@ export function TriggerCard({
     } else if (capability.mode === 'tasks') {
       const parsedData = parseOptionalJsonPayload(payloadInput, {});
       if (!parsedData.ok) {
-        setValidationError(parsedData.error);
+        setValidation({ field: 'payload', message: parsedData.error });
         return;
       }
       input.payload = parsedData.value;
@@ -328,7 +363,7 @@ export function TriggerCard({
               <select
                 id={regionId}
                 className="functions__input"
-                value={selectedRegion}
+                value={effectiveRegion}
                 onChange={(e) => setSelectedRegion(e.target.value)}
               >
                 {regions.map((region) => (
@@ -369,7 +404,10 @@ export function TriggerCard({
                   className="functions__input mono"
                   placeholder="/health"
                   value={pathInput}
-                  onChange={(e) => setPathInput(e.target.value)}
+                  onChange={(e) => {
+                    setPathInput(e.target.value);
+                    setPathDirty(true);
+                  }}
                 />
               </div>
             </div>
@@ -386,9 +424,13 @@ export function TriggerCard({
                   type="text"
                   className="functions__input mono"
                   value={pathInput}
-                  aria-invalid={validationError?.includes('path') ? 'true' : undefined}
-                  aria-describedby={validationError ? errorId : undefined}
-                  onChange={(e) => setPathInput(e.target.value)}
+                  aria-invalid={validation?.field === 'path' ? 'true' : undefined}
+                  aria-describedby={validation?.field === 'path' ? errorId : undefined}
+                  onChange={(e) => {
+                    setPathInput(e.target.value);
+                    setPathDirty(true);
+                    if (validation?.field === 'path') setValidation(null);
+                  }}
                 />
               </div>
               <div className="functions__field functions__field--compact">
@@ -402,9 +444,12 @@ export function TriggerCard({
                   className="functions__input mono"
                   placeholder="10000"
                   value={timeoutInput}
-                  aria-invalid={validationError?.includes('Timeout') ? 'true' : undefined}
-                  aria-describedby={validationError ? errorId : undefined}
-                  onChange={(e) => setTimeoutInput(e.target.value)}
+                  aria-invalid={validation?.field === 'timeout' ? 'true' : undefined}
+                  aria-describedby={validation?.field === 'timeout' ? errorId : undefined}
+                  onChange={(e) => {
+                    setTimeoutInput(e.target.value);
+                    if (validation?.field === 'timeout') setValidation(null);
+                  }}
                 />
               </div>
             </div>
@@ -421,15 +466,11 @@ export function TriggerCard({
                 rows={3}
                 placeholder={payloadPlaceholder}
                 value={payloadInput}
-                aria-invalid={
-                  validationError && !validationError.includes('Attribute') && !validationError.includes('path')
-                    ? 'true'
-                    : undefined
-                }
-                aria-describedby={validationError ? errorId : undefined}
+                aria-invalid={validation?.field === 'payload' ? 'true' : undefined}
+                aria-describedby={validation?.field === 'payload' ? errorId : undefined}
                 onChange={(e) => {
                   setPayloadInput(e.target.value);
-                  if (validationError) setValidationError(null);
+                  if (validation?.field === 'payload') setValidation(null);
                 }}
               />
             </div>
@@ -446,24 +487,24 @@ export function TriggerCard({
                 className="functions__input mono"
                 placeholder='{"source": "studio"}'
                 value={attributesInput}
-                aria-invalid={validationError?.includes('Attribute') ? 'true' : undefined}
-                aria-describedby={validationError ? errorId : undefined}
+                aria-invalid={validation?.field === 'attributes' ? 'true' : undefined}
+                aria-describedby={validation?.field === 'attributes' ? errorId : undefined}
                 onChange={(e) => {
                   setAttributesInput(e.target.value);
-                  if (validationError) setValidationError(null);
+                  if (validation?.field === 'attributes') setValidation(null);
                 }}
               />
             </div>
           ) : null}
 
-          {validationError ? (
+          {validation ? (
             <p
               id={errorId}
               className="functions__fire-alert"
               role="alert"
               data-functions-fire-validation=""
             >
-              {validationError}
+              {validation.message}
             </p>
           ) : null}
 

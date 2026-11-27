@@ -262,5 +262,128 @@ describe('createFunctionsBridgeApi', () => {
     );
     expect(autoRes.ok).toBe(false);
     expect(calls).toHaveLength(6);
+
+    // Ensure Scheduler and Tasks payloads do not include duplicate alias keys.
+    const schedPayload = JSON.parse(calls[3]!.body!) as { args: Record<string, unknown> };
+    expect(schedPayload.args).toEqual({ jobName: 'manual', trigger: 'nightly' });
+    expect('exportName' in schedPayload.args).toBe(false);
+
+    const tasksPayload = JSON.parse(calls[5]!.body!) as { args: Record<string, unknown> };
+    expect(tasksPayload.args).toEqual({ trigger: 'emailQueue', data: { to: 'a@example.com' } });
+    expect('targetName' in tasksPayload.args).toBe(false);
+  });
+
+  it('hydrates projectId from /__pyric/health on non-RTDB projects for URLs and gateway Fire', async () => {
+    const { fetchImpl, calls } = createMockFetch((req) => {
+      if (req.url.endsWith('/__pyric/health')) {
+        return jsonResponse({
+          status: 'ok',
+          mode: 'sandbox',
+          project: 'my-real-app',
+          instanceId: 'inst-real',
+          sandboxConnected: true,
+        });
+      }
+      if (req.url.endsWith('/__pyric/hosted/method')) {
+        return jsonResponse({
+          ok: true,
+          summary: '1 trigger(s)',
+          data: {
+            triggers: [{ exportName: 'greet', eventType: 'https', regions: ['us-central1'] }],
+            unsupported: [],
+          },
+        });
+      }
+      if (req.url === 'http://localhost:3473/my-real-app/us-central1/greet') {
+        return jsonResponse({ ok: true, project: 'my-real-app' }, 200);
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const api = createFunctionsBridgeApi({
+      baseUrl: 'http://localhost:3473',
+      instanceId: 'inst-real',
+      projectDir: '/workspace/non-rtdb',
+      projectId: null,
+      fetchImpl,
+    });
+
+    const listRes = await api.listTriggers();
+    expect(listRes.ok).toBe(true);
+    if (listRes.ok) {
+      expect(listRes.data.projectId).toBe('my-real-app');
+    }
+    expect(api.projectId).toBe('my-real-app');
+
+    const fireRes = await api.fireTrigger(
+      { exportName: 'greet', eventType: 'https', regions: ['us-central1'] },
+      { httpMethod: 'POST', payload: { hi: true }, region: 'us-central1' },
+    );
+    expect(fireRes.ok).toBe(true);
+    expect(fireRes.result).toEqual({ ok: true, project: 'my-real-app' });
+    expect(calls.filter((c) => c.url.endsWith('/__pyric/health'))).toHaveLength(1);
+
+    // Also hydrates on direct HTTP fire even before listTriggers() is called.
+    const directApi = createFunctionsBridgeApi({
+      baseUrl: 'http://localhost:3473',
+      instanceId: 'inst-real',
+      projectDir: '/workspace/non-rtdb',
+      projectId: null,
+      fetchImpl,
+    });
+    const directFire = await directApi.fireTrigger(
+      { exportName: 'greet', eventType: 'https', regions: ['us-central1'] },
+      { httpMethod: 'GET', region: 'us-central1' },
+    );
+    expect(directFire.ok).toBe(true);
+    expect(directApi.projectId).toBe('my-real-app');
+  });
+
+  it('sanitizes unknown surface method errors when firing Scheduler, Pub/Sub, or Tasks on older hosts', async () => {
+    const { fetchImpl } = createMockFetch((req) => {
+      const payload = JSON.parse(req.body ?? '{}') as { key: string };
+      return jsonResponse(
+        { ok: false, summary: `unknown surface method '${payload.key}'` },
+        400,
+      );
+    });
+
+    const api = createFunctionsBridgeApi({
+      baseUrl: 'http://localhost:3473',
+      instanceId: 'inst-1',
+      projectDir: '/workspace/demo',
+      projectId: 'demo-app',
+      fetchImpl,
+    });
+
+    const schedRes = await api.fireTrigger(
+      { exportName: 'nightly', eventType: 'schedule', schedule: 'every 24 hours' },
+      {},
+    );
+    expect(schedRes.ok).toBe(false);
+    expect(schedRes.summary).toContain('Scheduler');
+    expect(schedRes.summary).toContain('nightly');
+    expect(schedRes.summary).not.toContain('unknown surface method');
+    expect(schedRes.summary).not.toContain('functions.triggerScheduled');
+
+    const pubsubRes = await api.fireTrigger(
+      {
+        exportName: 'onOrder',
+        eventType: 'google.cloud.pubsub.topic.v1.messagePublished',
+        topic: 'orders',
+      },
+      {},
+    );
+    expect(pubsubRes.ok).toBe(false);
+    expect(pubsubRes.summary).toContain('Pub/Sub');
+    expect(pubsubRes.summary).not.toContain('functions.publishPubSub');
+
+    const taskRes = await api.fireTrigger(
+      { exportName: 'sendMail', eventType: 'task-queue', regions: ['us-central1'] },
+      {},
+    );
+    expect(taskRes.ok).toBe(false);
+    expect(taskRes.summary).toContain('Tasks');
+    expect(taskRes.summary).not.toContain('functions.enqueueTask');
   });
 });

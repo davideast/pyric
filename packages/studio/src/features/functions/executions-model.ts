@@ -77,30 +77,47 @@ export function extractLiveExecutions(events: readonly SandboxEvent[]): Function
 }
 
 function executionFingerprint(record: FunctionExecution): string {
-  return `${record.trigger}|${record.startedAt}|${record.cause.ref}|${record.status}`;
+  return `${record.trigger}|${record.startedAt}|${record.durationMs}|${record.cause.ref}|${record.status}`;
 }
 
 /**
  * Merge bridge `functions.executions` records with live event-stream records,
- * deduplicating identical runs and ordering newest-first.
+ * suppressing each live event that matches an already-present bridge record
+ * one-to-one (so distinct runs sharing a frozen sandbox clock instant never
+ * collapse) and ordering newest-first.
  */
 export function mergeExecutions(
   bridgeExecutions: readonly FunctionExecution[],
   liveExecutions: readonly FunctionExecution[],
 ): FunctionExecution[] {
-  const byKey = new Map<string, FunctionExecution>();
+  const merged: FunctionExecution[] = [];
+  const unmatchedBridgeCounts = new Map<string, number>();
+
   for (const record of bridgeExecutions) {
-    byKey.set(executionFingerprint(record), { ...record, source: record.source ?? 'bridge' });
+    merged.push({ ...record, source: record.source ?? 'bridge' });
+    const key = executionFingerprint(record);
+    unmatchedBridgeCounts.set(key, (unmatchedBridgeCounts.get(key) ?? 0) + 1);
   }
+
   for (const record of liveExecutions) {
     const key = executionFingerprint(record);
-    if (!byKey.has(key)) {
-      byKey.set(key, { ...record, source: record.source ?? 'live' });
+    const remaining = unmatchedBridgeCounts.get(key) ?? 0;
+    if (remaining > 0) {
+      unmatchedBridgeCounts.set(key, remaining - 1);
+      continue;
     }
+    merged.push({ ...record, source: record.source ?? 'live' });
   }
-  return [...byKey.values()].sort(
-    (a, b) => b.startedAt - a.startedAt || b.id.localeCompare(a.id),
-  );
+
+  return merged.sort((a, b) => {
+    if (b.startedAt !== a.startedAt) return b.startedAt - a.startedAt;
+    const aNum = Number(a.id);
+    const bNum = Number(b.id);
+    if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) {
+      return bNum - aNum;
+    }
+    return b.id.localeCompare(a.id);
+  });
 }
 
 /** Format execution duration cleanly in ms or seconds. */

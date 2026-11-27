@@ -106,6 +106,7 @@ export function FunctionsSurface({
   });
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [discoverySummary, setDiscoverySummary] = useState<string | null>(null);
+  const [discoveredProjectId, setDiscoveredProjectId] = useState<string | null>(null);
   const [triggers, setTriggers] = useState<DiscoveredTrigger[]>([]);
   const [unsupported, setUnsupported] = useState<UnsupportedTrigger[]>([]);
   const [bridgeExecutions, setBridgeExecutions] = useState<FunctionExecution[]>([]);
@@ -151,6 +152,7 @@ export function FunctionsSurface({
     let active = true;
     setRefreshing(true);
     setErrorMessage(null);
+    setMode((prev) => (prev === 'error' ? 'loading' : prev));
 
     void Promise.all([
       defaultApi.listTriggers(controller.signal),
@@ -175,6 +177,7 @@ export function FunctionsSurface({
       setTriggers(triggersRes.data.triggers);
       setUnsupported(triggersRes.data.unsupported);
       setDiscoverySummary(triggersRes.data.summary ?? null);
+      setDiscoveredProjectId(triggersRes.data.projectId ?? defaultApi.projectId ?? null);
       if (executionsRes.ok) {
         setBridgeExecutions(executionsRes.data);
       }
@@ -212,9 +215,21 @@ export function FunctionsSurface({
     [triggers.length, visibleFamilies, familyCounts],
   );
 
+  const effectiveSelectedFamily: FunctionFamily | 'all' = filterTabs.some(
+    (tab) => tab.id === selectedFamily,
+  )
+    ? selectedFamily
+    : 'all';
+
+  useEffect(() => {
+    if (mode === 'ready' && selectedFamily !== 'all' && effectiveSelectedFamily === 'all') {
+      setSelectedFamily('all');
+    }
+  }, [mode, selectedFamily, effectiveSelectedFamily]);
+
   const filteredTriggers = useMemo(
-    () => filterTriggers(triggers, { family: selectedFamily, query: searchQuery }),
-    [triggers, selectedFamily, searchQuery],
+    () => filterTriggers(triggers, { family: effectiveSelectedFamily, query: searchQuery }),
+    [triggers, effectiveSelectedFamily, searchQuery],
   );
   const groupedTriggers = useMemo(
     () => groupTriggersByFamily(filteredTriggers),
@@ -269,7 +284,8 @@ export function FunctionsSurface({
     originOverride ??
     defaultApi?.origin ??
     (typeof window !== 'undefined' && window.location ? window.location.origin : '');
-  const effectiveProjectId = projectIdOverride ?? defaultApi?.projectId ?? bridgeMeta?.projectId;
+  const effectiveProjectId =
+    projectIdOverride ?? discoveredProjectId ?? defaultApi?.projectId ?? bridgeMeta?.projectId;
   const rejectedCount = mergedExecutions.filter(
     (item) => item.status === 'rejected' || item.status === 'timeout',
   ).length;
@@ -439,7 +455,7 @@ export function FunctionsSurface({
                 aria-label="Filter triggers by family"
               >
                 {filterTabs.map((tab, index) => {
-                  const selected = selectedFamily === tab.id;
+                  const selected = effectiveSelectedFamily === tab.id;
                   return (
                     <button
                       key={tab.id}

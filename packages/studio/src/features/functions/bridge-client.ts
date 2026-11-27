@@ -57,12 +57,21 @@ function joinBase(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
-async function resolveInstanceIdFallback(
+interface HealthMetadata {
+  instanceId: string | null;
+  projectId: string | null;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+async function resolveHealthMetadata(
   fetchImpl: typeof fetch,
   baseUrl: string,
   sessionToken: string | null | undefined,
   signal?: AbortSignal,
-): Promise<string | null> {
+): Promise<{ ok: boolean; meta: HealthMetadata }> {
   try {
     const headers = studioSessionHeaders(sessionToken);
     const res = await fetchImpl(joinBase(baseUrl, HEALTH_PATH), {
@@ -70,14 +79,29 @@ async function resolveInstanceIdFallback(
       signal,
       ...(headers ? { headers } : {}),
     });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { instanceId?: unknown };
-    return typeof body.instanceId === 'string' && body.instanceId.length > 0
-      ? body.instanceId
-      : null;
+    if (!res.ok) return { ok: false, meta: { instanceId: null, projectId: null } };
+    const body = (await res.json()) as { instanceId?: unknown; project?: unknown };
+    return {
+      ok: true,
+      meta: {
+        instanceId: nonEmptyString(body.instanceId),
+        projectId: nonEmptyString(body.project),
+      },
+    };
   } catch {
-    return null;
+    return { ok: false, meta: { instanceId: null, projectId: null } };
   }
+}
+
+function sanitizeUnknownMethodMessage(
+  rawMessage: string,
+  familyLabel: string,
+  triggerName: string,
+): string {
+  if (/unknown surface method/i.test(rawMessage)) {
+    return `Manual fire for ${familyLabel} triggers (${triggerName}) is not exposed by this CLI host yet.`;
+  }
+  return rawMessage;
 }
 
 /**
@@ -88,11 +112,41 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
   const baseUrl = config.baseUrl ?? '';
   const fetchImpl = config.fetchImpl ?? (typeof fetch !== 'undefined' ? fetch : null);
   let cachedInstanceId = config.instanceId ?? null;
+  let cachedProjectId = config.projectId ?? null;
+  let healthHydrated = false;
+  let inflightHealth: Promise<void> | null = null;
   const projectDir = config.projectDir ?? null;
-  const projectId = config.projectId ?? null;
   const sessionToken = config.sessionToken ?? null;
   const origin =
     baseUrl || (typeof window !== 'undefined' && window.location ? window.location.origin : '');
+
+  async function ensureHealthMetadata(signal?: AbortSignal): Promise<void> {
+    if (!fetchImpl || healthHydrated) return;
+    if (inflightHealth) {
+      await inflightHealth;
+      return;
+    }
+    const pending = (async () => {
+      const result = await resolveHealthMetadata(fetchImpl, baseUrl, sessionToken, signal);
+      if (result.meta.instanceId && !cachedInstanceId) {
+        cachedInstanceId = result.meta.instanceId;
+      }
+      if (result.meta.projectId && !cachedProjectId) {
+        cachedProjectId = result.meta.projectId;
+      }
+      if (result.ok || !signal?.aborted) {
+        healthHydrated = true;
+      }
+    })();
+    inflightHealth = pending;
+    try {
+      await pending;
+    } finally {
+      if (inflightHealth === pending) {
+        inflightHealth = null;
+      }
+    }
+  }
 
   async function callHostedMethod(
     key: string,
@@ -115,7 +169,7 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
       };
     }
     if (!cachedInstanceId) {
-      cachedInstanceId = await resolveInstanceIdFallback(fetchImpl, baseUrl, sessionToken, signal);
+      await ensureHealthMetadata(signal);
     }
     if (!cachedInstanceId) {
       return {
@@ -168,6 +222,7 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
     }
     if (res.status === 409) {
       cachedInstanceId = null;
+      healthHydrated = false;
       return {
         ok: false,
         failure: {
@@ -235,8 +290,11 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
     if (!fetchImpl) {
       return { ok: false, summary: 'Fetch is unavailable in this environment.' };
     }
+    if (!cachedProjectId && !healthHydrated) {
+      await ensureHealthMetadata(signal);
+    }
     const region = input.region ?? triggerRegions(trigger)[0] ?? DEFAULT_FUNCTION_REGION;
-    const resolvedProject = projectId ?? DEFAULT_PROJECT_ID;
+    const resolvedProject = cachedProjectId ?? DEFAULT_PROJECT_ID;
     const family = classifyTriggerFamily(trigger.eventType);
     const subpath = family === 'http' ? cleanSubpath(input.path) : '';
     const url = joinBase(baseUrl, `/${resolvedProject}/${region}/${trigger.exportName}${subpath}`);
@@ -325,11 +383,18 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
   async function fireViaHostedMethod(
     key: string,
     args: Record<string, unknown>,
+    familyLabel: string,
+    triggerName: string,
     signal?: AbortSignal,
   ): Promise<FireOutcome> {
     const response = await callHostedMethod(key, args, signal);
     if (!response.ok) {
-      return { ok: false, summary: response.failure.message, error: response.failure.message };
+      const message = sanitizeUnknownMethodMessage(
+        response.failure.message,
+        familyLabel,
+        triggerName,
+      );
+      return { ok: false, summary: message, error: message };
     }
     const payload = response.data;
     const detail =
@@ -342,17 +407,19 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
         ? (detail.event as Record<string, unknown>)
         : undefined;
     if (!payload.ok) {
+      const rawMessage = payload.summary || `${familyLabel} fire failed for ${triggerName}.`;
+      const message = sanitizeUnknownMethodMessage(rawMessage, familyLabel, triggerName);
       return {
         ok: false,
-        summary: payload.summary || `${key} failed.`,
+        summary: message,
         executionId,
         event,
-        error: payload.summary || `${key} failed.`,
+        error: message,
       };
     }
     return {
       ok: true,
-      summary: payload.summary || `${key} succeeded.`,
+      summary: payload.summary || `Fired ${triggerName}.`,
       executionId,
       event,
       result: detail && 'result' in detail ? detail.result : payload.data,
@@ -360,7 +427,9 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
   }
 
   return {
-    projectId,
+    get projectId() {
+      return cachedProjectId;
+    },
     origin,
 
     async listTriggers(signal) {
@@ -372,6 +441,9 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
           failure: { kind: 'error', message: res.data.summary || 'functions.listTriggers failed.' },
         };
       }
+      if (!cachedProjectId && !healthHydrated) {
+        await ensureHealthMetadata(signal);
+      }
       const data = (res.data.data ?? {}) as { triggers?: unknown; unsupported?: unknown };
       return {
         ok: true,
@@ -379,6 +451,7 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
           triggers: asDiscoveredTriggers(data.triggers),
           unsupported: asUnsupportedTriggers(data.unsupported),
           summary: res.data.summary,
+          projectId: cachedProjectId,
         },
       };
     },
@@ -415,7 +488,7 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
           value: input.payload === undefined ? null : input.payload,
         };
         if (input.timeoutMs !== undefined) args.timeoutMs = input.timeoutMs;
-        return fireViaHostedMethod('functions.fire', args, signal);
+        return fireViaHostedMethod('functions.fire', args, 'RTDB', trigger.exportName, signal);
       }
       if (capability.mode === 'scheduler') {
         const options =
@@ -426,7 +499,9 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
             : {};
         return fireViaHostedMethod(
           'functions.triggerScheduled',
-          { trigger: trigger.exportName, exportName: trigger.exportName, ...options },
+          { ...options, trigger: trigger.exportName },
+          'Scheduler',
+          trigger.exportName,
           signal,
         );
       }
@@ -437,12 +512,20 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
           payload: input.payload ?? {},
         };
         if (input.attributes !== undefined) args.attributes = input.attributes;
-        return fireViaHostedMethod('functions.publishPubSub', args, signal);
+        return fireViaHostedMethod(
+          'functions.publishPubSub',
+          args,
+          'Pub/Sub',
+          trigger.exportName,
+          signal,
+        );
       }
       if (capability.mode === 'tasks') {
         return fireViaHostedMethod(
           'functions.enqueueTask',
-          { trigger: trigger.exportName, targetName: trigger.exportName, data: input.payload ?? {} },
+          { trigger: trigger.exportName, data: input.payload ?? {} },
+          'Tasks',
+          trigger.exportName,
           signal,
         );
       }

@@ -306,5 +306,36 @@ describe('Functions inspector domain model', () => {
     expect(formatDurationMs(0.4)).toBe('<1 ms');
     expect(formatDurationMs(42)).toBe('42 ms');
     expect(formatDurationMs(1500)).toBe('1.50 s');
+
+    // Distinct executions under a frozen sandbox clock must never collapse.
+    const sameClockBridge: FunctionExecution[] = [
+      {
+        id: '1',
+        trigger: 'makeUppercase',
+        cause: { ref: '/messages/m1/original', params: { pushId: 'm1' } },
+        startedAt: 5000,
+        durationMs: 10,
+        status: 'fulfilled',
+      },
+      {
+        id: '2',
+        trigger: 'makeUppercase',
+        cause: { ref: '/messages/m1/original', params: { pushId: 'm1' } },
+        startedAt: 5000,
+        durationMs: 12,
+        status: 'fulfilled',
+      },
+    ];
+    const sameClockLive: FunctionExecution[] = [
+      { ...sameClockBridge[0]!, id: 'evt-1', source: 'live' },
+      { ...sameClockBridge[1]!, id: 'evt-2', source: 'live' },
+      { ...sameClockBridge[1]!, id: 'evt-3', source: 'live' },
+    ];
+    const sameClockMerged = mergeExecutions(sameClockBridge, sameClockLive);
+    expect(sameClockMerged).toHaveLength(3);
+
+    // Same startedAt but distinct durationMs between bridge and live must both survive.
+    const diffDurationMerged = mergeExecutions([sameClockBridge[0]!], [sameClockLive[1]!]);
+    expect(diffDurationMerged).toHaveLength(2);
   });
 });

@@ -322,8 +322,17 @@ describe('FunctionsSurface', () => {
     expect(alert!.textContent).toContain('Invalid JSON payload');
     expect(payloadArea.getAttribute('aria-invalid')).toBe('true');
 
-    // Valid JSON payload dispatches and shows inline success + refreshes executions
+    // Invalid timeout flags ONLY the timeout input, not the payload textarea
     changeInput(payloadArea, '{"text":"hello"}');
+    const timeoutInput = view.getByLabelText('Timeout (ms, optional)') as HTMLInputElement;
+    changeInput(timeoutInput, '999999');
+    fireEvent.click(view.container.querySelector('[data-functions-fire-submit="makeUppercase"]')!);
+    expect(firedCalls).toHaveLength(0);
+    expect(timeoutInput.getAttribute('aria-invalid')).toBe('true');
+    expect(payloadArea.getAttribute('aria-invalid')).toBeNull();
+    changeInput(timeoutInput, '');
+
+    // Valid JSON payload dispatches and shows inline success + refreshes executions
     fireEvent.click(view.container.querySelector('[data-functions-fire-submit="makeUppercase"]')!);
 
     await waitFor(() => {
