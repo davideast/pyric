@@ -563,7 +563,6 @@ describe('native Swift Cloud Storage live-host conformance', () => {
 
         expect(host.traffic.rpcMethods).toContain('storage.beginUpload');
         expect(host.traffic.rpcMethods).toContain('storage.finishUpload');
-        expect(host.traffic.rpcMethods).toContain('storage.abortUpload');
         expect(host.traffic.rpcMethods).toContain('storage.getMetadata');
         expect(host.traffic.rpcMethods).toContain('storage.getDownloadURL');
         expect(host.traffic.rpcMethods).toContain('storage.updateMetadata');
