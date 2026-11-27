@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
@@ -10,6 +9,8 @@ import '../transport/exceptions.dart';
 import 'pyric_firebase_storage_platform.dart';
 import 'pyric_task_platform.dart';
 import 'storage_byte_transfer.dart';
+import 'storage_file_io.dart';
+import 'storage_http_client.dart';
 import 'storage_upload_sources.dart';
 import 'storage_wire_codec.dart';
 
@@ -41,14 +42,14 @@ Future<CompletedTaskPayload> runResumableUploadTask({
   final contentType = metadata?.contentType;
 
   String? activeUploadId;
-  HttpClient? activeHttpClient;
+  StorageCancelableHttpHandle? activeHttpHandle;
   Future<dynamic>? inFlightFinishOp;
   String? committedRollbackToken;
 
   context.setCancelCleanup(() async {
-    final http = activeHttpClient;
-    activeHttpClient = null;
-    http?.close(force: true);
+    final http = activeHttpHandle;
+    activeHttpHandle = null;
+    http?.abort();
 
     final pendingFinish = inFlightFinishOp;
     if (pendingFinish != null) {
@@ -172,8 +173,8 @@ Future<CompletedTaskPayload> runResumableUploadTask({
                 'content-length': '${chunkBytes.length}',
               },
               body: chunkBytes,
-              onClientCreated: (client) => activeHttpClient = client,
-              onClientClosed: () => activeHttpClient = null,
+              onHandleCreated: (handle) => activeHttpHandle = handle,
+              onHandleClosed: () => activeHttpHandle = null,
             );
           }
 
@@ -189,8 +190,8 @@ Future<CompletedTaskPayload> runResumableUploadTask({
           wirePath: wirePath,
           headers: const <String, String>{'content-length': '0'},
           body: Uint8List(0),
-          onClientCreated: (client) => activeHttpClient = client,
-          onClientClosed: () => activeHttpClient = null,
+          onHandleCreated: (handle) => activeHttpHandle = handle,
+          onHandleClosed: () => activeHttpHandle = null,
         );
       }
 
@@ -249,7 +250,7 @@ Future<CompletedTaskPayload> runWriteToFileTask({
   required PyricFirebaseStoragePlatform storage,
   required PyricTaskExecutionContext context,
   required String wirePath,
-  required File file,
+  required Object file,
   int chunkSize = defaultStorageTaskChunkBytes,
 }) async {
   final effectiveChunkSize =
@@ -259,11 +260,11 @@ Future<CompletedTaskPayload> runWriteToFileTask({
   final bucketParams = storage.bucketWireParams();
   final fallbackBucket = storage.resolvedBucket;
 
-  HttpClient? activeHttpClient;
+  StorageCancelableHttpHandle? activeHttpHandle;
   context.setCancelCleanup(() async {
-    final http = activeHttpClient;
-    activeHttpClient = null;
-    http?.close(force: true);
+    final http = activeHttpHandle;
+    activeHttpHandle = null;
+    http?.abort();
   });
 
   await context.waitUntilRunningOrThrowCanceled();
@@ -290,21 +291,9 @@ Future<CompletedTaskPayload> runWriteToFileTask({
   context.reportProgress(0, totalBytes: totalBytes);
   await context.waitUntilRunningOrThrowCanceled();
 
-  RandomAccessFile? raf;
+  StorageFileWriter? writer;
   try {
-    try {
-      if (!await file.parent.exists()) {
-        await file.parent.create(recursive: true);
-      }
-      raf = await file.open(mode: FileMode.write);
-    } on FileSystemException catch (error) {
-      throw FirebaseException(
-        plugin: 'firebase_storage',
-        code: 'unknown',
-        message:
-            'Failed to open destination file "${file.path}": ${error.message}',
-      );
-    }
+    writer = await openStorageFileForWrite(file);
 
     var offset = 0;
     while (offset < totalBytes) {
@@ -370,8 +359,8 @@ Future<CompletedTaskPayload> runWriteToFileTask({
           uri: objectUri,
           wirePath: wirePath,
           headers: headers,
-          onClientCreated: (client) => activeHttpClient = client,
-          onClientClosed: () => activeHttpClient = null,
+          onHandleCreated: (handle) => activeHttpHandle = handle,
+          onHandleClosed: () => activeHttpHandle = null,
         );
         if (fetched.statusCode == 200 &&
             fetched.body.length > wantLen &&
@@ -396,16 +385,16 @@ Future<CompletedTaskPayload> runWriteToFileTask({
       }
 
       await context.waitUntilRunningOrThrowCanceled();
-      await raf.writeFrom(sliceBytes);
+      await writer.writeFrom(sliceBytes);
       offset += sliceBytes.length;
       context.reportProgress(offset, totalBytes: totalBytes);
     }
 
-    await raf.flush();
+    await writer.flush();
   } finally {
-    if (raf != null) {
+    if (writer != null) {
       try {
-        await raf.close();
+        await writer.close();
       } catch (_) {}
     }
   }
@@ -423,79 +412,48 @@ Future<void> _sendHttpSlice({
   required String wirePath,
   required Map<String, String> headers,
   required Uint8List body,
-  required void Function(HttpClient client) onClientCreated,
-  required void Function() onClientClosed,
+  required void Function(StorageCancelableHttpHandle handle) onHandleCreated,
+  required void Function() onHandleClosed,
 }) async {
-  final client = HttpClient();
-  onClientCreated(client);
-  try {
-    final request = await client.openUrl('PUT', uri);
-    headers.forEach(request.headers.set);
-    request.contentLength = body.length;
-    if (body.isNotEmpty) {
-      request.add(body);
-    }
-    final response = await request.close();
-    final respBody = BytesBuilder(copy: false);
-    await for (final chunk in response) {
-      respBody.add(chunk);
-    }
-    final accepted = response.statusCode == 200 || response.statusCode == 308;
-    if (!accepted) {
-      throw mapHttpStatusToStorageException(
-        response.statusCode,
-        wirePath,
-        utf8.decode(respBody.takeBytes(), allowMalformed: true),
-      );
-    }
-  } finally {
-    onClientClosed();
-    client.close(force: false);
+  final response = await performStorageHttpRequest(
+    method: 'PUT',
+    uri: uri,
+    headers: headers,
+    body: body,
+    onHandleCreated: onHandleCreated,
+    onHandleClosed: onHandleClosed,
+  );
+  final accepted = response.statusCode == 200 || response.statusCode == 308;
+  if (!accepted) {
+    throw mapHttpStatusToStorageException(
+      response.statusCode,
+      wirePath,
+      utf8.decode(response.body, allowMalformed: true),
+    );
   }
 }
 
-class _HttpSliceResult {
-  final int statusCode;
-  final Uint8List body;
-
-  const _HttpSliceResult({
-    required this.statusCode,
-    required this.body,
-  });
-}
-
-Future<_HttpSliceResult> _fetchHttpSlice({
+Future<StorageRawHttpResponse> _fetchHttpSlice({
   required Uri uri,
   required String wirePath,
   required Map<String, String> headers,
-  required void Function(HttpClient client) onClientCreated,
-  required void Function() onClientClosed,
+  required void Function(StorageCancelableHttpHandle handle) onHandleCreated,
+  required void Function() onHandleClosed,
 }) async {
-  final client = HttpClient();
-  onClientCreated(client);
-  try {
-    final request = await client.openUrl('GET', uri);
-    headers.forEach(request.headers.set);
-    final response = await request.close();
-    final respBody = BytesBuilder(copy: false);
-    await for (final chunk in response) {
-      respBody.add(chunk);
-    }
-    final bodyBytes = respBody.takeBytes();
-    final accepted = response.statusCode == 200 || response.statusCode == 206;
-    if (!accepted) {
-      throw mapHttpStatusToStorageException(
-        response.statusCode,
-        wirePath,
-        utf8.decode(bodyBytes, allowMalformed: true),
-      );
-    }
-    return _HttpSliceResult(
-      statusCode: response.statusCode,
-      body: bodyBytes,
+  final response = await performStorageHttpRequest(
+    method: 'GET',
+    uri: uri,
+    headers: headers,
+    onHandleCreated: onHandleCreated,
+    onHandleClosed: onHandleClosed,
+  );
+  final accepted = response.statusCode == 200 || response.statusCode == 206;
+  if (!accepted) {
+    throw mapHttpStatusToStorageException(
+      response.statusCode,
+      wirePath,
+      utf8.decode(response.body, allowMalformed: true),
     );
-  } finally {
-    onClientClosed();
-    client.close(force: false);
   }
+  return response;
 }

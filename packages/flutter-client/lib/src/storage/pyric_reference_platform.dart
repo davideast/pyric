@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
@@ -9,6 +8,7 @@ import '../transport/exceptions.dart';
 import 'pyric_firebase_storage_platform.dart';
 import 'pyric_list_result_platform.dart';
 import 'pyric_task_platform.dart';
+import 'storage_file_io.dart';
 import 'storage_string_codec.dart';
 import 'storage_transfer_runner.dart';
 import 'storage_upload_sources.dart';
@@ -345,10 +345,10 @@ class PyricReferencePlatform extends ReferencePlatform {
   }
 
   @override
-  TaskPlatform putFile(File file, [SettableMetadata? metadata]) {
+  TaskPlatform putFile(Object file, [SettableMetadata? metadata]) {
     _pyricStorage.ensureUsable();
     _guardNonRoot('putFile');
-    return _startUploadTask(FileUploadChunkSource(file), metadata);
+    return _startUploadTask(createFileUploadChunkSource(file), metadata);
   }
 
   @override
@@ -367,7 +367,7 @@ class PyricReferencePlatform extends ReferencePlatform {
   }
 
   @override
-  TaskPlatform writeToFile(File file) {
+  TaskPlatform writeToFile(Object file) {
     _pyricStorage.ensureUsable();
     _guardNonRoot('writeToFile');
     return PyricTaskPlatform(

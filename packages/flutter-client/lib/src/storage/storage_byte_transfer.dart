@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
@@ -8,6 +7,7 @@ import 'package:firebase_storage_platform_interface/firebase_storage_platform_in
 
 import '../transport/exceptions.dart';
 import 'pyric_firebase_storage_platform.dart';
+import 'storage_http_client.dart';
 import 'storage_wire_codec.dart';
 
 /// Maximum raw byte size of a single part in frame or HTTP byte-route transfers (4 MiB).
@@ -441,41 +441,17 @@ class StorageByteTransfer {
     );
   }
 
-  Future<_RawHttpResponse> _performHttpRequest({
+  Future<StorageRawHttpResponse> _performHttpRequest({
     required String method,
     required Uri uri,
     required Map<String, String> headers,
     Uint8List? body,
-  }) async {
-    final client = HttpClient();
-    try {
-      final request = await client.openUrl(method, uri);
-      headers.forEach(request.headers.set);
-      if (body != null) {
-        request.contentLength = body.length;
-        request.add(body);
-      }
-      final response = await request.close();
-      final bytesBuilder = BytesBuilder(copy: false);
-      await for (final chunk in response) {
-        bytesBuilder.add(chunk);
-      }
-      return _RawHttpResponse(
-        statusCode: response.statusCode,
-        body: bytesBuilder.takeBytes(),
-      );
-    } finally {
-      client.close(force: false);
-    }
+  }) {
+    return performStorageHttpRequest(
+      method: method,
+      uri: uri,
+      headers: headers,
+      body: body,
+    );
   }
-}
-
-class _RawHttpResponse {
-  final int statusCode;
-  final Uint8List body;
-
-  const _RawHttpResponse({
-    required this.statusCode,
-    required this.body,
-  });
 }

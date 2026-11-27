@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
+
+import 'storage_file_io.dart';
+
+export 'storage_file_io.dart' show FileUploadChunkSource;
 
 /// Abstract random-access or buffered byte source for chunked Storage uploads.
 abstract class UploadChunkSource {
@@ -39,75 +42,6 @@ class MemoryUploadChunkSource implements UploadChunkSource {
 
   @override
   Future<void> close() async {}
-}
-
-/// Streaming [File] chunk source backed by [RandomAccessFile] with deterministic handle closure.
-class FileUploadChunkSource implements UploadChunkSource {
-  final File _file;
-  RandomAccessFile? _raf;
-
-  FileUploadChunkSource(this._file);
-
-  @override
-  int? get initialKnownLength => null;
-
-  @override
-  Future<int> open() async {
-    try {
-      final opened = await _file.open(mode: FileMode.read);
-      _raf = opened;
-      return await opened.length();
-    } on FileSystemException catch (error) {
-      await close();
-      throw FirebaseException(
-        plugin: 'firebase_storage',
-        code: 'unknown',
-        message: 'Failed to open upload file "${_file.path}": ${error.message}',
-      );
-    }
-  }
-
-  @override
-  Future<Uint8List> readChunk(int offset, int length) async {
-    final opened = _raf;
-    if (opened == null) {
-      throw FirebaseException(
-        plugin: 'firebase_storage',
-        code: 'unknown',
-        message: 'Upload file "${_file.path}" is not open.',
-      );
-    }
-    try {
-      await opened.setPosition(offset);
-      final bytes = await opened.read(length);
-      if (bytes.length != length) {
-        throw FirebaseException(
-          plugin: 'firebase_storage',
-          code: 'cannot-slice-blob',
-          message:
-              'File "${_file.path}" changed size during upload (expected $length bytes at offset $offset, got ${bytes.length}).',
-        );
-      }
-      return bytes;
-    } on FileSystemException catch (error) {
-      throw FirebaseException(
-        plugin: 'firebase_storage',
-        code: 'unknown',
-        message: 'Failed reading upload file "${_file.path}": ${error.message}',
-      );
-    }
-  }
-
-  @override
-  Future<void> close() async {
-    final opened = _raf;
-    _raf = null;
-    if (opened != null) {
-      try {
-        await opened.close();
-      } catch (_) {}
-    }
-  }
 }
 
 /// [Stream<List<int>>] chunk source for `putBlob` stream inputs.
@@ -163,8 +97,8 @@ UploadChunkSource resolveBlobUploadSource(Object? data) {
   if (data is String) {
     return MemoryUploadChunkSource(Uint8List.fromList(utf8.encode(data)));
   }
-  if (data is File) {
-    return FileUploadChunkSource(data);
+  if (isPlatformFile(data)) {
+    return createFileUploadChunkSource(data);
   }
   if (data is Stream<List<int>>) {
     return StreamUploadChunkSource(data);

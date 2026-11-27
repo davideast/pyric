@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:firebase_app_check_platform_interface/firebase_app_check_platform_interface.dart';
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../app_check/pyric_firebase_app_check_platform.dart';
+import '../platform/platform_env.dart';
 import '../transport/bridge_client.dart';
 import 'functions_http_transport.dart';
 import 'functions_url.dart';
@@ -205,7 +205,7 @@ class FirebaseFunctions {
     if (defaultProject != null && defaultProject.isNotEmpty) {
       return defaultProject;
     }
-    final envProject = Platform.environment['PYRIC_LIVE_PROJECT_ID'];
+    final envProject = readPlatformEnvironment('PYRIC_LIVE_PROJECT_ID');
     if (envProject != null && envProject.isNotEmpty) {
       return envProject;
     }
@@ -278,7 +278,7 @@ class FirebaseFunctions {
     if (_explicitGatewayOrigin != null && _explicitGatewayOrigin.isNotEmpty) {
       return _explicitGatewayOrigin;
     }
-    final envUrl = Platform.environment['PYRIC_LIVE_FUNCTIONS_URL'];
+    final envUrl = readPlatformEnvironment('PYRIC_LIVE_FUNCTIONS_URL');
     if (envUrl != null && envUrl.isNotEmpty) {
       return envUrl;
     }

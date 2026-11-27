@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
 
+import '../platform/platform_env.dart';
 import '../transport/bridge_client.dart';
 import 'messaging_bridge_session.dart';
 import 'messaging_settings.dart';
@@ -182,7 +182,7 @@ class FirebaseMessaging {
 
   static void _ensureDefaultInstanceForStaticListeners() {
     if (_liveInstances.isNotEmpty) return;
-    final envUrl = Platform.environment['PYRIC_LIVE_BRIDGE_URL'];
+    final envUrl = readPlatformEnvironment('PYRIC_LIVE_BRIDGE_URL');
     final hasLiveTarget =
         _registeredBridgeClient != null || (envUrl != null && envUrl.isNotEmpty);
     if (hasLiveTarget) {
