@@ -177,13 +177,16 @@ def release(rules,private,release_root=None,first_window=False):
         if not (release/'plan.json').exists(): return {},[]
         plan=read(release/'plan.json')
         assert digest((release/'firestore.rules').read_bytes())==rules==plan['rulesSha256']
-        assert plan['version'] in (1,2) and plan['previousRulesSha256']==PREVIOUS
+        assert plan['version'] in (1,2,3) and plan['previousRulesSha256']==PREVIOUS
         names=(('sliding-queen-bishop',)+NEW_PLANS) if plan['version']==2 else NEW_PLANS
         sizes=([4,120,118] if plan['version']==2 else [120,118])
+        if plan['version']==3:
+            names=('two-knights','sliding-queen-bishop',*NEW_PLANS)
+            sizes=[9,4,118,118]
         planned={c['name']:c['ids'] for c in plan['chunks']}
         assert list(planned)==list(names) and list(map(len,planned.values()))==sizes
         assert len({key for ids in planned.values() for key in ids})==sum(sizes)==plan['expectedCases']
-        assert len(set(planned[NEW_PLANS[0]]+planned[NEW_PLANS[1]]))==238
+        assert len(set(planned[NEW_PLANS[0]]+planned[NEW_PLANS[1]]))==(236 if plan['version']==3 else 238)
         folder=release/'receipts'
         expected_names=names[:1] if first_window else names
         names=tuple(name for name in expected_names if (folder/(name+'.pin.json')).exists())
@@ -239,12 +242,20 @@ def compare(rules,private,archive,release_root=None,first_window=False):
     native.update({key:row['nativeAdmission'] for key,row in focused.items()})
     assert len(native)==238 and len(focused)==54 and len(set(prior)&set(focused))==6
     plan=(release_root or TRIAL/'live/releases')/rules/'plan.json'
-    expanded=plan.exists() and read(plan)['version']==2
+    version=read(plan)['version'] if plan.exists() else 1
+    expanded=version>=2
     if expanded:
         for row in read(TRIAL/'native/queen-bishop/native.json')['cases']:
             assert row['id'] not in native
             native[row['id']]=row['nativeAdmission']
             focused[row['id']]=row
+    if version==3:
+        for row in read(TRIAL/'native/two-knights/native.json')['cases']:
+            key=row['id']
+            assert key not in native or native[key]==row['nativeAdmission']
+            native[key]=row['nativeAdmission']
+            focused[key]=row
+        assert len(native)==249
     assert set(current)<=native.keys()
     changes={'repaired':[],'regressed':[],'stillDisagree':[]}
     adjudications={}
@@ -294,7 +305,7 @@ def compare(rules,private,archive,release_root=None,first_window=False):
             'nativeDecisions':dict(Counter(row['native'] for row in adjudications.values())),
             'firestoreDecisions':dict(Counter(row['observed'] for row in current.values())),
             'nativeVersusFirestore':dict(checked),'captures':sources,'mismatches':mismatches,'oldCorpusChanges':changes,
-            **({'queenBishopBaseline':compare_pawn_pair_baseline(current,native,private)} if expanded else {}),
+            **({'queenBishopBaseline':compare_pawn_pair_baseline(current,native,private)} if version==2 else {}),
             'shapeSensitivityControl':{'source':'rook-safe','addedField':'unexpectedNullField','value':None,
                                        'originalNative':'ALLOW','amendedNative':'DENY'},
             'invalidSourcePositions':invalid,'perCaseAdjudicationsSha256':SIGNED['hash_json'](adjudications)}

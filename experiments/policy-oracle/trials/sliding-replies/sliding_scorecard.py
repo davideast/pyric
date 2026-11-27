@@ -87,16 +87,20 @@ def render(result):
                          ', '.join(pred['sliding']) or '∅' if isinstance(pred,dict) and isinstance(pred.get('sliding'),list) else 'unavailable',helper,*cells))
     output.extend([table(['Piece','Board','Move','Native legal replies','Standalone Pyric sliders','Emitted helper (local trace)','Native P/D/W','Local P/D/W','Live P/D/W'],rows),
                    'Claims are ordered playing, draw, won. A means allow, D means deny, and — means unmeasured.'])
-    if 'queen-bishop' in groups:
+    for family, heading in [('queen-bishop','Qd2–b2 with and without the b6 pawn'),
+                            ('two-knights','Two defending knights')]:
+        if family not in groups: continue
         rows=[]
-        for key in groups['queen-bishop']:
+        fixtures={r['id']:r for r in read(HERE/'native'/family/'positions.json')}
+        for key in groups[family]:
             position=standalone['positions'][standalone['positionByRequest'][key]]
             prediction=position['pyric']
-            rows.append((key,', '.join(position['native']['all']),
-                         ', '.join(prediction['all']) if isinstance(prediction,dict) and isinstance(prediction.get('all'),list) else 'unavailable',
+            label=key if family=='queen-bishop' else f"{key} ({fixtures[key]['claim']['status']})"
+            rows.append((label,', '.join(position['native']['all']) or '∅',
+                         (', '.join(prediction['all']) or '∅') if isinstance(prediction,dict) and isinstance(prediction.get('all'),list) else 'unavailable',
                          native_verdicts[key],local.get(key,{}).get('decision','unmeasured'),
                          observed.get(key,{}).get('verdict','unmeasured')))
-        output.extend(['## Qd2–b2 with and without the b6 pawn',
+        output.extend(['## '+heading,
                        table(['Claim','Native replies','Pyric replies','Native','Local Rules','Live Firestore'],rows)])
     output.append('## Changes from the historical release on the original 190')
     changes = result.get('local',{}).get('changes',{}).get('original-190')

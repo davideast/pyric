@@ -1,0 +1,83 @@
+[
+  {
+    "id": "knight-reply-121",
+    "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+    "uci": "a5h5",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-reply-123",
+    "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+    "uci": "a5h5",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-reply-122",
+    "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+    "uci": "a5h5",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "knight-reply-475",
+    "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+    "uci": "a8h8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-reply-477",
+    "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+    "uci": "a8h8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-reply-476",
+    "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+    "uci": "a8h8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "knight-reply-481",
+    "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+    "uci": "a8h8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-reply-483",
+    "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+    "uci": "a8h8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "knight-reply-482",
+    "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+    "uci": "a8h8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  }
+]

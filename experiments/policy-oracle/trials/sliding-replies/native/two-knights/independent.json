@@ -1,0 +1,53 @@
+{
+  "authority": "hash-pinned python-chess",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "boards": [
+    {
+      "id": "knight-reply-121",
+      "source": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+      "move": "a5h5",
+      "successor": "4n3/7k/6R1/7Q/2K5/3nQ3/8/8 b - -",
+      "checkers": [
+        "h5"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "knight-reply-475",
+      "source": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "move": "a8h8",
+      "successor": "7R/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 b - -",
+      "checkers": [],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "draw"
+    },
+    {
+      "id": "knight-reply-481",
+      "source": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "move": "a8h8",
+      "successor": "7R/7Q/8/B2R3n/6nk/5Q2/K7/8 b - -",
+      "checkers": [],
+      "replies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ],
+      "afterReply": {
+        "g4e3": "7R/7Q/8/B2R3n/7k/4nQ2/K7/8 w - -",
+        "g4e5": "7R/7Q/8/B2Rn2n/7k/5Q2/K7/8 w - -",
+        "g4f2": "7R/7Q/8/B2R3n/7k/5Q2/K4n2/8 w - -",
+        "g4f6": "7R/7Q/5n2/B2R3n/7k/5Q2/K7/8 w - -",
+        "g4h2": "7R/7Q/8/B2R3n/7k/5Q2/K6n/8 w - -",
+        "g4h6": "7R/7Q/7n/B2R3n/7k/5Q2/K7/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    }
+  ],
+  "claims": 9
+}

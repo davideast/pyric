@@ -1,0 +1,262 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "knight-reply-121",
+      "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+      "uci": "a5h5",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "4n3/7k/6R1/7Q/2K5/3nQ3/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "knight-reply-123",
+      "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+      "uci": "a5h5",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "4n3/7k/6R1/7Q/2K5/3nQ3/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "knight-reply-122",
+      "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+      "uci": "a5h5",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "4n3/7k/6R1/7Q/2K5/3nQ3/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "knight-reply-475",
+      "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7R/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "knight-reply-477",
+      "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7R/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "knight-reply-476",
+      "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7R/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "knight-reply-481",
+      "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "7R/7Q/8/B2R3n/6nk/5Q2/K7/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ]
+    },
+    {
+      "id": "knight-reply-483",
+      "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7R/7Q/8/B2R3n/6nk/5Q2/K7/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ]
+    },
+    {
+      "id": "knight-reply-482",
+      "fen": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "uci": "a8h8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "7R/7Q/8/B2R3n/6nk/5Q2/K7/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ]
+    }
+  ]
+}

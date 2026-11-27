@@ -23,7 +23,7 @@ export function signedOperands(row) {
     before:row.before.map(({path,data})=>({path,data})),submitted:row.submitted};
 }
 
-export function inputs(includeQueenBishop=false) {
+export function inputs(includeQueenBishop=false,includeTwoKnights=false) {
   const all=new Map(),prior=new Map(),origins={};
   for (const name of previousPlans) {
     const profile=reviewedPlan(name);
@@ -45,15 +45,18 @@ export function inputs(includeQueenBishop=false) {
   assert.equal(prior.size,190);
   const added=[],focused=[];
   const families=includeQueenBishop?['rook','bishop','queen','queen-bishop']:['rook','bishop','queen'];
+  if(includeTwoKnights) families.push('two-knights');
   for(const piece of families) {
     const path=new URL('../native/'+piece+'/positions.json',root), bytes=readFileSync(path);
     origins[piece]=sha(bytes);
     for(const c of JSON.parse(bytes)) {
       assert.deepEqual(Object.keys(c).sort(),['claim','fen','id','uci']);
       assert.match(c.id,/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
-      if(piece==='rook') {
+      if(piece==='rook' || (piece==='two-knights' && prior.has(c.id))) {
         assert.ok(prior.has(c.id));
-        assert.deepEqual(c,all.get(c.id).c);
+        const original=all.get(c.id);
+        if(piece==='rook') assert.deepEqual(c,original.c);
+        else assert.deepEqual(sample(c,'writer','other'),original.spec.sample(original.c,'writer','other'),c.id);
       } else {
         assert.ok(!all.has(c.id),c.id);
         const spec={sample,probe:({id,...value})=>value};
@@ -64,7 +67,7 @@ export function inputs(includeQueenBishop=false) {
     }
   }
   assert.equal(focused.length,new Set(focused).size);
-  // Exercise all newly frozen slider positions during the first release window.
+  // Preserve historical order within each release plan.
   const order=[...new Set([...focused,...prior.keys()])];
   assert.equal(order.length,prior.size+added.length);
   return {all,prior,origins,order};
@@ -88,14 +91,17 @@ export function buildPlan(data,digest) {
   assert.match(digest,digestPattern);
   const chunks=[];
   const pair=data.order.filter(id=>data.all.get(id).batch==='queen-bishop');
-  const original=data.order.filter(id=>data.all.get(id).batch!=='queen-bishop');
+  const knightIds=data.origins['two-knights'] ? readJSON(new URL('../native/two-knights/positions.json',root)).map(c=>c.id) : [];
+  if(knightIds.length) chunks.push({name:'two-knights',ids:knightIds});
+  const original=data.order.filter(id=>!['queen-bishop','two-knights'].includes(data.all.get(id).batch));
   assert.equal(original.length,238,'historical release corpus changed');
   assert.equal(pair.length,data.origins['queen-bishop']?4:0,'queen-and-bishop corpus changed');
   if(pair.length) chunks.push({name:'sliding-queen-bishop',ids:pair});
   for(let i=0; i<original.length; i+=120) {
-    chunks.push({name:'sliding-part-'+(i/120+1),ids:original.slice(i,i+120)});
+    chunks.push({name:'sliding-part-'+(i/120+1),ids:original.slice(i,i+120).filter(id=>!knightIds.includes(id))});
   }
-  return {version:pair.length?2:1,rulesSha256:digest,previousRulesSha256:previousDigest,
+  assert.deepEqual(chunks.flatMap(chunk=>chunk.ids).sort(),[...data.all.keys()].sort());
+  return {version:knightIds.length?3:pair.length?2:1,rulesSha256:digest,previousRulesSha256:previousDigest,
     originalCases:data.prior.size,expectedCases:data.order.length,inputDigests:data.origins,chunks};
 }
 

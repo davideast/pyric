@@ -4,7 +4,15 @@ After White plays **Qg4–g8**, can Black keep playing? With the black king on a
 
 The v16 release matched native chess on **238 of 238 authenticated Firestore writes**. It repaired all seven prior false approvals and the refusal of a legal mating promotion on the original 190. The 108 successful writes stored their full proposed match and advanced the server version. All 130 refusals preserved both document and version. The original deny-all release was restored and confirmed after each capture. [Per-batch and per-revision scorecard](SCORECARD.md) · [Independent signed audit](review/scores/a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca/signed.json) · [Full match readbacks for every write](live/releases/a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca/receipts/)
 
-The current v17 solver recognizes a defending king, queen and bishop for either color. It reads the piece type at each origin, keeps the other defender on the board, then checks that the reply leaves its king safe. The two Qd2–b2 boards add four claims to the original 238. Live Firestore agreed with the independent chess referee on all 242 writes. The only changed verdict was the false win with the pawn on b6. [Frozen native replies](native/queen-bishop/independent.json) · [Current scorecard](QUEEN-BISHOP.md) · [Signed comparison of both releases on identical writes](review/scores/833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8/signed.json)
+The v17 solver recognizes a defending king, queen and bishop for either color. It reads the piece type at each origin, keeps the other defender on the board, then checks that the reply leaves its king safe. The two Qd2–b2 boards add four claims to the original 238. Live Firestore agreed with the independent chess referee on all 242 writes. The only changed verdict was the false win with the pawn on b6. [Frozen native replies](native/queen-bishop/independent.json) · [v17 scorecard](QUEEN-BISHOP.md) · [Signed comparison of both releases on identical writes](review/scores/833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8/signed.json)
+
+The v18 solver checks whether either defending knight or its king has a legal move before it accepts `playing` on a two-knight ending. The other pieces on the board still block movement and can pin either knight. The oracle now includes all three claims on three boards. Seven claims are new and two draw claims already belonged to the original 190. Live Firestore matched the native answers on seven of nine writes before the change and all nine afterward. The full 249-write oracle passed locally. [Native positions and complete legal replies](native/two-knights/independent.json) · [Two-knight scorecard](TWO-KNIGHTS.md)
+
+To audit the two live captures against native chess and compare the wider local disagreements by exact write, run from this directory with the private journals and pinned chess source archive.
+
+```sh
+python3 -B review/two-knights.py aa2da0c0522d4de0a8006a51591508ce4912c7bb40a102665d23f3a7bd27d341 "$PRIVATE_ARCHIVE" "$CHESS_SOURCE"
+```
 
 ## Score a compiler
 
@@ -69,6 +77,8 @@ The declared material includes one defending slider, two defending rooks, a slid
 For the short diagonal check, the emitted function marks the checking bishop or queen and the two intervening empty squares. It tests every defending nonking piece for geometric access to the relevant squares. Pawn captures, advances and double advances have separate tests. A negative result proves that only a king move can answer the check. A positive geometric possibility defers to the previous policy. The path requires an empty successor en passant target. On this domain a dense position such as the fourth-ply mate can be decided without general full-board reply enumeration. [Proof source](protocol/dense.mjs) · [Frozen 2,400-board independent control](protocol/dense-freeze.json) · [Incorrect geometries](review/dense-geometry.py)
 
 ## Where the selected rules still disagree with chess
+
+The wider v18 replay repaired 25 false continuations across 17 checkmates and eight stalemates. It introduced zero disagreements on the 15,905 proposals. The 50 remaining disagreements comprise 46 false approvals and four expression-limit refusals. [Per-write before and after comparison](review/scores/aa2da0c0522d4de0a8006a51591508ce4912c7bb40a102665d23f3a7bd27d341/two-knights.json)
 
 On the 15,905-case wider local suite, v17 matched 15,830 native decisions. It repaired two expression-limit refusals compared with v16 and introduced no new disagreements. The 71 false approvals and four expression-limit refusals are outside the 242-case live campaign. [Causes of the 75 disagreements and proposed three-board live test](RESIDUALS.md) · [v17 cohort scores and changed cases](review/scores/833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8/wide.json)
 

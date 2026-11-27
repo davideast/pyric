@@ -15,7 +15,7 @@ RULES = OLD/'artefacts/knight-endgame-paired-pawn-combined-bare-fixed-comma-pack
 FAMILIES = ('rook','bishop','queen')
 
 
-COHORTS = (*FAMILIES, 'queen-bishop')
+COHORTS = (*FAMILIES, 'queen-bishop', 'two-knights')
 
 
 def sha(data):

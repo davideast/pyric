@@ -126,7 +126,7 @@ def difference(before,after,ids):
 
 def material_profile(variant):
     if variant=='prior': return None
-    if variant.startswith('all-mixed-sliders-v17'): return 'including-queen-bishop'
+    if variant.startswith(('all-mixed-sliders-v17','all-two-knights-v18')): return 'including-queen-bishop'
     if variant.startswith('rook-'): return 'rook'
     if variant.startswith('bishop-'): return 'bishop'
     if variant.startswith('all-two-defenders-'): return 'queen-with-knight-or-rooks'
@@ -237,7 +237,7 @@ def replay(args,scratch,suite):
                 *([] if args.witness_panel else ['--focused']),
                 *(['--include-queen-bishop'] if 'queen-bishop' in groups else []))
     assert witness['rulesSha256']==rules_sha
-    selected={board['id'] for group in groups if group in COHORTS
+    selected={board['id'] for group in groups if group in COHORTS and group != 'two-knights'
               for board in read(HERE/'native'/group/'independent.json')['boards']}
     scored=[r for r in witness['focused'] if r['id'] in selected]
     assert len(scored)==len(selected)
@@ -308,7 +308,10 @@ def main():
     p.add_argument('--witness-panel',action='store_true',help='add 2,796 independent reply positions to the focused witness audit')
     args=p.parse_args()
     if args.variant is None: args.variant=(HERE/'selected-variant.txt').read_text().strip()
-    if args.through is None: args.through='queen-bishop' if args.variant.startswith('all-mixed-sliders-v17') else 'queen'
+    if args.through is None:
+        if args.variant.startswith('all-two-knights-v18'): args.through='two-knights'
+        elif args.variant.startswith('all-mixed-sliders-v17'): args.through='queen-bishop'
+        else: args.through='queen'
     if args.candidate_package:
         if args.variant=='prior': p.error('prior replays archived Rules. Select a compiler variant to score a package')
         args.candidate_package=args.candidate_package.resolve(strict=True)
@@ -318,7 +321,7 @@ def main():
         suite=reference_suite(args,scratch)
         r=replay(args,scratch,suite)
         if args.with_history:
-            if args.through not in ('queen','queen-bishop'): p.error('--with-history requires the full corpus')
+            if args.through not in ('queen','queen-bishop','two-knights'): p.error('--with-history requires the full corpus')
             suites={args.through:suite}
             entries=[]
             def order(path):

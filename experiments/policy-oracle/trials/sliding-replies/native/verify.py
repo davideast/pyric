@@ -11,7 +11,7 @@ import tempfile
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 TRIALS = HERE.parent.parent
-COHORTS = ('rook', 'bishop', 'queen', 'queen-bishop')
+COHORTS = ('rook', 'bishop', 'queen', 'queen-bishop', 'two-knights')
 EXTERNAL = runpy.run_path(str(TRIALS / 'chess/reference/generate.py'))
 
 
@@ -23,7 +23,7 @@ def file_hash(path):
     return sha256(path.read_bytes()).hexdigest()
 
 
-def independent(chess, positions, native, claims):
+def independent(chess, positions, native, claims, require_check=True):
     cases = native['cases']
     assert len(positions) == len(cases) and len(positions) % len(claims) == 0
     boards = []
@@ -37,7 +37,7 @@ def independent(chess, positions, native, claims):
         before_check = game.is_check()
         mover = game.turn
         game.push(move)
-        assert game.is_valid() and game.is_check(), sample['id']
+        assert game.is_valid() and (not require_check or game.is_check()), sample['id']
         status = EXTERNAL['adjudicate'](game)
         accepted = {'playing': 'playing', 'checkmate': 'won', 'stalemate': 'draw'}[status]
         winner = ('host' if mover else 'guest') if accepted == 'won' else ''
@@ -48,6 +48,7 @@ def independent(chess, positions, native, claims):
             assert all(row[k] == proposal[k] for k in ('id', 'fen', 'uci', 'claim'))
             assert (row['fen'], row['uci']) == (sample['fen'], sample['uci'])
             assert row['nativeLegal'] and row['kingSafe'] and row['beforeCheck'] == before_check
+            assert row['afterCheck'] == game.is_attacked_by(game.turn, game.king(mover))
             assert row['successor'] == successor and row['replies'] == replies and row['outcome'] == status
             expected = {'status': accepted, 'winner': winner}
             assert row['expected'] == expected and row['nativeAdmission'] == (proposal['claim'] == expected)
@@ -80,7 +81,7 @@ def verify(archive=None, record=False):
             assert rebuilt == read(native), f'Arcade native output changed: {cohort}'
             claims = ['playing', 'won'] if cohort=='queen-bishop' else ['playing', 'draw', 'won']
             if chess:
-                result = independent(chess, read(positions), rebuilt, claims)
+                result = independent(chess, read(positions), rebuilt, claims, require_check=cohort!='two-knights')
                 if record:
                     with independent_file.open('x') as target:
                         target.write(json.dumps(result, indent=2)+'\n')

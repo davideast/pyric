@@ -1,0 +1,231 @@
+{
+  "baselineRulesSha256": "833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8",
+  "candidateRulesSha256": "aa2da0c0522d4de0a8006a51591508ce4912c7bb40a102665d23f3a7bd27d341",
+  "live": [
+    {
+      "id": "knight-reply-121",
+      "claim": "playing",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    },
+    {
+      "id": "knight-reply-123",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "knight-reply-122",
+      "claim": "won",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "knight-reply-475",
+      "claim": "playing",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    },
+    {
+      "id": "knight-reply-477",
+      "claim": "draw",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "knight-reply-476",
+      "claim": "won",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "knight-reply-481",
+      "claim": "playing",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "knight-reply-483",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "knight-reply-482",
+      "claim": "won",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    }
+  ],
+  "captures": [
+    {
+      "capture": "two-knights",
+      "caseCount": 9,
+      "controllerSha256": "427cb0399a29e7539c5a901bb25f3555e183bd03c0f59205c34374f2e5a9943e",
+      "journalSha256": "1159f62133f8369238d8603322bfe6f052f748ab0d1eabcc8a967147346bff81",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 9,
+      "openReleaseUpdateTime": "2026-11-27T13:15:32.683961Z"
+    },
+    {
+      "capture": "two-knights",
+      "caseCount": 9,
+      "controllerSha256": "458e64efbc6dac33326ae979b439017205328341606280608f05c971675b8745",
+      "journalSha256": "e05cbe5d88718613521a16fbc0c39c4f9f91b6c50c4475e30a541896721a940f",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 9,
+      "openReleaseUpdateTime": "2026-11-27T13:18:58.387300Z"
+    }
+  ],
+  "wideLocal": {
+    "caseCount": 15905,
+    "before": 75,
+    "after": 50,
+    "newDisagreements": [],
+    "outsideGroupFixed": [],
+    "targetFixed": {
+      "mate": 17,
+      "stalemate": 8
+    },
+    "targetCases": {
+      "b9864afc5a1869d322658640920c1b3879bef7abe838db7c1c9d0187ad86d3a3": {
+        "id": "remaining-claim-573",
+        "native": "mate",
+        "fixed": true
+      },
+      "fbf193aac485e66c51f89d39c5eda20926d43f1085dce7dfcb62817370e986c0": {
+        "id": "knight-reply-025",
+        "native": "mate",
+        "fixed": true
+      },
+      "edfc11e691afa8603eda809d2fa2f10a703cc5228a0c3eef06fc757172504979": {
+        "id": "knight-reply-028",
+        "native": "mate",
+        "fixed": true
+      },
+      "627a785d72e3d42af0f30baaad71e2782ffabfe6e91223569104fa9483ec9cc1": {
+        "id": "knight-reply-121",
+        "native": "mate",
+        "fixed": true
+      },
+      "a82ac25c1f60f600773495e1c37927121f5eda05ac647da0b09941f4735df283": {
+        "id": "knight-reply-124",
+        "native": "mate",
+        "fixed": true
+      },
+      "f7d668e7453b426218c0de2e2468f5aa7e6479f521aefcd2e5728ceeeee221f0": {
+        "id": "knight-reply-169",
+        "native": "mate",
+        "fixed": true
+      },
+      "3a26711d7431fabe06e26d46a508bfcc5bbabc139d5531fc5f0676c2272ccbd7": {
+        "id": "knight-reply-172",
+        "native": "mate",
+        "fixed": true
+      },
+      "a570f268972e7790241c6a982d5dbfc97d13f33a1708f413430a5a5ee60c4824": {
+        "id": "knight-reply-181",
+        "native": "mate",
+        "fixed": true
+      },
+      "477cd1c38b13dafae8544f18d213cf840bd0630ff5bc23a17be962d8f67c3f52": {
+        "id": "knight-reply-184",
+        "native": "mate",
+        "fixed": true
+      },
+      "a9a7cba9e73fc2e80990b24698b1fecd50dbd2c6d4a64c722e0352736014c220": {
+        "id": "knight-reply-187",
+        "native": "mate",
+        "fixed": true
+      },
+      "e7efacb6a8f91ca7945222c185bd3b050b944fae1e5b3700e5804a5a8c2eabc3": {
+        "id": "knight-reply-190",
+        "native": "mate",
+        "fixed": true
+      },
+      "ab37cd38be58c25430e69510717169169dc7afa6971e8450d20abd6f0de1088e": {
+        "id": "knight-reply-193",
+        "native": "mate",
+        "fixed": true
+      },
+      "cb5b6fcb54a4b35828f4ff53d6c83cbe2c41a2d7123d166be48cdd4c4bfc6bcb": {
+        "id": "knight-reply-196",
+        "native": "mate",
+        "fixed": true
+      },
+      "652d3c00e1a11bd83a4c349290f37ff7839adf0eb3f9b187e08a6c0e18de2e05": {
+        "id": "knight-reply-205",
+        "native": "mate",
+        "fixed": true
+      },
+      "27508a22021b751c3e7a4b8df31cf6a83e7cd73ddf77121e165df45fab2d62ba": {
+        "id": "knight-reply-208",
+        "native": "mate",
+        "fixed": true
+      },
+      "d94c55adbf1e6999b4e94bbb1bbab3efda78e786c93433c4b7ad5dcfe2efb763": {
+        "id": "knight-reply-229",
+        "native": "mate",
+        "fixed": true
+      },
+      "646e66204b8a7a7b396ca6f0d16f5aa22ffe8f5a314794e147d1f84bbb9d9b5b": {
+        "id": "knight-reply-232",
+        "native": "mate",
+        "fixed": true
+      },
+      "1e1edf36a114818095fdce0ac13abe732ffb4169d83c7b3ee0fa76fe8db2de24": {
+        "id": "knight-reply-367",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "ebedb8fcbf800c00779de3122ba2a53a90d4ac7ddce71b1024f0a48ba6e4c89a": {
+        "id": "knight-reply-370",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "699a8bc72923136315adfc221426661a01f85699fc17d88e486027610730181d": {
+        "id": "knight-reply-439",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "b778b3bbbe60c0b73756925b64e1d41a13b532ee03d9a7273a2b2dd91af792be": {
+        "id": "knight-reply-442",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "d6d9bdf92d884ddea385b182f0e6ede3c59e0298151b9fd9451f526770eeeac9": {
+        "id": "knight-reply-457",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "35b453fefc99d37bb916598476df0228bde8bb1aa45133b579a1cec59f6f2947": {
+        "id": "knight-reply-460",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "fbeefaa631e2d1e37613430ce693f0f1d553bd6103162c56c67cacaca1ed777e": {
+        "id": "knight-reply-475",
+        "native": "stalemate",
+        "fixed": true
+      },
+      "b3a6af3028b939f271aef94fed4a5ca0b850ac8cd9551cb2fb6baa123b25ed42": {
+        "id": "knight-reply-478",
+        "native": "stalemate",
+        "fixed": true
+      }
+    }
+  }
+}

@@ -13,7 +13,7 @@ import {previousDigest,previousPlans,roles,readJSON,inputs,versionDirectory,
 export function verifiedPlan(digest) {
   const dir=versionDirectory(digest);
   const bundle=new URL('firestore.rules',dir),plan=readJSON(new URL('plan.json',dir));
-  const data=inputs(plan.version===2);
+  const data=inputs(plan.version>=2,plan.version===3);
   assert.deepEqual(plan,buildPlan(data,digest),'capture plan or frozen operands changed');
   verifySource(readFileSync(bundle,'utf8'),digest);
   return {dir,bundle,plan,data};
@@ -58,7 +58,7 @@ function verifyCapture(digest,name,folder,bundle,fixtures,data,archive) {
 export function lookup(digest,archive) {
   const dir=versionDirectory(digest),captures=[],distinct=new Map();
   const stored=existsSync(new URL('plan.json',dir))?verifiedPlan(digest):null;
-  const data=stored?.data??inputs(digest!==previousDigest);
+  const data=stored?.data??inputs(digest!==previousDigest,digest!==previousDigest);
   function add(entry) {
     captures.push(entry.meta);
     for(const row of entry.rows) {
