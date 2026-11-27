@@ -49,6 +49,7 @@ const vectorName=vector=>'span'+vector.stride;
 function classify(color) {
   // Both a failed projection (S remains) and an attacked successor are removed.
   // The front remaining record is a real post-reply board, including captures.
+  if(color==='shared') return `let first = (candidates+';').replace(rejected, '').split(';')[0];\n  return first=='' ? -1 : origin*80 + first.replace('X.*','').size();`;
   const rejected='[^;]*(?:S|'+attacks(color)+')[^;]*;';
   return `let first = (candidates+';').replace('${rejected}', '').split(';')[0];
   return first=='' ? -1 : origin*80 + first.replace('X.*','').size();`;
@@ -66,7 +67,8 @@ function axisSource(kind,axis,color,compact,precomputed) {
   // in the expression that needs it. No coordinate or move is provided by the client.
   for (const v of vectorSet(kind)) {
     const denominator=axis.a*v.x+axis.b*v.y;
-    if(!denominator){collinear.push(firstCapture(v,true),firstCapture(v,false));continue;}
+    const usable=expression=>kind==='all'?"(kind!='"+(v.stride===1||v.stride===10?'b':'r')+"' ? "+expression+" : 'S')":expression;
+    if(!denominator){collinear.push(usable(firstCapture(v,true)),usable(firstCapture(v,false)));continue;}
     if(precomputed) {
       const maximum=axis.a && axis.b ? 14 : 7;
       const table=Array.from({length:2*maximum+1},(_,i)=>{
@@ -76,8 +78,8 @@ function axisSource(kind,axis,color,compact,precomputed) {
         return steps>0?'S'+span+'[,prnbq]':'[,prnbq]'+span+'S';
       });
       const forward=denominator>0?'d > 0':'d < 0';
-      crossings.push("board.replace('"+table.join('~')+"'.split('~')[d+"+maximum+"],"+
-        forward+" ? ',$1X' : 'X$1,')");
+      crossings.push(usable("board.replace('"+table.join('~')+"'.split('~')[d+"+maximum+"],"+
+        forward+" ? ',$1X' : 'X$1,')"));
       continue;
     }
     const n=denominator<0?'(-d)':'d';
@@ -96,8 +98,8 @@ function axisSource(kind,axis,color,compact,precomputed) {
   const boards=xs=>xs.length===0?"board":xs.length===1?xs[0]:'['+xs.join(',\n    ')+'].join(\';\')';
   lines.push('let candidates = d==0 ? '+boards(collinear)+' : '+boards(crossings)+';');
   lines.push(classify(color));
-  const name='slide'+kind+axis.name+color;
-  return {name,source:'function '+name+'(board) {\n  '+lines.join('\n  ')+'\n}'};
+  const name=kind==='all'?'slide'+axis.name:'slide'+kind+axis.name+color;
+  return {name,source:'function '+name+(kind==='all'?'(board,kind,rejected)':'(board)')+' {\n  '+lines.join('\n  ')+'\n}'};
 }
 
 function quietSource(kind,color,inCheck) {
@@ -158,4 +160,22 @@ export function familyRoute(kind,color) {
   const stem = 'slide'+kind;
   const choose=axes.map((axis,i)=>'direction == '+(i+1)+' ? '+stem+axis.name+color+'(board) : ').join('');
   return choose+'direction == 0 ? '+stem+'Step'+color+'(board) : '+stem+'Capture'+color+'(board)';
+}
+
+export function compactAxes() {
+  const out={};
+  for(const axis of axes) {
+    const fn=axisSource('all',axis,'shared',true,true);
+    out[fn.name]=fn.source;
+  }
+  for(const capture of [false,true]) {
+    const name='slide'+(capture?'Capture':'Step');
+    const options=vectors.map(v=>[true,false].map(sign=>capture?firstCapture(v,sign):move('board',literal(gap(v.stride-1)),sign)));
+    const group=vs=>'['+vs.flat().join(',')+"].join(';')";
+    out[name]="function "+name+"(board,kind,rejected) {\n  let origin=board.replace('S.*','').size();\n"+
+      "  let straight=kind=='b' ? 'S' : "+group(options.slice(0,2))+";\n"+
+      "  let diagonal=kind=='r' ? 'S' : "+group(options.slice(2))+";\n"+
+      "  let candidates=straight+';'+diagonal;\n  "+classify('shared')+"\n}";
+  }
+  return out;
 }
