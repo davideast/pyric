@@ -342,6 +342,18 @@ function requireToken(token: string): Middleware {
   };
 }
 
+/**
+ * Express 5 (`body-parser@2`) leaves `req.body` as `undefined` when a request
+ * carries no body (such as GET/HEAD) or skips parsing (missing `Content-Type`),
+ * whereas Express 4 and Cloud Functions initialize `req.body` to `{}`.
+ */
+function normalizeEmptyRequestBody(req: IncomingMessage): void {
+  const withBody = req as IncomingMessage & { body?: unknown };
+  if (withBody.body === undefined) {
+    withBody.body = {};
+  }
+}
+
 function invokeHandler(fn: DiscoveredOnRequest, req: IncomingMessage, res: ServerResponse): void {
   const answer500 = (): void => {
     if (res.headersSent) {
@@ -406,6 +418,7 @@ function dispatch(
         return;
       }
       guardUntypedRequestBody(req, res, limitBytes, () => {
+        normalizeEmptyRequestBody(req);
         invokeHandler(fn, req, res);
       });
     });
@@ -438,6 +451,9 @@ export function startHttpChildServer(
   // Cloud Functions runs with NODE_ENV=production, so express's error pages carry no stack or file paths.
   app.set('env', 'production');
   app.disable('x-powered-by');
+  // Express 5 defaults `query parser` to `'simple'`, which breaks nested/bracketed
+  // query keys (`nested[k]=v`). Match Express 4 / Cloud Functions (`'extended'`).
+  app.set('query parser', 'extended');
   // One trusted hop: the host's proxy, which appends the client to X-Forwarded-For.
   // req.ip is then the client the proxy saw, never an address the client claimed.
   app.set('trust proxy', 1);

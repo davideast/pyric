@@ -50,6 +50,7 @@ interface AdminDocRef {
 }
 
 interface SwappedAdminFirestoreHandle {
+  readonly databaseId?: string;
   doc(path: string): AdminDocRef;
   snapshot_?: (
     documentOrName: unknown,
@@ -310,10 +311,34 @@ interface BrandedSnapshot {
   isEqual(other: unknown): boolean;
 }
 
+const DEFAULT_FIRESTORE_DATABASE_ID = '(default)';
+
+function resolveSnapshotDbHandle(
+  dbHandle: SwappedAdminFirestoreHandle,
+  adminFirestore: SwappedAdminFirestoreModule,
+  ownerApp: unknown,
+  resourceDatabaseId: string,
+): SwappedAdminFirestoreHandle {
+  if (
+    ownerApp === undefined ||
+    resourceDatabaseId.length === 0 ||
+    dbHandle.databaseId === resourceDatabaseId
+  ) {
+    return dbHandle;
+  }
+  const targetDb =
+    resourceDatabaseId === DEFAULT_FIRESTORE_DATABASE_ID
+      ? adminFirestore.getFirestore(ownerApp)
+      : adminFirestore.getFirestore(ownerApp, resourceDatabaseId);
+  attachSnapshotFactoryToFirestore(targetDb, adminFirestore, ownerApp);
+  return targetDb;
+}
+
 /** Attach a `snapshot_` factory onto a `pyric-admin/firestore` handle if absent. */
 export function attachSnapshotFactoryToFirestore(
   dbHandle: SwappedAdminFirestoreHandle,
   adminFirestore: SwappedAdminFirestoreModule,
+  ownerApp?: unknown,
 ): void {
   if (typeof dbHandle.snapshot_ === 'function') return;
 
@@ -327,7 +352,13 @@ export function attachSnapshotFactoryToFirestore(
 
     if (typeof documentOrName === 'string') {
       const parsedResource = parseQualifiedDocumentResource(documentOrName);
-      const ref = dbHandle.doc(parsedResource.documentPath);
+      const refDb = resolveSnapshotDbHandle(
+        dbHandle,
+        adminFirestore,
+        ownerApp,
+        parsedResource.databaseId,
+      );
+      const ref = refDb.doc(parsedResource.documentPath);
       const parsedRead = parseTimestampInput(rawReadTime);
       let readTime = adminFirestore.Timestamp.now();
       if (parsedRead !== undefined) {
@@ -374,7 +405,13 @@ export function attachSnapshotFactoryToFirestore(
     };
     const resourceName = String(docProto.name ?? '');
     const parsedResource = parseQualifiedDocumentResource(resourceName);
-    const ref = dbHandle.doc(parsedResource.documentPath);
+    const refDb = resolveSnapshotDbHandle(
+      dbHandle,
+      adminFirestore,
+      ownerApp,
+      parsedResource.databaseId,
+    );
+    const ref = refDb.doc(parsedResource.documentPath);
     let rawFields: Record<string, unknown> = {};
     if (typeof docProto.fields === 'object' && docProto.fields !== null) {
       rawFields = docProto.fields as Record<string, unknown>;
@@ -391,7 +428,7 @@ export function attachSnapshotFactoryToFirestore(
     const decodeDocumentFields = (): Record<string, unknown> => {
       const out: Record<string, unknown> = {};
       for (const [key, fieldProto] of Object.entries(rawFields)) {
-        out[key] = decodeProtoValue(fieldProto, encoding, adminFirestore, dbHandle);
+        out[key] = decodeProtoValue(fieldProto, encoding, adminFirestore, refDb);
       }
       return out;
     };
@@ -441,16 +478,46 @@ export function attachSnapshotFactoryToFirestore(
 
 const ADMIN_APP_TARGET = Symbol.for('pyric.admin.app.target');
 
+function normalizeBridgeDatabases(databases?: Iterable<string>): string[] {
+  const seen = new Set<string>([DEFAULT_FIRESTORE_DATABASE_ID]);
+  if (databases !== undefined) {
+    for (const raw of databases) {
+      if (typeof raw === 'string' && raw.length > 0) {
+        seen.add(raw);
+      }
+    }
+  }
+  return [...seen];
+}
+
+function attachSnapshotFactoriesForDatabases(
+  adminFirestore: SwappedAdminFirestoreModule,
+  apps: readonly unknown[],
+  databases: readonly string[],
+): void {
+  for (const app of apps) {
+    attachSnapshotFactoryToFirestore(adminFirestore.getFirestore(app), adminFirestore, app);
+    for (const databaseId of databases) {
+      attachSnapshotFactoryToFirestore(
+        adminFirestore.getFirestore(app, databaseId),
+        adminFirestore,
+        app,
+      );
+    }
+  }
+}
+
 /**
  * Configure `firebase-functions/v2` (both CJS and ESM module graphs if installed)
- * with an unregistered `SandboxAdminApp` bound to `sandbox` whose Firestore handle
- * implements `snapshot_`. Keeps `getApps().length === 0`, opens 0 extra sockets,
- * and emits 0 extra `stderr` lines.
+ * with an unregistered `SandboxAdminApp` bound to `sandbox` whose Firestore handles
+ * (for `(default)` and every discovered named database) implement `snapshot_`.
+ * Keeps `getApps().length === 0`, opens 0 extra sockets, and emits 0 extra `stderr` lines.
  */
 export async function installChildFirestoreSnapshotBridge(
   entryPath: string,
   projectId: string,
   sandbox: unknown,
+  databases?: Iterable<string>,
 ): Promise<void> {
   const requireFromEntry = createRequire(entryPath);
   const adminApp = requireFromEntry('firebase-admin/app') as SwappedAdminAppModule;
@@ -464,25 +531,17 @@ export async function installChildFirestoreSnapshotBridge(
     name: '__FIREBASE_FUNCTIONS_SDK__',
     options: { projectId },
   };
+  const targetApps: unknown[] = [...adminApp.getApps(), emulatedApp];
+  const targetDatabases = normalizeBridgeDatabases(databases);
 
-  for (const app of adminApp.getApps()) {
-    const db = adminFirestore.getFirestore(app);
-    attachSnapshotFactoryToFirestore(db, adminFirestore);
-  }
-  const targetDb = adminFirestore.getFirestore(emulatedApp);
-  attachSnapshotFactoryToFirestore(targetDb, adminFirestore);
+  attachSnapshotFactoriesForDatabases(adminFirestore, targetApps, targetDatabases);
 
   try {
     const adminFirestoreSpecifier = 'firebase-admin/firestore';
     const esmAdminFirestore = (await import(
       adminFirestoreSpecifier
     )) as SwappedAdminFirestoreModule;
-    for (const app of adminApp.getApps()) {
-      const esmDb = esmAdminFirestore.getFirestore(app);
-      attachSnapshotFactoryToFirestore(esmDb, esmAdminFirestore);
-    }
-    const esmTargetDb = esmAdminFirestore.getFirestore(emulatedApp);
-    attachSnapshotFactoryToFirestore(esmTargetDb, esmAdminFirestore);
+    attachSnapshotFactoriesForDatabases(esmAdminFirestore, targetApps, targetDatabases);
   } catch {
     // Non-registered unit environments without ESM firebase-admin continue via CJS.
   }
