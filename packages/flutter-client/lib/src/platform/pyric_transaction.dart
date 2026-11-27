@@ -6,6 +6,7 @@ import '../transport/bridge_client.dart';
 import '../transport/codecs.dart';
 import 'mutation_serialization.dart';
 import 'pyric_document_snapshot.dart';
+import 'pyric_firestore_lifecycle.dart';
 import 'pyric_firestore_platform.dart';
 import 'pyric_offline_projection.dart';
 
@@ -42,12 +43,14 @@ class PyricTransaction extends TransactionPlatform {
         message: 'Transactions cannot be executed while the client is offline.',
       );
     }
+    final lens = f.effectiveLens;
+    final scope = PyricFirestoreLifecycle.authScopeForLens(lens);
     final res = await _client.getDoc(
       documentPath,
-      actAs: f.effectiveAuthLens,
+      actAs: lens.toMap(),
       txnId: txnId,
     );
-    f.lifecycle.recordOnlineDoc(documentPath, res);
+    f.lifecycle.recordOnlineDoc(documentPath, res, authScope: scope);
     final snap = PyricDocumentSnapshot.fromWire(firestore, documentPath, res);
     Map<String, dynamic>? serializedData;
     if (snap.exists) {

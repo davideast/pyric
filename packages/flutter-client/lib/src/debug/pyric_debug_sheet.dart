@@ -238,6 +238,21 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
                     : null,
                 onTap: () => widget.controller.selectAppSession(),
               ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.restore),
+                title: const Text('Reset to App Auth'),
+                subtitle: Text(
+                  widget.controller.isImpersonating
+                      ? 'Clear active impersonation override'
+                      : 'Using signed-in app session',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: !widget.controller.isImpersonating
+                    ? const Icon(Icons.check, color: Colors.blue)
+                    : null,
+                onTap: () => widget.controller.resetToAppAuth(),
+              ),
             ],
           ),
         ),

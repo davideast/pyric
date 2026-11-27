@@ -5,6 +5,16 @@ import '../transport/bridge_client.dart';
 import 'pyric_firestore_lifecycle.dart';
 import 'pyric_firestore_platform.dart';
 
+bool _isRecoverableRulesOrAuthDenial(Object err) {
+  if (err is! PyricBridgeException) return false;
+  if (err.denialContext != null) return true;
+  final code = err.code.toLowerCase();
+  return code == 'permission-denied' ||
+      code == 'permission_denied' ||
+      code == 'firestore/permission-denied' ||
+      code == 'unauthenticated';
+}
+
 /// Creates a broadcast stream that establishes an underlying bridge subscription
 /// stamped with the current [AuthLens], integrates with [PyricFirestoreLifecycle]
 /// (`disableNetwork`, `enableNetwork`, `terminate`, `snapshotsInSync`), and
@@ -107,6 +117,7 @@ Stream<T> createResubscribingStream<T>({
       return;
     }
 
+    var sawRecoverableDenial = false;
     late final StreamSubscription<dynamic> currentSub;
     currentSub = stream.listen(
       (rawEvent) {
@@ -137,6 +148,9 @@ Stream<T> createResubscribingStream<T>({
         if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
           return;
         }
+        if (_isRecoverableRulesOrAuthDenial(err)) {
+          sawRecoverableDenial = true;
+        }
         if (!controller.isClosed) {
           controller.addError(err, st);
         }
@@ -146,6 +160,11 @@ Stream<T> createResubscribingStream<T>({
           return;
         }
         bridgeSub = null;
+        if (!closedByTerminate &&
+            !firestore.bridgeClient.isDisposed &&
+            sawRecoverableDenial) {
+          return;
+        }
         closeFromBridge();
       },
     );
@@ -219,8 +238,14 @@ Stream<T> createResubscribingStream<T>({
           if (generation != listenGeneration || closedByTerminate) return;
           if (newLens == activeLens) return;
           activeLens = newLens;
+          previousValue = null;
+          lastEvent = null;
+          hasEvent = false;
+          hasOnlineEvent = false;
           if (firestore.lifecycle.isNetworkEnabled) {
             startListening(newLens, generation);
+          } else {
+            deliverOfflineNow();
           }
         },
         onError: (Object _, StackTrace __) {},
