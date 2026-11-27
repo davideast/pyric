@@ -205,16 +205,37 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
                 _buildDetailRow('Auth UID', report.authUid!),
               if (report.authTenant != null)
                 _buildDetailRow('Tenant', report.authTenant!),
+              if (report.matchedPath != null && report.matchedPath!.isNotEmpty)
+                _buildDetailRow('Matched Path', report.matchedPath!),
+              if (report.pathVariableBindings != null &&
+                  report.pathVariableBindings!.isNotEmpty)
+                _buildDetailRow(
+                  'Bindings',
+                  report.pathVariableBindings!.entries
+                      .map((e) => '${e.key}: ${e.value}')
+                      .join(', '),
+                ),
               if (report.failedFields.isNotEmpty)
                 _buildDetailRow('Failed Fields', report.failedFields.join(', ')),
               if (report.proposedData != null && report.proposedData!.isNotEmpty)
-                _buildDataBlock(
-                  'Proposed Data (request.resource.data)',
+                _buildValueBlock(
+                  report.isRtdb
+                      ? 'Proposed Value (newData)'
+                      : 'Proposed Data (request.resource.data)',
                   report.proposedData!,
+                )
+              else if (report.proposedValue != null)
+                _buildValueBlock(
+                  report.isRtdb
+                      ? 'Proposed Value (newData)'
+                      : 'Proposed Value',
+                  report.proposedValue,
                 ),
               if (report.existingData != null && report.existingData!.isNotEmpty)
-                _buildDataBlock(
-                  'Existing Data (resource.data)',
+                _buildValueBlock(
+                  report.isRtdb
+                      ? 'Existing Data (data)'
+                      : 'Existing Data (resource.data)',
                   report.existingData!,
                 ),
             ],
@@ -343,8 +364,14 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
     );
   }
 
-  Widget _buildDataBlock(String title, Map<String, dynamic> data) {
+  Widget _buildValueBlock(String title, dynamic value) {
     const encoder = JsonEncoder.withIndent('  ');
+    String formatted;
+    try {
+      formatted = encoder.convert(value);
+    } catch (_) {
+      formatted = value.toString();
+    }
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Column(
@@ -367,7 +394,7 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              encoder.convert(data),
+              formatted,
               style: const TextStyle(
                 fontFamily: 'monospace',
                 fontSize: 10,
