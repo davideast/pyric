@@ -70,6 +70,8 @@ For the short diagonal check, the emitted function marks the checking bishop or 
 
 The wider local replay found 15,828 matches across 15,905 case occurrences in eleven frozen cohorts. It also found 71 false approvals and six legal writes refused at the expression limit. The cohorts can contain the same document transition under different identifiers. The live campaign has its own denominator of 238 distinct proposals. [Cohort counts and minimized positions](supplemental/selected.json)
 
+Compared on those same 15,905 local cases, this release repaired 152 false approvals and all four prior expression-limit refusals. The 71 remaining false approvals were already present. Six previously correct writes now hit the expression limit. Each changed or remaining error corresponds to a distinct full write. [Every repaired, regressed and remaining case by cohort](supplemental/changes.json) · [Comparison command](supplemental/compare.py)
+
 | First minimized example | Native answer | Complete local Rules decision |
 | --- | --- | --- |
 | White castles short with its king on e1 and rook on h1. After castling, Black can move its rook on b8. | Allow `playing`. Black has 13 legal replies. | Deny at the 1,000-expression limit. The prior release allowed this exact write at 839 expressions. |

@@ -11,7 +11,7 @@ import {sample} from '../../reference/fixtures.mjs';
 import {sampleRights} from '../rights-claims-v1/fixture.mjs';
 import {classify} from '../classify.mjs';
 
-const [sdk,file,referenceReport]=process.argv.slice(2);
+const [sdk,file,referenceReport,option]=process.argv.slice(2);
 const expected=JSON.parse(readFileSync(referenceReport));
 const code=readFileSync(file);
 const sha=v=>createHash('sha256').update(v).digest('hex');
@@ -89,4 +89,5 @@ for(const {writeSha256,observation:r,occurrences} of records) {
 }
 console.log(JSON.stringify({authority:'independent local full Rules evaluator joined with frozen native reply lists',
   rulesSha256:expected.rulesSha256,cohorts,caseOccurrences:frequencies,distinctWrites:records.length,
-  obligations,replyFamilies,examples,recordsSha256:sha(JSON.stringify(records))},null,2));
+  obligations,replyFamilies,examples,recordsSha256:sha(JSON.stringify(records)),
+  ...(option==='--records'?{records}:{})},null,2));
