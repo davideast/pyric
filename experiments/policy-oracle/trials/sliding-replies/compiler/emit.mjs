@@ -25,7 +25,7 @@ export function link(compiled, variant) {
   assert.equal(rules.split(original).length, 2);
   const fallback = "let defender = white ? 'b' : 'w';\n    return (white ? sliderMaterialb(text) : sliderMaterialw(text)) ? sliderStatus(text,defender,status) : status == 'playing' ?";
   rules=rules.replace(original, () => fallback);
-  return variant.startsWith('all-') ? lowerProtocol(rules) : rules;
+  return variant.startsWith('all-') ? lowerProtocol(rules,variant) : rules;
 }
 
 export function emit(compileFunction, variant) {

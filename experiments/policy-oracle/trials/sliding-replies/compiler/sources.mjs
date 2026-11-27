@@ -42,7 +42,7 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
@@ -86,7 +86,7 @@ export function sources(variant) {
 export function binding(variant) {
   if (variants[variant]?.length > 1) {
     const optimized=variant.startsWith('all-');
-    return extendedBinding(variants[variant],optimized,variant)+(optimized?'\n  '+protocolBinding():'');
+    return extendedBinding(variants[variant],optimized,variant)+(optimized?'\n  '+protocolBinding(variant):'');
   }
   if (variant !== 'rook-rays-v1') return crossBinding(variant);
   return `function sliderMove(text, defender) {

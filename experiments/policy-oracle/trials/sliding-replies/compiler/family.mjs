@@ -59,6 +59,12 @@ export function extendedBinding(kinds,optimized=false,variant='') {
   fns.push("function sliderMove(text,defender) { return defender == 'w' ? slideWitnessw(text,sliderEncodew(text)) : slideWitnessb(text,sliderEncodeb(text)); }");
   fns.push("function sliderStatus(text,defender,status) { return defender == 'w' ? slideStatusw(text,sliderEncodew(text),status) : slideStatusb(text,sliderEncodeb(text),status); }");
   let joined=fns.join('\n  ');
-  if(variant==='all-tabled-path-v6') joined=joined.replaceAll("(status == 'playing' || ((direction==0) == (status=='draw')))", 'slideMayClaim(status,direction)');
-  return optimized ? joined.replaceAll('&& ((slideTyped','&& slideClaim(status, (slideTyped').replaceAll("(board))) == (status=='playing'));","(board))));") : joined;
+  if(variant==='all-rights-king-v7') {
+    for(const side of ['w','b']) {
+      const cols='slideTyped'+side+'(text,board,direction)>=0 || slideKing'+side+'(board)';
+      joined=joined.replace(cols,'(direction==0 ? slideKing'+side+'(board) || slideTyped'+side+'(text,board,direction)>=0 : '+cols+')');
+    }
+  }
+  if(optimized && variant!=='all-packed-path-v5') joined=joined.replaceAll("(status == 'playing' || ((direction==0) == (status=='draw')))", 'slideMayClaim(status,direction)');
+  return optimized ? joined.replaceAll('&& ((slideTyped','&& slideClaim(status, (slideTyped').replaceAll('&& (((direction==0','&& slideClaim(status, ((direction==0').replaceAll("(board))) == (status=='playing'));","(board))));") : joined;
 }
