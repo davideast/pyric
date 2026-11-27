@@ -1,0 +1,275 @@
+{
+  "authority": "native-model",
+  "inputDigest": "1d5aedbf78e40ef30620d1f2d1b7a2025edb1e826be9217bd0b886c94c026a50",
+  "results": {
+    "absent": {
+      "points": 0,
+      "base": 0,
+      "maxBase": 10,
+      "coverage": 0,
+      "touched": 0,
+      "tier": "none",
+      "benefit": null
+    },
+    "empty": {
+      "points": 0,
+      "base": 0,
+      "maxBase": 10,
+      "coverage": 0,
+      "touched": 0,
+      "tier": "none",
+      "benefit": null
+    },
+    "off-call": {
+      "points": 0,
+      "base": 0,
+      "maxBase": 10,
+      "coverage": 0,
+      "touched": 0,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "negative-count": {
+      "points": 4,
+      "base": 1,
+      "maxBase": 10,
+      "coverage": 0.1,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "four-on-one": {
+      "points": 7,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "four-on-two": {
+      "points": 10,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 2,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "below-friend": {
+      "points": 11,
+      "base": 5,
+      "maxBase": 10,
+      "coverage": 0.5,
+      "touched": 2,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "at-friend": {
+      "points": 12,
+      "base": 6,
+      "maxBase": 10,
+      "coverage": 0.6,
+      "touched": 2,
+      "tier": "hearthfriend",
+      "benefit": {
+        "label": "a comfort basket (3 flowers, 2 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 3,
+          "cookie": 2
+        }
+      }
+    },
+    "complete": {
+      "points": 22,
+      "base": 10,
+      "maxBase": 10,
+      "coverage": 1,
+      "touched": 4,
+      "tier": "hearthkeeper",
+      "benefit": {
+        "label": "the grand basket (6 flowers, 4 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 6,
+          "cookie": 4
+        }
+      }
+    },
+    "pumpkin-5": {
+      "points": 7,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-6": {
+      "points": 8,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-7": {
+      "points": 8,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-8": {
+      "points": 9,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-9": {
+      "points": 9,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-10": {
+      "points": 9,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "two-capped-lines": {
+      "points": 16,
+      "base": 6,
+      "maxBase": 10,
+      "coverage": 0.6,
+      "touched": 2,
+      "tier": "hearthfriend",
+      "benefit": {
+        "label": "a comfort basket (3 flowers, 2 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 3,
+          "cookie": 2
+        }
+      }
+    },
+    "second-cycle": {
+      "points": 16,
+      "base": 10,
+      "maxBase": 15,
+      "coverage": 0.6666666666666666,
+      "touched": 2,
+      "tier": "hearthfriend",
+      "benefit": {
+        "label": "smith-stock iron ×3",
+        "gold": 0,
+        "items": {
+          "iron": 3
+        }
+      }
+    }
+  },
+  "evidence": {
+    "path": "evidence/score-for.json",
+    "sha256": "7bcb2f3edd27315a3f9c6d4144bef0e32ea48da1692f9e20a4ab8dc3a6b78cab",
+    "pointers": {
+      "absent": "/results/absent",
+      "empty": "/results/empty",
+      "off-call": "/results/off-call",
+      "negative-count": "/results/negative-count",
+      "four-on-one": "/results/four-on-one",
+      "four-on-two": "/results/four-on-two",
+      "below-friend": "/results/below-friend",
+      "at-friend": "/results/at-friend",
+      "complete": "/results/complete",
+      "pumpkin-5": "/results/pumpkin-5",
+      "pumpkin-6": "/results/pumpkin-6",
+      "pumpkin-7": "/results/pumpkin-7",
+      "pumpkin-8": "/results/pumpkin-8",
+      "pumpkin-9": "/results/pumpkin-9",
+      "pumpkin-10": "/results/pumpkin-10",
+      "two-capped-lines": "/results/two-capped-lines",
+      "second-cycle": "/results/second-cycle"
+    }
+  }
+}

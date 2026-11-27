@@ -1,0 +1,23 @@
+use extension derive;
+use extension bounded;
+transition hearthfestAward {
+  derive {
+    let total = bounded.fold(input.lines, {'base':0,'maxBase':0,'touched':0,'complete':true,'overshoot':0}, (s,line) => {
+      let raw = line.count;
+      let brought = raw > 0 ? raw : 0;
+      let credited = brought > line.qty ? line.qty : brought;
+      let extra = brought - credited;
+      let bonus = extra >= 4 ? 2 : extra >= 2 ? 1 : 0;
+      return {'base':s.base+credited,'maxBase':s.maxBase+line.qty,
+        'touched':s.touched+(brought > 0 ? 1 : 0),'complete':s.complete && brought >= line.qty,
+        'overshoot':s.overshoot+bonus};
+    },32);
+    let anything = bounded.fold(input.counts,false,(some,n) => { return some || n > 0; },128);
+    let coverage = total.maxBase == 0 ? 0.0 : 1.0*total.base/total.maxBase;
+    let tier = anything && total.complete ? 'hearthkeeper' :
+      coverage >= 0.6 ? 'hearthfriend' : anything ? 'ember' : 'none';
+    return {'points':total.base+total.overshoot+3*total.touched,'base':total.base,'maxBase':total.maxBase,
+      'coverage':coverage,'touched':total.touched,'tier':tier,'benefit':tier == 'hearthkeeper' ? input.benefits.hearthkeeper : tier == 'hearthfriend' ? input.benefits.hearthfriend : tier == 'ember' ? input.benefits.ember : null};
+  }
+  require award { return after == derived; }
+}

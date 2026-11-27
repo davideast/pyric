@@ -1,0 +1,5 @@
+{
+  "description": "Measure stock live Firestore award-write permissions with unchanged contributions, including a points edit and a refused delete.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

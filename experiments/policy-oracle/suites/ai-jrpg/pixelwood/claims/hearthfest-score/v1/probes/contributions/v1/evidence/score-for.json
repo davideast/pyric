@@ -1,0 +1,256 @@
+{
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "sources": {
+    "app/hearthfest.js": "8149f1232b61da032ebb8a6cedc054476de154b768f2e2526d239e9b19320aa7",
+    "app/clock.js": "3cb819387f8e2686af28a8a720d1b2fa88f2a382c375e2b4398f09796f3e7631",
+    "app/registry.js": "159c6171fba7f904a3ab6e567dd1ac7c2a1f6fa611906e99fde85f2e1204d783"
+  },
+  "results": {
+    "absent": {
+      "points": 0,
+      "base": 0,
+      "maxBase": 10,
+      "coverage": 0,
+      "touched": 0,
+      "tier": "none",
+      "benefit": null
+    },
+    "empty": {
+      "points": 0,
+      "base": 0,
+      "maxBase": 10,
+      "coverage": 0,
+      "touched": 0,
+      "tier": "none",
+      "benefit": null
+    },
+    "off-call": {
+      "points": 0,
+      "base": 0,
+      "maxBase": 10,
+      "coverage": 0,
+      "touched": 0,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "negative-count": {
+      "points": 4,
+      "base": 1,
+      "maxBase": 10,
+      "coverage": 0.1,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "four-on-one": {
+      "points": 7,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "four-on-two": {
+      "points": 10,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 2,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "below-friend": {
+      "points": 11,
+      "base": 5,
+      "maxBase": 10,
+      "coverage": 0.5,
+      "touched": 2,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "at-friend": {
+      "points": 12,
+      "base": 6,
+      "maxBase": 10,
+      "coverage": 0.6,
+      "touched": 2,
+      "tier": "hearthfriend",
+      "benefit": {
+        "label": "a comfort basket (3 flowers, 2 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 3,
+          "cookie": 2
+        }
+      }
+    },
+    "complete": {
+      "points": 22,
+      "base": 10,
+      "maxBase": 10,
+      "coverage": 1,
+      "touched": 4,
+      "tier": "hearthkeeper",
+      "benefit": {
+        "label": "the grand basket (6 flowers, 4 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 6,
+          "cookie": 4
+        }
+      }
+    },
+    "pumpkin-5": {
+      "points": 7,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-6": {
+      "points": 8,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-7": {
+      "points": 8,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-8": {
+      "points": 9,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-9": {
+      "points": 9,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "pumpkin-10": {
+      "points": 9,
+      "base": 4,
+      "maxBase": 10,
+      "coverage": 0.4,
+      "touched": 1,
+      "tier": "ember",
+      "benefit": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      }
+    },
+    "two-capped-lines": {
+      "points": 16,
+      "base": 6,
+      "maxBase": 10,
+      "coverage": 0.6,
+      "touched": 2,
+      "tier": "hearthfriend",
+      "benefit": {
+        "label": "a comfort basket (3 flowers, 2 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 3,
+          "cookie": 2
+        }
+      }
+    },
+    "second-cycle": {
+      "points": 16,
+      "base": 10,
+      "maxBase": 15,
+      "coverage": 0.6666666666666666,
+      "touched": 2,
+      "tier": "hearthfriend",
+      "benefit": {
+        "label": "smith-stock iron ×3",
+        "gold": 0,
+        "items": {
+          "iron": 3
+        }
+      }
+    }
+  }
+}

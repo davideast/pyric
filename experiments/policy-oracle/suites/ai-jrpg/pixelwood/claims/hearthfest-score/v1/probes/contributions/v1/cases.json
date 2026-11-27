@@ -1,0 +1,109 @@
+{
+  "absent": {
+    "cycle": 7,
+    "items": null
+  },
+  "empty": {
+    "cycle": 7,
+    "items": {}
+  },
+  "off-call": {
+    "cycle": 7,
+    "items": {
+      "stone": 3
+    }
+  },
+  "negative-count": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": -1,
+      "iron": 1
+    }
+  },
+  "four-on-one": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 4
+    }
+  },
+  "four-on-two": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 2,
+      "iron": 2
+    }
+  },
+  "below-friend": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 4,
+      "iron": 1
+    }
+  },
+  "at-friend": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 4,
+      "iron": 2
+    }
+  },
+  "complete": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 4,
+      "iron": 2,
+      "corn-seeds": 2,
+      "pumpkin-seeds": 2
+    }
+  },
+  "pumpkin-5": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 5
+    }
+  },
+  "pumpkin-6": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 6
+    }
+  },
+  "pumpkin-7": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 7
+    }
+  },
+  "pumpkin-8": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 8
+    }
+  },
+  "pumpkin-9": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 9
+    }
+  },
+  "pumpkin-10": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 10
+    }
+  },
+  "two-capped-lines": {
+    "cycle": 7,
+    "items": {
+      "pumpkin": 14,
+      "iron": 12
+    }
+  },
+  "second-cycle": {
+    "cycle": 3,
+    "items": {
+      "corn": 8,
+      "emerald": 2
+    }
+  }
+}

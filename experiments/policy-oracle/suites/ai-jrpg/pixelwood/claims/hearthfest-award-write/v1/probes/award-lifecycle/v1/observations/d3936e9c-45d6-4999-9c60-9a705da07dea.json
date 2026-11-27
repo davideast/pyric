@@ -1,0 +1,20 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "42537d276b086d53a74756926169fc0554a8f3ab76db4d04f8aaf2a6bb96e9b6",
+  "results": {
+    "signed-out-create": "DENY",
+    "signed-create": "ALLOW",
+    "signed-update-points": "ALLOW",
+    "signed-delete": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/d3936e9c-45d6-4999-9c60-9a705da07dea.json",
+    "sha256": "7e5202df1fb0e10013361a40a82b92965ef569a6257a3712454a814258ed5b2c",
+    "pointers": {
+      "signed-out-create": "/rows/signed-out-create/decision",
+      "signed-create": "/rows/signed-create/decision",
+      "signed-update-points": "/rows/signed-update-points/decision",
+      "signed-delete": "/rows/signed-delete/decision"
+    }
+  }
+}

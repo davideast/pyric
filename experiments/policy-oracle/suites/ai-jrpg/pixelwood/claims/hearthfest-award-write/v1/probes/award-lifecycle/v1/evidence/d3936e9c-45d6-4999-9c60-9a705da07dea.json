@@ -1,0 +1,922 @@
+{
+  "runId": "d3936e9c-45d6-4999-9c60-9a705da07dea",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "writer": {
+      "uid": "vB65FsEp37Re0auQkI8x9eDZCIl2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "reader": {
+      "uid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "d3936e9c-45d6-4999-9c60-9a705da07dea",
+        "lockVersion": "2026-11-27T17:00:57.981935Z",
+        "releaseUpdateTime": "2026-11-27T16:56:13.547484Z",
+        "verifiedAt": "2026-11-27T17:01:00.684Z"
+      },
+      "reads": {
+        "writer": "DENY",
+        "reader": "DENY"
+      },
+      "write": "DENY",
+      "at": "2026-11-27T17:01:05.326Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/6efe20a0-aaaf-4541-95ab-cb51e5d8120e",
+        "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+        "lockRunId": "d3936e9c-45d6-4999-9c60-9a705da07dea",
+        "lockVersion": "2026-11-27T17:00:57.981935Z",
+        "releaseUpdateTime": "2026-11-27T17:01:09.520619Z",
+        "verifiedAt": "2026-11-27T17:01:14.411Z"
+      },
+      "reads": {
+        "writer": "ALLOW",
+        "reader": "ALLOW"
+      },
+      "write": "ALLOW",
+      "at": "2026-11-27T17:01:39.780Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "d3936e9c-45d6-4999-9c60-9a705da07dea",
+        "lockVersion": "2026-11-27T17:00:57.981935Z",
+        "releaseUpdateTime": "2026-11-27T17:03:25.576701Z",
+        "verifiedAt": "2026-11-27T17:03:32.161Z"
+      },
+      "reads": {
+        "writer": "DENY",
+        "reader": "DENY"
+      },
+      "write": "DENY",
+      "at": "2026-11-27T17:04:06.576Z"
+    }
+  },
+  "rows": {
+    "signed-out-create": {
+      "id": "signed-out-create",
+      "actor": "signed-out",
+      "method": "create",
+      "data": {
+        "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+        "name": "Oracle farmer",
+        "cycle": 7,
+        "tier": "ember",
+        "points": 10,
+        "benefit": {
+          "label": "a bundle of turnip seeds (6)",
+          "gold": 0,
+          "items": {
+            "turnip-seeds": 6
+          }
+        },
+        "attended": false,
+        "granted": false,
+        "ts": 1793491200000
+      },
+      "uid": null,
+      "before": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:20.457382Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T17:03:20.457382Z"
+        }
+      },
+      "after": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:20.695521Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T17:03:20.695521Z"
+        }
+      },
+      "attemptedAt": "2026-11-27T17:03:22.410Z",
+      "readAt": "2026-11-27T17:03:22.556Z",
+      "decision": "DENY",
+      "code": "permission-denied"
+    },
+    "signed-create": {
+      "id": "signed-create",
+      "actor": "writer",
+      "method": "create",
+      "data": {
+        "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+        "name": "Oracle farmer",
+        "cycle": 7,
+        "tier": "ember",
+        "points": 10,
+        "benefit": {
+          "label": "a bundle of turnip seeds (6)",
+          "gold": 0,
+          "items": {
+            "turnip-seeds": 6
+          }
+        },
+        "attended": false,
+        "granted": false,
+        "ts": 1793491200000
+      },
+      "uid": "vB65FsEp37Re0auQkI8x9eDZCIl2",
+      "before": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:20.761375Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T17:03:20.761375Z"
+        }
+      },
+      "after": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:20.890264Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "attended": false,
+            "tier": "ember",
+            "name": "Oracle farmer",
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "cycle": 7,
+            "benefit": {
+              "gold": 0,
+              "label": "a bundle of turnip seeds (6)",
+              "items": {
+                "turnip-seeds": 6
+              }
+            },
+            "granted": false,
+            "points": 10,
+            "ts": 1793491200000
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "attended": {
+                "booleanValue": false
+              },
+              "tier": {
+                "stringValue": "ember"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "benefit": {
+                "mapValue": {
+                  "fields": {
+                    "gold": {
+                      "integerValue": "0"
+                    },
+                    "label": {
+                      "stringValue": "a bundle of turnip seeds (6)"
+                    },
+                    "items": {
+                      "mapValue": {
+                        "fields": {
+                          "turnip-seeds": {
+                            "integerValue": "6"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "granted": {
+                "booleanValue": false
+              },
+              "points": {
+                "integerValue": "10"
+              },
+              "ts": {
+                "integerValue": "1793491200000"
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.851057Z",
+            "updateTime": "2026-11-27T17:03:20.851057Z"
+          },
+          "readTime": "2026-11-27T17:03:20.890264Z"
+        }
+      },
+      "attemptedAt": "2026-11-27T17:03:22.611Z",
+      "readAt": "2026-11-27T17:03:22.748Z",
+      "decision": "ALLOW",
+      "code": "ok"
+    },
+    "signed-update-points": {
+      "id": "signed-update-points",
+      "actor": "writer",
+      "method": "update",
+      "data": {
+        "points": 11
+      },
+      "uid": "vB65FsEp37Re0auQkI8x9eDZCIl2",
+      "before": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:20.950298Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "attended": false,
+            "tier": "ember",
+            "name": "Oracle farmer",
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "cycle": 7,
+            "benefit": {
+              "gold": 0,
+              "label": "a bundle of turnip seeds (6)",
+              "items": {
+                "turnip-seeds": 6
+              }
+            },
+            "granted": false,
+            "points": 10,
+            "ts": 1793491200000
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "attended": {
+                "booleanValue": false
+              },
+              "tier": {
+                "stringValue": "ember"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "benefit": {
+                "mapValue": {
+                  "fields": {
+                    "gold": {
+                      "integerValue": "0"
+                    },
+                    "label": {
+                      "stringValue": "a bundle of turnip seeds (6)"
+                    },
+                    "items": {
+                      "mapValue": {
+                        "fields": {
+                          "turnip-seeds": {
+                            "integerValue": "6"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "granted": {
+                "booleanValue": false
+              },
+              "points": {
+                "integerValue": "10"
+              },
+              "ts": {
+                "integerValue": "1793491200000"
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.851057Z",
+            "updateTime": "2026-11-27T17:03:20.851057Z"
+          },
+          "readTime": "2026-11-27T17:03:20.950298Z"
+        }
+      },
+      "after": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:21.074027Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "attended": false,
+            "tier": "ember",
+            "name": "Oracle farmer",
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "cycle": 7,
+            "benefit": {
+              "gold": 0,
+              "label": "a bundle of turnip seeds (6)",
+              "items": {
+                "turnip-seeds": 6
+              }
+            },
+            "granted": false,
+            "ts": 1793491200000,
+            "points": 11
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "attended": {
+                "booleanValue": false
+              },
+              "tier": {
+                "stringValue": "ember"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "benefit": {
+                "mapValue": {
+                  "fields": {
+                    "gold": {
+                      "integerValue": "0"
+                    },
+                    "label": {
+                      "stringValue": "a bundle of turnip seeds (6)"
+                    },
+                    "items": {
+                      "mapValue": {
+                        "fields": {
+                          "turnip-seeds": {
+                            "integerValue": "6"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "granted": {
+                "booleanValue": false
+              },
+              "ts": {
+                "integerValue": "1793491200000"
+              },
+              "points": {
+                "integerValue": "11"
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.851057Z",
+            "updateTime": "2026-11-27T17:03:21.033484Z"
+          },
+          "readTime": "2026-11-27T17:03:21.074027Z"
+        }
+      },
+      "attemptedAt": "2026-11-27T17:03:22.815Z",
+      "readAt": "2026-11-27T17:03:22.930Z",
+      "decision": "ALLOW",
+      "code": "ok"
+    },
+    "signed-delete": {
+      "id": "signed-delete",
+      "actor": "writer",
+      "method": "delete",
+      "data": null,
+      "uid": "vB65FsEp37Re0auQkI8x9eDZCIl2",
+      "before": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:21.118933Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "attended": false,
+            "tier": "ember",
+            "name": "Oracle farmer",
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "cycle": 7,
+            "benefit": {
+              "gold": 0,
+              "label": "a bundle of turnip seeds (6)",
+              "items": {
+                "turnip-seeds": 6
+              }
+            },
+            "granted": false,
+            "ts": 1793491200000,
+            "points": 11
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "attended": {
+                "booleanValue": false
+              },
+              "tier": {
+                "stringValue": "ember"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "benefit": {
+                "mapValue": {
+                  "fields": {
+                    "gold": {
+                      "integerValue": "0"
+                    },
+                    "label": {
+                      "stringValue": "a bundle of turnip seeds (6)"
+                    },
+                    "items": {
+                      "mapValue": {
+                        "fields": {
+                          "turnip-seeds": {
+                            "integerValue": "6"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "granted": {
+                "booleanValue": false
+              },
+              "ts": {
+                "integerValue": "1793491200000"
+              },
+              "points": {
+                "integerValue": "11"
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.851057Z",
+            "updateTime": "2026-11-27T17:03:21.033484Z"
+          },
+          "readTime": "2026-11-27T17:03:21.118933Z"
+        }
+      },
+      "after": {
+        "contribution": {
+          "path": "hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "name": "Oracle farmer",
+            "items": {
+              "pumpkin": 2,
+              "iron": 2
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "items": {
+                "mapValue": {
+                  "fields": {
+                    "pumpkin": {
+                      "integerValue": "2"
+                    },
+                    "iron": {
+                      "integerValue": "2"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.342334Z",
+            "updateTime": "2026-11-27T17:03:20.342334Z"
+          },
+          "readTime": "2026-11-27T17:03:21.223734Z"
+        },
+        "award": {
+          "path": "hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+          "data": {
+            "attended": false,
+            "tier": "ember",
+            "name": "Oracle farmer",
+            "pid": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "cycle": 7,
+            "benefit": {
+              "gold": 0,
+              "label": "a bundle of turnip seeds (6)",
+              "items": {
+                "turnip-seeds": 6
+              }
+            },
+            "granted": false,
+            "ts": 1793491200000,
+            "points": 11
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/awards/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+            "fields": {
+              "attended": {
+                "booleanValue": false
+              },
+              "tier": {
+                "stringValue": "ember"
+              },
+              "name": {
+                "stringValue": "Oracle farmer"
+              },
+              "pid": {
+                "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "benefit": {
+                "mapValue": {
+                  "fields": {
+                    "gold": {
+                      "integerValue": "0"
+                    },
+                    "label": {
+                      "stringValue": "a bundle of turnip seeds (6)"
+                    },
+                    "items": {
+                      "mapValue": {
+                        "fields": {
+                          "turnip-seeds": {
+                            "integerValue": "6"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "granted": {
+                "booleanValue": false
+              },
+              "ts": {
+                "integerValue": "1793491200000"
+              },
+              "points": {
+                "integerValue": "11"
+              }
+            },
+            "createTime": "2026-11-27T17:03:20.851057Z",
+            "updateTime": "2026-11-27T17:03:21.033484Z"
+          },
+          "readTime": "2026-11-27T17:03:21.223734Z"
+        }
+      },
+      "attemptedAt": "2026-11-27T17:03:22.983Z",
+      "readAt": "2026-11-27T17:03:23.087Z",
+      "decision": "DENY",
+      "code": "permission-denied"
+    }
+  },
+  "deploymentBefore": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/6efe20a0-aaaf-4541-95ab-cb51e5d8120e",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "d3936e9c-45d6-4999-9c60-9a705da07dea",
+    "lockVersion": "2026-11-27T17:00:57.981935Z",
+    "releaseUpdateTime": "2026-11-27T17:01:09.520619Z",
+    "verifiedAt": "2026-11-27T17:03:21.985Z",
+    "propagationReceiptSha256": "8abb893b9769ffaa9e5f2b0d1ca2dfa9dc51b98add363caaaa061ca90f5bf202"
+  },
+  "markerBefore": {
+    "id": "award-before",
+    "actor": "vB65FsEp37Re0auQkI8x9eDZCIl2",
+    "path": "mapPins/vB65FsEp37Re0auQkI8x9eDZCIl2",
+    "decision": "ALLOW",
+    "at": "2026-11-27T17:03:22.118Z"
+  },
+  "seed": {
+    "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/hearthfest/7/contributions/OG9Ql4B2foNmfWNyNOc6nuSEs5x2",
+    "fields": {
+      "items": {
+        "mapValue": {
+          "fields": {
+            "pumpkin": {
+              "integerValue": "2"
+            },
+            "iron": {
+              "integerValue": "2"
+            }
+          }
+        }
+      },
+      "name": {
+        "stringValue": "Oracle farmer"
+      },
+      "pid": {
+        "stringValue": "OG9Ql4B2foNmfWNyNOc6nuSEs5x2"
+      }
+    },
+    "createTime": "2026-11-27T17:03:20.342334Z",
+    "updateTime": "2026-11-27T17:03:20.342334Z"
+  },
+  "markerAfter": {
+    "id": "award-after",
+    "actor": "vB65FsEp37Re0auQkI8x9eDZCIl2",
+    "path": "mapPins/vB65FsEp37Re0auQkI8x9eDZCIl2",
+    "decision": "ALLOW",
+    "at": "2026-11-27T17:03:23.231Z"
+  },
+  "deploymentAfter": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/6efe20a0-aaaf-4541-95ab-cb51e5d8120e",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "d3936e9c-45d6-4999-9c60-9a705da07dea",
+    "lockVersion": "2026-11-27T17:00:57.981935Z",
+    "releaseUpdateTime": "2026-11-27T17:01:09.520619Z",
+    "verifiedAt": "2026-11-27T17:03:25.374Z",
+    "propagationReceiptSha256": "8abb893b9769ffaa9e5f2b0d1ca2dfa9dc51b98add363caaaa061ca90f5bf202"
+  }
+}

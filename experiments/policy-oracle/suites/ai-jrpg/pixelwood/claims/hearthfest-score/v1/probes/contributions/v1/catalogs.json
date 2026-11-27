@@ -1,0 +1,96 @@
+{
+  "3": {
+    "lines": [
+      {
+        "item": "corn",
+        "qty": 8
+      },
+      {
+        "item": "emerald",
+        "qty": 2
+      },
+      {
+        "item": "carrot",
+        "qty": 3
+      },
+      {
+        "item": "cookie",
+        "qty": 1
+      },
+      {
+        "item": "turnip-seeds",
+        "qty": 1
+      }
+    ],
+    "benefits": {
+      "none": null,
+      "ember": {
+        "label": "a bundle of carrot seeds (4)",
+        "gold": 0,
+        "items": {
+          "carrot-seeds": 4
+        }
+      },
+      "hearthfriend": {
+        "label": "smith-stock iron ×3",
+        "gold": 0,
+        "items": {
+          "iron": 3
+        }
+      },
+      "hearthkeeper": {
+        "label": "a seed hoard (pumpkin ×8) and 12g",
+        "gold": 12,
+        "items": {
+          "pumpkin-seeds": 8
+        }
+      }
+    }
+  },
+  "7": {
+    "lines": [
+      {
+        "item": "pumpkin",
+        "qty": 4
+      },
+      {
+        "item": "iron",
+        "qty": 2
+      },
+      {
+        "item": "corn-seeds",
+        "qty": 2
+      },
+      {
+        "item": "pumpkin-seeds",
+        "qty": 2
+      }
+    ],
+    "benefits": {
+      "none": null,
+      "ember": {
+        "label": "a bundle of turnip seeds (6)",
+        "gold": 0,
+        "items": {
+          "turnip-seeds": 6
+        }
+      },
+      "hearthfriend": {
+        "label": "a comfort basket (3 flowers, 2 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 3,
+          "cookie": 2
+        }
+      },
+      "hearthkeeper": {
+        "label": "the grand basket (6 flowers, 4 cookies)",
+        "gold": 0,
+        "items": {
+          "flower": 6,
+          "cookie": 4
+        }
+      }
+    }
+  }
+}

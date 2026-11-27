@@ -1,0 +1,39 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/ai-jrpg",
+    "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+    "path": "app/hearthfest.js"
+  },
+  "cases": [
+    "absent",
+    "empty",
+    "off-call",
+    "negative-count",
+    "four-on-one",
+    "four-on-two",
+    "below-friend",
+    "at-friend",
+    "complete",
+    "pumpkin-5",
+    "pumpkin-6",
+    "pumpkin-7",
+    "pumpkin-8",
+    "pumpkin-9",
+    "pumpkin-10",
+    "two-capped-lines",
+    "second-cycle"
+  ],
+  "pins": {
+    "replay.mjs": "5839ac82acaafa9c5abcc39a2638d6e24da3e0ba91a899900cec22d2fec97040",
+    "capture.mjs": "ecc3ee02dd9923706ede607ae6886044dd3d0ab3bac30dd0b9133e7a47d811f7",
+    "cases.json": "e6f119f936d7a69eb5b1ae9958ab9c6738f99c3ab42103d97557e57d106b7db9",
+    "catalogs.json": "7f68a43713770c96707f5f7285527e4dfe6565cb9a7f47ddc95614982d99144a",
+    "award.policy": "d9d573d97e1a283fe652a73afc80c42d10e94c96eac4e249c70380884e0e1830",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377"
+  },
+  "replay": "replay.mjs"
+}

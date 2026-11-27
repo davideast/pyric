@@ -1,0 +1,4 @@
+{
+  "description": "Derive the per-player Hearthfest score, tier and award benefit from the call and saved item counts, including variety and capped overshoot on each requested line.",
+  "authority": "native-model"
+}
