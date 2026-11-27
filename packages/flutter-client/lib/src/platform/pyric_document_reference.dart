@@ -40,10 +40,9 @@ class PyricDocumentReference extends DocumentReferencePlatform {
   @override
   Future<void> delete() {
     final f = _firestorePlatform;
-    final lens = f.effectiveAuthLens;
     return f.lifecycle.executeWrite(
       mutations: [OfflineFirestoreMutation.delete(path)],
-      sendOnline: () => _client.deleteDoc(path, actAs: lens),
+      sendOnline: () => _client.deleteDoc(path, actAs: f.effectiveAuthLens),
     );
   }
 
@@ -95,7 +94,6 @@ class PyricDocumentReference extends DocumentReferencePlatform {
     final unwrapped = serializeSetData(data);
     final optMap = serializeSetOptions(options);
     final encoded = encodeWriteData(unwrapped);
-    final lens = f.effectiveAuthLens;
 
     return f.lifecycle.executeWrite(
       mutations: [
@@ -105,7 +103,7 @@ class PyricDocumentReference extends DocumentReferencePlatform {
         path,
         unwrapped,
         options: optMap,
-        actAs: lens,
+        actAs: f.effectiveAuthLens,
       ),
     );
   }
@@ -120,7 +118,6 @@ class PyricDocumentReference extends DocumentReferencePlatform {
         useFieldVectors ? serializeUpdateFieldDescriptors(data) : null;
     final offlineSegments =
         useFieldVectors ? serializeOfflineUpdateSegments(data) : null;
-    final lens = f.effectiveAuthLens;
 
     return f.lifecycle.executeWrite(
       mutations: [
@@ -134,7 +131,7 @@ class PyricDocumentReference extends DocumentReferencePlatform {
         path,
         stringMap,
         fields: fieldDescriptors,
-        actAs: lens,
+        actAs: f.effectiveAuthLens,
       ),
     );
   }

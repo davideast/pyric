@@ -62,7 +62,7 @@ class PyricDebugController extends ChangeNotifier {
     _authStateSub = _authPlatform.authStateChanges().listen(
       (user) {
         final nextUid = user?.uid;
-        if (_lastSessionUid != null && nextUid != _lastSessionUid) {
+        if (nextUid != _lastSessionUid) {
           clearDenials();
         }
         _lastSessionUid = nextUid;

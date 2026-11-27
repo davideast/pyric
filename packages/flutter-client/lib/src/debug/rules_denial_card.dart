@@ -67,19 +67,26 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
                     ],
                   ),
                 ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withAlpha(40),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    report.citation,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: Colors.black87,
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        report.citation,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -215,47 +222,94 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
             const Divider(height: 16),
 
             // Quick Actions Footer
-            Row(
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    widget.controller.toggleAdminBypass(true);
-                  },
-                  icon: const Icon(Icons.shield, size: 14),
-                  label: const Text('1-Tap Admin Bypass'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    foregroundColor: Colors.white,
-                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
-                  ),
-                ),
-                const Spacer(),
-                if (report.authUid != null && report.authUid!.isNotEmpty)
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      final record = SandboxUserRecord(
-                        uid: report.authUid!,
-                        tenantId: report.authTenant,
-                        customClaims: report.authClaims ?? {},
-                      );
-                      widget.controller.selectUser(record);
-                    },
-                    icon: const Icon(Icons.person, size: 14),
-                    label: Text('Impersonate ${report.authUid}'),
-                    style: OutlinedButton.styleFrom(
-                      textStyle: const TextStyle(fontSize: 11),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                      minimumSize: Size.zero,
+            Builder(
+              builder: (context) {
+                final targetUid = _resolveImpersonationTargetUid(report);
+                return Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        widget.controller.toggleAdminBypass(true);
+                      },
+                      icon: const Icon(Icons.shield, size: 14),
+                      label: const Text('1-Tap Admin Bypass'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        minimumSize: Size.zero,
+                      ),
                     ),
-                  ),
-              ],
+                    const SizedBox(width: 8),
+                    if (targetUid != null)
+                      Flexible(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              final matched = widget.controller.users
+                                  .where((u) => u.uid == targetUid)
+                                  .firstOrNull;
+                              final record = matched ??
+                                  SandboxUserRecord(
+                                    uid: targetUid,
+                                    tenantId: targetUid == report.authUid
+                                        ? report.authTenant
+                                        : null,
+                                    customClaims: targetUid == report.authUid
+                                        ? (report.authClaims ?? const {})
+                                        : const {},
+                                  );
+                              widget.controller.selectUser(record);
+                            },
+                            icon: const Icon(Icons.person, size: 14),
+                            label: Text(
+                              'Impersonate $targetUid',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              textStyle: const TextStyle(fontSize: 11),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              minimumSize: Size.zero,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         ),
       ),
     );
+  }
+
+  static const List<String> _ownerFieldKeys = <String>[
+    'ownerId',
+    'ownerUid',
+    'userId',
+    'authorId',
+    'uid',
+  ];
+
+  String? _resolveImpersonationTargetUid(RulesDenialReport report) {
+    for (final source in <Map<String, dynamic>?>[
+      report.existingData,
+      report.proposedData,
+    ]) {
+      if (source == null) continue;
+      for (final key in _ownerFieldKeys) {
+        final raw = source[key];
+        if (raw is String && raw.trim().isNotEmpty) {
+          return raw.trim();
+        }
+      }
+    }
+    final caller = report.authUid?.trim();
+    return (caller != null && caller.isNotEmpty) ? caller : null;
   }
 
   Widget _buildDetailRow(String label, String value) {

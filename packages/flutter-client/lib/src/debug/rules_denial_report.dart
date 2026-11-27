@@ -62,6 +62,8 @@ class RulesDenialReport {
   final Map<String, dynamic>? existingData;
   final List<String> failedFields;
   final Map<String, dynamic>? query;
+  final Map<String, dynamic>? queryProof;
+  final Map<String, dynamic>? repro;
   final String? matchedPath;
   final String? matchedRule;
   final Map<String, String>? pathVariableBindings;
@@ -92,6 +94,8 @@ class RulesDenialReport {
     this.existingData,
     this.failedFields = const [],
     this.query,
+    this.queryProof,
+    this.repro,
     this.matchedPath,
     this.matchedRule,
     this.pathVariableBindings,
@@ -153,6 +157,8 @@ class RulesDenialReport {
     final failedFields = _asStringList(map['failedFields']);
 
     final query = _asStringMap(map['query']);
+    final queryProof = _asStringMap(map['queryProof']);
+    final repro = _asStringMap(map['repro']);
 
     return RulesDenialReport(
       engine: engine,
@@ -171,6 +177,8 @@ class RulesDenialReport {
       existingData: existingData,
       failedFields: failedFields,
       query: query,
+      queryProof: queryProof,
+      repro: repro,
       matchedPath: _asString(map['matchedPath']),
       matchedRule: matchedRule,
       pathVariableBindings: _asStringStringMap(map['pathVariableBindings']),
