@@ -1,0 +1,5 @@
+{
+  "description": "An invite can be claimed once. Named profiles depend on the committed claimant, and an authenticated guest can create a mechanics-only profile.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

@@ -1,0 +1,22 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "603bc357847e00bd18c2e8e9d45a01deb7bf352c8ed939066a77b76729677533",
+  "results": {
+    "first-claim": "ALLOW",
+    "repeat-claim": "DENY",
+    "claimant-profile": "ALLOW",
+    "other-profile": "DENY",
+    "guest-profile": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/cfa484a1-4d0f-445e-acbb-c12dcca7f5d1.json",
+    "sha256": "5e0f0a26eced04ee58c49a6e1e4e3a34db520e169e1e0fcde2c1ad2ea0de2a97",
+    "pointers": {
+      "first-claim": "/rows/first-claim/decision",
+      "repeat-claim": "/rows/repeat-claim/decision",
+      "claimant-profile": "/rows/claimant-profile/decision",
+      "other-profile": "/rows/other-profile/decision",
+      "guest-profile": "/rows/guest-profile/decision"
+    }
+  }
+}

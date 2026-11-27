@@ -1,30 +1,6 @@
-import assert from 'node:assert/strict';
-import {execFileSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
-import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {sha} from '../../../arcade/corpus.mjs';
-import {immutable, jsonBytes, privateArchive} from '../../../arcade/live/controller/archive.mjs';
+import {importReviewed} from '../../../arcade/live/controller/import-reviewed.mjs';
 
-const [, , archiveArg, runId] = process.argv;
-assert.match(runId, /^[a-f0-9-]{36}$/);
-const archive = privateArchive(resolve(archiveArg));
-const read = path => JSON.parse(readFileSync(path));
-const completed = read(join(archive, runId, 'completed.json'));
-assert.equal(completed.runId, runId);
-assert.match(completed.digest, /^[a-f0-9]{64}$/);
-const retained = join(archive, completed.digest + '.json');
-const raw = readFileSync(retained);
-assert.equal(sha(raw), completed.digest);
-assert.equal(JSON.parse(raw).runId, runId);
-const probe = fileURLToPath(new URL('../../../suites/ai-jrpg/pixelwood/claims/world-role/v1/probes/app-and-mirror/v1/', import.meta.url));
-const results = JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL('./verify.mjs', import.meta.url)), probe, retained], {encoding:'utf8'}));
-const recipe = readFileSync(join(probe,'recipe.json'));
-assert.deepEqual(Object.keys(results).sort(), JSON.parse(recipe).cases.sort());
-const claim = readFileSync(resolve(probe, '../../../claim.json'));
-const path = 'evidence/' + runId + '.json';
-const receipt = {authority: 'firestore-sdk', inputDigest: sha(Buffer.concat([claim, Buffer.from([0]), recipe])),
-  results, evidence: {path, sha256: completed.digest, pointers: Object.fromEntries(Object.keys(results).map(id => [id, '/rows/' + id + '/decision']))}};
-immutable(join(probe, path), raw, {identicalOk:true});
-immutable(join(probe,'observations',runId + '.json'), jsonBytes(receipt), {identicalOk:true});
-console.log('Imported', Object.keys(results).length, 'authenticated writes from', runId);
+const probe = new URL('../../../suites/ai-jrpg/pixelwood/claims/world-role/v1/probes/app-and-mirror/v1/', import.meta.url);
+const verifier = new URL('./verify.mjs', import.meta.url);
+importReviewed(fileURLToPath(probe), fileURLToPath(verifier), ...process.argv.slice(2));
