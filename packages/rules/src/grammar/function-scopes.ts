@@ -18,6 +18,7 @@
  * `test/rules/grammar/fixtures/name-resolution/captures.json` records each
  * case.
  */
+import { addParenthesizedGroup, parenthesizedGroups } from './paren-groups.js';
 import type { AllowRule, Expression, FirestoreRules, FunctionDef, MatchBlock } from './FirestoreAST.js';
 
 /** Bare-call functions every Firestore rule can call: the document lookups,
@@ -267,53 +268,69 @@ export function analyzeCallChains(scopes: RulesetScopes): {
   return { depths, cyclic };
 }
 
-function substituteLets(expr: Expression, bindings: ReadonlyMap<string, Expression>): Expression {
+export function substituteLets(expr: Expression, bindings: ReadonlyMap<string, Expression>, preserveGroups = false): Expression {
   if (bindings.size === 0) return expr;
+  function visit(original: Expression): Expression {
+    const rewritten = substituteChildren(original, bindings, visit);
+    if (!preserveGroups || rewritten === original) return rewritten;
+    const groups = parenthesizedGroups(original);
+    if (groups === 0) return rewritten;
+    // An identifier's replacement can be shared by several references.
+    // Keep their parentheses local to each occurrence, including repeat emits.
+    const copy = { ...rewritten };
+    const total = groups + parenthesizedGroups(rewritten);
+    for (let i = 0; i < total; i++) addParenthesizedGroup(copy);
+    return copy;
+  }
+  return visit(expr);
+}
+
+function substituteChildren(expr: Expression, bindings: ReadonlyMap<string, Expression>, visit: (node: Expression) => Expression): Expression {
   switch (expr.type) {
     case 'identifier':
       return bindings.get(expr.name) ?? expr;
     case 'binaryOp':
-      return { ...expr, left: substituteLets(expr.left, bindings), right: substituteLets(expr.right, bindings) };
+      return { ...expr, left: visit(expr.left), right: visit(expr.right) };
     case 'unaryOp':
-      return { ...expr, operand: substituteLets(expr.operand, bindings) };
+      return { ...expr, operand: visit(expr.operand) };
     case 'ternary':
       return {
         ...expr,
-        condition: substituteLets(expr.condition, bindings),
-        consequent: substituteLets(expr.consequent, bindings),
-        alternate: substituteLets(expr.alternate, bindings),
+        condition: visit(expr.condition),
+        consequent: visit(expr.consequent),
+        alternate: visit(expr.alternate),
       };
     case 'methodCall':
       return {
         ...expr,
-        object: substituteLets(expr.object, bindings),
-        args: expr.args.map(a => substituteLets(a, bindings)),
+        object: visit(expr.object),
+        args: expr.args.map(a => visit(a)),
       };
     case 'functionCall':
-      return { ...expr, args: expr.args.map(a => substituteLets(a, bindings)) };
+      return { ...expr, args: expr.args.map(a => visit(a)) };
     case 'bracketAccess':
-      return { ...expr, object: substituteLets(expr.object, bindings), index: substituteLets(expr.index, bindings) };
+      return { ...expr, object: visit(expr.object), index: visit(expr.index) };
     case 'sliceAccess':
       return {
         ...expr,
-        object: substituteLets(expr.object, bindings),
-        start: substituteLets(expr.start, bindings),
-        end: substituteLets(expr.end, bindings),
+        object: visit(expr.object),
+        start: visit(expr.start),
+        end: visit(expr.end),
       };
     case 'memberAccess':
-      return { ...expr, object: substituteLets(expr.object, bindings) };
+      return { ...expr, object: visit(expr.object) };
     case 'inExpr':
-      return { ...expr, element: substituteLets(expr.element, bindings), collection: substituteLets(expr.collection, bindings) };
+      return { ...expr, element: visit(expr.element), collection: visit(expr.collection) };
     case 'isExpr':
-      return { ...expr, value: substituteLets(expr.value, bindings) };
+      return { ...expr, value: visit(expr.value) };
     case 'listLiteral':
-      return { ...expr, elements: expr.elements.map(e => substituteLets(e, bindings)) };
+      return { ...expr, elements: expr.elements.map(e => visit(e)) };
     case 'mapLiteral':
       return {
         ...expr,
         entries: expr.entries.map(e => ({
-          key: substituteLets(e.key, bindings),
-          value: substituteLets(e.value, bindings),
+          key: visit(e.key),
+          value: visit(e.value),
         })),
       };
     case 'pathLiteral':
@@ -321,7 +338,7 @@ function substituteLets(expr: Expression, bindings: ReadonlyMap<string, Expressi
         ...expr,
         segments: expr.segments.map(s => {
           if (typeof s === 'string') return s;
-          return substituteLets(s, bindings);
+          return visit(s);
         }),
       };
     default:

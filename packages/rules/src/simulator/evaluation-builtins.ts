@@ -325,6 +325,11 @@ function invokeUserFunction(
 
 // ═══ Method calls ═══
 
+/** Collection operations admitted by the standalone pure function grammar. */
+export function isPureValueMethod(name: string, arity: number): boolean {
+  return ((name === 'size' || name === 'toSet') && arity === 0) || (name === 'removeAll' && arity === 1);
+}
+
 export function evaluateMethodCall(
   objectExpr: Expression, method: string, args: Expression[],
   ctx: SimulationContext, scope: Record<string, unknown>,
@@ -348,6 +353,10 @@ export function evaluateMethodCall(
 
   // The receiver, then every argument, evaluates when an earlier one errors.
   const [obj, ...argValues] = evaluateOperands([objectExpr, ...args], ctx, scope);
+  return callValueMethod(obj, method, argValues);
+}
+
+export function callValueMethod(obj: unknown, method: string, argValues: unknown[]): unknown {
 
   if (obj instanceof RulesValue) {
     let result: unknown;

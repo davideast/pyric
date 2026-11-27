@@ -123,7 +123,7 @@ function indent(level: number): string {
   return ' '.repeat(level);
 }
 
-function assembleFunction(fn: FunctionDef, level: number): string {
+export function assembleFunction(fn: FunctionDef, level: number): string {
   const pad = indent(level);
   const bodyPad = indent(level + 2);
   const params = fn.parameters.join(', ');

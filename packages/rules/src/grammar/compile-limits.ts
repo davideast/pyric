@@ -352,7 +352,7 @@ function pushExpressionViolations(
 type LiteralExpression = Extract<Expression, { type: 'literal' }>;
 type UnaryExpression = Extract<Expression, { type: 'unaryOp' }>;
 
-function isNegatedLiteral(
+export function isNegatedLiteral(
   expr: Expression,
   isFirestore: boolean,
 ): expr is UnaryExpression & { operand: LiteralExpression } {

@@ -49,12 +49,17 @@ export type { SimAuth, SimRequest, SimResource, SimulationContext } from './eval
 export type { ExprTraceEntry } from './trace-recorder.js';
 export { TraceRecorder } from './trace-recorder.js';
 import type { SimulationContext } from './evaluation-context.js';
-import { evaluateFunctionCall, evaluateMethodCall } from './evaluation-builtins.js';
+import { callValueMethod, evaluateFunctionCall, evaluateMethodCall, isPureValueMethod } from './evaluation-builtins.js';
 import { getOrBudgetSteps, type OrBudgetStep } from './list-proof-budget.js';
+
+/** A pure expression has lexical bindings and accounting, with no database capabilities. */
+type ExpressionContext = (SimulationContext | Pick<SimulationContext, 'expressionBudget' | 'lookupBudget' | 'trace'>) & {
+  readValue?: (expr: Expression, value: unknown) => unknown;
+};
 
 // ═══ Evaluator ═══
 
-function evaluateBudgetOnly(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): void {
+function evaluateBudgetOnly(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown>): void {
   const priorTrace = ctx.trace;
   ctx.trace = undefined;
   try {
@@ -66,12 +71,12 @@ function evaluateBudgetOnly(expr: Expression, ctx: SimulationContext, scope: Rec
   }
 }
 
-function evaluateCore(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
-  if (!ctx.trace) return evaluateExpr(expr, ctx, scope);
-  return ctx.trace.capture(expr, () => evaluateExpr(expr, ctx, scope));
+function evaluateCore(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown>): unknown {
+  const value = ctx.trace ? ctx.trace.capture(expr, () => evaluateExpr(expr, ctx, scope)) : evaluateExpr(expr, ctx, scope);
+  return ctx.readValue ? ctx.readValue(expr, value) : value;
 }
 
-function forkSimulationContext(ctx: SimulationContext): SimulationContext {
+function forkSimulationContext(ctx: ExpressionContext): ExpressionContext {
   return {
     ...ctx,
     lookupBudget: ctx.lookupBudget?.fork(),
@@ -84,7 +89,7 @@ function runOrBudgetSteps(
   steps: readonly OrBudgetStep[],
   idx: number,
   expr: Expression,
-  ctx: SimulationContext,
+  ctx: ExpressionContext,
   scope: Record<string, unknown>,
 ): unknown {
   if (idx >= steps.length) {
@@ -184,7 +189,7 @@ function runOrBudgetSteps(
  * here, so the optional trace wrapping naturally applies to every
  * sub-expression.
  */
-export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown> = {}): unknown {
+export function evaluate(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown> = {}): unknown {
   if (ctx.expressionBudget || ctx.lookupBudget) {
     const steps = getOrBudgetSteps(expr);
     if (steps && steps.length > 0) {
@@ -194,7 +199,7 @@ export function evaluate(expr: Expression, ctx: SimulationContext, scope: Record
   return evaluateCore(expr, ctx, scope);
 }
 
-function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+function evaluateExpr(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown>): unknown {
   // One unit per evaluated node, charged inside the trace capture so the
   // node that reaches the limit records the limit as its error. A call by
   // name is charged as it is entered; every other node as it completes,
@@ -216,7 +221,7 @@ function evaluateExpr(expr: Expression, ctx: SimulationContext, scope: Record<st
   return value;
 }
 
-function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+function evaluateNode(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown>): unknown {
   switch (expr.type) {
     // ═══ Layer 1: Literals, identifiers, binary ops ═══
 
@@ -415,11 +420,17 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
     // ═══ Layer 3: Function calls ═══
 
     case 'functionCall':
+      if (!('request' in ctx)) throw new EvalError('Function calls are outside the pure expression subset', expr);
       return evaluateFunctionCall(expr.name, expr.args, ctx, scope);
 
     // ═══ Layer 4: Method calls ═══
 
     case 'methodCall':
+      if (!('request' in ctx)) {
+        if (!isPureValueMethod(expr.method, expr.args.length)) throw new EvalError('Method calls are outside the pure expression subset', expr);
+        const [receiver, ...args] = evaluateOperands([expr.object, ...expr.args], ctx, scope);
+        return callValueMethod(receiver, expr.method, args);
+      }
       return evaluateMethodCall(expr.object, expr.method, expr.args, ctx, scope);
 
     // ═══ Layer 5: Path literals ═══
@@ -486,14 +497,14 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
  * matched request segments joined by '/'; a request segment never holds a
  * '/', so splitting it gives back exactly the matched segments.
  */
-function isMatchVariable(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): boolean {
+function isMatchVariable(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown>): boolean {
   if (expr.type !== 'identifier') return false;
-  return !Object.hasOwn(scope, expr.name) && Object.hasOwn(ctx.pathVariables, expr.name);
+  return !Object.hasOwn(scope, expr.name) && 'pathVariables' in ctx && Object.hasOwn(ctx.pathVariables, expr.name);
 }
 
 // ═══ Identifier resolution ═══
 
-export function resolveIdentifier(name: string, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+export function resolveIdentifier(name: string, ctx: ExpressionContext, scope: Record<string, unknown>): unknown {
   // Local scope first (let bindings, function parameters). A binding whose
   // value errored holds that error, which decides only where it is read.
   if (Object.hasOwn(scope, name)) {
@@ -501,6 +512,8 @@ export function resolveIdentifier(name: string, ctx: SimulationContext, scope: R
     if (value instanceof EvalError) throw value;
     return value;
   }
+
+  if (!('pathVariables' in ctx)) throw new EvalError(`Undefined variable '${name}'`);
 
   // Path variables
   if (Object.hasOwn(ctx.pathVariables, name)) return ctx.pathVariables[name];
@@ -565,7 +578,7 @@ function firstError(first: EvalError | undefined, e: unknown): EvalError {
  * and a call's receiver and arguments after one errors, and counts them
  * toward the expression limit; the result is then the first error.
  */
-export function evaluateOperands(exprs: readonly Expression[], ctx: SimulationContext, scope: Record<string, unknown>): unknown[] {
+export function evaluateOperands(exprs: readonly Expression[], ctx: ExpressionContext, scope: Record<string, unknown>): unknown[] {
   const values = new Array<unknown>(exprs.length);
   let error: EvalError | undefined;
   for (let i = 0; i < exprs.length; i++) {
@@ -584,7 +597,7 @@ export function evaluateOperands(exprs: readonly Expression[], ctx: SimulationCo
  * or the error value it evaluated to. Production binds the error and runs the
  * function body; reading the binding raises it (see `resolveIdentifier`).
  */
-export function evaluateBinding(expr: Expression, ctx: SimulationContext, scope: Record<string, unknown>): unknown {
+export function evaluateBinding(expr: Expression, ctx: ExpressionContext, scope: Record<string, unknown>): unknown {
   try {
     return evaluate(expr, ctx, scope);
   } catch (e) {
@@ -599,7 +612,7 @@ function evaluateShortCircuitOp(
   determiningValue: boolean,
   left: Expression,
   right: Expression,
-  ctx: SimulationContext,
+  ctx: ExpressionContext,
   scope: Record<string, unknown>,
 ): unknown {
   let lv: unknown, lErr: unknown;
@@ -630,7 +643,7 @@ function evaluateShortCircuitOp(
 
 function evaluateBinaryOp(
   expr: Extract<Expression, { type: 'binaryOp' }>,
-  ctx: SimulationContext, scope: Record<string, unknown>,
+  ctx: ExpressionContext, scope: Record<string, unknown>,
 ): unknown {
   const { op, left, right } = expr;
   // RULES-B3: && and || are COMMUTATIVE error-absorbing operators in CEL,

@@ -35,6 +35,8 @@ export type { ParseError };
 // canonical edit surface.
 const grammar = ohm.grammar(FIRESTORE_RULES_OHM_SOURCE);
 
+export { grammar as firestoreGrammar };
+
 export interface ParseResult {
   valid: boolean;
   errors: Array<{ message: string }>;
@@ -43,6 +45,7 @@ export interface ParseResult {
 }
 
 const semantics = grammar.createSemantics();
+export { semantics as firestoreSemantics };
 
 /**
  * Line and column conversion for the source being built into an AST, set for
