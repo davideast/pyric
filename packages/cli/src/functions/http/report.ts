@@ -15,15 +15,23 @@ function formatFunctionGroup(
   let suffix = 's';
   if (count === 1) suffix = '';
   const urls = functions.flatMap((fn) =>
-    fn.regions.map((region) => `    ${base}/${projectId}/${region}/${fn.exportName}`),
+    fn.regions.map((region) => {
+      const codebaseTag = fn.codebase !== undefined ? ` [${fn.codebase}]` : '';
+      return `    ${base}/${projectId}/${region}/${fn.exportName}${codebaseTag}`;
+    }),
   );
   return [`functions ${count} ${label} function${suffix}:`, ...urls];
 }
 
 /** Summary line printed on initial discovery of non-HTTP Functions triggers. */
-export function functionsTriggersLine(triggerCount: number, entryPath: string): string {
+export function functionsTriggersLine(
+  triggerCount: number,
+  entryPath: string,
+  codebase?: string,
+): string {
   const suffix = triggerCount === 1 ? '' : 's';
-  return `functions ${triggerCount} trigger${suffix} from ${entryPath}`;
+  const codebasePrefix = codebase !== undefined ? `[${codebase}] ` : '';
+  return `functions ${codebasePrefix}${triggerCount} trigger${suffix} from ${entryPath}`;
 }
 
 /** One URL per served function and region, under the emulator path. */
@@ -95,16 +103,17 @@ export function servedLine(record: FunctionsHttpRecord): { failed: boolean; line
   let timedOut = '';
   if (record.timedOut) timedOut = ' timed out';
   const failed = record.status === null || record.status >= 500 || record.timedOut;
+  const codebaseTag = record.codebase !== undefined ? `[${record.codebase}] ` : '';
   if (record.kind === 'callable') {
     return {
       failed,
-      line: `function  ${record.exportName} <- callable ${outcome}${timedOut} (${record.durationMs} ms)`,
+      line: `function  ${codebaseTag}${record.exportName} <- callable ${outcome}${timedOut} (${record.durationMs} ms)`,
     };
   }
   // The query string can carry tokens, so the terminal sees the path only.
   const pathOnly = record.path.split(/[?#]/, 1)[0];
   return {
     failed,
-    line: `function  ${record.exportName} \u2190 ${record.method} ${pathOnly} ${outcome}${timedOut} (${record.durationMs} ms)`,
+    line: `function  ${codebaseTag}${record.exportName} \u2190 ${record.method} ${pathOnly} ${outcome}${timedOut} (${record.durationMs} ms)`,
   };
 }

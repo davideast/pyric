@@ -40,6 +40,10 @@ export interface SpawnFunctionsChildOptions {
    */
   onUnresponsive?(): void;
   heartbeatTimeoutMs?: number;
+  /** Optional codebase label for multi-codebase or named-codebase sessions. */
+  codebase?: string;
+  /** Include declared `exportNames` and `triggers` metadata on `ready` when requested. */
+  includeExportMetadata?: boolean;
 }
 
 export interface FunctionsChildHandle {
@@ -216,6 +220,14 @@ export function spawnFunctionsChild(
       };
       if (raw.http !== undefined) {
         readyPayload.http = { ...raw.http, token: httpToken };
+      }
+      if (options.includeExportMetadata === true || options.codebase !== undefined) {
+        if (raw.exportNames !== undefined) {
+          readyPayload.exportNames = raw.exportNames;
+        }
+        if (raw.triggers !== undefined) {
+          readyPayload.triggers = raw.triggers;
+        }
       }
       resolveReady(readyPayload);
     } else if (raw.type === 'fatal') {

@@ -18,6 +18,8 @@ import type { ParamsEnvMap } from './params-resolver.js';
 export interface UnsupportedFunctionsTrigger {
   exportName: string;
   eventType: string;
+  /** Owning codebase when discovered in a multi-codebase or named-codebase project. */
+  codebase?: string;
 }
 
 export interface FunctionsTriggerFamily {

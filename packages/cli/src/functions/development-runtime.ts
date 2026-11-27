@@ -2,15 +2,21 @@ import type { ChildProcess } from 'node:child_process';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { FunctionsChildEvent, FunctionsChildReady } from './child-protocol.js';
 import { createCrashRestartController } from './crash-restart.js';
-import { recordFunctionExecution } from './execution-log.js';
+import {
+  createMultiCodebaseFunctionsDevelopmentRuntime,
+  recordPubSubDeliveries,
+  recordScheduledExecution,
+  tagChildEventWithCodebase,
+  tagReadyWithCodebase,
+} from './multi-codebase-runtime.js';
+import type { FunctionsCodebaseProject } from './project.js';
 import { sendChildPublishPubSub } from './pubsub/child-runtime.js';
 import type { PubSubPublishResult } from './pubsub/delivery.js';
 import type { PubSubPublishAttributesOrOptions } from './pubsub/event.js';
 import { sendChildTriggerScheduled } from './scheduler/child-runtime.js';
-import {
-  retryConfigToRecord,
-  type ScheduledTriggerInvocationResult,
-  type TriggerScheduledOptions,
+import type {
+  ScheduledTriggerInvocationResult,
+  TriggerScheduledOptions,
 } from './scheduler/execution.js';
 import {
   spawnFunctionsChild,
@@ -135,6 +141,10 @@ export interface FunctionsDevelopmentRuntimeOptions {
   heartbeatTimeoutMs?: number;
   /** Optional local sandbox for recording programmatic trigger executions. */
   sandbox?: LocalSandbox;
+  /** Optional codebase name for this single source (preserves codebase metadata). */
+  codebase?: string;
+  /** Optional multi-codebase list from `discoverFunctionsProject` / `discoverFunctionsProjects`. */
+  codebases?: readonly FunctionsCodebaseProject[];
 }
 
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
@@ -257,11 +267,13 @@ function asError(error: unknown): Error {
 function attachOutput(
   child: ChildProcess,
   emit: (event: FunctionsDevelopmentEvent) => void,
+  codebasePrefix?: string,
 ): void {
+  const prefix = codebasePrefix !== undefined ? `[functions:${codebasePrefix}] ` : '[functions] ';
   const attach = (stream: 'stdout' | 'stderr'): void => {
     const readable = child[stream];
     if (!readable) return;
-    const lines = createLinePrefixer('[functions] ', (line) => emit({ type: 'output', stream, line }));
+    const lines = createLinePrefixer(prefix, (line) => emit({ type: 'output', stream, line }));
     readable.setEncoding('utf8');
     readable.on('data', (chunk: string) => lines.push(chunk));
     readable.once('end', () => lines.flush());
@@ -270,11 +282,20 @@ function attachOutput(
   attach('stderr');
 }
 
-export function createFunctionsDevelopmentRuntime(
-  options: FunctionsDevelopmentRuntimeOptions,
+interface InternalSingleCodebaseOptions extends FunctionsDevelopmentRuntimeOptions {
+  labelWithCodebase?: boolean;
+  includeExportMetadata?: boolean;
+  skipSandboxTaskBridge?: boolean;
+}
+
+function createSingleCodebaseFunctionsDevelopmentRuntime(
+  options: InternalSingleCodebaseOptions,
 ): FunctionsDevelopmentRuntimeHandle {
   const spawn = options.spawn ?? spawnFunctionsChild;
   const emit = (event: FunctionsDevelopmentEvent): void => options.onEvent?.(event);
+  const codebaseName = options.codebase;
+  const outputCodebasePrefix =
+    options.labelWithCodebase === true && codebaseName !== undefined ? codebaseName : undefined;
   const expectedStops = new WeakSet<FunctionsChildHandle>();
   let activeChild: FunctionsChildHandle | null = null;
   let activeWait: AbortController | null = null;
@@ -283,11 +304,13 @@ export function createFunctionsDevelopmentRuntime(
   let reloadPromise: Promise<FunctionsDevelopmentResult> | null = null;
   let reloadQueued = false;
   let closePromise: Promise<void> | null = null;
-  const detachSandboxTaskBridge = attachDevelopmentRuntimeSandboxTaskBridge(
-    options.sandbox,
-    () => activeChild?.child ?? null,
-    () => closed,
-  );
+  const detachSandboxTaskBridge = options.skipSandboxTaskBridge
+    ? undefined
+    : attachDevelopmentRuntimeSandboxTaskBridge(
+        options.sandbox,
+        () => activeChild?.child ?? null,
+        () => closed,
+      );
 
   const stopChild = async (child: FunctionsChildHandle | null): Promise<void> => {
     if (!child) return;
@@ -332,7 +355,11 @@ export function createFunctionsDevelopmentRuntime(
         location: options.location,
         projectId: options.projectId,
         ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
-        onEvent: (event) => {
+        ...(codebaseName === undefined ? {} : { codebase: codebaseName }),
+        ...(options.includeExportMetadata === true ? { includeExportMetadata: true } : {}),
+        onEvent: (rawEvent) => {
+          const event =
+            codebaseName !== undefined ? tagChildEventWithCodebase(rawEvent, codebaseName) : rawEvent;
           recordChildTaskExecutionEvent(options.sandbox, event);
           emit({ type: 'child-event', event });
         },
@@ -344,7 +371,7 @@ export function createFunctionsDevelopmentRuntime(
     }
 
     activeChild = handle;
-    attachOutput(handle.child, emit);
+    attachOutput(handle.child, emit, outputCodebasePrefix);
     let readyReached = false;
     let exitBeforeReady: number | null = null;
     const reportUnexpectedExit = (code: number): void => {
@@ -360,7 +387,15 @@ export function createFunctionsDevelopmentRuntime(
       else reportUnexpectedExit(code);
     });
     try {
-      const ready = await handle.ready;
+      const rawReady = await handle.ready;
+      const ready =
+        codebaseName !== undefined
+          ? tagReadyWithCodebase(rawReady, {
+              codebase: codebaseName,
+              sourceDir: options.sourceDir,
+              entry: options.entry,
+            })
+          : rawReady;
       readyReached = true;
       crashRestarts.markReady();
       if (exitBeforeReady !== null) reportUnexpectedExit(exitBeforeReady);
@@ -475,40 +510,7 @@ export function createFunctionsDevelopmentRuntime(
         exportName,
         invokeOptions,
       );
-      if (options.sandbox !== undefined) {
-        const ref = summary.jobName ?? `schedule/${summary.exportName}`;
-        const params: Record<string, string> = {
-          scheduleTime: summary.scheduleTime,
-        };
-        const retryRecord = retryConfigToRecord(summary.retryConfig);
-        const outcome: {
-          trigger: string;
-          ref: string;
-          params: Record<string, string>;
-          startedAt: number;
-          durationMs: number;
-          status: 'fulfilled' | 'rejected';
-          result?: unknown;
-          error?: string;
-          retryConfig?: Record<string, number>;
-        } = {
-          trigger: summary.exportName,
-          ref,
-          params,
-          startedAt: summary.startedAt,
-          durationMs: summary.durationMs,
-          status: summary.status,
-        };
-        if (summary.status === 'fulfilled') {
-          outcome.result = summary.result;
-        } else {
-          outcome.error = summary.error;
-        }
-        if (Object.keys(retryRecord).length > 0) {
-          outcome.retryConfig = retryRecord;
-        }
-        summary.record = recordFunctionExecution(options.sandbox, outcome);
-      }
+      recordScheduledExecution(options.sandbox, summary, codebaseName);
       return summary;
     },
     async publishPubSub(
@@ -529,42 +531,7 @@ export function createFunctionsDevelopmentRuntime(
         attributes,
         options.projectId,
       );
-      if (options.sandbox !== undefined) {
-        for (const delivery of summary.deliveries) {
-          const outcome: {
-            trigger: string;
-            ref: string;
-            params: Record<string, string>;
-            startedAt: number;
-            durationMs: number;
-            status: 'fulfilled' | 'rejected';
-            result?: unknown;
-            error?: string;
-            retryConfig?: Record<string, number>;
-          } = {
-            trigger: delivery.exportName,
-            ref: summary.topicResource,
-            params: {
-              topic: summary.topic,
-              messageId: summary.messageId,
-            },
-            startedAt: delivery.startedAt,
-            durationMs: delivery.durationMs,
-            status: delivery.status,
-          };
-          if (delivery.status === 'fulfilled') {
-            if (delivery.result !== undefined) {
-              outcome.result = delivery.result;
-            }
-          } else {
-            outcome.error = delivery.error?.message ?? 'Unknown error';
-          }
-          if (delivery.retry) {
-            outcome.retryConfig = { retry: 1 };
-          }
-          recordFunctionExecution(options.sandbox, outcome);
-        }
-      }
+      recordPubSubDeliveries(options.sandbox, summary, codebaseName);
       return summary;
     },
     async enqueueTask(
@@ -592,4 +559,29 @@ export function createFunctionsDevelopmentRuntime(
     },
   };
   return runtime;
+}
+
+export function createFunctionsDevelopmentRuntime(
+  options: FunctionsDevelopmentRuntimeOptions,
+): FunctionsDevelopmentRuntimeHandle {
+  if (options.codebases !== undefined && options.codebases.length > 1) {
+    return createMultiCodebaseFunctionsDevelopmentRuntime(
+      options,
+      options.codebases,
+      createSingleCodebaseFunctionsDevelopmentRuntime,
+    );
+  }
+  if (options.codebases !== undefined && options.codebases.length === 1) {
+    const only = options.codebases[0]!;
+    return createSingleCodebaseFunctionsDevelopmentRuntime({
+      ...options,
+      sourceDir: only.sourceDir,
+      entry: only.entry,
+      codebase: only.codebase,
+      codebases: undefined,
+      labelWithCodebase: only.codebase !== 'default',
+      includeExportMetadata: true,
+    });
+  }
+  return createSingleCodebaseFunctionsDevelopmentRuntime(options);
 }

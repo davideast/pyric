@@ -101,6 +101,9 @@ export function emitHttpExecutionEvent(
       durationMs: record.durationMs,
       status: executionStatus,
     };
+    if (record.codebase !== undefined) {
+      detail.codebase = record.codebase;
+    }
     if (executionStatus === 'fulfilled') {
       detail.result = {
         method: record.method,

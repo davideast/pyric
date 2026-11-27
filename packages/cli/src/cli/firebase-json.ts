@@ -12,9 +12,25 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import { formatPyricCommand } from './command-hint.js';
 import { missingPublicDirHint } from './public-dir-hint.js';
+
+/** Default codebase identifier used by Firebase when `functions.codebase` is omitted. */
+export const DEFAULT_FUNCTIONS_CODEBASE = 'default';
+
+/** Firebase CLI codebase identifier rule: lowercase ASCII, digits, hyphens, underscores (1-63 chars). */
+const FUNCTIONS_CODEBASE_RE = /^[a-z0-9_-]{1,63}$/;
+
+/** One validated Functions codebase entry extracted from `firebase.json`. */
+export interface FunctionsCodebaseConfig {
+  /** Unique codebase identifier (defaults to `'default'` when omitted). */
+  codebase: string;
+  /** Source directory relative to the project root (defaults to `'functions'` for single-entry configs). */
+  source: string;
+  /** Optional declared runtime identifier (e.g. `'nodejs22'`). */
+  runtime?: string;
+}
 
 interface HostingRewriteConfig {
   source?: string;
@@ -93,6 +109,104 @@ function isDestinationRewrite(rewrite: unknown): boolean {
 
 function isDynamicRewrite(rewrite: unknown): boolean {
   return typeof rewrite === 'object' && rewrite !== null && !('destination' in rewrite);
+}
+
+function normalizeFunctionsSourceKey(source: string): string {
+  const slashes = source.replace(/\\/g, '/');
+  const normalized = posix.normalize(slashes).replace(/\/+$/, '');
+  return normalized.length === 0 ? '.' : normalized;
+}
+
+function validateFunctionsCodebaseEntry(
+  raw: unknown,
+  label: string,
+  allowDefaultSource: boolean,
+): FunctionsCodebaseConfig {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`pyric sandbox: firebase.json \`${label}\` must be an object with a source.`);
+  }
+  const record = raw as { codebase?: unknown; source?: unknown; runtime?: unknown };
+  let codebase = DEFAULT_FUNCTIONS_CODEBASE;
+  if (record.codebase !== undefined) {
+    if (typeof record.codebase !== 'string' || !FUNCTIONS_CODEBASE_RE.test(record.codebase)) {
+      throw new Error(
+        `pyric sandbox: firebase.json \`${label}.codebase\` must be a 1-63 character string ` +
+          'containing only lowercase letters, numbers, underscores, and hyphens.',
+      );
+    }
+    codebase = record.codebase;
+  }
+
+  let source: string;
+  if (record.source === undefined) {
+    if (!allowDefaultSource) {
+      throw new Error(
+        `pyric sandbox: firebase.json \`${label}\` (codebase "${codebase}") must specify a non-empty \`source\` string.`,
+      );
+    }
+    source = 'functions';
+  } else if (typeof record.source !== 'string' || record.source.trim().length === 0) {
+    throw new Error(`pyric sandbox: firebase.json \`${label}.source\` must be a non-empty string.`);
+  } else {
+    source = record.source;
+  }
+
+  const entry: FunctionsCodebaseConfig = { codebase, source };
+  if (typeof record.runtime === 'string' && record.runtime.length > 0) {
+    entry.runtime = record.runtime;
+  }
+  return entry;
+}
+
+/**
+ * Extract and validate one or more Functions codebase entries from `firebase.json`.
+ * Supports both the single-object form (`functions: { source }`) and the
+ * multi-codebase array form (`functions: [{ codebase, source }, ...]`).
+ */
+export function extractFunctionsCodebases(config: FirebaseJson | null): FunctionsCodebaseConfig[] {
+  const raw = config?.functions;
+  if (raw === undefined || raw === null) return [];
+
+  if (!Array.isArray(raw)) {
+    if (typeof raw !== 'object') {
+      throw new Error(
+        'pyric sandbox: firebase.json `functions` must be an object or an array of codebase objects.',
+      );
+    }
+    return [validateFunctionsCodebaseEntry(raw, 'functions', true)];
+  }
+
+  if (raw.length === 0) return [];
+
+  const allowDefaultSource = raw.length === 1;
+  const seenCodebases = new Set<string>();
+  const seenSources = new Map<string, string>();
+  const results: FunctionsCodebaseConfig[] = [];
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const label = `functions[${i}]`;
+    const entry = validateFunctionsCodebaseEntry(raw[i], label, allowDefaultSource);
+    if (seenCodebases.has(entry.codebase)) {
+      throw new Error(
+        `pyric sandbox: firebase.json declares duplicate Functions codebase "${entry.codebase}". ` +
+          'Each entry in `functions` must have a unique `codebase` name.',
+      );
+    }
+    seenCodebases.add(entry.codebase);
+
+    const sourceKey = normalizeFunctionsSourceKey(entry.source);
+    const priorCodebase = seenSources.get(sourceKey);
+    if (priorCodebase !== undefined) {
+      throw new Error(
+        `pyric sandbox: firebase.json declares duplicate Functions source "${entry.source}" ` +
+          `for codebases "${priorCodebase}" and "${entry.codebase}".`,
+      );
+    }
+    seenSources.set(sourceKey, entry.codebase);
+    results.push(entry);
+  }
+
+  return results;
 }
 
 /**

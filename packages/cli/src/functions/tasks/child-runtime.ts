@@ -487,6 +487,9 @@ export function recordChildTaskExecutionEvent(
     durationMs: event.durationMs ?? 0,
     status: event.status,
   };
+  if (event.codebase !== undefined) {
+    outcome.codebase = event.codebase;
+  }
   if (event.status === 'rejected') {
     outcome.error = event.error.message;
   }

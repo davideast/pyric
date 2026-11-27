@@ -129,8 +129,9 @@ export async function startServeFunctionsRuntime(
       return;
     }
     const childEvent = event.event;
+    const codebaseTag = childEvent.codebase !== undefined ? `[${childEvent.codebase}] ` : '';
     if (childEvent.type === 'uncaught-error') {
-      writeStreamQuietly(process.stderr, `\u2716 ${uncaughtErrorLine(childEvent.error)}\n`);
+      writeStreamQuietly(process.stderr, `\u2716 ${codebaseTag}${uncaughtErrorLine(childEvent.error)}\n`);
       return;
     }
     if (childEvent.type === 'execution') {
@@ -139,17 +140,20 @@ export async function startServeFunctionsRuntime(
         .join(', ');
       const paramsSuffix = params.length > 0 ? ` (${params})` : '';
       if (childEvent.status === 'fulfilled') {
-        writeStreamQuietly(info, `\u2714 function  ${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}\n`);
+        writeStreamQuietly(
+          info,
+          `\u2714 function  ${codebaseTag}${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}\n`,
+        );
       } else {
         writeStreamQuietly(
           process.stderr,
-          `\u2716 function  ${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
+          `\u2716 function  ${codebaseTag}${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
         );
       }
     } else {
       writeStreamQuietly(
         process.stderr,
-        `\u2716 functions delivery for ${childEvent.exportName}: ${childEvent.error.message}\n`,
+        `\u2716 functions delivery for ${codebaseTag}${childEvent.exportName}: ${childEvent.error.message}\n`,
       );
     }
   };
@@ -157,6 +161,8 @@ export async function startServeFunctionsRuntime(
   const functionsRuntime = createFunctionsDevelopmentRuntime({
     sourceDir: functionsProject.sourceDir,
     entry: functionsProject.entry,
+    ...(functionsProject.codebase === undefined ? {} : { codebase: functionsProject.codebase }),
+    ...(functionsProject.codebases === undefined ? {} : { codebases: functionsProject.codebases }),
     baseEnv: process.env,
     serveUrl: runtime.handle.url,
     registerUrl: registerModuleUrl(),
@@ -195,10 +201,19 @@ export async function startServeFunctionsRuntime(
   const ready = result.ready;
   const reportsTriggers = ready.triggerCount > 0 || ready.http === undefined;
   if (reportsTriggers) {
-    writeStreamQuietly(
-      info,
-      `\u2714 ${functionsTriggersLine(ready.triggerCount, relative(cwd, functionsProject.entry))}\n`,
-    );
+    if (ready.codebases !== undefined && ready.codebases.length > 1) {
+      for (const cb of ready.codebases) {
+        writeStreamQuietly(
+          info,
+          `\u2714 ${functionsTriggersLine(cb.triggerCount, relative(cwd, cb.entry), cb.codebase)}\n`,
+        );
+      }
+    } else {
+      writeStreamQuietly(
+        info,
+        `\u2714 ${functionsTriggersLine(ready.triggerCount, relative(cwd, functionsProject.entry), functionsProject.codebase)}\n`,
+      );
+    }
   }
   if (ready.http) {
     const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, functionsProjectId);
@@ -208,9 +223,10 @@ export async function startServeFunctionsRuntime(
     }
   }
   for (const unsupported of ready.unsupportedTriggers) {
+    const cbSuffix = unsupported.codebase !== undefined ? ` [${unsupported.codebase}]` : '';
     writeStreamQuietly(
       process.stderr,
-      `  \u26a0 functions export ${unsupported.exportName} uses unsupported trigger ` +
+      `  \u26a0 functions export ${unsupported.exportName}${cbSuffix} uses unsupported trigger ` +
         `${unsupported.eventType}; it will not run in pyric sandbox.\n`,
     );
   }
