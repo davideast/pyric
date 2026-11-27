@@ -40,7 +40,7 @@ export function extendedSources(kinds) {
   return out;
 }
 
-export function extendedBinding(kinds,optimized=false) {
+export function extendedBinding(kinds,optimized=false,variant='') {
   const fns=[];
   for(const color of ['w','b']) {
     for(const kind of kinds) {
@@ -58,6 +58,7 @@ export function extendedBinding(kinds,optimized=false) {
   }
   fns.push("function sliderMove(text,defender) { return defender == 'w' ? slideWitnessw(text,sliderEncodew(text)) : slideWitnessb(text,sliderEncodeb(text)); }");
   fns.push("function sliderStatus(text,defender,status) { return defender == 'w' ? slideStatusw(text,sliderEncodew(text),status) : slideStatusb(text,sliderEncodeb(text),status); }");
-  const joined=fns.join('\n  ');
+  let joined=fns.join('\n  ');
+  if(variant==='all-tabled-path-v6') joined=joined.replaceAll("(status == 'playing' || ((direction==0) == (status=='draw')))", 'slideMayClaim(status,direction)');
   return optimized ? joined.replaceAll('&& ((slideTyped','&& slideClaim(status, (slideTyped').replaceAll("(board))) == (status=='playing'));","(board))));") : joined;
 }

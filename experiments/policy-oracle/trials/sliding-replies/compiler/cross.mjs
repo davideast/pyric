@@ -54,7 +54,7 @@ function classify(color) {
   return first=='' ? -1 : origin*80 + first.replace('X.*','').size();`;
 }
 
-function axisSource(kind,axis,color,compact) {
+function axisSource(kind,axis,color,compact,precomputed) {
   const lines=[];
   lines.push(prelude);
   const dx=axis.a!==0,dy=axis.b!==0;
@@ -67,6 +67,19 @@ function axisSource(kind,axis,color,compact) {
   for (const v of vectorSet(kind)) {
     const denominator=axis.a*v.x+axis.b*v.y;
     if(!denominator){collinear.push(firstCapture(v,true),firstCapture(v,false));continue;}
+    if(precomputed) {
+      const maximum=axis.a && axis.b ? 14 : 7;
+      const table=Array.from({length:2*maximum+1},(_,i)=>{
+        const steps=(i-maximum)/denominator;
+        if(!Number.isInteger(steps)||steps===0||Math.abs(steps)>7)return '(Z)';
+        const span='('+between(v.stride,Math.abs(steps))+')';
+        return steps>0?'S'+span+'[,prnbq]':'[,prnbq]'+span+'S';
+      });
+      const forward=denominator>0?'d > 0':'d < 0';
+      crossings.push("board.replace('"+table.join('~')+"'.split('~')[d+"+maximum+"],"+
+        forward+" ? ',$1X' : 'X$1,')");
+      continue;
+    }
     const n=denominator<0?'(-d)':'d';
     const length=Math.abs(denominator)===2?'('+n+' / 2)':n;
     const spans=Array.from({length:8},(_,i)=>between(v.stride,i));
@@ -114,7 +127,7 @@ export function crossSources(variant) {
     const axisTests=axes.map((axis,i)=>"board.matches('"+lineDanger(axis)+"') ? "+(i+1)+" : ");
     out[name]='function '+name+"(board) { return "+axisTests.join('')+"board.matches('.*"+attacks(color)+".*') ? 5 : 0; }";
     for(const kind of kinds){
-      const functions=axes.map(axis=>axisSource(kind,axis,color,variant!=='rook-cross-v2'));
+      const functions=axes.map(axis=>axisSource(kind,axis,color,variant!=='rook-cross-v2',variant==='all-tabled-path-v6'));
       functions.push(quietSource(kind,color,false),quietSource(kind,color,true));
       for(const fn of functions)out[fn.name]=fn.source;
     }

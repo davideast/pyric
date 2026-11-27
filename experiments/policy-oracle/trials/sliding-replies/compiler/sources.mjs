@@ -42,12 +42,12 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
   if (!kinds) throw Error('Unknown slider policy variant: ' + variant);
-  if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant),...(variant==='all-packed-path-v5'?protocolSources():{})};
+  if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant),...(variant.startsWith('all-')?protocolSources(variant):{})};
   const out = {};
   for (const color of ['w', 'b']) {
     const enemy = color === 'w' ? 'b' : 'w';
@@ -85,8 +85,8 @@ export function sources(variant) {
 
 export function binding(variant) {
   if (variants[variant]?.length > 1) {
-    const optimized=variant==='all-packed-path-v5';
-    return extendedBinding(variants[variant],optimized)+(optimized?'\n  '+protocolBinding():'');
+    const optimized=variant.startsWith('all-');
+    return extendedBinding(variants[variant],optimized,variant)+(optimized?'\n  '+protocolBinding():'');
   }
   if (variant !== 'rook-rays-v1') return crossBinding(variant);
   return `function sliderMove(text, defender) {
