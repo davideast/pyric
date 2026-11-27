@@ -54,6 +54,15 @@ describe('repeat counts', () => {
 
   test('a repeat of an empty group has no positions but stops at the state limit', () => {
     expect(withinBudget(100, () => rtdbRegexError('^(){0,2147483647}$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+    expect(withinBudget(100, () => rtdbRegexError('^(){2147483647}$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+    expect(withinBudget(100, () => rtdbRegexError('^(){2147483647,}$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+    expect(withinBudget(100, () => rtdbRegexError('^(((){10000}){10000})$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+    expect(withinBudget(100, () => rtdbRegexError('^(((){10000}){10000}){10000}$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+    expect(withinBudget(100, () => rtdbRegexError('^(a{0}){2147483647}$'))).toContain(`more than ${MAX_REGEX_STATES} matcher states`);
+    expect(withinBudget(100, () => rtdbRegexError('^(){0}$'))).toBeNull();
+    expect(withinBudget(100, () => rtdbRegexError('^()+$'))).toBeNull();
+    expect(compileRtdbRegex('^(){5}$', '').test('')).toBe(true);
+    expect(compileRtdbRegex('^(a{0}){5}$', '').test('')).toBe(true);
   });
 
   test('a large count that fits compiles and matches within budget', () => {
@@ -80,6 +89,19 @@ describe('nesting', () => {
     const fits = `${'('.repeat(MAX_REGEX_NESTING)}a${')'.repeat(MAX_REGEX_NESTING)}`;
     expect(rtdbRegexError(fits)).toBeNull();
     expect(compileRtdbRegex(fits, '').test('a')).toBe(true);
+  });
+
+  test('r61 3,000 nested groups fails fast across error check, lint, and simulate (#1692)', () => {
+    const r61Pattern = `^${'('.repeat(3000)}a${')'.repeat(3000)}$`;
+    withinBudget(100, () => {
+      expect(rtdbRegexError(r61Pattern)).toContain(`nest more than ${MAX_REGEX_NESTING} levels deep`);
+    });
+    withinBudget(5000, () => {
+      const engine = rtdbRules({ rules: { a: { '.write': `newData.val().matches(/${r61Pattern}/)` } } });
+      expect(engine.lint().map((issue) => issue.code)).toContain('INVALID_REGEX');
+      const report = engine.simulate([{ operation: 'write', path: '/a', auth: null, newData: 'a', expectation: 'DENY' }]);
+      expect(report.cases[0]!.decision).toBe('UNSUPPORTED');
+    });
   });
 
   test('20,000 nested groups lint as a regex limit, not as a chained-terms parse error', () => {

@@ -108,9 +108,13 @@ export function stateCount(node: RegexNode): number {
 function repeatStates(body: number, min: number, max: number): number {
   if (max === 0) return 0;
   if (body === Infinity) return Infinity;
+  // Even a zero-state body (such as `()`, `(?:)`, or `a{0}`) must charge at
+  // least one unit per unrolled copy so nested or huge empty repeats cannot
+  // bypass MAX_REGEX_STATES and spin NFA construction (#1692).
+  const unit = Math.max(body, 1);
   const unbounded = max === Infinity;
-  if (unbounded) return boundedSum([body * (min + 1), 1], MAX_REGEX_STATES);
-  return boundedSum([(max - min) * (body + 1), min * body], MAX_REGEX_STATES);
+  if (unbounded) return boundedSum([unit * (min + 1), 1], MAX_REGEX_STATES);
+  return boundedSum([(max - min) * (unit + 1), min * unit], MAX_REGEX_STATES);
 }
 
 function boundedSum(counts: readonly number[], limit: number): number {

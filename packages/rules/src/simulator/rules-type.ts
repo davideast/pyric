@@ -23,7 +23,7 @@ import {
   type RegexSearch,
   type UnitMatch,
 } from './regex-nfa.js';
-import { MAX_REGEX_STATES, stateCount } from '../rtdb/grammar/regex-limits.js';
+import { MAX_REGEX_NESTING, MAX_REGEX_STATES, NESTING_MESSAGE, stateCount } from '../rtdb/grammar/regex-limits.js';
 import { RulesValue } from './wrappers/base.js';
 import { isRulesInt } from './rules-int.js';
 
@@ -207,6 +207,7 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
     throw new Error(`Invalid regex '${pattern}': ${rangeError}`);
   }
   let pos = 0;
+  let depth = 0;
   let ignoreCase = false;
   let multiline = false;
   let dotAll = false;
@@ -225,14 +226,19 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
     }
   };
 
+  const balancedAlternation = (alts: readonly RegexNode[], from: number, to: number): RegexNode => {
+    if (to - from === 1) return alts[from]!;
+    const mid = from + Math.floor((to - from) / 2);
+    return { kind: 'alt', left: balancedAlternation(alts, from, mid), right: balancedAlternation(alts, mid, to) };
+  };
+
   const parseAlternation = (): RegexNode => {
-    let left = parseConcat();
+    const alts: RegexNode[] = [parseConcat()];
     while (pos < pattern.length && pattern[pos] === '|') {
       pos++;
-      const right = parseConcat();
-      left = { kind: 'alt', left, right };
+      alts.push(parseConcat());
     }
-    return left;
+    return balancedAlternation(alts, 0, alts.length);
   };
 
   const parseConcat = (): RegexNode => {
@@ -271,9 +277,14 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
 
   const parseQuantified = (atom?: RegexNode): RegexNode => {
     let node = atom ?? parseAtom();
+    let quantifiers = 0;
     while (pos < pattern.length) {
       const ch = pattern[pos];
       if (ch === '*' || ch === '+' || ch === '?') {
+        quantifiers++;
+        if (depth + quantifiers > MAX_REGEX_NESTING) {
+          throw new Error(`${invalidPatternMessage(pattern)} ${NESTING_MESSAGE}`);
+        }
         pos++;
         const greedy = readGreedy();
         let min = 0;
@@ -284,6 +295,10 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
       } else if (ch === '{') {
         const m = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(pos));
         if (!m) break;
+        quantifiers++;
+        if (depth + quantifiers > MAX_REGEX_NESTING) {
+          throw new Error(`${invalidPatternMessage(pattern)} ${NESTING_MESSAGE}`);
+        }
         pos += m[0].length;
         const greedy = readGreedy();
         const min = Number(m[1]);
@@ -346,7 +361,12 @@ function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
           }
         }
       }
+      depth++;
+      if (depth > MAX_REGEX_NESTING) {
+        throw new Error(`${invalidPatternMessage(pattern)} ${NESTING_MESSAGE}`);
+      }
       const inner = parseAlternation();
+      depth--;
       if (pattern[pos] === ')') pos++;
       ignoreCase = savedI;
       multiline = savedM;
