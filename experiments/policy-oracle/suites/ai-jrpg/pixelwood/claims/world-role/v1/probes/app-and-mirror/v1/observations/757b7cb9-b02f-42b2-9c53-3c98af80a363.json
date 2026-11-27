@@ -1,0 +1,36 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "11c1f48a535054c1973006344af6832941a62556dccc9e9d4065a66ce7bc0b83",
+  "results": {
+    "app-absent-event-delete": "ALLOW",
+    "app-absent-combat-update": "ALLOW",
+    "app-unlisted-event-delete": "DENY",
+    "app-unlisted-combat-update": "DENY",
+    "app-listed-event-delete": "ALLOW",
+    "app-listed-combat-update": "ALLOW",
+    "mirror-absent-event-delete": "DENY",
+    "mirror-absent-combat-update": "DENY",
+    "mirror-unlisted-event-delete": "DENY",
+    "mirror-unlisted-combat-update": "DENY",
+    "mirror-listed-event-delete": "ALLOW",
+    "mirror-listed-combat-update": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/757b7cb9-b02f-42b2-9c53-3c98af80a363.json",
+    "sha256": "1ed1dafc0daa9eec84f95c7e6882320d124ba8382f85cddf74bd819d0454a5e8",
+    "pointers": {
+      "app-absent-event-delete": "/rows/app-absent-event-delete/decision",
+      "app-absent-combat-update": "/rows/app-absent-combat-update/decision",
+      "app-unlisted-event-delete": "/rows/app-unlisted-event-delete/decision",
+      "app-unlisted-combat-update": "/rows/app-unlisted-combat-update/decision",
+      "app-listed-event-delete": "/rows/app-listed-event-delete/decision",
+      "app-listed-combat-update": "/rows/app-listed-combat-update/decision",
+      "mirror-absent-event-delete": "/rows/mirror-absent-event-delete/decision",
+      "mirror-absent-combat-update": "/rows/mirror-absent-combat-update/decision",
+      "mirror-unlisted-event-delete": "/rows/mirror-unlisted-event-delete/decision",
+      "mirror-unlisted-combat-update": "/rows/mirror-unlisted-combat-update/decision",
+      "mirror-listed-event-delete": "/rows/mirror-listed-event-delete/decision",
+      "mirror-listed-combat-update": "/rows/mirror-listed-combat-update/decision"
+    }
+  }
+}

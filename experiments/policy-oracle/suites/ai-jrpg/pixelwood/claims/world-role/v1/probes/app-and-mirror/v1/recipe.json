@@ -1,0 +1,41 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/ai-jrpg",
+    "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+    "path": "app/firestore.rules"
+  },
+  "companionSource": "deploy/firestore.rules",
+  "cases": [
+    "app-absent-event-delete",
+    "app-absent-combat-update",
+    "app-unlisted-event-delete",
+    "app-unlisted-combat-update",
+    "app-listed-event-delete",
+    "app-listed-combat-update",
+    "mirror-absent-event-delete",
+    "mirror-absent-combat-update",
+    "mirror-unlisted-event-delete",
+    "mirror-unlisted-combat-update",
+    "mirror-listed-event-delete",
+    "mirror-listed-combat-update"
+  ],
+  "pins": {
+    "mirror.rules": "98118bd941acfb67b2e58bb0b5ff4cc9a640ff3ba31e329fc48759dbc9a9189d",
+    "app.rules": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "replay.mjs": "61716ec053b33c7f929502a329d249a70b9bec7dbb0193a7fb1af4795af31ffd",
+    "@oracle/adapters/world-role/v1/verify.mjs": "c71d63bd240d5e27385207e16ef14808c0d249bab71c22d9d976ec9b700cf99f",
+    "@oracle/adapters/world-role/v1/fixture.mjs": "e4e2fdd671b6fc744f43eda158d02875cdfdbc8f736a68c905a1cb2be09259a3",
+    "@oracle/adapters/arcade-sdk/v1/evidence.mjs": "d3a954cdd9406373a802757149e48bfb98283f2fe6af9b03c88e64e91bc49471",
+    "@oracle/adapters/arcade-sdk/v1/fixture.mjs": "a2b6b852d48bcbea44fb0f2ee22fee9f8086b369b302daa54a2667d7283de5fe",
+    "@oracle/arcade/corpus.mjs": "0eaca020e28edefe3a3a7efaea1202ec8a4ffed6c0457c0ecc407834f7e39baf",
+    "@oracle/arcade/v1/manifest.json": "6f1a1d54e86d67d6848bee3389c84a5d34cfd2ee367cb21dd209dc9f5ecba93a",
+    "@oracle/arcade/live/controller/world-role.mjs": "a940418d6504c53bce3a6302310005f4b6f5bb7ca64969ae0e73464fcb2b22fe",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/world-role/v1/verify.mjs"
+}

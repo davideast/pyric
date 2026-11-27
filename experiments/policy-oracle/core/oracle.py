@@ -21,6 +21,8 @@ WITNESSES = {
     "storage-production": {"imported-production-verdict"},
 }
 ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
+WORLD_ROLE_PROBE = "suites/ai-jrpg/pixelwood/claims/world-role/v1/probes/app-and-mirror/v1"
+WORLD_ROLE_VERIFIER = "@oracle/adapters/world-role/v1/verify.mjs"
 ARCHIVE_IDS = {f"arcade/tictactoe/relative-plus-{n}/v1" for n in ("one", "two")}
 
 
@@ -177,7 +179,7 @@ def observed_values(root, path, authority, witness, input_digest, recipe, source
         require(isinstance(document, dict), f"invalid imported receipt: {raw_path}")
         check_import(raw, document, recipe, authority, evidence)
     if witness == "authenticated-write-readback":
-        verifier = safe_file(root, ARCADE_VERIFIER.removeprefix("@oracle/"))
+        verifier = safe_file(root, recipe["verifyEvidence"].removeprefix("@oracle/"))
         decoded = run_json(["bun", str(verifier), str(path.parent.parent), str(raw_path)], path.parent.parent, root)
         require(canonical(decoded) == canonical(results), f"verified readbacks disagree: {path}")
     for case in cases:
@@ -229,7 +231,8 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, s
             and len(set(cases)) == len(cases), f"duplicate or invalid case IDs: {recipe_file}")
     runner = pin_files(root, version, recipe)
     if witness == "authenticated-write-readback":
-        require(recipe.get("verifyEvidence") == ARCADE_VERIFIER and ARCADE_VERIFIER in recipe["pins"],
+        verifier = WORLD_ROLE_VERIFIER if version.relative_to(root).as_posix() == WORLD_ROLE_PROBE else ARCADE_VERIFIER
+        require(recipe.get("verifyEvidence") == verifier and verifier in recipe["pins"],
                 f"missing reviewed SDK write/readback verifier: {recipe_file}")
     input_digest = sha(claim_file.read_bytes() + b"\0" + recipe_file.read_bytes())
     pins[str(recipe_file.relative_to(root))] = sha(recipe_file.read_bytes())

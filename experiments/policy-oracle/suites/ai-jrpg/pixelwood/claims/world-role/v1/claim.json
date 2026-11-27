@@ -1,0 +1,5 @@
+{
+  "description": "Pixelwood's app and deploy mirror enforce their own world-role permissions for deleting an event and changing another player's combat state as world/config changes.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

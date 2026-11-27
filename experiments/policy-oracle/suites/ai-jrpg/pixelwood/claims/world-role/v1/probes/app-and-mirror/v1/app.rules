@@ -1,0 +1,358 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ── H-ID: the DM/admin role (config-doc allowlist) ──────────────────────
+    // world/config.admins is the allowlist. Its EXISTENCE hardens the world:
+    // once created, canon writes (world/arc, npcs, posts, npcBrains, invites)
+    // require an admin uid. In a fresh/dev world (no config yet) those stay
+    // OPEN (spike trust) so the harness and an anonymous dev director keep
+    // working unchanged. The live host's director creates config at boot,
+    // signed in as a stable admin account (F-015 identity lane).
+    function hasConfig() {
+      return exists(/databases/$(database)/documents/world/config);
+    }
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.uid in get(/databases/$(database)/documents/world/config).data.admins;
+    }
+    // Admin-gated when hardened; open when the world has no allowlist yet.
+    function adminOrOpen() {
+      return request.auth != null && (!hasConfig() || isAdmin());
+    }
+
+    // Identity-bound presence, zone-scoped (05-world shape). Peers may DELETE
+    // stale docs (staleness eviction + boot sweep — the ghosts law).
+    match /zones/{zone}/players/{uid} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Radiant NPC bodies — the director's lane. DM-role gated (create/update)
+    // once the world is hardened; DELETE stays open to any authed session (the
+    // ghosts law: peers evict a dead director's stale villagers).
+    match /zones/{zone}/npcs/{npcId} {
+      allow read: if request.auth != null;
+      allow create, update: if adminOrOpen();
+      allow delete: if request.auth != null;
+
+      // Conversation inbox: players write AS THEMSELVES; the director
+      // consumes (deletes) after handing the message to the NPC's agent.
+      match /inbox/{msg} {
+        allow read, delete: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.from == request.auth.uid;
+      }
+    }
+
+    // Shared per-zone conversation transcript (drives the portrait 1:1 view).
+    // NPC lines come from the director, player lines are the sender's
+    // optimistic echo. UPDATE is the director stamping {clip} on a reply
+    // entry after voice synthesis (N2 — voices scoped to the 1:1).
+    match /zones/{zone}/dialogue/{entry} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Voice clips: hash-keyed WAV cache written by the director, fetched by
+    // game tabs when a dialogue entry carries a clip stamp. SPIKE TRUST
+    // MODEL: any authed session may be the director.
+    match /voiceClips/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H-ID: the admin allowlist. Creating this doc HARDENS the world. The
+    // creator must list THEMSELVES (no locking yourself out); existing admins
+    // may edit it (add co-admins, toggle allowGuests). ──────────────────────
+    match /world/config {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.admins is list
+                    && request.auth.uid in request.resource.data.admins;
+      allow update: if isAdmin();
+    }
+
+    // The arc/canon doc — the world's story state (cycles, act flags, frost).
+    // DM-role gated once the world is hardened; open in a fresh/dev world so
+    // the H1/H3 fixtures (which seed prior arc state from a plain page) pass.
+    match /world/arc {
+      allow read: if request.auth != null;
+      allow write: if adminOrOpen();
+    }
+
+    // Low-stakes world singletons — the director liveness heartbeat and the
+    // Post sequence cursor. Left open (game tabs read; several fixtures seed a
+    // synthetic heartbeat) — a spoofed beat/cursor is not canon.
+    match /world/director { allow read, write: if request.auth != null; }
+    match /world/post     { allow read, write: if request.auth != null; }
+    match /world/deepSeed { allow read, write: if request.auth != null; }
+
+    // ── M3 "You hold the dials": the live world-tuning singleton (ore respawn,
+    // swing weight, patrol speed/dwell, heist catchCore/spotRadius, crop
+    // timings). Every player reads it (drives their own client's mechanics);
+    // writes are DM-role gated once hardened — same adminOrOpen() as world/arc —
+    // so an open/dev world lets anyone tune (spike trust) but a live family
+    // world reserves the dials to the DM. Missing doc/fields are fail-soft
+    // defaults (app/tuning.js), so this match existing or not never blocks play.
+    match /world/tuning { allow read: if request.auth != null; allow write: if adminOrOpen(); }
+
+    // NPC durable memories, written by the director's remember() tool.
+    // Canon-adjacent → DM-role gated (create/update) once hardened; reads open.
+    match /npcBrains/{npcId} {
+      allow read: if request.auth != null;
+      allow create, update: if adminOrOpen();
+      allow delete: if adminOrOpen(); // M2 #6: the director's factory reset wipes brains
+    }
+
+    // ── P5 mechanics: shared deterministic world state ──────────────────────
+
+    // Farm plots (zones/orchard-farm/plots/{x_y}): tilled/planted docs any
+    // authed player may write — a shared field (delete = harvest returns the
+    // tile to untilled ground).
+    match /zones/{zone}/plots/{plot} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Ore nodes (zones/cave/nodes/{id}): seeded idempotently by whoever
+    // arrives first; swings decrement hp; respawn stamps rewrite it.
+    match /zones/{zone}/nodes/{node} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Inventories: players update their OWN pack; reads are open (shops,
+    // quest progress checks). SPIKE TRUST MODEL: writes stay open to any
+    // authed session so the director can grant quest rewards (P6).
+    match /inventory/{pid} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H1: the event ledger — APPEND-ONLY facts (events/{autoId}:
+    // {kind, actor, zone, detail, ts, cycle}). Feeds the fair tally + the
+    // Post (H2+). No update/delete for ANYONE: transitions are pure
+    // functions of this ledger, so its history must be immutable.
+    // H-HEIST-b tightens create to the DIRECTOR-OR-SELF-WITNESSED shape: an
+    // event's `actor` must be the writer's own uid, OR the writer is the DM
+    // (adminOrOpen — open in a fresh/dev world). A `caught` burglary event is
+    // thus self-witnessed (the player's own client writes actor == uid); no
+    // one can forge a caught event against another wanderer to ban them.
+    match /events/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && (request.resource.data.actor == request.auth.uid || adminOrOpen());
+      // The ledger stays append-only in play (no update). Deletes are reserved
+      // for the DM/admin reset lane: open in a fresh/dev world, admin-only once
+      // world/config hardens the world.
+      allow delete: if adminOrOpen();
+    }
+
+    // ── M6: barter — the commerce ledger. trades/{autoId}:
+    // {uid, npc, side, item, qty, unit, gold, give, take, t}. An APPEND-ONLY
+    // RECEIPT bound to the trader's OWN uid (your receipt is yours; no one
+    // writes a trade in another wanderer's name) with a serverTimestamp pinned
+    // to request.time. No update — a receipt, once written, stands (gossip / the
+    // Post / a Hearthfest audit read the history). Delete gated to a hardened
+    // world's admin only (the factory reset), like the event ledger.
+    match /trades/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.t == request.time;
+      allow delete: if isAdmin();
+    }
+
+    // ── M6: valley reputation — reputation/{pid}.townsfolk (the rep-priced
+    // trade tier reads it). Written owner-bound; the director may adjust it too
+    // (spike trust: any authed session may be the director), so it stays open to
+    // an authed writer like inventory/quests. Reads open (merchants price on it).
+    match /reputation/{pid} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H2: the Hearth Table — hearthfest/{cycle}/contributions/{pid}:
+    // per-player, per-cycle offering counts ({pid, name, items:{id:n}}).
+    // Writes bind to the depositor's OWN uid (your offering is yours to
+    // grow); no delete — what the Hearth is given, it keeps. Reads open:
+    // the fair tally (H3) and neighborly noticeboards read everyone's.
+    match /hearthfest/{cycle}/contributions/{pid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == pid;
+    }
+
+    // ── H3: fair awards — hearthfest/{cycle}/awards/{pid}: the tally's
+    // per-player grant record ({pid, tier, points, benefit, attended,
+    // granted}). Written by the DIRECTOR at the tally deadline (spike trust
+    // model: any authed session may be the director); the granted flag is
+    // the idempotency latch, so no delete — an award, once written, stands.
+    // Reads open: the awarded player's tab shows the toast.
+    match /hearthfest/{cycle}/awards/{pid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+    }
+
+    // ── H6: per-player-per-cycle wild chests — chestClaims/{key}/players/{uid}
+    // (key = "{cycle}_{zone}", app/chests.js). Opening a wild chest self-claims
+    // this doc ONCE: create-only, OWNER-BOUND, no update/delete — the awards-doc
+    // idempotency latch tightened to the claimant's own uid, so the loot lands
+    // exactly once per player per cycle per zone (a re-open is DENIED, and no
+    // one can claim another player's chest). The loot itself rides inventory/
+    // (its own owner-bound rule); this doc is purely the latch. Reads open — a
+    // tab hides a chest it already claimed.
+    match /chestClaims/{key}/players/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── H-HEIST-b: per-player-per-cycle-per-house burglary claims —
+    // houseClaims/{cycle}_{home}/players/{uid} (app/heist.js). The chest latch
+    // applied to a home's valuable: create-only, OWNER-BOUND, no update/delete,
+    // so a home's loot lands exactly once per player per cycle (a re-loot is
+    // DENIED, and no one can claim another wanderer's take). The loot itself
+    // rides inventory/ (its own owner-bound rule); this doc is purely the latch.
+    match /houseClaims/{key}/players/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── H4: the Pixelwood Post — posts/{seq}: in-world newspaper editions
+    // ({seq, cycle, simDay, headline, sections[], factsUsed[], template}).
+    // Written by the DIRECTOR at each sim-dawn (spike trust model: any authed
+    // session may be the director). An edition is an IMMUTABLE record — the
+    // shared world's memory and the late-joiner's catch-up path — so NO update
+    // and NO delete: once the Post goes to press, it stands. Reads open: every
+    // tab's reader opens the latest and pages the archive. DM-role gated once
+    // hardened (the Post is the director's byline).
+    match /posts/{seq} {
+      allow read: if request.auth != null;
+      allow create: if adminOrOpen();
+      allow delete: if adminOrOpen(); // M2 #6: the director's factory reset wipes the archive
+    }
+
+    // ── H-ID: admin-minted invite codes. invites/{code}:
+    // {createdBy, createdAt, usedBy, usedAt}. Minting is DM-role gated (open in
+    // a fresh world). CONSUMING is a self-claim of an UNUSED invite
+    // (usedBy := my uid) — the FIRST of the two sequential signup writes; the
+    // profile create is the second. No batch (the #756 getAfter gap): each rule
+    // validates against already-committed state, so consume-then-create works
+    // where an atomic batch would not.
+    match /invites/{code} {
+      allow read: if request.auth != null;
+      allow create: if adminOrOpen()
+                    && request.resource.data.usedBy == null;
+      allow update: if request.auth != null
+                    && resource.data.usedBy == null
+                    && request.resource.data.usedBy == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy', 'usedAt']);
+      allow delete: if isAdmin();
+    }
+
+    // ── H-ID: account profiles — players/{uid}: {name, createdAt, inviteCode}.
+    // The stable display name presence/dialogue read from (anonymous guests
+    // keep their wanderer-* default, no profile). Creating a profile REQUIRES
+    // having consumed an invite whose usedBy is my uid — so real accounts are
+    // invite-gated end to end. Own-profile renames allowed.
+    match /players/{uid} {
+      allow read: if request.auth != null;
+      // create: EITHER a real account (invite-gated name) OR — H-HEIST-b — a
+      // mechanics-only record for a guest (no name, no invite): it carries only
+      // lockpicking/rep/combat state, so persisting a guest's earned mechanics
+      // never bypasses the invite gate for a display name.
+      allow create: if request.auth != null
+                    && (
+                      ( request.auth.uid == uid
+                        && request.resource.data.name is string
+                        && request.resource.data.name.size() > 0
+                        && exists(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode))
+                        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.usedBy == request.auth.uid )
+                      ||
+                      ( request.auth.uid == uid
+                        && request.resource.data.keys().hasOnly(['skills', 'rep', 'combat', 'updatedAt']) )
+                      ||
+                      ( adminOrOpen()
+                        && request.resource.data.keys().hasOnly(['combat', 'updatedAt']) )
+                    );
+      // update: own-profile rename AND/OR mechanics state (H-HEIST-b + combat:
+      // lockpicking XP, caught-rep hits, and HP/hostility live on the player's
+      // own profile; the open-world director may also apply combat damage in
+      // the spike trust model).
+      allow update: if request.auth != null
+                    && (
+                      ( request.auth.uid == uid
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'skills', 'rep', 'combat', 'updatedAt']) )
+                      ||
+                      ( adminOrOpen()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['combat', 'updatedAt']) )
+                    );
+      allow delete: if adminOrOpen(); // M2 #6: the director's factory reset wipes profiles
+    }
+
+    // Quests (05-world schema: {id,type,title,description,giver,assignee,
+    // status,progress,reward,target}). Authored by the director's offer_quest
+    // tool, completed by complete_quest / deliver auto-completion; game tabs
+    // subscribe for the journal + map pins. SPIKE TRUST MODEL: any authed
+    // session may be the director.
+    match /quests/{qid} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // ── H-SOCIAL (#812): player chat — a global valley channel + per-zone local
+    // chat, one append-only ledger (chat/{autoId}). Each doc stamps the speaker's
+    // TILE at send (tx,ty) so the proximity-gossip digest can filter by distance
+    // to an NPC (words travel from where they were spoken). ──────────────────
+
+    // The rate-limit ledger (F-004 spacing recipe). A player owns chatMeta/{uid}
+    // and stamps lastChatAt == serverTimestamp() on every send; updates must be
+    // ≥1.5s apart, so a burst of stamps is DENIED at this doc. The client routes
+    // every send through this gate first (bumpChatMeta → on success, addDoc chat),
+    // so a too-fast send is dropped before the chat write. This is the rate
+    // limit's rules-enforced core; the residual (a hand-rolled client skipping
+    // the gate) is the same spike-trust boundary as the rest of these rules
+    // ("any authed session may be the director", client-authoritative claims).
+    // NOTE: the chat create deliberately does NOT couple to a chatMeta freshness
+    // window — a fixed window (e.g. ≤3s) yields false denials under a slow/warm
+    // serve, where the gap between the stamp and the chat write drifts past it.
+    match /chatMeta/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.lastChatAt == request.time;
+      allow update: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.lastChatAt == request.time
+                    && request.time > resource.data.lastChatAt + duration.value(1500, 'ms');
+      allow delete: if adminOrOpen(); // M2 #6: the director's factory reset clears rate ledgers
+    }
+
+    // A chat line: bound to the sender's uid; name must MATCH the account's
+    // profile (players/{uid}.name) or, for a guest (no profile), the wanderer-*
+    // shape — a guest can't spoof an account's display name. text is capped at
+    // 200 chars; scope ∈ {global, zone}; tx/ty are the speaker's tile; t pins
+    // serverTimestamp. Append-only — a spoken word stands (no update/delete).
+    function chatNameOk(uid, name) {
+      return name is string && name.size() > 0 && name.size() <= 40
+        && ( exists(/databases/$(database)/documents/players/$(uid))
+             ? name == get(/databases/$(database)/documents/players/$(uid)).data.name
+             : name.matches('wanderer-.*') );
+    }
+    match /chat/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
+                    && request.resource.data.text.size() <= 200
+                    && request.resource.data.scope in ['global', 'zone']
+                    && request.resource.data.zone is string
+                    && request.resource.data.tx is int
+                    && request.resource.data.ty is int
+                    && request.resource.data.t == request.time
+                    && chatNameOk(request.auth.uid, request.resource.data.name);
+    }
+
+    // Map pins — mapPins/{uid} is a GLOBAL presence-lite doc a player writes ONLY
+    // while "signed to the map" (the opt-in broadcast flag). Same ghosts law as
+    // presence: a stale pin is peer-evicted (delete open); create/update bind to
+    // the OWN uid, so a player sets only their OWN flag.
+    match /mapPins/{uid} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
