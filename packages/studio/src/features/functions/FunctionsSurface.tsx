@@ -335,8 +335,8 @@ export function FunctionsSurface({
           </p>
           <p className="functions__notice-copy">
             Live mode observes client SDK traffic without running local Functions handlers.
-            Start a local sandbox with <code className="mono">pyric sandbox</code> to discover
-            and fire project functions.
+            Start a local sandbox with <code className="mono">pyric sandbox --hosted</code> to
+            discover and fire project functions.
           </p>
         </div>
       ) : null}
@@ -349,7 +349,7 @@ export function FunctionsSurface({
           </p>
           <p className="functions__notice-copy">
             {errorMessage ??
-              'Start Pyric Studio from a local project with pyric sandbox --ui so Studio can discover your functions and fire triggers.'}
+              'Start Pyric Studio from a local project with pyric sandbox --hosted --ui so Studio can discover your functions and fire triggers.'}
           </p>
         </div>
       ) : null}
@@ -366,7 +366,7 @@ export function FunctionsSurface({
           </p>
           <p className="functions__notice-copy">
             {errorMessage ??
-              'This Studio session is attached to a browser SharedWorker without the Node-hosted method endpoint. Restart with pyric sandbox --hosted (the default) to list and fire triggers. Live execution events still stream below.'}
+              'This Studio session is attached to a browser SharedWorker without the Node-hosted method endpoint. Restart with pyric sandbox --hosted to list and fire triggers. Live execution events still stream below.'}
           </p>
         </div>
       ) : null}

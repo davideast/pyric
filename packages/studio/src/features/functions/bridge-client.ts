@@ -164,7 +164,7 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
         ok: false,
         failure: {
           kind: 'shared-worker-fallback',
-          message: 'Functions bridge methods require a Node-hosted sandbox (pyric sandbox).',
+          message: 'Functions bridge methods require a Node-hosted sandbox (pyric sandbox --hosted).',
         },
       };
     }
@@ -216,7 +216,7 @@ export function createFunctionsBridgeApi(config: FunctionsBridgeConfig): Functio
         failure: {
           kind: 'shared-worker-fallback',
           message:
-            'This host is running without the Node-hosted method endpoint. Start with pyric sandbox to inspect and fire Functions triggers.',
+            'This host is running without the Node-hosted method endpoint. Start with pyric sandbox --hosted to inspect and fire Functions triggers.',
         },
       };
     }

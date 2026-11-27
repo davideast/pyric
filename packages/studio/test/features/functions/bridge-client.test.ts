@@ -131,7 +131,10 @@ describe('createFunctionsBridgeApi', () => {
     });
     const res404 = await api404.listTriggers();
     expect(res404.ok).toBe(false);
-    if (!res404.ok) expect(res404.failure.kind).toBe('shared-worker-fallback');
+    if (!res404.ok) {
+      expect(res404.failure.kind).toBe('shared-worker-fallback');
+      expect(res404.failure.message).toContain('pyric sandbox --hosted');
+    }
 
     const conflict = createMockFetch(() => jsonResponse({ ok: false, summary: 'changed' }, 409));
     const api409 = createFunctionsBridgeApi({
