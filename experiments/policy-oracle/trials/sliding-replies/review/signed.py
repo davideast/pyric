@@ -86,42 +86,70 @@ def read_capture(folder,name,rules,private):
     original = json.loads(raw_bytes)
     assert original['mode']==evidence['mode']==name
     assert original['rulesSha256']==evidence['rulesSha256']==rules
+    assert same_json(original['target'],read(ORACLE/'arcade/v1/manifest.json')['target'])
     run = original['runId']
     directory = private/run
     journals = sorted(directory.glob('[0-9]*-*.json'))
     assert digest(b''.join(file.read_bytes() for file in journals))==evidence['journalSha256']
     assert read(directory/'completed.json')['receipt']==receipt
     events = [read(file) for file in journals]
-    assert [e['data'] for e in events if e['kind']=='chess-attempt']==original['rows']
+    assert same_json([e['data'] for e in events if e['kind']=='chess-attempt'],original['rows'])
     confirmations = [e['data'] for e in events if e['kind']=='propagation-confirmed']
     phases = [c['phase'] for c in confirmations]
     assert phases==['initially-closed','open','restored-closed']
+    actors = {e['data']['uid']:e['data']['role'] for e in events if e['kind']=='identity'}
+    assert len(actors)==3 and set(actors.values())=={'host','guest','observer'}
+    roles={role:uid for uid,role in actors.items()}
+    lock,=[e['data'] for e in events if e['kind']=='acquired']
+    assert events[0]['kind']=='acquired' and events[-1]['kind']=='released'
     for confirmation,public_phase in zip(confirmations,evidence['phases'],strict=True):
         proof=confirmation['proof']
+        phase=confirmation['phase']
+        body_bytes=(private/(confirmation['digest']+'.json')).read_bytes()
+        assert digest(body_bytes)==confirmation['digest']
+        body=json.loads(body_bytes)
+        assert body['phase']==phase and same_json(body['proof'],proof)
+        assert body['identities']=={'host':roles['host'],'guest':roles['observer']}
+        observations=[{key:value for key,value in e['data'].items() if key!='phase'} for e in events
+                      if e['kind']=='propagation-control' and e['data']['phase']==phase]
+        assert same_json(body['controls'],observations)
+        if phase=='open':
+            decisive=[[1,'ALLOW','ALLOW','ALLOW'],[2,'ALLOW','DENY','ALLOW']]*2
+        else:
+            decisive=[[1,'DENY','DENY','DENY']]*2
+        last=[[c['count'],c['beforeRead'],c['write'],c['afterRead']] for c in observations[-len(decisive):]]
+        assert last==decisive
         assert public_phase=={'phase':confirmation['phase'],'receipt':confirmation['digest'],
                               'rulesSha256':proof['rulesSha256'],'releaseUpdateTime':proof['releaseUpdateTime'],
                               'verifiedAt':proof['verifiedAt']}
         assert proof['databaseUid']==original['target']['uid']==evidence['targetDatabaseUid']
+        assert proof['lockRunId']==run and proof['lockVersion']==lock['lockVersion'] and proof['releaseName']==lock['releaseName']
     closed = digest((ORACLE/'arcade/v1/rules/closed.rules').read_bytes())
     assert [(p['phase'],p['rulesSha256']) for p in evidence['phases']]==list(zip(phases,[closed,rules,closed]))
     closure = evidence['closure']
     assert closure['signedRead']==closure['signedWrite']==evidence['signedOutRead']=='DENY'
     assert closure['leaseReleased'] and closure['version']==evidence['phases'][-1]['releaseUpdateTime']
-    controls=[e['data'] for e in events if e['kind']=='propagation-control' and e['data']['phase']=='restored-closed']
-    assert controls and all(c['beforeRead']==c['write']==c['afterRead']=='DENY' for c in controls[-2:])
     signed_out,=[e['data'] for e in events if e['kind']=='unauthenticated-read']
     restored,=[e['data'] for e in events if e['kind']=='closed']
     released,=[e['data'] for e in events if e['kind']=='released']
-    assert signed_out['observed']=='DENY' and released['runId']==run
+    assert signed_out['observed']=='DENY' and released=={'runId':run,'version':lock['lockVersion']}
     assert restored['rulesetName']==original['target']['closedRuleset']==evidence['restored']
     assert restored['rulesSha256']==closed and restored['verifiedAt']==closure['verifiedAt']
-    actors = {e['data']['uid']:e['data']['role'] for e in events if e['kind']=='identity'}
-    assert len(actors)==3 and set(actors.values())=={'host','guest','observer'}
+    opened=confirmations[1]
+    open_fields={k:v for k,v in opened['proof'].items() if k!='verifiedAt'}
+    expected_attempt_proof=open_fields|{'propagationReceiptSha256':opened['digest']}
+    open_index=next(i for i,e in enumerate(events) if e['kind']=='propagation-confirmed' and e['data']['phase']=='open')
+    closed_index=next(i for i,e in enumerate(events) if e['kind']=='propagation-confirmed' and e['data']['phase']=='restored-closed')
+    assert all(open_index<i<closed_index for i,e in enumerate(events) if e['kind']=='chess-attempt')
     for raw,public in zip(original['rows'],evidence['rows'],strict=True):
         row = {k:v for k,v in raw.items() if k not in ('proof','end','expected')}
         label = public['id']
-        assert public_form(row,actors,run)==public,label
-        assert raw['proof']['rulesSha256']==raw['end']['rulesSha256']==rules,label
+        assert same_json(public_form(row,actors,run),public),label
+        for side in ('proof','end'):
+            fields={k:v for k,v in raw[side].items() if k!='verifiedAt'}
+            assert same_json(fields,expected_attempt_proof),label
+        assert (timestamp(opened['proof']['verifiedAt'])<=timestamp(raw['proof']['verifiedAt'])
+                <=timestamp(raw['end']['verifiedAt'])<=timestamp(restored['verifiedAt'])),label
         before, = raw['before']
         after, = raw['after']
         update, = raw['submitted']
@@ -134,7 +162,8 @@ def read_capture(folder,name,rules,private):
             assert raw['observed']=='DENY' and same_json(after,before),label
     return evidence,{'capture':name,'caseCount':len(original['rows']),'controllerSha256':receipt,
                      'journalSha256':evidence['journalSha256'],'snapshotAndVersionVerified':True,
-                     'restoredAndReleased':True}
+                     'restoredAndReleased':True,'phaseProofsVerified':len(confirmations),
+                     'attemptProofPairsVerified':len(original['rows']),'openReleaseUpdateTime':open_fields['releaseUpdateTime']}
 
 
 def release(rules,private,release_root=None):
