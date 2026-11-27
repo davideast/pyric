@@ -5,6 +5,7 @@
 import type { NextConfigObject, PyricNextOptions } from './types.js';
 import { runtimeChipMetaValue } from '../serve/runtime/chip-config.js';
 import { resolveSandboxTargetUrl } from './target-url.js';
+import { resolveFunctionsGateway, type ResolvedFunctionsGateway } from './functions-target.js';
 
 /**
  * Sanitize the launcher's transport selection before inlining it into Next.js
@@ -40,7 +41,11 @@ function launcherWorkerInit(targetUrl: string): string | undefined {
   return sanitizeClientWorkerInit(workerInit);
 }
 
-export function augmentRuntimeEnv(config: NextConfigObject, options?: PyricNextOptions): NextConfigObject {
+export function augmentRuntimeEnv(
+  config: NextConfigObject,
+  options?: PyricNextOptions,
+  resolvedGateway?: ResolvedFunctionsGateway | null,
+): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
   const existingEnv = updatedConfig.env !== undefined ? Object.assign({}, updatedConfig.env) : {};
 
@@ -48,6 +53,16 @@ export function augmentRuntimeEnv(config: NextConfigObject, options?: PyricNextO
   const studioUrl = `${targetUrl}/__pyric/ui/studio`;
   existingEnv.NEXT_PUBLIC_PYRIC_STUDIO_URL = studioUrl;
   existingEnv.PYRIC_STUDIO_URL = studioUrl;
+
+  const functionsGateway = resolvedGateway !== undefined ? resolvedGateway : resolveFunctionsGateway(options);
+  if (functionsGateway !== null) {
+    if (existingEnv.NEXT_PUBLIC_PYRIC_FUNCTIONS_URL === undefined) {
+      existingEnv.NEXT_PUBLIC_PYRIC_FUNCTIONS_URL = '/__pyric/functions';
+    }
+    if (existingEnv.PYRIC_FUNCTIONS_GATEWAY_URL === undefined) {
+      existingEnv.PYRIC_FUNCTIONS_GATEWAY_URL = functionsGateway.targetUrl;
+    }
+  }
 
   if (options?.runtimeChip !== undefined) {
     const chipValue = runtimeChipMetaValue(options.runtimeChip);
