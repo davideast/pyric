@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Score conversation list authorization and the exact rooms returned as a caller's membership changes, including singleton and mixed array-contains-any constraints."
+}

@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {readFileSync,mkdirSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {privateArchive,immutable,jsonBytes} from '../../../arcade/live/controller/archive.mjs';
+import {sha} from '../../../arcade/corpus.mjs';
+import {root,directory} from '../../ai-jrpg-campaign/v1/catalog.mjs';
+import {family} from './fixture.mjs';
+
+const [archivePath,runId] = process.argv.slice(2);
+assert.match(runId,/^[a-f0-9-]{36}$/);
+const archive = privateArchive(resolve(archivePath));
+const completed = JSON.parse(readFileSync(join(archive,runId,'completed.json')));
+assert.equal(completed.runId,runId);
+const digest = completed.receipts[family];
+assert.match(digest,/^[a-f0-9]{64}$/);
+const raw = join(archive,digest+'.json'), receipt = readFileSync(raw);
+assert.equal(sha(receipt),digest);
+assert.equal(JSON.parse(receipt).runId,runId);
+const probe = join(root,directory(family,'genkit'));
+const claim = readFileSync(resolve(probe,'../../../claim.json'));
+const recipe = readFileSync(join(probe,'recipe.json'));
+const results = JSON.parse(execFileSync(process.execPath,[join(root,'adapters/conversation-queries/v1/verify.mjs'),probe,raw]));
+assert.deepEqual(Object.keys(results),JSON.parse(recipe).cases);
+const path = 'evidence/'+runId+'.json';
+const observation = {authority:'firestore-sdk',inputDigest:sha(Buffer.concat([claim,Buffer.from([0]),recipe])),results,
+  evidence:{path,sha256:digest,pointers:Object.fromEntries(Object.keys(results).map(id=>[id,'/rows/'+id+'/decision']))}};
+for (const sub of ['evidence','observations']) mkdirSync(join(probe,sub),{recursive:true});
+immutable(join(probe,path),receipt,{identicalOk:true});
+immutable(join(probe,'observations',runId+'.json'),jsonBytes(observation),{identicalOk:true});
+console.log('Verified and imported',Object.keys(results).length,'cases',digest);

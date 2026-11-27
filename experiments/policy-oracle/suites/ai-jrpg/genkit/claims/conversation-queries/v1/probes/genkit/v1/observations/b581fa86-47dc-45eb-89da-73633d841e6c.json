@@ -1,0 +1,88 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "e31682e83ab120701c7ba46d3d63033cf877638b61f851e311708dc295a4c308",
+  "results": {
+    "create-x": "ALLOW",
+    "create-y": "ALLOW",
+    "before-own-a": {
+      "verdict": "ALLOW",
+      "matches": [
+        0
+      ]
+    },
+    "before-own-b": {
+      "verdict": "ALLOW",
+      "matches": [
+        0,
+        1
+      ]
+    },
+    "before-own-c": {
+      "verdict": "ALLOW",
+      "matches": [
+        1
+      ]
+    },
+    "before-peer-b": "DENY",
+    "before-unfiltered": "DENY",
+    "before-any-a": {
+      "verdict": "ALLOW",
+      "matches": [
+        0
+      ]
+    },
+    "before-any-a-d": "DENY",
+    "replace-b-with-c": "ALLOW",
+    "after-own-a": {
+      "verdict": "ALLOW",
+      "matches": [
+        0
+      ]
+    },
+    "after-own-b": {
+      "verdict": "ALLOW",
+      "matches": [
+        1
+      ]
+    },
+    "after-own-c": {
+      "verdict": "ALLOW",
+      "matches": [
+        0,
+        1
+      ]
+    },
+    "after-peer-b": "DENY",
+    "after-unfiltered": "DENY",
+    "after-any-a": {
+      "verdict": "ALLOW",
+      "matches": [
+        0
+      ]
+    },
+    "after-any-a-d": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/b581fa86-47dc-45eb-89da-73633d841e6c.json",
+    "sha256": "86848516a06d8fc261d72090767dd0320671c08a1db9a82aab6f529729f41873",
+    "pointers": {
+      "create-x": "/rows/create-x/decision",
+      "create-y": "/rows/create-y/decision",
+      "before-own-a": "/rows/before-own-a/decision",
+      "before-own-b": "/rows/before-own-b/decision",
+      "before-own-c": "/rows/before-own-c/decision",
+      "before-peer-b": "/rows/before-peer-b/decision",
+      "before-unfiltered": "/rows/before-unfiltered/decision",
+      "before-any-a": "/rows/before-any-a/decision",
+      "before-any-a-d": "/rows/before-any-a-d/decision",
+      "replace-b-with-c": "/rows/replace-b-with-c/decision",
+      "after-own-a": "/rows/after-own-a/decision",
+      "after-own-b": "/rows/after-own-b/decision",
+      "after-own-c": "/rows/after-own-c/decision",
+      "after-peer-b": "/rows/after-peer-b/decision",
+      "after-unfiltered": "/rows/after-unfiltered/decision",
+      "after-any-a": "/rows/after-any-a/decision",
+      "after-any-a-d": "/rows/after-any-a-d/decision"
+    }
+  }
+}

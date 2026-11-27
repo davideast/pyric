@@ -31,6 +31,7 @@ CAMPAIGN_PROBES = {
     "blockingfun": {"blocking": ("session-access", "lobby-transitions")},
 }
 SDK_VERIFIERS = {
+    "suites/ai-jrpg/genkit/claims/conversation-queries/v1/probes/genkit/v1": "@oracle/adapters/conversation-queries/v1/verify.mjs",
     **{f"suites/ai-jrpg/{suite}/claims/{family}/v1/probes/{variant}/v1": CAMPAIGN_VERIFIER
        for suite, variants in CAMPAIGN_PROBES.items() for variant, families in variants.items() for family in families},
     CLIP_PROBE: "@oracle/adapters/ai-jrpg-clips/v1/verify.mjs",
