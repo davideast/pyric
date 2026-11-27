@@ -4,11 +4,16 @@ import gzip
 import hashlib
 import json
 from pathlib import Path
+import runpy
 import subprocess
+import sys
 import tempfile
 
 HERE=Path(__file__).resolve().parent
 TRIAL=HERE.parent
+sys.path.insert(0,str(TRIAL))
+from campaign_corpus import PRIOR, RULES
+
 EXPLORATION=TRIAL.parent/'chess-safety/exploration'
 def read(file): return json.loads(file.read_bytes())
 def run(command,data):
@@ -19,6 +24,7 @@ def main():
     p.add_argument('--rules',type=Path,required=True)
     p.add_argument('--reference',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--python-chess-archive',type=Path,help='independently verify each minimized move and its complete reply list')
     p.add_argument('--from-report',type=Path,help='reuse complete results from the pinned exploration CLI')
     args=p.parse_args()
     source=args.rules.resolve(strict=True);ref=args.reference.resolve(strict=True)
@@ -52,6 +58,39 @@ def main():
     scores['scope']='Local comparisons counted by frozen corpus ID across eleven cohorts. Cases may repeat a document under another ID.'
     scores['firstInFrozenOrder']=requests[0]['description']
     scores['reductions']=reduced
+    minimal_requests=[]
+    for item in reduced['reductions']:
+        case=item['smallest']
+        minimal_requests.append(run(['bun','--no-install',HERE/'write.mjs'],{
+            'id':item['id'], 'fen':case['fen'], 'uci':case['uci'], 'claim':case['claim']}))
+    baseline=TRIAL.parent/'chess-safety/baseline.mjs'
+    old=run(['bun','--no-install',baseline,ref,RULES],minimal_requests)
+    new=run(['bun','--no-install',baseline,ref,source],minimal_requests)
+    assert old['sha256']==PRIOR and new['sha256']==wide['rulesSha256']
+    comparisons=[]
+    for item,prior_row,new_row in zip(reduced['reductions'],old['rows'],new['rows'],strict=True):
+        compact=item['smallest']
+        assert prior_row['id']==new_row['id']==item['id']
+        assert (new_row['decision'],new_row.get('error'),new_row['cost'])==(
+            compact['decision'],compact['diagnostic'],compact['expressions'])
+        comparisons.append({'id':item['id'],'native':compact['native'],'prior':prior_row,'selected':new_row})
+    scores['minimizedReleaseComparison']={'priorRulesSha256':PRIOR,'rows':comparisons}
+    if args.python_chess_archive:
+        referee=runpy.run_path(str(TRIAL.parent/'chess/reference/generate.py'))
+        verified={}
+        with tempfile.TemporaryDirectory(prefix='sliding-reduced-referee-') as temp:
+            chess=referee['load_chess'](args.python_chess_archive,Path(temp))
+            for item in reduced['reductions']:
+                case=item['smallest']
+                board=chess.Board(case['fen']+' 0 1')
+                move=chess.Move.from_uci(case['uci'])
+                assert board.is_valid() and board.is_legal(move)
+                board.push(move)
+                replies=sorted(m.uci() for m in board.legal_moves)
+                assert board.is_valid() and referee['fen'](board)==case['successor'] and replies==case['replies']
+                assert board.is_check()==case['checkedDefender'] and referee['adjudicate'](board)=='playing'
+                verified[item['id']]=replies
+        scores['independentReducedPositions']={'refereeSourceSha256':referee['PIN'],'legalReplies':verified}
     args.output.write_text(json.dumps(scores,indent=2)+'\n')
 
 if __name__=='__main__': main()

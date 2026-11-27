@@ -13,7 +13,7 @@ python3 -B replay.py --candidate-package /absolute/path/to/pyric-rules.tgz \
 
 Omit `--candidate-package` to rebuild the pinned experimental package. A submitted package returns exit 0 only if its standalone predictions, compiled witnesses, and every local and measured live write satisfy the complete oracle with full live coverage. Exit 1 includes a scorecard for partial or incorrect candidates. A default reference replay returns exit 0 when its recorded results reproduce, including known failures. An operational failure exits with an error. A byte-identical Rules artifact can reuse its digest-bound capture, even from a repacked compiler. New Rules bytes require new live observations. [Scorer](replay.py) · [Package controls](controls/)
 
-All 190 historical proposals are replayed as complete document transitions. The six rook claims are already among them. The 18 bishop claims and 30 queen claims bring the total to 238. Each board has the same transition under playing, draw and won. A refused legal write that exhausts the local expression budget counts as a false refusal and a limit hit. A refusal on an illegal proposal that exhausts the evaluator receives an evaluation error. Source compilation and data-plane enforcement have distinct evidence. [Frozen submissions](native/) · [Local revision observations](revisions/) · [Live capture and closure procedure](live/README.md)
+All 190 historical proposals are replayed as complete document transitions. The six rook claims are already among them. The 18 bishop claims and 30 queen claims bring the total to 238. Each board has the same move and successor under playing, draw and won. Arcade also requires the winner field to name the mover for won and to be empty for the other two claims. A refused legal write that exhausts the local expression budget counts as a false refusal and a limit hit. A refusal on an illegal proposal that exhausts the evaluator receives an evaluation error. Source compilation and data-plane enforcement have distinct evidence. [Frozen submissions](native/) · [Local revision observations](revisions/) · [Live capture and closure procedure](live/README.md)
 
 Add any of these options to the same command.
 
@@ -30,6 +30,16 @@ Add any of these options to the same command.
 **Standalone Pyric** accepts the successor board, turn, castling rights, and en passant target. It selects the side's rook, bishop, and queen origins, checks their destinations and ray clearance, applies each reply, and checks its king on the changed board. It returns coordinates such as `["c5c8"]`. The same bounded module separately enumerates every legal reply to distinguish a continuing game, mate, and stalemate. Legal moves leading to the same exact successor share a prediction. Deliberately illegal source moves and corrupted successions are still graded on their complete writes. [Readable standalone policy](sliding-replies.policy) · [Shared move and safety policy](../chess/policies/chess.policy) · [Adapter input](project.mjs)
 
 **Compiled Rules** use a chess-specific lowering to avoid enumerating a 64-by-64 move product during a Firestore write. The full map becomes a rank-ordered board with two boundary markers per rank. For a ray check, the policy finds where the defending piece can intersect that checking line, verifies clear travel, moves it on a copy, and tests whether any attack still reaches its king. A successful result encodes both squares. The c5 square has index 42 and c8 has index 72. The number `42 × 80 + 72 = 3432` therefore means `c5c8`. A return of `-1` means no legal slider reply in the helper's material scope. A separate check considers the remaining defenders. An in-check king with no legal reply is mated. [Exact Pyric functions for the rook pair](examples/rook-pair.policy) · [Their emitted Firestore functions](examples/rook-pair.rules) · [Complete selected ruleset](live/releases/a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca/firestore.rules) · [Policy construction](compiler/cross.mjs) · [Piece dispatch and other defenses](compiler/family.mjs) · [Public compiler entry point and full ruleset linkage](compiler/emit.mjs)
+
+On these two boards, the full write reaches this generated claim check after validating the submitted move and successor.
+
+```
+function slideClaim(status, hasReply) {
+  return (status == 'playing') == hasReply;
+}
+```
+
+The Rules binder computes `hasReply` from the defending king, the sliding-piece witness, and any in-scope knight or pawn. On each rook board the king has no move. On c5, the integer producer returns 3432, so the rules admit `playing`. On h5, it returns −1, so they admit `won`. The preceding `slideMayClaim` rejects `draw` because the king is in check on both boards. The scorer also replaces the integer producer with fixed absence or presence in diagnostic copies and observes both the playing and won decisions flip. [Exact compiled functions](examples/rook-pair.rules) · [Binder that supplies their arguments](compiler/records.mjs) · [Six full-write traces](review/scores/a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca/witness.json)
 
 The full bounded program and the specialized Firestore source are separate authored implementations. The experiment demonstrates public compilation of the specialized helpers. It does not establish an automatic transformation from arbitrary bounded chess policy to equivalent Firestore Rules. For material outside a compiled guard the complete Arcade ruleset can fall back to its previous result logic. The independent witness audit reports that branch explicitly. [Witness extraction](review/witness.mjs) · [Independent board panel](review/panel/freeze.json)
 
@@ -53,13 +63,14 @@ The wider local replay found 15,828 matches across 15,905 case occurrences in el
 
 | First minimized example | Native answer | Complete local Rules decision |
 | --- | --- | --- |
-| White castles short with its king on e1 and rook on h1. After castling, Black can move its rook on b8. | Allow `playing`. Black has 13 legal replies. | Deny at the 1,000-expression limit. |
-| Black checks with Qd2–b2. White has a queen on b1 and a bishop on c3. | Deny `won`. Both Qxb2 and Bxb2 capture the checker. | Allow the win claim. This defending roster takes the fallback path. |
+| White castles short with its king on e1 and rook on h1. After castling, Black can move its rook on b8. | Allow `playing`. Black has 13 legal replies. | Deny at the 1,000-expression limit. The prior release allowed this exact write at 839 expressions. |
+| Black checks with Qd2–b2. White has a queen on b1 and a bishop on c3. | Deny `won`. Both Qxb2 and Bxb2 capture the checker. | Allow the win claim. The prior release also allowed it. This defending roster takes the fallback path. |
 
 To reproduce the wider score and both reductions, supply the selected full Rules and an installed, pinned reference evaluator. The report includes the actual successor, native legal replies, full-write decisions and retained castling or en passant state.
 
 ```sh
 python3 -B supplemental/score.py --rules /absolute/path/to/firestore.rules \
   --reference /absolute/path/to/reference/node_modules/@pyric/rules \
+  --python-chess-archive /absolute/path/to/chess-1.11.2.tar.gz \
   --output /tmp/sliding-wider-score.json
 ```
