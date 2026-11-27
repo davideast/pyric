@@ -1,0 +1,5 @@
+{
+  "description": "Compare the native host win and its missing-frame variant under stock RTDB and a Pyric winning-goal predicate compiled against both match snapshots.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

@@ -1,0 +1,4 @@
+function reachesSeven(before, after) {
+  return (before.host < 7 && after.host == 7)
+    || (before.guest < 7 && after.guest == 7);
+}

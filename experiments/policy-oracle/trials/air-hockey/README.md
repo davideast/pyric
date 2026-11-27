@@ -61,3 +61,16 @@ The [live receipt](../../suites/arcade/air-hockey/claims/winning-goal-missing-fr
 Together the three write shapes distinguish the terminal score check from the frame check. A score alone was denied. The full native write closed the match and stored the tick-3 serve. Omitting only the frame closed the match with the tick-0 puck still stored. Pyric places its generated predicate on the frame, so it runs when that branch is written.
 
 Recapture from the oracle directory with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" missing-frame`, then import the completed run with `node adapters/air-hockey-missing-frame/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
+
+## Match-level winning-goal check
+
+The [placement](../../adapters/air-hockey-match-win/v1/fixture.mjs) binds Pyric’s [winning-score transition](../../adapters/air-hockey-match-win/v1/reaches-seven.policy) and the [existing frame policy](../../adapters/air-hockey/v1/frame.policy) to the old and merged match snapshots at `airhockey/$matchId/$host`. When either side reaches seven, the match validator requires the puck tick to advance and the winning goal and serve to satisfy the frame policy. Stock score and metadata rules still validate the increment, terminal status, and winner. The frame-local displacement check continues to run on ordinary frame writes.
+
+The [four signed readbacks](../../suites/arcade/air-hockey/claims/match-level-winning-goal/v1/probes/host-writes/v1/evidence/1055a657-a9b4-4b90-9a6d-3c0b5fbc0ee5.json) start from identical 6–6 matches.
+
+| Host write | Stock verdict and stored match | Match-level generated verdict and stored match |
+|---|---|---|
+| Full native win | Allow · 7–6, over, host wins, tick 3 | Allow · 7–6, over, host wins, tick 3 |
+| Same win omitting the frame | Allow · 7–6, over, host wins, tick 0 | Deny · 6–6, playing, no winner, tick 0, same full match and ETag |
+
+Run `node arcade/live/controller/air-hockey.mjs "$trusted_archive" match-win` from the oracle directory to capture a fresh secondary instance. Admit the resulting receipt with `node adapters/air-hockey-match-win/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`. The offline scorer recompiles both predicates from the candidate package and records the generated rules digest.

@@ -1,0 +1,20 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "0a49bd45ab9fde85936b587e6dc131f605d874826709bf61d1ff3baa906f7717",
+  "results": {
+    "stock-winning-goal": "ALLOW",
+    "stock-missing-frame": "ALLOW",
+    "generated-winning-goal": "ALLOW",
+    "generated-missing-frame": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/1055a657-a9b4-4b90-9a6d-3c0b5fbc0ee5.json",
+    "sha256": "9702b8fa88ec8b5a4ebf99d7acea876973f74352b297d22257e7e67c6b5ea76c",
+    "pointers": {
+      "stock-winning-goal": "/rows/stock-winning-goal/decision",
+      "stock-missing-frame": "/rows/stock-missing-frame/decision",
+      "generated-winning-goal": "/rows/generated-winning-goal/decision",
+      "generated-missing-frame": "/rows/generated-missing-frame/decision"
+    }
+  }
+}
