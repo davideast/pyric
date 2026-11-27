@@ -1,0 +1,69 @@
+{
+  "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "source": "private authenticated controller journals; independent chess rules on exact signed operands",
+  "status": "measured",
+  "distinctWrites": 238,
+  "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "nativeComparedOnActualDocuments": 238,
+  "priorIdenticalSignedOperands": 190,
+  "focusCasesWithExactSuccessorAndCompleteReplies": 54,
+  "nativeDecisions": {
+    "ALLOW": 108,
+    "DENY": 130
+  },
+  "firestoreDecisions": {
+    "ALLOW": 108,
+    "DENY": 130
+  },
+  "nativeVersusFirestore": {
+    "match": 238
+  },
+  "captures": [
+    {
+      "capture": "sliding-part-1",
+      "caseCount": 120,
+      "controllerSha256": "d3ef593d5a4023e0bf7400342b058199344b3047458a51a0f6e1b86ae4e30560",
+      "journalSha256": "6fadb633cbd622c6fbeeff8a675e5d4def1fb36013236aac710f798d2bb86d16",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 120,
+      "openReleaseUpdateTime": "2026-11-27T01:05:56.842008Z"
+    },
+    {
+      "capture": "sliding-part-2",
+      "caseCount": 118,
+      "controllerSha256": "0bdea0418a964fadf1387eb91054e84e78a4e9927840258e5b9cd8e8075c5ed9",
+      "journalSha256": "d4244c50e39bb5833625c129b8c901803890f25c066e27c4e1003c8e5fb8906c",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 118,
+      "openReleaseUpdateTime": "2026-11-27T01:21:34.578732Z"
+    }
+  ],
+  "mismatches": {},
+  "oldCorpusChanges": {
+    "repaired": [
+      "rook-c5-after-queen-won",
+      "rook-h5-after-queen-playing",
+      "holdout-interior-v1-b-mate-playing",
+      "holdout-interior-v1-w-nonking-checked-won",
+      "holdout-replies-v1-stalemate-pinned-defender-playing",
+      "holdout-replies-v1-only-b-move-in-check-won",
+      "actual-fourth-ply-playing",
+      "promote-capturing-rook-right-held"
+    ],
+    "regressed": [],
+    "stillDisagree": []
+  },
+  "shapeSensitivityControl": {
+    "source": "rook-safe",
+    "addedField": "unexpectedNullField",
+    "value": null,
+    "originalNative": "ALLOW",
+    "amendedNative": "DENY"
+  },
+  "invalidSourcePositions": [],
+  "perCaseAdjudicationsSha256": "1bdceebb0cc484259001e7bd30fb2a90f16c71d563abea9821c1ab9af27fd08d"
+}
