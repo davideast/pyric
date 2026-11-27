@@ -12,6 +12,12 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
+private fun isRecoverableRulesOrAuthDenial(err: FirebaseFirestoreException): Boolean {
+    return err.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ||
+        err.code == FirebaseFirestoreException.Code.UNAUTHENTICATED ||
+        err.denialContext != null
+}
+
 /**
  * Synchronous snapshot registration for [DocumentReference].
  *
@@ -153,6 +159,7 @@ internal class DocumentSnapshotRegistration(
 
     private fun switchToOnline(lens: AuthLens) {
         val gen = generation.incrementAndGet()
+        val authScope = FirestoreOfflineCoordinator.authScopeForLens(lens)
         val previous = synchronized(lock) {
             if (!active) return
             currentHandle.also { currentHandle = null }
@@ -162,6 +169,9 @@ internal class DocumentSnapshotRegistration(
         deliveryQueue.enqueue {
             if (!active || generation.get() != gen) return@enqueue
             offlineMode = false
+            lastDelivered = null
+            rawGeneration = -1L
+            lastRaw = null
         }
         val handle = try {
             firestore.bridgeClient.openSubscription(
@@ -175,14 +185,28 @@ internal class DocumentSnapshotRegistration(
                     } else {
                         rawGeneration = gen
                         lastRaw = rawMsg
-                        docRef.snapshotFromWireAndCache(rawMsg)
+                        docRef.snapshotFromWireAndCache(rawMsg, authScope)
                     }
                     if (candidate != null) maybeEmitOnQueue(candidate)
                 },
                 onWireError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    active = false
-                    deliverErrorOnce(err)
+                    if (isRecoverableRulesOrAuthDenial(err) &&
+                        active &&
+                        !firestore.isTerminated &&
+                        !firestore.bridgeClient.isDisposed
+                    ) {
+                        synchronized(lock) {
+                            if (generation.get() == gen) currentHandle = null
+                        }
+                        lastDelivered = null
+                        rawGeneration = -1L
+                        lastRaw = null
+                        onError(err)
+                    } else {
+                        active = false
+                        deliverErrorOnce(err)
+                    }
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription
@@ -356,11 +380,18 @@ internal class QuerySnapshotRegistration(
 
     private fun openRemote(lens: AuthLens) {
         val gen = generation.incrementAndGet()
+        val authScope = FirestoreOfflineCoordinator.authScopeForLens(lens)
         val previous = synchronized(lock) {
             if (!active) return
             currentHandle.also { currentHandle = null }
         }
         previous?.cancel()
+        deliveryQueue.enqueue {
+            if (!active || generation.get() != gen) return@enqueue
+            previousDocs = null
+            rawGeneration = -1L
+            lastRaw = null
+        }
         val handle = try {
             firestore.bridgeClient.openSubscription(
                 target = target,
@@ -380,7 +411,7 @@ internal class QuerySnapshotRegistration(
                         @Suppress("UNCHECKED_CAST")
                         val wireDocs = (rawMsg as? Map<String, Any?>)?.get("docs") as? List<Map<String, Any?>>
                         if (wireDocs != null) {
-                            QueryCacheStore.put(firestore, target, wireDocs)
+                            QueryCacheStore.put(firestore, target, wireDocs, authScope)
                         }
                         query.snapshotFromWire(rawMsg, isFromCache = false, previousDocs = previousDocs, includeMetadata = includeMetadata)
                     }
@@ -391,8 +422,22 @@ internal class QuerySnapshotRegistration(
                 },
                 onWireError = { err ->
                     if (generation.get() != gen) return@openSubscription
-                    active = false
-                    deliverErrorOnce(err)
+                    if (isRecoverableRulesOrAuthDenial(err) &&
+                        active &&
+                        !firestore.isTerminated &&
+                        !firestore.bridgeClient.isDisposed
+                    ) {
+                        synchronized(lock) {
+                            if (generation.get() == gen) currentHandle = null
+                        }
+                        previousDocs = null
+                        rawGeneration = -1L
+                        lastRaw = null
+                        onError(err)
+                    } else {
+                        active = false
+                        deliverErrorOnce(err)
+                    }
                 },
                 onCloseError = { err ->
                     if (generation.get() != gen) return@openSubscription

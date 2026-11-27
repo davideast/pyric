@@ -3,6 +3,7 @@ package com.google.firebase.firestore
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
+import dev.pyric.auth.AuthLens
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -23,6 +24,7 @@ internal class FirestoreOfflineCoordinator(
 ) {
     private class PendingWriteEntry(
         val id: Long,
+        val authScope: String,
         val mutation: OfflineDocMutation,
         val sendOnline: suspend () -> Unit,
         val tcs: TaskCompletionSource<Void?> = TaskCompletionSource(),
@@ -55,7 +57,7 @@ internal class FirestoreOfflineCoordinator(
     private val lock = Any()
     private val nextWriteId = AtomicLong(1L)
     private val nextListenerId = AtomicLong(1L)
-    private val memoryStore = ConcurrentHashMap<String, CachedDocState>()
+    private val memoryStores = ConcurrentHashMap<String, ConcurrentHashMap<String, CachedDocState>>()
     private val stagedWrites = LinkedHashMap<Long, PendingWriteEntry>()
     private val pendingWrites = LinkedHashMap<Long, PendingWriteEntry>()
     private val activeListenersSynced = ConcurrentHashMap<Long, Boolean>()
@@ -71,23 +73,26 @@ internal class FirestoreOfflineCoordinator(
     private val _cacheVersionFlow = MutableStateFlow(0L)
     val cacheVersionFlow: StateFlow<Long> = _cacheVersionFlow.asStateFlow()
 
-    private fun backingStore(): ConcurrentHashMap<String, CachedDocState> {
+    fun currentAuthScope(): String = authScopeForLens(firestore.getEffectiveAuthLens())
+
+    private fun backingStore(authScope: String = currentAuthScope()): ConcurrentHashMap<String, CachedDocState> {
         if (firestore.firestoreSettings.isPersistenceEnabled) {
-            val key = Pair(firestore.app.name, firestore.databaseId)
+            val key = Triple(firestore.app.name, firestore.databaseId, authScope)
             return persistedStores.computeIfAbsent(key) { ConcurrentHashMap() }
         }
-        return memoryStore
+        return memoryStores.computeIfAbsent(authScope) { ConcurrentHashMap() }
     }
 
     fun recordServerDoc(
         path: String,
         exists: Boolean,
         data: Map<String, Any?>?,
-        rawWireData: Map<String, Any?>?
+        rawWireData: Map<String, Any?>?,
+        authScope: String = currentAuthScope()
     ) {
         val copied = if (exists && data != null) FirestoreOfflineProjection.deepCopyMap(data) else null
         synchronized(lock) {
-            backingStore()[path] = CachedDocState(
+            backingStore(authScope)[path] = CachedDocState(
                 exists = exists,
                 data = copied,
                 rawWireData = if (exists) rawWireData else null
@@ -96,9 +101,11 @@ internal class FirestoreOfflineCoordinator(
         }
     }
 
-    fun projectDocument(path: String): ProjectedDocState {
+    fun projectDocument(path: String, authScope: String = currentAuthScope()): ProjectedDocState {
         val (base, mutations) = synchronized(lock) {
-            backingStore()[path] to stagedWrites.values.map { it.mutation }
+            backingStore(authScope)[path] to stagedWrites.values
+                .filter { it.authScope == authScope }
+                .map { it.mutation }
         }
         return FirestoreOfflineProjection.projectDocument(
             path = path,
@@ -110,10 +117,12 @@ internal class FirestoreOfflineCoordinator(
 
     fun submitWrite(
         mutation: OfflineDocMutation,
+        authScope: String = currentAuthScope(),
         sendOnline: suspend () -> Unit
     ): Task<Void?> {
         val entry = PendingWriteEntry(
             id = nextWriteId.getAndIncrement(),
+            authScope = authScope,
             mutation = mutation,
             sendOnline = sendOnline
         )
@@ -142,7 +151,7 @@ internal class FirestoreOfflineCoordinator(
                 synchronized(lock) {
                     stagedWrites.remove(entry.id)
                     pendingWrites.remove(entry.id)
-                    val store = backingStore()
+                    val store = backingStore(entry.authScope)
                     val updated = FirestoreOfflineProjection.applyCommittedMutation(
                         base = store[entry.mutation.path],
                         mutation = entry.mutation,
@@ -248,8 +257,11 @@ internal class FirestoreOfflineCoordinator(
             )
         }
         synchronized(lock) {
-            memoryStore.clear()
-            persistedStores.remove(Pair(firestore.app.name, firestore.databaseId))
+            memoryStores.clear()
+            persistedStores.keys.removeIf {
+                it.first == firestore.app.name && it.second == firestore.databaseId
+            }
+            QueryCacheStore.clear(firestore)
             stagedWrites.clear()
             pendingWrites.clear()
             _cacheVersionFlow.value += 1L
@@ -309,7 +321,7 @@ internal class FirestoreOfflineCoordinator(
         inSyncListeners.clear()
         activeListenersSynced.clear()
         val abandoned = synchronized(lock) {
-            memoryStore.clear()
+            memoryStores.clear()
             val list = pendingWrites.values.toList()
             stagedWrites.clear()
             pendingWrites.clear()
@@ -327,10 +339,18 @@ internal class FirestoreOfflineCoordinator(
 
     companion object {
         private val persistedStores =
-            ConcurrentHashMap<Pair<String, String>, ConcurrentHashMap<String, CachedDocState>>()
+            ConcurrentHashMap<Triple<String, String, String>, ConcurrentHashMap<String, CachedDocState>>()
+
+        fun authScopeForLens(lens: AuthLens): String = when (lens) {
+            is AuthLens.AsUser -> "as:${lens.uid}:${lens.tenant ?: ""}"
+            is AuthLens.Admin -> "admin"
+            is AuthLens.AppSession -> "app-session"
+            is AuthLens.Anon -> "anon"
+        }
 
         fun clearAllPersistedStoresForTest() {
             persistedStores.clear()
+            QueryCacheStore.clearAllForTest()
         }
     }
 }

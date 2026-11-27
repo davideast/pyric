@@ -57,10 +57,12 @@ class DocumentReference internal constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
+                val requestLens = firestore.getEffectiveAuthLens()
+                val requestScope = FirestoreOfflineCoordinator.authScopeForLens(requestLens)
                 val res = firestore.bridgeClient.op(
                     method = "getDoc",
                     params = mapOf("path" to path),
-                    actAs = firestore.getEffectiveAuthLens().toMap()
+                    actAs = requestLens.toMap()
                 )
                 @Suppress("UNCHECKED_CAST")
                 val resMap = res as? Map<String, Any?> ?: emptyMap()
@@ -71,9 +73,9 @@ class DocumentReference internal constructor(
                     DocumentDataEnvelope.unpack(rawData) { p -> firestore.unvalidatedDocumentRef(p) }
                 } else null
                 val rawEnvelope = if (exists) DocumentDataEnvelope.extractEnvelope(rawData) else null
-                firestore.offlineCoordinator.recordServerDoc(path, exists, unpackedData, rawEnvelope)
+                firestore.offlineCoordinator.recordServerDoc(path, exists, unpackedData, rawEnvelope, requestScope)
 
-                val projected = firestore.offlineCoordinator.projectDocument(path)
+                val projected = firestore.offlineCoordinator.projectDocument(path, requestScope)
                 val finalExists = if (projected.hasPendingWrites) projected.exists else exists
                 val finalData = if (projected.hasPendingWrites) projected.data else unpackedData
                 val snapshot = DocumentSnapshot(
@@ -252,7 +254,10 @@ class DocumentReference internal constructor(
         )
     }
 
-    internal fun snapshotFromWireAndCache(rawMsg: Any?): DocumentSnapshot {
+    internal fun snapshotFromWireAndCache(
+        rawMsg: Any?,
+        authScope: String = firestore.offlineCoordinator.currentAuthScope()
+    ): DocumentSnapshot {
         @Suppress("UNCHECKED_CAST")
         val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
         val docId = (resMap["id"] as? String) ?: id
@@ -262,9 +267,9 @@ class DocumentReference internal constructor(
             DocumentDataEnvelope.unpack(rawData) { p -> firestore.unvalidatedDocumentRef(p) }
         } else null
         val rawEnvelope = if (exists) DocumentDataEnvelope.extractEnvelope(rawData) else null
-        firestore.offlineCoordinator.recordServerDoc(path, exists, unpackedData, rawEnvelope)
+        firestore.offlineCoordinator.recordServerDoc(path, exists, unpackedData, rawEnvelope, authScope)
 
-        val projected = firestore.offlineCoordinator.projectDocument(path)
+        val projected = firestore.offlineCoordinator.projectDocument(path, authScope)
         val hasPending = projected.hasPendingWrites || resMap["hasPendingWrites"] == true
         val finalExists = if (projected.hasPendingWrites) projected.exists else exists
         val finalData = if (projected.hasPendingWrites) projected.data else unpackedData

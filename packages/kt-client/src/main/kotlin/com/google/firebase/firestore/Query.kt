@@ -199,16 +199,18 @@ open class Query internal constructor(
                 }
 
                 try {
+                    val requestLens = firestore.getEffectiveAuthLens()
+                    val requestScope = FirestoreOfflineCoordinator.authScopeForLens(requestLens)
                     val res = firestore.bridgeClient.op(
                         method = "getDocs",
                         params = mapOf("source" to targetDesc),
-                        actAs = firestore.getEffectiveAuthLens().toMap()
+                        actAs = requestLens.toMap()
                     )
                     @Suppress("UNCHECKED_CAST")
                     val resMap = res as? Map<String, Any?> ?: emptyMap()
                     @Suppress("UNCHECKED_CAST")
                     val rawDocs = (resMap["docs"] as? List<Map<String, Any?>>) ?: emptyList()
-                    QueryCacheStore.put(firestore, targetDesc, rawDocs)
+                    QueryCacheStore.put(firestore, targetDesc, rawDocs, requestScope)
                     tcs.setResult(buildOneShotSnapshot(rawDocs, isFromCache = false))
                 } catch (e: FirebaseFirestoreException) {
                     if (source == Source.DEFAULT &&
