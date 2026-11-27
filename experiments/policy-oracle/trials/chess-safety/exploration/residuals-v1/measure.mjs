@@ -18,6 +18,10 @@ const sha=v=>createHash('sha256').update(v).digest('hex');
 assert.equal(sha(code),expected.rulesSha256);
 const {firestoreRules}=await import(pathToFileURL(resolve(sdk,'dist/index.js')));
 const judge=firestoreRules(code.toString()), unique=new Map();
+// Preserve the boolean results on the status path without retaining the full
+// expression tree for every one of the wider corpus's successful writes.
+const statusCalls=/^(?:admittedStatus|otherDefenders|hasKingReply|replyCapture|sliderStatus|sliderMaterial[wb]|packedSafe|pawnReply[wb]|knightPairs[wb])$/;
+const traces=new Map();
 const frequencies={},cohorts={},canonical=v=>v&&typeof v==='object'
   ? Array.isArray(v)?v.map(canonical):Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
 const count=(map,key)=>map[key]=(map[key]??0)+1;
@@ -64,6 +68,13 @@ for(const [name,freezeScore] of Object.entries(expected.cohorts)) {
     // A document alias may itself influence a submitted program. Preserve the
     // complete evaluator input when identifying repeated writes.
     const key=sha(JSON.stringify(canonical([req.path,req.method,req.auth,before,pending])));
+    if(option==='--traces' && !traces.has(key)){
+      const calls=observed.trace.flatMap(rule=>rule.expressionTrace??[])
+        .filter(step=>step.kind==='functionCall' && !step.skipped && typeof step.value==='boolean')
+        .map(step=>[step.source.split('(')[0],step.value])
+        .filter(([name])=>statusCalls.test(name));
+      traces.set(key,calls);
+    }
     const observation={fen:c.fen,uci:c.uci,claim:{status:pending.status,winner:pending.winner},
       nativeAdmission:c.nativeAdmission,observed:observed.decision,outcome:r.kind,localCost:cost,...explanation};
     const existing=unique.get(key);
@@ -90,4 +101,5 @@ for(const {writeSha256,observation:r,occurrences} of records) {
 console.log(JSON.stringify({authority:'independent local full Rules evaluator joined with frozen native reply lists',
   rulesSha256:expected.rulesSha256,cohorts,caseOccurrences:frequencies,distinctWrites:records.length,
   obligations,replyFamilies,examples,recordsSha256:sha(JSON.stringify(records)),
-  ...(option==='--records'?{records}:{})},null,2));
+  ...(option==='--records'?{records}:{}),
+  ...(option==='--traces'?{records:records.map(row=>({...row,statusCalls:traces.get(row.writeSha256)}))}:{})},null,2));

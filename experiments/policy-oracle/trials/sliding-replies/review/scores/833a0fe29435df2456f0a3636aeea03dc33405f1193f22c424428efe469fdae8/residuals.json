@@ -1,0 +1,3692 @@
+{
+  "authority": "independent local full Rules evaluator joined with frozen native reply lists",
+  "rulesSha256": "833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8",
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "decisionsSha256": "92c6094a83560e932195bdc69d4254909c3e99809e62a0ba70cc5b69bd5babc5"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "decisionsSha256": "d44a062b511563ec9e3e304f5fff907b1e08fc62c6ec89b6e398a73856b52955"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "decisionsSha256": "2ccad5bb116557c612996f01270ec87c86287df5a7461b1afb5bc03cf50ec28f"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "decisionsSha256": "5faf99c2e05fb7ed8082f36882ccea0fdc2ea1e3017345b87f88f1d5f8bb0b42"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "decisionsSha256": "062a180a929e76be6e64b4e10a0ba1e64fcd03a2b1d342c62007fad7ca6dcebc"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "decisionsSha256": "8143d0de4d97c9147353f32f575454f38ac8dd46776f0175bea7ff71e5f925d0"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "decisionsSha256": "1a9a92f303ce1c78fce00ad3f8aed5737a2ab4e5015ff5779b968b8b622360dc"
+    },
+    "king-last-v1": {
+      "cases": 288,
+      "decisionsSha256": "3f1adf8d294b2f2e5975ae0062bf7c1ecbfc18236304f0e2ce1a1613c53d8c2b"
+    },
+    "successor-claims-v1": {
+      "cases": 762,
+      "decisionsSha256": "db31c2fa7821228cbb511e23722bceb66c8a676e83628ebda44260b25a648338"
+    },
+    "bare-defender-v1": {
+      "cases": 1992,
+      "decisionsSha256": "c1d870732e56dbd3f138c04fcd75bbc15cf04b133e3cb9db9727a0b7640475fa"
+    },
+    "knight-replies-v1": {
+      "cases": 492,
+      "decisionsSha256": "ab24f37fbe7a5ac78912866d7d031eaa6d798b402429600ce2c80ba995288810"
+    }
+  },
+  "caseOccurrences": {
+    "evaluation-budget": 4,
+    "refute-won-with-legal-reply": 16,
+    "refute-draw-with-legal-reply": 1,
+    "reject-playing-after-checkmate": 32,
+    "reject-playing-after-stalemate": 22
+  },
+  "distinctWrites": 75,
+  "obligations": {
+    "evaluation-budget": 4,
+    "refute-won-with-legal-reply": 16,
+    "refute-draw-with-legal-reply": 1,
+    "reject-playing-after-checkmate": 32,
+    "reject-playing-after-stalemate": 22
+  },
+  "replyFamilies": {
+    "b+n+q": 1,
+    "b+q+r": 1,
+    "r": 4,
+    "b": 7,
+    "n": 4
+  },
+  "examples": {
+    "evaluation-budget": {
+      "writeSha256": "43082bedde2e3c307d39d122120f4079bd383dc2753434edf07711f92473f34c",
+      "pieces": 6,
+      "fen": "kr6/4Q3/8/8/8/1Q6/8/4K2R w K -",
+      "uci": "e1g1",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "nativeAdmission": true,
+      "observed": "DENY",
+      "outcome": "false-refusal/resource-limit",
+      "localCost": 1000,
+      "obligation": "evaluation-budget",
+      "first": {
+        "cohort": "v1",
+        "id": "black-short-clear-1-0-2"
+      }
+    },
+    "refute-won-with-legal-reply": {
+      "writeSha256": "f6577b28ed8e6c6f5a76e51ddfe717006104dbb1a6320a74bc3a467965717a96",
+      "pieces": 5,
+      "fen": "k7/8/Kn6/4Q3/8/4p3/8/8 w - -",
+      "uci": "e5e8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 800,
+      "obligation": "refute-won-with-legal-reply",
+      "witnessKinds": [
+        "n"
+      ],
+      "legalReplies": [
+        "b6c8"
+      ],
+      "first": {
+        "cohort": "replies-v1",
+        "id": "only-n-move-in-check-6-false"
+      }
+    },
+    "refute-draw-with-legal-reply": {
+      "writeSha256": "e7277003d1d8ca8a8a5c57f727d150e09e6237aff9286c3f4bb0307dec07108f",
+      "pieces": 15,
+      "fen": "k7/3Q1r1q/1K3b2/1b2R1QP/8/1R6/P6q/4q2R w - -",
+      "uci": "d7c7",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 727,
+      "obligation": "refute-draw-with-legal-reply",
+      "witnessKinds": [
+        "b",
+        "q",
+        "r"
+      ],
+      "legalReplies": [
+        "b5a4",
+        "b5a6",
+        "b5c4",
+        "b5c6",
+        "b5d3",
+        "b5d7",
+        "b5e2",
+        "b5e8",
+        "b5f1",
+        "e1a1",
+        "e1a5",
+        "e1b1",
+        "e1b4",
+        "e1c1",
+        "e1c3",
+        "e1d1",
+        "e1d2",
+        "e1e2",
+        "e1e3",
+        "e1e4",
+        "e1e5",
+        "e1f1",
+        "e1f2",
+        "e1g1",
+        "e1g3",
+        "e1h1",
+        "e1h4",
+        "f6d8",
+        "f6e5",
+        "f6e7",
+        "f6g5",
+        "f6g7",
+        "f6h8",
+        "f7c7",
+        "f7d7",
+        "f7e7",
+        "f7f8",
+        "f7g7",
+        "h2a2",
+        "h2b2",
+        "h2c2",
+        "h2d2",
+        "h2e2",
+        "h2e5",
+        "h2f2",
+        "h2f4",
+        "h2g1",
+        "h2g2",
+        "h2g3",
+        "h2h1",
+        "h2h3",
+        "h2h4",
+        "h2h5",
+        "h7b1",
+        "h7c2",
+        "h7d3",
+        "h7e4",
+        "h7f5",
+        "h7g6",
+        "h7g7",
+        "h7g8",
+        "h7h5",
+        "h7h6",
+        "h7h8"
+      ],
+      "first": {
+        "cohort": "v1",
+        "id": "stalemate-correct-0-1-6"
+      }
+    },
+    "reject-playing-after-checkmate": {
+      "writeSha256": "115b24bc62abc4d75f752c450073c0c3201391d5e24b0873aa1d87e604b290c9",
+      "pieces": 4,
+      "fen": "7k/4Q3/6K1/8/4p3/8/8/8 w - -",
+      "uci": "e7g7",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 635,
+      "obligation": "reject-playing-after-checkmate",
+      "witnessKinds": [],
+      "legalReplies": [],
+      "first": {
+        "cohort": "v1",
+        "id": "black-mate-reported-playing-1-0-1"
+      }
+    },
+    "reject-playing-after-stalemate": {
+      "writeSha256": "7073eff3769111533fde5bc96837aaec5940582f8d34d2a3340647fbe2df4ede",
+      "pieces": 4,
+      "fen": "7k/8/7p/7K/8/8/6Q1/8 w - -",
+      "uci": "g2g6",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 640,
+      "obligation": "reject-playing-after-stalemate",
+      "witnessKinds": [],
+      "legalReplies": [],
+      "first": {
+        "cohort": "successor-claims-v1",
+        "id": "remaining-claim-265"
+      }
+    }
+  },
+  "recordsSha256": "6c8851bf11b2bccb449039b4d13ece91e8c5e578a7945adc647e235d925ca852",
+  "records": [
+    {
+      "writeSha256": "43082bedde2e3c307d39d122120f4079bd383dc2753434edf07711f92473f34c",
+      "observation": {
+        "fen": "kr6/4Q3/8/8/8/1Q6/8/4K2R w K -",
+        "uci": "e1g1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-short-clear-1-0-2"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          true
+        ],
+        [
+          "sliderStatus",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "ab5bde09d0802b1c061bdc98fec666aae423356c66e4dcb7ad7fe15d6e781bd8",
+      "observation": {
+        "fen": "3Q2q1/8/1p6/B3RP2/N4Q1N/1kB2R2/3q4/KQ6 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 798,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b",
+          "n",
+          "q"
+        ],
+        "legalReplies": [
+          "a4b2",
+          "b1b2",
+          "c3b2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "mate-correct-1-1-6"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ],
+        [
+          "pawnReplyw",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "e7277003d1d8ca8a8a5c57f727d150e09e6237aff9286c3f4bb0307dec07108f",
+      "observation": {
+        "fen": "k7/3Q1r1q/1K3b2/1b2R1QP/8/1R6/P6q/4q2R w - -",
+        "uci": "d7c7",
+        "claim": {
+          "status": "draw",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 727,
+        "obligation": "refute-draw-with-legal-reply",
+        "witnessKinds": [
+          "b",
+          "q",
+          "r"
+        ],
+        "legalReplies": [
+          "b5a4",
+          "b5a6",
+          "b5c4",
+          "b5c6",
+          "b5d3",
+          "b5d7",
+          "b5e2",
+          "b5e8",
+          "b5f1",
+          "e1a1",
+          "e1a5",
+          "e1b1",
+          "e1b4",
+          "e1c1",
+          "e1c3",
+          "e1d1",
+          "e1d2",
+          "e1e2",
+          "e1e3",
+          "e1e4",
+          "e1e5",
+          "e1f1",
+          "e1f2",
+          "e1g1",
+          "e1g3",
+          "e1h1",
+          "e1h4",
+          "f6d8",
+          "f6e5",
+          "f6e7",
+          "f6g5",
+          "f6g7",
+          "f6h8",
+          "f7c7",
+          "f7d7",
+          "f7e7",
+          "f7f8",
+          "f7g7",
+          "h2a2",
+          "h2b2",
+          "h2c2",
+          "h2d2",
+          "h2e2",
+          "h2e5",
+          "h2f2",
+          "h2f4",
+          "h2g1",
+          "h2g2",
+          "h2g3",
+          "h2h1",
+          "h2h3",
+          "h2h4",
+          "h2h5",
+          "h7b1",
+          "h7c2",
+          "h7d3",
+          "h7e4",
+          "h7f5",
+          "h7g6",
+          "h7g7",
+          "h7g8",
+          "h7h5",
+          "h7h6",
+          "h7h8"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "stalemate-correct-0-1-6"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "68cec68c30f6141e586754a358ad3ec0aba817dc0981b388f65816cc666fd8e8",
+      "observation": {
+        "fen": "k7/3Q3r/1K6/8/1Q6/8/1r6/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-correct-0-1-2"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          true
+        ],
+        [
+          "sliderStatus",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "cd859fc839903db7ce0d67d6499af6b93d4950b599f3aaa383e9a40b1fb4de73",
+      "observation": {
+        "fen": "k2N4/3Q2nr/1K5N/5r2/3Q4/1Q2b3/3P3n/1R2Qq2 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 632,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-correct-0-1-6"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "15163ae0c133de293db2f0fb6d98594cac1a2ae655a724743204f11fa153b7c3",
+      "observation": {
+        "fen": "8/3q4/4b3/8/8/1k6/3q1P1R/K1R5 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 648,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-correct-1-1-4"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "3e0857a308d2028d2dbb4bfce010933b321c69a342668eff644f981f3adfa9cf",
+      "observation": {
+        "fen": "k2B4/3Q3r/1K6/8/7P/2nBQ1n1/n2b4/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 842,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "h7b7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-wrong-result-0-1-5"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ],
+        [
+          "knightPairsb",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "4be24fb0ba4786a41eeb050997d666675469c0f1133eb96ce8519603b05e86cb",
+      "observation": {
+        "fen": "8/8/8/8/8/2n3k1/R3q3/B6K b - -",
+        "uci": "e2g2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 767,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "a2g2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-wrong-result-1-0-3"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "3e449660d14d197785f9279d3c4640dcafbfd89c9623e307a055c39fe2c286b0",
+      "observation": {
+        "fen": "8/8/7n/8/8/1k4B1/3q3R/K7 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 764,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "h2b2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-wrong-result-1-1-2"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "67245d61ad59054568add628f46a98f9c3d8823306e0e26128211244d2d98175",
+      "observation": {
+        "fen": "k1b5/3Q4/1K6/8/2bB4/8/8/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 754,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "c8b7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-correct-1-1-3"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "f1bb7af83b13b912711c6b09b3f49c20adfe5c72905cf07c7f597dc67bca4ec3",
+      "observation": {
+        "fen": "8/2q4P/8/2q5/8/1k6/3q4/K7 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 648,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-reported-playing-0-1-3"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "115b24bc62abc4d75f752c450073c0c3201391d5e24b0873aa1d87e604b290c9",
+      "observation": {
+        "fen": "7k/4Q3/6K1/8/4p3/8/8/8 w - -",
+        "uci": "e7g7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 635,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-reported-playing-1-0-1"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "b4856eade0476bbb264d63bbc92624ec2f9c5d8a1b7b46d746929f7919a615d2",
+      "observation": {
+        "fen": "7k/1R2Q3/1N2NPK1/4N3/R7/5r2/8/6b1 w - -",
+        "uci": "e7g7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 635,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-reported-playing-1-0-5"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "78b2d938aca1eca8885a006ca54c85fcddd10148b285b9e01b014d30389852b4",
+      "observation": {
+        "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 632,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-reported-playing-1-1-1"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "f6577b28ed8e6c6f5a76e51ddfe717006104dbb1a6320a74bc3a467965717a96",
+      "observation": {
+        "fen": "k7/8/Kn6/4Q3/8/4p3/8/8 w - -",
+        "uci": "e5e8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 800,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "b6c8"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "replies-v1",
+          "id": "only-n-move-in-check-6-false"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ],
+        [
+          "pawnReplyb",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "3a0741cb01a1005889e8d233273020e16b0727325f9f2e3e8e11b9983075b10c",
+      "observation": {
+        "fen": "8/knK3R1/8/8/1R6/7p/8/8 w - -",
+        "uci": "b4a4",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 760,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "b7a5"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "replies-v1",
+          "id": "only-n-move-in-check-10-false"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ],
+        [
+          "pawnReplyb",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "e5f54525506095d45edb27c4b2a852ed0e4378dafff803b733e86ac24372d67e",
+      "observation": {
+        "fen": "kn6/8/1K4p1/8/1Q6/8/8/8 w - -",
+        "uci": "b4a4",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 764,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "b8a6"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "replies-v1",
+          "id": "only-n-move-in-check-11-false"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ],
+        [
+          "pawnReplyb",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "ae0acc751423b387c9f62e68aa158b2c7b0256af032c66482e46fcebe7b2a48c",
+      "observation": {
+        "fen": "6r1/2q2qk1/8/1K6/8/3N4/3R4/8 b - -",
+        "uci": "f7c4",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-189"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          true
+        ],
+        [
+          "sliderStatus",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "73aa9ab7f5c82be52a8f9918c3958e672550558ebeadae81e232b73dbc34ab3f",
+      "observation": {
+        "fen": "5B2/4q2r/2K5/2b5/1k6/8/8/5qR1 b - -",
+        "uci": "f1g2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 763,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "g1g2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-212"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "bbdc75a0e038e8426c12494b4dc8e32e16b242fdda56bb367e9f3a31dff4d722",
+      "observation": {
+        "fen": "6R1/7R/2k4K/6Qb/8/6R1/8/2b5 w - -",
+        "uci": "g8g6",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 759,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "h5g6"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-228"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "c84ec55769eda4f7313f067f242e502fe13fa1481b7742d834c36cd0b099b111",
+      "observation": {
+        "fen": "3q4/2B5/1b6/4KB2/8/b7/8/k6q b - -",
+        "uci": "d8d6",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 769,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "c7d6"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-248"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "b69a96023efee1e8e4c753db93f02c53ccd64a8d2ee456fd02479f811731ec8f",
+      "observation": {
+        "fen": "1r6/8/2kq4/6K1/1r6/2B5/q7/3B4 b - -",
+        "uci": "b8b5",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 769,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "c3e5"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-272"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "c13611ccd7cf79b2dc44fd1869ed9e5e8dd3310639781054db4c052e1cee269b",
+      "observation": {
+        "fen": "k3r1N1/2K5/7r/8/8/b5P1/8/4q3 b - -",
+        "uci": "e1e7",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 806,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "g8e7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-282"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ],
+        [
+          "pawnReplyw",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "41c0a5a78fecc3087ba4eafef9f6c04c44fb4c80f74ee4f74ac9becfad24c16c",
+      "observation": {
+        "fen": "8/5b2/8/5R2/1k1K1Q2/8/5R1b/Q7 w - -",
+        "uci": "f4b8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 789,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "h2b8"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-304"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "dd72ff0f1dd3f9e97b02b3c7912d0aff1557601336a790c2f7e700cb8bca9a28",
+      "observation": {
+        "fen": "8/3Q3Q/5k1b/4r3/3Q4/8/1KB5/8 w - -",
+        "uci": "h7g7",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 726,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "h6g7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-314"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "ed08b869da90fef978307dc0eeb9bf26f50f43d8cb9b9ad017241a3876cd9b3b",
+      "observation": {
+        "fen": "1k6/2R5/8/8/7q/3K1R2/8/2q5 b - -",
+        "uci": "h4c4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-333"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          true
+        ],
+        [
+          "sliderStatus",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "5dedbb7ba19fb4c95799bd1fcf87f767eb6a232cc844308b6fc423a48f8fa9e4",
+      "observation": {
+        "fen": "r7/1QQ5/1b4KQ/8/8/8/4k3/6Q1 w - -",
+        "uci": "h6e3",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 778,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "b6e3"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-340"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "packedSafe",
+          false
+        ],
+        [
+          "replyCapture",
+          false
+        ],
+        [
+          "hasKingReply",
+          false
+        ]
+      ]
+    },
+    {
+      "writeSha256": "54181343cb73ef209effa6e8f11da43813a4048aa32f6eb1ec2e3cce52fc88cf",
+      "observation": {
+        "fen": "k7/2K5/8/8/8/8/2Q4p/8 w - -",
+        "uci": "c2a2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 632,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-025"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "7c067e6df13f5852d4e7e45dff6f7d9e2190d1590bab9faa85dd60a8051657b9",
+      "observation": {
+        "fen": "6k1/3Q4/7K/8/8/5p2/1n6/8 w - -",
+        "uci": "d7e8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 631,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-057"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "7ac09c744937ce5132974577d7804064424776607ef4a0c0be2aa16352747d75",
+      "observation": {
+        "fen": "1k6/5R2/1K6/6p1/8/8/8/8 w - -",
+        "uci": "f7f8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 612,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-073"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "60f937d215b94025dfdbf1ebbe9542c1f694da9080c88bf9e3a12b726922eaae",
+      "observation": {
+        "fen": "7k/2R4p/4B2K/8/8/8/8/8 w - -",
+        "uci": "c7c2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 637,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-169"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "428cbd7edb4c3e4d6d2f2bbc290a8731670e93330a16a25e1af9e8dd1682d789",
+      "observation": {
+        "fen": "Q7/7k/8/6K1/8/1p6/1B6/8 w - -",
+        "uci": "a8d8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 635,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-187"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "7073eff3769111533fde5bc96837aaec5940582f8d34d2a3340647fbe2df4ede",
+      "observation": {
+        "fen": "7k/8/7p/7K/8/8/6Q1/8 w - -",
+        "uci": "g2g6",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 640,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-265"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "051e730cca004ff422c786763648856d7738d276305dc78fdb64120138b1d172",
+      "observation": {
+        "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+        "uci": "c3b4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 639,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-287"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "b307cd4a5fd977b7b45738464daad2a46b1c3da5f796d468989275ca4ed5bced",
+      "observation": {
+        "fen": "7k/7p/4Q2p/7K/8/8/6B1/8 w - -",
+        "uci": "e6g4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 702,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-297"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "d284cb9d7afbdb36f4afb5d513583a024f374417f152b05c4e1bf57154617012",
+      "observation": {
+        "fen": "k7/8/1KN5/8/8/7p/8/6Q1 w - -",
+        "uci": "g1h2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 631,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-325"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "23dc334d3724a770406c4561f1f35265e392c22e18cc0f9a28ccae04e3ad7b56",
+      "observation": {
+        "fen": "k7/p7/K7/8/8/6Q1/6N1/8 w - -",
+        "uci": "g3h2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 636,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-327"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "21af8225f6c19a1f652f57f832099abd496baddb1ba3bb6c0bf4deadcb1ae308",
+      "observation": {
+        "fen": "k7/8/1K6/5p2/8/8/3Q4/8 w - -",
+        "uci": "d2f4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 659,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-331"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "d561cf89ed55304f360bc0146f0493667ab65398e3e47d7e6a9e3b04c5be1c20",
+      "observation": {
+        "fen": "5K1k/8/5p2/8/8/5Q2/8/8 w - -",
+        "uci": "f3f5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 640,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-341"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "3cec5d96857f7ab27924af3704729e3a8bb801361ef8fb0c23d20cef3982be8e",
+      "observation": {
+        "fen": "k7/1p1Q4/1K6/8/8/8/5R2/8 w - -",
+        "uci": "d7c7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 604,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-345"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "7eb5d0c1b5ffaddea3df513202426465912980014d7cb47b6a2ed44c8f1a8057",
+      "observation": {
+        "fen": "k7/8/8/1K6/8/6Qp/7N/8 w - -",
+        "uci": "g3c7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 667,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-349"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "17d81f33f9e70e829e426d3062d4cc33f464199766525a08fc9101dfc5f1bcc6",
+      "observation": {
+        "fen": "8/k7/1pR5/1K6/6Q1/8/8/8 w - -",
+        "uci": "g4c8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 667,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-353"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "f46b2250b851c8220ac29e30e153b8b019776b0e9ab119956743b33a9b3571f1",
+      "observation": {
+        "fen": "kB6/1pK5/2Q5/8/8/8/8/8 w - -",
+        "uci": "c6d5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 636,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-369"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "e6ecd85171f20381fef5d56e493cde349bca2df78cdcb24b4f701abaf23613c7",
+      "observation": {
+        "fen": "8/2pQ4/8/4k3/6Q1/5Q2/p1K5/8 w - -",
+        "uci": "d7d5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 675,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-397"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "4791adfa8778b32aa674e0ec152d15309cf1d55f3c90965aa0181f632548beb9",
+      "observation": {
+        "fen": "1B1r3q/3k1K2/8/5b1R/7r/8/8/8 b - -",
+        "uci": "h8f8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 648,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-409"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "ada5451f4d0263691b2a13b7c9dab611945ca70dfee1d9db220e59df9bb7c5bb",
+      "observation": {
+        "fen": "4q3/8/r2q4/5B1R/3k4/8/5K2/6r1 b - -",
+        "uci": "e8e3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 653,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-433"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "69121bcca0a6468d1ed3a8953b6ec969421a976d2c1099a51889d0bc88e58283",
+      "observation": {
+        "fen": "2r5/6k1/8/4K3/2q1P3/7r/3q4/8 b - -",
+        "uci": "c8c5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 653,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-533"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "eda66434ffd745e528d6ba83ff889bdf1b35bfce5c8be668f07e44205a3cacf9",
+      "observation": {
+        "fen": "6k1/8/3q4/8/2K5/8/P4q2/1q2b3 b - -",
+        "uci": "d6d3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 653,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-551"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "b9864afc5a1869d322658640920c1b3879bef7abe838db7c1c9d0187ad86d3a3",
+      "observation": {
+        "fen": "1Q6/6k1/K7/5Q2/8/Q3n3/8/5n2 w - -",
+        "uci": "a3f8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 659,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-573"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "6a9b1c9da84ae80e5d118360914ef4e0d4cf042529e5e6b34bf69f744fb14884",
+      "observation": {
+        "fen": "8/2K4R/6Q1/3R4/1B6/8/p3kp2/8 w - -",
+        "uci": "g6d3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 694,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-581"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "996e9de4bda06dc6692ad9e749d2954a98569df18d530ae50781d46f93a5547a",
+      "observation": {
+        "fen": "5n2/6r1/b1K1k1P1/8/8/8/3q4/8 b - -",
+        "uci": "d2f2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 651,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-637"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "fbf193aac485e66c51f89d39c5eda20926d43f1085dce7dfcb62817370e986c0",
+      "observation": {
+        "fen": "7Q/5R2/2B1k3/2n5/8/3Q4/5K1n/2N5 w - -",
+        "uci": "d3g6",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 659,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-025"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "edfc11e691afa8603eda809d2fa2f10a703cc5228a0c3eef06fc757172504979",
+      "observation": {
+        "fen": "2n5/5k1N/3q4/8/2N5/2b1K3/5r2/7q b - -",
+        "uci": "d6g3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 680,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-028"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "627a785d72e3d42af0f30baaad71e2782ffabfe6e91223569104fa9483ec9cc1",
+      "observation": {
+        "fen": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+        "uci": "a5h5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 635,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-121"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "a82ac25c1f60f600773495e1c37927121f5eda05ac647da0b09941f4735df283",
+      "observation": {
+        "fen": "8/8/3Nq3/2k5/q7/6r1/7K/4N3 b - -",
+        "uci": "a4h4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 651,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-124"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "f7d668e7453b426218c0de2e2468f5aa7e6479f521aefcd2e5728ceeeee221f0",
+      "observation": {
+        "fen": "4Q3/3K4/8/3n3n/8/8/2R5/2Q1B1k1 w - -",
+        "uci": "e1a5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 667,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-169"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "3a26711d7431fabe06e26d46a508bfcc5bbabc139d5531fc5f0676c2272ccbd7",
+      "observation": {
+        "fen": "2q1b1K1/2r5/8/8/3N3N/8/3k4/4q3 b - -",
+        "uci": "e8a4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 672,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-172"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "a570f268972e7790241c6a982d5dbfc97d13f33a1708f413430a5a5ee60c4824",
+      "observation": {
+        "fen": "7k/K1Q5/8/8/3nNR2/B7/6Q1/6n1 w - -",
+        "uci": "f4h4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 635,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-181"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "477cd1c38b13dafae8544f18d213cf840bd0630ff5bc23a17be962d8f67c3f52",
+      "observation": {
+        "fen": "6N1/6q1/b7/3Nnr2/8/8/k1q5/7K b - -",
+        "uci": "f5h5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 651,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-184"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "a9a7cba9e73fc2e80990b24698b1fecd50dbd2c6d4a64c722e0352736014c220",
+      "observation": {
+        "fen": "8/8/4n3/4Q3/6R1/1K2R3/QR6/3kn1R1 w - -",
+        "uci": "b2b1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 609,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-187"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "e7efacb6a8f91ca7945222c185bd3b050b944fae1e5b3700e5804a5a8c2eabc3",
+      "observation": {
+        "fen": "3KN1r1/qr6/1k2r3/6r1/4q3/4N3/8/8 b - -",
+        "uci": "b7b8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 628,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-190"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "ab37cd38be58c25430e69510717169169dc7afa6971e8450d20abd6f0de1088e",
+      "observation": {
+        "fen": "5n2/Q7/8/2NK4/8/n7/k1NQ4/6R1 w - -",
+        "uci": "c2e3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 616,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-193"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "cb5b6fcb54a4b35828f4ff53d6c83cbe2c41a2d7123d166be48cdd4c4bfc6bcb",
+      "observation": {
+        "fen": "6r1/K1nq4/N7/8/2nk4/8/q7/5N2 b - -",
+        "uci": "c7e6",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 628,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-196"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "652d3c00e1a11bd83a4c349290f37ff7839adf0eb3f9b187e08a6c0e18de2e05",
+      "observation": {
+        "fen": "8/7Q/8/4Q3/2Q4K/2Q5/2n5/1k5n w - -",
+        "uci": "c3e1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 664,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-205"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "27508a22021b751c3e7a4b8df31cf6a83e7cd73ddf77121e165df45fab2d62ba",
+      "observation": {
+        "fen": "1K5N/2N5/2q5/2q4k/4q3/8/7q/8 b - -",
+        "uci": "c6e8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 675,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-208"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "d94c55adbf1e6999b4e94bbb1bbab3efda78e786c93433c4b7ad5dcfe2efb763",
+      "observation": {
+        "fen": "6K1/6n1/kNQ5/5Q2/8/3n4/8/5B2 w - -",
+        "uci": "b6c8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 616,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-229"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "646e66204b8a7a7b396ca6f0d16f5aa22ffe8f5a314794e147d1f84bbb9d9b5b",
+      "observation": {
+        "fen": "5b2/8/3N4/8/5q2/Knq5/6N1/6k1 b - -",
+        "uci": "b3c1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 628,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-232"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "1e1edf36a114818095fdce0ac13abe732ffb4169d83c7b3ee0fa76fe8db2de24",
+      "observation": {
+        "fen": "6B1/8/3KN3/8/7B/3Q4/5n2/R2nk3 w - -",
+        "uci": "g8h7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 636,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-367"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "ebedb8fcbf800c00779de3122ba2a53a90d4ac7ddce71b1024f0a48ba6e4c89a",
+      "observation": {
+        "fen": "r2NK3/5N2/3q4/7b/8/3kn3/8/6b1 b - -",
+        "uci": "g1h2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 647,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-370"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "699a8bc72923136315adfc221426661a01f85699fc17d88e486027610730181d",
+      "observation": {
+        "fen": "6nk/1RRQ4/5n2/8/2K5/R7/8/Q7 w - -",
+        "uci": "d7d8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 612,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-439"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "b778b3bbbe60c0b73756925b64e1d41a13b532ee03d9a7273a2b2dd91af792be",
+      "observation": {
+        "fen": "q7/8/r7/2k5/8/5N2/1rrq4/6NK b - -",
+        "uci": "d2d1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 625,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-442"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "d6d9bdf92d884ddea385b182f0e6ede3c59e0298151b9fd9451f526770eeeac9",
+      "observation": {
+        "fen": "8/K7/4N3/1R6/7R/k1n3R1/n7/Q7 w - -",
+        "uci": "a7b8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 663,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-457"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "35b453fefc99d37bb916598476df0228bde8bb1aa45133b579a1cec59f6f2947",
+      "observation": {
+        "fen": "q7/N7/K1N3r1/7r/1r6/4n3/k7/8 b - -",
+        "uci": "a2b1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 675,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-460"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "fbeefaa631e2d1e37613430ce693f0f1d553bd6103162c56c67cacaca1ed777e",
+      "observation": {
+        "fen": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+        "uci": "a8h8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 635,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-475"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialb",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    },
+    {
+      "writeSha256": "b3a6af3028b939f271aef94fed4a5ca0b850ac8cd9551cb2fb6baa123b25ed42",
+      "observation": {
+        "fen": "8/k7/5q2/1q4NK/b2r3N/8/7q/r7 b - -",
+        "uci": "a1h1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 651,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "knight-replies-v1",
+          "id": "knight-reply-478"
+        }
+      ],
+      "statusCalls": [
+        [
+          "packedSafe",
+          true
+        ],
+        [
+          "admittedStatus",
+          true
+        ],
+        [
+          "sliderMaterialw",
+          false
+        ],
+        [
+          "otherDefenders",
+          true
+        ]
+      ]
+    }
+  ]
+}

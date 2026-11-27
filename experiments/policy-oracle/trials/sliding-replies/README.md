@@ -70,7 +70,7 @@ For the short diagonal check, the emitted function marks the checking bishop or 
 
 ## Where the selected rules still disagree with chess
 
-On the 15,905-case wider local suite, v17 matched 15,830 native decisions. It repaired two expression-limit refusals compared with v16 and introduced no new disagreements. The 71 false approvals and four expression-limit refusals are outside the 242-case live campaign. [v17 cohort scores and changed cases](review/scores/833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8/wide.json)
+On the 15,905-case wider local suite, v17 matched 15,830 native decisions. It repaired two expression-limit refusals compared with v16 and introduced no new disagreements. The 71 false approvals and four expression-limit refusals are outside the 242-case live campaign. [Causes of the 75 disagreements and proposed three-board live test](RESIDUALS.md) · [v17 cohort scores and changed cases](review/scores/833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8/wide.json)
 
 The wider v16 local replay found 15,828 matches across 15,905 case occurrences in eleven frozen cohorts. It also found 71 false approvals and six legal writes refused at the expression limit. The cohorts can contain the same document transition under different identifiers. The live campaign has its own denominator of 238 distinct proposals. [Cohort counts and minimized positions](supplemental/selected.json)
 

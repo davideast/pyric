@@ -1,0 +1,161 @@
+{
+  "rulesSha256": "833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8",
+  "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "cohort": "knight-replies-v1",
+  "existingLiveCasesChecked": 242,
+  "currentTwoKnightCoverage": [
+    {
+      "id": "far-rank-pinned-edge-capture",
+      "nativeOutcome": "playing",
+      "claim": "playing",
+      "observed": "ALLOW"
+    },
+    {
+      "id": "knight-reply-477",
+      "nativeOutcome": "stalemate",
+      "claim": "draw",
+      "observed": "ALLOW"
+    },
+    {
+      "id": "knight-reply-483",
+      "nativeOutcome": "playing",
+      "claim": "draw",
+      "observed": "DENY"
+    }
+  ],
+  "boards": [
+    {
+      "before": "4n3/7k/6R1/Q7/2K5/3nQ3/8/8 w - -",
+      "move": "a5h5",
+      "after": "4n3/7k/6R1/7Q/2K5/3nQ3/8/8 b - -",
+      "nativeOutcome": "checkmate",
+      "nativeReplies": [],
+      "claims": [
+        {
+          "id": "knight-reply-121",
+          "claim": {
+            "status": "playing",
+            "winner": ""
+          },
+          "native": "DENY",
+          "v17Local": "ALLOW",
+          "v17LocalExpressions": 635,
+          "v17Live": null
+        },
+        {
+          "id": "knight-reply-122",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "native": "ALLOW",
+          "v17Local": "ALLOW",
+          "v17LocalExpressions": 820,
+          "v17Live": null
+        },
+        {
+          "id": "knight-reply-123",
+          "claim": {
+            "status": "draw",
+            "winner": ""
+          },
+          "native": "DENY",
+          "v17Local": "DENY",
+          "v17LocalExpressions": 550,
+          "v17Live": null
+        }
+      ]
+    },
+    {
+      "before": "R7/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 w - -",
+      "move": "a8h8",
+      "after": "7R/7Q/8/B2R3n/1Q4nk/5Q2/K7/8 b - -",
+      "nativeOutcome": "stalemate",
+      "nativeReplies": [],
+      "claims": [
+        {
+          "id": "knight-reply-475",
+          "claim": {
+            "status": "playing",
+            "winner": ""
+          },
+          "native": "DENY",
+          "v17Local": "ALLOW",
+          "v17LocalExpressions": 635,
+          "v17Live": null
+        },
+        {
+          "id": "knight-reply-476",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "native": "DENY",
+          "v17Local": "DENY",
+          "v17LocalExpressions": 549,
+          "v17Live": null
+        },
+        {
+          "id": "knight-reply-477",
+          "claim": {
+            "status": "draw",
+            "winner": ""
+          },
+          "native": "ALLOW",
+          "v17Local": "ALLOW",
+          "v17LocalExpressions": 821,
+          "v17Live": "ALLOW"
+        }
+      ]
+    },
+    {
+      "before": "R7/7Q/8/B2R3n/6nk/5Q2/K7/8 w - -",
+      "move": "a8h8",
+      "after": "7R/7Q/8/B2R3n/6nk/5Q2/K7/8 b - -",
+      "nativeOutcome": "playing",
+      "nativeReplies": [
+        "g4e3",
+        "g4e5",
+        "g4f2",
+        "g4f6",
+        "g4h2",
+        "g4h6"
+      ],
+      "claims": [
+        {
+          "id": "knight-reply-481",
+          "claim": {
+            "status": "playing",
+            "winner": ""
+          },
+          "native": "ALLOW",
+          "v17Local": "ALLOW",
+          "v17LocalExpressions": 635,
+          "v17Live": null
+        },
+        {
+          "id": "knight-reply-482",
+          "claim": {
+            "status": "won",
+            "winner": "host"
+          },
+          "native": "DENY",
+          "v17Local": "DENY",
+          "v17LocalExpressions": 549,
+          "v17Live": null
+        },
+        {
+          "id": "knight-reply-483",
+          "claim": {
+            "status": "draw",
+            "winner": ""
+          },
+          "native": "DENY",
+          "v17Local": "DENY",
+          "v17LocalExpressions": 718,
+          "v17Live": "DENY"
+        }
+      ]
+    }
+  ]
+}
