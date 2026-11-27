@@ -59,4 +59,34 @@ public enum AuthLens: Sendable, Equatable, ExpressibleByDictionaryLiteral {
             return .dictionary(dict)
         }
     }
+
+    /// Canonical cache/replay isolation key distinguishing auth modes, UIDs,
+    /// tenants, and custom claims so offline state never crosses sessions.
+    package var cacheScopeKey: String {
+        switch self {
+        case .appSession:
+            return "app-session"
+        case .admin:
+            return "admin"
+        case .anon:
+            return "anon"
+        case .asUser(let uid, let tenant, let token):
+            let tenantPart = tenant ?? ""
+            let tokenPart = Self.canonicalDictionaryKey(token)
+            return "as:\(uid.count):\(uid)|t:\(tenantPart.count):\(tenantPart)|k:\(tokenPart)"
+        case .custom(let dict):
+            return "custom:\(Self.canonicalDictionaryKey(dict))"
+        }
+    }
+
+    private static func canonicalDictionaryKey(_ dict: [String: AnySendable]?) -> String {
+        guard let dict, !dict.isEmpty else { return "" }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(AnySendable.dictionary(dict)),
+           let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        return dict.keys.sorted().map { "\($0)=\(String(describing: dict[$0]))" }.joined(separator: "&")
+    }
 }

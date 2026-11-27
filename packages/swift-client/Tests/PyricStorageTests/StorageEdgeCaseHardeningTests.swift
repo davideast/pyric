@@ -363,6 +363,14 @@ struct StorageEdgeCaseHardeningTests {
                     ])
                 }
 
+            case "storage.updateMetadata":
+                chan.sendFromServer([
+                    "type": "worker-res",
+                    "id": id,
+                    "ok": false,
+                    "error": ["code": "unimplemented", "message": "unknown method"]
+                ])
+
             case "storage.abortUpload":
                 chan.sendFromServer(["type": "worker-res", "id": id, "ok": true, "value": NSNull()])
 

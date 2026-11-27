@@ -461,6 +461,12 @@ open class StorageMetadata: NSObject, @unchecked Sendable {
         return patch
     }
 
+    package var replacesCustomMetadata: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _touchedFields.contains("customMetadata") || initialCustomMetadata != nil
+    }
+
     // MARK: - Date & Number Helpers
 
     private static func unwrapAny(_ raw: Any?) -> Any? {

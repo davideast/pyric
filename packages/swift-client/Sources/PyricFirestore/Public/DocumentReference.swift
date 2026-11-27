@@ -55,9 +55,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         }
         firestore.markUsed()
 
+        let requestLens = firestore.effectiveAuthLens
+        let authScope = requestLens.cacheScopeKey
         if source == .cache || (source == .default && !firestore.lifecycle.isNetworkEnabled) {
             do {
-                let cachedWire = try firestore.lifecycle.readCachedDocumentWire(path: path)
+                let cachedWire = try firestore.lifecycle.readCachedDocumentWire(path: path, authScope: authScope)
                 await client.finishTurn(turn)
                 return DocumentSnapshot.fromWire(firestore: firestore, path: path, wire: cachedWire, isFromCache: true)
             } catch {
@@ -70,8 +72,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             throw PyricBridgeError.unavailable("Failed to get document because the client is offline.")
         }
 
-        let raw = try await client.getDoc(turn: turn, path: path, actAs: firestore.effectiveAuthLens)
-        firestore.lifecycle.recordOnlineDocWire(path: path, wire: raw)
+        let raw = try await client.getDoc(turn: turn, path: path, actAs: requestLens)
+        firestore.lifecycle.recordOnlineDocWire(path: path, wire: raw, authScope: authScope)
         return DocumentSnapshot.fromWire(firestore: firestore, path: path, wire: raw)
     }
 
@@ -237,11 +239,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     private func prepareUpdatePayload(
         _ fields: [AnyHashable: Any]
     ) throws -> (params: [String: AnySendable], mutation: OfflineWriteMutation) {
-        let hasLiteralDotSegment = fields.keys.contains { key in
+        let needsSegmentEncoding = fields.keys.contains { key in
             guard let fp = key as? FieldPath else { return false }
-            return fp.segments.contains { $0.contains(".") }
+            return fp.segments.contains { $0.contains(".") || $0.contains("`") || $0.contains("\\") }
         }
-        if hasLiteralDotSegment {
+        if needsSegmentEncoding {
             var wireEntries: [AnySendable] = []
             var offlineEntries: [UpdateSegmentEntry] = []
             for (key, val) in fields {
@@ -322,7 +324,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             includeMetadataChanges: includeMetadataChanges,
             listenSource: listenSource,
             onEvent: { event in
-                db.lifecycle.recordOnlineDocWire(path: docPath, wire: event)
+                db.lifecycle.recordOnlineDocWire(
+                    path: docPath,
+                    wire: event,
+                    authScope: db.effectiveAuthLens.cacheScopeKey
+                )
                 let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: event)
                 let shouldSuppressMetadataOnly = stateBox.recordOnlineAndShouldSuppress(
                     snapshot: snapshot,
@@ -343,7 +349,10 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
                 }
             },
             onOffline: {
-                let wire = db.lifecycle.projectOfflineDocumentWire(path: docPath)
+                let wire = db.lifecycle.projectOfflineDocumentWire(
+                    path: docPath,
+                    authScope: db.effectiveAuthLens.cacheScopeKey
+                )
                 let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: wire, isFromCache: true)
                 let suppressOffline = stateBox.recordOfflineAndShouldSuppress(
                     snapshot: snapshot,

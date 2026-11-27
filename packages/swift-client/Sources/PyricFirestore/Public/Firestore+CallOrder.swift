@@ -48,12 +48,13 @@ extension Firestore {
         }
 
         if lifecycle.isNetworkEnabled {
-            let writeId = lifecycle.beginOnlineWrite()
+            let authScope = actAs.cacheScopeKey
+            let writeId = lifecycle.beginOnlineWrite(authScope: authScope)
             do {
                 _ = try await client.op(turn: turn, method: method, params: params, actAs: actAs)
-                lifecycle.finishOnlineWrite(writeId, committedMutations: mutations)
+                lifecycle.finishOnlineWrite(writeId, authScope: authScope, committedMutations: mutations)
             } catch {
-                lifecycle.finishOnlineWrite(writeId, committedMutations: nil)
+                lifecycle.finishOnlineWrite(writeId, authScope: authScope, committedMutations: nil)
                 throw error
             }
             return

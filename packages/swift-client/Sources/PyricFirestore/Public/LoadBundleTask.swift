@@ -314,7 +314,10 @@ extension Firestore {
             return nil
         }
         lifecycle.markStarted()
-        guard let spec = lifecycle.bundledNamedQuery(named: name) else {
+        guard let spec = lifecycle.bundledNamedQuery(
+            named: name,
+            authScope: effectiveAuthLens.cacheScopeKey
+        ) else {
             return nil
         }
         if spec.isCollectionGroup {
@@ -362,11 +365,12 @@ extension Firestore {
                     state: .inProgress
                 )
             )
+            let bundleScope = self.effectiveAuthLens.cacheScopeKey
             for namedSpec in decoded.namedQueries {
-                self.lifecycle.recordBundledNamedQuery(namedSpec)
+                self.lifecycle.recordBundledNamedQuery(namedSpec, authScope: bundleScope)
             }
             for (idx, docEntry) in decoded.documents.enumerated() {
-                self.lifecycle.recordBundledEntry(docEntry)
+                self.lifecycle.recordBundledEntry(docEntry, authScope: bundleScope)
                 emit(
                     LoadBundleTaskProgress(
                         documentsLoaded: idx + 1,

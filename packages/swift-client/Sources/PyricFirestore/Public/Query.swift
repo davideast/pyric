@@ -362,8 +362,10 @@ public class Query: @unchecked Sendable {
         }
         firestore.markUsed()
 
+        let requestLens = firestore.effectiveAuthLens
+        let authScope = requestLens.cacheScopeKey
         if source == .cache || (source == .default && !firestore.lifecycle.isNetworkEnabled) {
-            let cachedWire = firestore.lifecycle.projectOfflineQueryWire(target: target)
+            let cachedWire = firestore.lifecycle.projectOfflineQueryWire(target: target, authScope: authScope)
             await client.finishTurn(turn)
             return QuerySnapshot.fromWire(firestore: firestore, query: self, wire: cachedWire, isFromCache: true)
         }
@@ -372,8 +374,8 @@ public class Query: @unchecked Sendable {
             throw PyricBridgeError.unavailable("Failed to get documents from server because the client is offline.")
         }
 
-        let raw = try await client.getDocs(turn: turn, source: target, actAs: firestore.effectiveAuthLens)
-        firestore.lifecycle.recordOnlineQueryWire(raw)
+        let raw = try await client.getDocs(turn: turn, source: target, actAs: requestLens)
+        firestore.lifecycle.recordOnlineQueryWire(raw, authScope: authScope)
         return QuerySnapshot.fromWire(firestore: firestore, query: self, wire: raw)
     }
 

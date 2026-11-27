@@ -99,14 +99,41 @@ package enum BridgeStorageTransport {
             )
         }
 
+        let clientPatch = metadata.toAdminPatchWire(existingCustomKeys: [])
+        var clientParams = reference.bucketWireParams
+        clientParams["path"] = .string(reference.fullPath)
+        clientParams["patch"] = .dictionary(clientPatch)
+        if metadata.replacesCustomMetadata {
+            clientParams["replaceCustomMetadata"] = .bool(true)
+        }
+        do {
+            let updated = try await client.op(
+                turn: turn,
+                method: "storage.updateMetadata",
+                params: clientParams,
+                actAs: actAs,
+                timeout: timeout
+            )
+            return try StorageMetadata.fromWire(updated, fallbackBucket: reference.bucket)
+        } catch let bridgeErr as PyricBridgeError {
+            let msg = bridgeErr.message.lowercased()
+            let code = bridgeErr.rawCode.lowercased()
+            let unsupportedOp = bridgeErr.code == .unimplemented
+                || code == "unimplemented"
+                || msg.contains("unknown method")
+                || msg.contains("unknown op")
+                || msg.contains("unsupported")
+            if !unsupportedOp {
+                throw bridgeErr
+            }
+        }
+
         if client.hasInjectedChannel {
-            let patch = metadata.toAdminPatchWire(existingCustomKeys: [])
             var params = reference.bucketWireParams
             params["path"] = .string(reference.fullPath)
-            params["patch"] = .dictionary(patch)
+            params["patch"] = .dictionary(clientPatch)
             do {
                 let direct = try await client.op(
-                    turn: turn,
                     method: "storage.setMetadata",
                     params: params,
                     actAs: actAs,
@@ -128,7 +155,7 @@ package enum BridgeStorageTransport {
         return try await updateMetadataWithRulesGate(
             reference: reference,
             client: client,
-            turn: turn,
+            turn: nil,
             actAs: actAs,
             metadata: metadata,
             timeout: timeout

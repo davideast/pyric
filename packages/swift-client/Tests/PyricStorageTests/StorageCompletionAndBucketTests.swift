@@ -62,7 +62,7 @@ struct StorageCompletionAndBucketTests {
                     return
                 }
                 transport.sendFromServer(["type": "worker-res", "id": id, "ok": true, "value": store.serialize(entry)])
-            case "storage.setMetadata":
+            case "storage.setMetadata", "storage.updateMetadata":
                 let patch = op["patch"]?.dictionaryValue ?? [:]
                 guard let updated = store.patch(bucket: bucket, path: path, patch: patch) else {
                     transport.sendFromServer(["type": "worker-res", "id": id, "ok": false, "error": ["code": "storage/object-not-found", "message": "Missing"]])

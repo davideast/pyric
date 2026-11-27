@@ -356,9 +356,15 @@ public class Firestore: @unchecked Sendable {
             return
         }
 
+        let currentScope = effectiveAuthLens.cacheScopeKey
+        var abortedCrossUser: [StagedOfflineWriteEntry] = []
         var enqueuedTasks: [(StagedOfflineWriteEntry, Task<AnySendable, Error>)] = []
         enqueuedTasks.reserveCapacity(flushBatch.writes.count)
         for writeEntry in flushBatch.writes {
+            if writeEntry.actAs.cacheScopeKey != currentScope {
+                abortedCrossUser.append(writeEntry)
+                continue
+            }
             let opTask = await client.startOrderedOp(
                 method: writeEntry.method,
                 params: writeEntry.params,
@@ -367,6 +373,16 @@ public class Firestore: @unchecked Sendable {
             enqueuedTasks.append((writeEntry, opTask))
         }
         await client.finishTurn(turn)
+
+        if !abortedCrossUser.isEmpty {
+            let abortError = PyricBridgeError(
+                code: .aborted,
+                message: "Offline write aborted because the authenticated user changed before network reconnect."
+            )
+            for writeEntry in abortedCrossUser {
+                lifecycle.finishFlushedWrite(writeEntry, error: abortError)
+            }
+        }
 
         try await client.connect()
         for (writeEntry, opTask) in enqueuedTasks {
@@ -456,7 +472,7 @@ public class Firestore: @unchecked Sendable {
             throw error
         }
         hasUsed = true
-        let settlements = lifecycle.snapshotPendingWriteSettlements()
+        let settlements = lifecycle.snapshotPendingWriteSettlements(authScope: effectiveAuthLens.cacheScopeKey)
         await client.finishTurn(turn)
         for settlement in settlements {
             await settlement.wait()

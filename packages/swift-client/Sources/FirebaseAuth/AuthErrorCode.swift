@@ -23,6 +23,17 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
     case customTokenMismatch = "auth/custom-token-mismatch"
     case noMockConfigured = "auth/no-mock-configured"
     case noCurrentUser = "auth/no-current-user"
+    case permissionDenied = "auth/permission-denied"
+    case unauthenticated = "auth/unauthenticated"
+    case invalidArgument = "auth/invalid-argument"
+    case failedPrecondition = "auth/failed-precondition"
+    case resourceExhausted = "auth/resource-exhausted"
+    case alreadyExists = "auth/already-exists"
+    case notFound = "auth/not-found"
+    case unavailable = "auth/unavailable"
+    case deadlineExceeded = "auth/deadline-exceeded"
+    case cancelled = "auth/cancelled"
+    case aborted = "auth/aborted"
     case internalError = "auth/internal-error"
 
     /// Upstream firebase-ios-sdk FIRAuthErrorCode integer rawValue.
@@ -47,7 +58,18 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
         case .credentialAlreadyInUse: return 17025
         case .weakPassword: return 17026
         case .noCurrentUser: return 17995
-        case .internalError: return 17999
+        case .permissionDenied,
+             .unauthenticated,
+             .invalidArgument,
+             .failedPrecondition,
+             .resourceExhausted,
+             .alreadyExists,
+             .notFound,
+             .unavailable,
+             .deadlineExceeded,
+             .cancelled,
+             .aborted,
+             .internalError: return 17999
         }
     }
 
@@ -74,6 +96,17 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
         case .credentialAlreadyInUse: return "ERROR_CREDENTIAL_ALREADY_IN_USE"
         case .weakPassword: return "ERROR_WEAK_PASSWORD"
         case .noCurrentUser: return "ERROR_NO_CURRENT_USER"
+        case .permissionDenied: return "ERROR_PERMISSION_DENIED"
+        case .unauthenticated: return "ERROR_UNAUTHENTICATED"
+        case .invalidArgument: return "ERROR_INVALID_ARGUMENT"
+        case .failedPrecondition: return "ERROR_FAILED_PRECONDITION"
+        case .resourceExhausted: return "ERROR_RESOURCE_EXHAUSTED"
+        case .alreadyExists: return "ERROR_ALREADY_EXISTS"
+        case .notFound: return "ERROR_NOT_FOUND"
+        case .unavailable: return "ERROR_UNAVAILABLE"
+        case .deadlineExceeded: return "ERROR_DEADLINE_EXCEEDED"
+        case .cancelled: return "ERROR_CANCELLED"
+        case .aborted: return "ERROR_ABORTED"
         case .internalError: return "ERROR_INTERNAL_ERROR"
         }
     }
@@ -108,6 +141,17 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
         case "custom-token-mismatch": return .customTokenMismatch
         case "no-mock-configured": return .noMockConfigured
         case "no-current-user": return .noCurrentUser
+        case "permission-denied", "permission_denied": return .permissionDenied
+        case "unauthenticated": return .unauthenticated
+        case "invalid-argument", "invalid_argument": return .invalidArgument
+        case "failed-precondition", "failed_precondition": return .failedPrecondition
+        case "resource-exhausted", "resource_exhausted": return .resourceExhausted
+        case "already-exists", "already_exists": return .alreadyExists
+        case "not-found", "not_found": return .notFound
+        case "unavailable": return .unavailable
+        case "deadline-exceeded", "deadline_exceeded": return .deadlineExceeded
+        case "cancelled", "canceled": return .cancelled
+        case "aborted": return .aborted
         default: return .internalError
         }
     }
@@ -116,8 +160,8 @@ public enum AuthErrorCode: String, Sendable, Error, CaseIterable {
         if let authErr = error as? AuthError {
             return authErr.code
         }
-        if let bridgeErr = error as? PyricBridgeError {
-            return from(codeString: bridgeErr.rawCode)
+        if error is PyricBridgeError {
+            return AuthError.from(error: error).code
         }
         return .internalError
     }
