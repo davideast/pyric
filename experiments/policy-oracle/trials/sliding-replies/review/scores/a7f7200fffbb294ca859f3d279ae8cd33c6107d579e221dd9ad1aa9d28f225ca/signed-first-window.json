@@ -1,0 +1,44 @@
+{
+  "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "source": "private authenticated controller journals; independent chess rules on exact signed operands",
+  "status": "partial",
+  "distinctWrites": 120,
+  "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "nativeComparedOnActualDocuments": 120,
+  "priorIdenticalSignedOperands": 72,
+  "focusCasesWithExactSuccessorAndCompleteReplies": 54,
+  "nativeVersusFirestore": {
+    "match": 120
+  },
+  "captures": [
+    {
+      "capture": "sliding-part-1",
+      "caseCount": 120,
+      "controllerSha256": "d3ef593d5a4023e0bf7400342b058199344b3047458a51a0f6e1b86ae4e30560",
+      "journalSha256": "6fadb633cbd622c6fbeeff8a675e5d4def1fb36013236aac710f798d2bb86d16",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 120,
+      "openReleaseUpdateTime": "2026-11-27T01:05:56.842008Z"
+    }
+  ],
+  "mismatches": {},
+  "oldCorpusChanges": {
+    "repaired": [
+      "rook-c5-after-queen-won",
+      "rook-h5-after-queen-playing"
+    ],
+    "regressed": [],
+    "stillDisagree": []
+  },
+  "shapeSensitivityControl": {
+    "source": "rook-safe",
+    "addedField": "unexpectedNullField",
+    "value": null,
+    "originalNative": "ALLOW",
+    "amendedNative": "DENY"
+  },
+  "invalidSourcePositions": [],
+  "perCaseAdjudicationsSha256": "344f6f3b4a4eff192a8311769dac63a6b40bbb997ab2def5ad5b1f3745e4efa7"
+}
