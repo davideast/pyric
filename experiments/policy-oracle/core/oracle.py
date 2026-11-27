@@ -17,7 +17,7 @@ VERSION = r"v[1-9][0-9]*"
 WITNESSES = {
     "native-model": {"native-trace"},
     "firestore-sdk": {"imported-production-verdict", "authenticated-write-readback"},
-    "rtdb-production": {"imported-production-verdict"},
+    "rtdb-production": {"imported-production-verdict", "authenticated-write-readback"},
     "storage-production": {"imported-production-verdict", "authenticated-write-readback"},
 }
 ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
@@ -30,7 +30,9 @@ CAMPAIGN_PROBES = {
     "genkit": {"genkit": ("conversation-membership",)},
     "blockingfun": {"blocking": ("session-access", "lobby-transitions")},
 }
+AIR_HOCKEY_PROBE = "suites/arcade/air-hockey/claims/frame-plausibility/v1/probes/host-writes/v1"
 SDK_VERIFIERS = {
+    AIR_HOCKEY_PROBE: "@oracle/adapters/air-hockey/v1/verify.mjs",
     "suites/satisfy/tally-slate/claims/compiled-two-strike-validation/v1/probes/turns/v1": "@oracle/adapters/tally-strikes/v1/verify.mjs",
     "suites/satisfy/tally-slate/claims/compiled-two-action-fold/v1/probes/turns/v1": "@oracle/adapters/tally-fold/v1/verify.mjs",
     "suites/ai-jrpg/genkit/claims/conversation-queries/v1/probes/genkit/v1": "@oracle/adapters/conversation-queries/v1/verify.mjs",
@@ -258,7 +260,8 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, s
     runner = pin_files(root, version, recipe)
     if witness == "authenticated-write-readback":
         probe_id = version.relative_to(root).as_posix()
-        require((authority == "storage-production") == (probe_id == CLIP_PROBE),
+        require((authority == "storage-production") == (probe_id == CLIP_PROBE) and
+                (authority == "rtdb-production") == (probe_id == AIR_HOCKEY_PROBE),
                 f"incorrect service for SDK receipt: {probe_id}")
         verifier = SDK_VERIFIERS.get(probe_id, ARCADE_VERIFIER)
         require(recipe.get("verifyEvidence") == verifier and verifier in recipe["pins"],

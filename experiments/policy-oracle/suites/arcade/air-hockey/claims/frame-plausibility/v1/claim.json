@@ -1,0 +1,5 @@
+{
+  "description": "Compare authenticated RTDB host frame writes under stock Arcade rules and the generated displacement and goal predicate.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

@@ -1,0 +1,757 @@
+{
+  "runId": "a30bafc5-2b09-4285-a0a9-c61dc826aa67",
+  "started": "2026-11-27T19:52:39.466Z",
+  "finished": "2026-11-27T19:52:46.988Z",
+  "project": "digame-mas",
+  "created": {
+    "name": "projects/803835021738/locations/us-central1/instances/pyric-frame-a30bafc5",
+    "project": "projects/803835021738",
+    "databaseUrl": "https://pyric-frame-a30bafc5.firebaseio.com",
+    "type": "USER_DATABASE",
+    "state": "ACTIVE"
+  },
+  "sdk": "12.19.0",
+  "identities": {
+    "host": {
+      "uid": "9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "releases": {
+    "stock": {
+      "sourceSha256": "b49acfb81416f3faa725fde7c91bf0871a2dd3db5520772ac5598be6b20d59bf",
+      "activeRulesMatchedBeforeAndAfter": true
+    },
+    "generated": {
+      "sourceSha256": "cd45fbe4a090c1ed84be6094979d59436e7e9249180f695557b7a49ef0a5e3dc",
+      "activeRulesMatchedBeforeAndAfter": true
+    }
+  },
+  "rows": {
+    "stock-move-22": {
+      "path": "airhockey/stock-move-22/9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "method": "PUT",
+      "relativePath": "/frame",
+      "submitted": {
+        "puck": {
+          "x": 62,
+          "y": 64,
+          "vx": 0,
+          "vy": 0,
+          "t": 3
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "before": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": 0,
+              "x": 40,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "FAHZMfE5GJwnk3ozX6YCtkblG+s="
+      },
+      "reply": {
+        "status": 200,
+        "body": {
+          "guest": {
+            "x": 48,
+            "y": 16
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "puck": {
+            "t": 3,
+            "vx": 0,
+            "vy": 0,
+            "x": 62,
+            "y": 64
+          }
+        },
+        "etag": null
+      },
+      "after": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 62,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "90e6//B7wxaXcZf5ciCYYzuTnSA="
+      },
+      "decision": "ALLOW"
+    },
+    "stock-move-23": {
+      "path": "airhockey/stock-move-23/9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "method": "PUT",
+      "relativePath": "/frame",
+      "submitted": {
+        "puck": {
+          "x": 63,
+          "y": 64,
+          "vx": 0,
+          "vy": 0,
+          "t": 3
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "before": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": 0,
+              "x": 40,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "FAHZMfE5GJwnk3ozX6YCtkblG+s="
+      },
+      "reply": {
+        "status": 200,
+        "body": {
+          "guest": {
+            "x": 48,
+            "y": 16
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "puck": {
+            "t": 3,
+            "vx": 0,
+            "vy": 0,
+            "x": 63,
+            "y": 64
+          }
+        },
+        "etag": null
+      },
+      "after": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 63,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "uQW0y+0XzmrVi+4fxja2nrCve68="
+      },
+      "decision": "ALLOW"
+    },
+    "stock-goal-reset": {
+      "path": "airhockey/stock-goal-reset/9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "method": "PATCH",
+      "relativePath": "",
+      "submitted": {
+        "frame": {
+          "puck": {
+            "x": 48,
+            "y": 32,
+            "vx": 0,
+            "vy": 0,
+            "t": 3
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "guest": {
+            "x": 48,
+            "y": 16
+          }
+        },
+        "score": {
+          "host": 1,
+          "guest": 0
+        }
+      },
+      "before": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": -170,
+              "x": 38,
+              "y": 7
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "rxqgpmZygprRNyidxaJbltDJxsU="
+      },
+      "reply": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 48,
+              "y": 32
+            }
+          },
+          "score": {
+            "guest": 0,
+            "host": 1
+          }
+        },
+        "etag": null
+      },
+      "after": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 48,
+              "y": 32
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 1
+          }
+        },
+        "etag": "hLa19rKLYrJHrnIMCqfqMW/hpYs="
+      },
+      "decision": "ALLOW"
+    },
+    "generated-move-22": {
+      "path": "airhockey/generated-move-22/9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "method": "PUT",
+      "relativePath": "/frame",
+      "submitted": {
+        "puck": {
+          "x": 62,
+          "y": 64,
+          "vx": 0,
+          "vy": 0,
+          "t": 3
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "before": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": 0,
+              "x": 40,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "FAHZMfE5GJwnk3ozX6YCtkblG+s="
+      },
+      "reply": {
+        "status": 200,
+        "body": {
+          "guest": {
+            "x": 48,
+            "y": 16
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "puck": {
+            "t": 3,
+            "vx": 0,
+            "vy": 0,
+            "x": 62,
+            "y": 64
+          }
+        },
+        "etag": null
+      },
+      "after": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 62,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "90e6//B7wxaXcZf5ciCYYzuTnSA="
+      },
+      "decision": "ALLOW"
+    },
+    "generated-move-23": {
+      "path": "airhockey/generated-move-23/9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "method": "PUT",
+      "relativePath": "/frame",
+      "submitted": {
+        "puck": {
+          "x": 63,
+          "y": 64,
+          "vx": 0,
+          "vy": 0,
+          "t": 3
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "before": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": 0,
+              "x": 40,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "FAHZMfE5GJwnk3ozX6YCtkblG+s="
+      },
+      "reply": {
+        "status": 401,
+        "body": {
+          "error": "Permission denied"
+        },
+        "etag": null
+      },
+      "after": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": 0,
+              "x": 40,
+              "y": 64
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "FAHZMfE5GJwnk3ozX6YCtkblG+s="
+      },
+      "decision": "DENY"
+    },
+    "generated-goal-reset": {
+      "path": "airhockey/generated-goal-reset/9SQhGPE39ySyXuUl3VURDgg6jcj2",
+      "method": "PATCH",
+      "relativePath": "",
+      "submitted": {
+        "frame": {
+          "puck": {
+            "x": 48,
+            "y": 32,
+            "vx": 0,
+            "vy": 0,
+            "t": 3
+          },
+          "host": {
+            "x": 48,
+            "y": 112
+          },
+          "guest": {
+            "x": 48,
+            "y": 16
+          }
+        },
+        "score": {
+          "host": 1,
+          "guest": 0
+        }
+      },
+      "before": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 0,
+              "vx": 0,
+              "vy": -170,
+              "x": 38,
+              "y": 7
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 0
+          }
+        },
+        "etag": "rxqgpmZygprRNyidxaJbltDJxsU="
+      },
+      "reply": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 48,
+              "y": 32
+            }
+          },
+          "score": {
+            "guest": 0,
+            "host": 1
+          }
+        },
+        "etag": null
+      },
+      "after": {
+        "status": 200,
+        "body": {
+          "frame": {
+            "guest": {
+              "x": 48,
+              "y": 16
+            },
+            "host": {
+              "x": 48,
+              "y": 112
+            },
+            "puck": {
+              "t": 3,
+              "vx": 0,
+              "vy": 0,
+              "x": 48,
+              "y": 32
+            }
+          },
+          "meta": {
+            "guest": "guest-fixture",
+            "status": "playing",
+            "winner": ""
+          },
+          "presence": {
+            "guest": true,
+            "host": true
+          },
+          "score": {
+            "guest": 0,
+            "host": 1
+          }
+        },
+        "etag": "hLa19rKLYrJHrnIMCqfqMW/hpYs="
+      },
+      "decision": "ALLOW"
+    }
+  },
+  "cleanup": {
+    "closed": {
+      "status": 401,
+      "body": {
+        "error": "Permission denied"
+      },
+      "etag": null
+    },
+    "instance": {
+      "name": "projects/803835021738/locations/us-central1/instances/pyric-frame-a30bafc5",
+      "project": "projects/803835021738",
+      "databaseUrl": "https://pyric-frame-a30bafc5.firebaseio.com",
+      "type": "USER_DATABASE",
+      "state": "DELETED"
+    },
+    "identityDeleted": true
+  }
+}

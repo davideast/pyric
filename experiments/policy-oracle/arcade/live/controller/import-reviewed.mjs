@@ -21,7 +21,9 @@ export function importReviewed(probe, verifier, archiveArg, runId) {
   assert.deepEqual(Object.keys(results).sort(), JSON.parse(recipe).cases.sort());
   const claim = readFileSync(resolve(probe, '../../../claim.json'));
   const path = 'evidence/' + runId + '.json';
-  const receipt = {authority: 'firestore-sdk', inputDigest: sha(Buffer.concat([claim, Buffer.from([0]), recipe])),
+  const authority = JSON.parse(claim).authority;
+  assert.ok(['firestore-sdk','rtdb-production'].includes(authority));
+  const receipt = {authority, inputDigest: sha(Buffer.concat([claim, Buffer.from([0]), recipe])),
     results, evidence: {path, sha256: completed.digest, pointers: Object.fromEntries(Object.keys(results).map(id => [id, '/rows/' + id + '/decision']))}};
   immutable(join(probe, path), raw, {identicalOk:true});
   immutable(join(probe,'observations',runId + '.json'), jsonBytes(receipt), {identicalOk:true});

@@ -1,0 +1,24 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "5ce683f37314bcfe053316b4cf4cf09c33d5c50fce74c93515640c89c48ce568",
+  "results": {
+    "stock-move-22": "ALLOW",
+    "stock-move-23": "ALLOW",
+    "stock-goal-reset": "ALLOW",
+    "generated-move-22": "ALLOW",
+    "generated-move-23": "DENY",
+    "generated-goal-reset": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/a30bafc5-2b09-4285-a0a9-c61dc826aa67.json",
+    "sha256": "18be18d318854a4a37b38f09143a7f45322fb5b5d4c29f38a1f8a8ef5e3565e7",
+    "pointers": {
+      "stock-move-22": "/rows/stock-move-22/decision",
+      "stock-move-23": "/rows/stock-move-23/decision",
+      "stock-goal-reset": "/rows/stock-goal-reset/decision",
+      "generated-move-22": "/rows/generated-move-22/decision",
+      "generated-move-23": "/rows/generated-move-23/decision",
+      "generated-goal-reset": "/rows/generated-goal-reset/decision"
+    }
+  }
+}

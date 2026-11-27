@@ -1,0 +1,17 @@
+function plausibleFrame(last, next, oldScore, score) {
+  let ticks = next.t - last.t;
+  let reach = 7 * ticks + 1;
+  let dx = next.x - last.x;
+  let dy = next.y - last.y;
+  let ordinary = oldScore.host == score.host && oldScore.guest == score.guest;
+  let hostGoal = score.host == oldScore.host + 1 && score.guest == oldScore.guest;
+  let guestGoal = score.guest == oldScore.guest + 1 && score.host == oldScore.host;
+  let line = hostGoal ? last.y : 128 - last.y;
+  let mouth = last.x < 32 ? 32 : (last.x > 64 ? 64 : last.x);
+  let offset = last.x - mouth;
+  let goalReach = ticks < 1 ? 8 : reach;
+  let radius = goalReach + 3.5;
+  return ticks > 0 && (ordinary ? dx * dx + dy * dy <= reach * reach :
+    (hostGoal || guestGoal) && line <= goalReach && offset * offset + line * line <= radius * radius
+      && next.x == 48 && next.y == (hostGoal ? 32 : 96) && next.vx == 0 && next.vy == 0);
+}

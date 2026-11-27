@@ -1,0 +1,110 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "airhockey": {
+      "$matchId": {
+        "$host": {
+          ".read": "(auth != null) && ((auth.uid == $host) || (data.child(\"meta/guest\").val() == auth.uid))",
+          "frame": {
+            ".write": "((auth != null) && (auth.uid == $host)) && (newData.exists()) && (data.parent().child(\"meta/status\").val() == \"playing\")",
+            ".validate": "((newData.hasChild(\"puck/x\")) && (newData.hasChild(\"puck/y\")) && (newData.hasChild(\"puck/vx\")) && (newData.hasChild(\"puck/vy\")) && (newData.hasChild(\"puck/t\"))) && ((newData.child(\"puck/x\").val() >= 0) && (newData.child(\"puck/x\").val() <= 96)) && ((newData.child(\"puck/y\").val() >= 0) && (newData.child(\"puck/y\").val() <= 128)) && ((newData.child(\"puck/vx\").val() >= -180) && (newData.child(\"puck/vx\").val() <= 180)) && ((newData.child(\"puck/vy\").val() >= -180) && (newData.child(\"puck/vy\").val() <= 180)) && (newData.child(\"puck/vx\").val() * newData.child(\"puck/vx\").val() + newData.child(\"puck/vy\").val() * newData.child(\"puck/vy\").val() <= 32400) && ((!data.exists()) || (newData.child(\"puck/t\").val() > data.child(\"puck/t\").val())) && (((newData.hasChild(\"host/x\")) && (newData.hasChild(\"host/y\"))) && ((newData.child(\"host/x\").val() >= 4.5) && (newData.child(\"host/x\").val() <= 91.5)) && ((newData.child(\"host/y\").val() >= 68.5) && (newData.child(\"host/y\").val() <= 123.5))) && (((newData.hasChild(\"guest/x\")) && (newData.hasChild(\"guest/y\"))) && ((newData.child(\"guest/x\").val() >= 4.5) && (newData.child(\"guest/x\").val() <= 91.5)) && ((newData.child(\"guest/y\").val() >= 4.5) && (newData.child(\"guest/y\").val() <= 59.5)))",
+            "$other": {
+              ".validate": false
+            },
+            "guest": {
+              "$other": {
+                ".validate": false
+              },
+              "x": {
+                ".validate": "newData.isNumber()"
+              },
+              "y": {
+                ".validate": "newData.isNumber()"
+              }
+            },
+            "host": {
+              "$other": {
+                ".validate": false
+              },
+              "x": {
+                ".validate": "newData.isNumber()"
+              },
+              "y": {
+                ".validate": "newData.isNumber()"
+              }
+            },
+            "puck": {
+              "$other": {
+                ".validate": false
+              },
+              "t": {
+                ".validate": "newData.isNumber()"
+              },
+              "vx": {
+                ".validate": "newData.isNumber()"
+              },
+              "vy": {
+                ".validate": "newData.isNumber()"
+              },
+              "x": {
+                ".validate": "newData.isNumber()"
+              },
+              "y": {
+                ".validate": "newData.isNumber()"
+              }
+            }
+          },
+          "guestMallet": {
+            ".write": "((auth != null) && (data.parent().child(\"meta/guest\").val() == auth.uid)) && (newData.exists()) && (data.parent().child(\"meta/status\").val() == \"playing\")",
+            ".validate": "((newData.hasChild(\"x\")) && (newData.hasChild(\"y\"))) && ((newData.child(\"x\").val() >= 4.5) && (newData.child(\"x\").val() <= 91.5)) && ((newData.child(\"y\").val() >= 4.5) && (newData.child(\"y\").val() <= 59.5))",
+            "$other": {
+              ".validate": false
+            },
+            "x": {
+              ".validate": "newData.isNumber()"
+            },
+            "y": {
+              ".validate": "newData.isNumber()"
+            }
+          },
+          "meta": {
+            ".write": "(auth != null) && (newData.exists()) && (((!data.exists()) && (auth.uid == $host) && (newData.child(\"status\").val() == \"playing\") && (newData.child(\"winner\").val() == \"\")) || ((data.child(\"status\").val() == \"playing\") && ((auth.uid == $host) || (data.child(\"guest\").val() == auth.uid)) && (!data.exists() || newData.child(\"guest\").val() == data.child(\"guest\").val()) && (((auth.uid == $host) && (newData.child(\"status\").val() == \"over\") && (((newData.child(\"winner\").val() == \"host\") && (newData.parent().child(\"score/host\").val() == 7)) || ((newData.child(\"winner\").val() == \"guest\") && (newData.parent().child(\"score/guest\").val() == 7)))) || ((newData.child(\"status\").val() == \"forfeit\") && (((auth.uid == $host) && (newData.child(\"winner\").val() == \"host\") && (data.parent().child(\"presence/guest\").val() == false)) || ((!(auth.uid == $host)) && (newData.child(\"winner\").val() == \"guest\") && (data.parent().child(\"presence/host\").val() == false)))) || ((newData.child(\"status\").val() == \"resigned\") && (((auth.uid == $host) && (newData.child(\"winner\").val() == \"guest\")) || ((!(auth.uid == $host)) && (newData.child(\"winner\").val() == \"host\")))))))",
+            ".validate": "((newData.hasChild(\"guest\")) && (newData.hasChild(\"status\")) && (newData.hasChild(\"winner\"))) && (newData.child(\"guest\").val() != \"\") && (newData.child(\"guest\").val() != $host) && ((newData.child(\"status\").val() == \"playing\") || (newData.child(\"status\").val() == \"over\") || (newData.child(\"status\").val() == \"forfeit\") || (newData.child(\"status\").val() == \"resigned\")) && ((newData.child(\"winner\").val() == \"\") || (newData.child(\"winner\").val() == \"host\") || (newData.child(\"winner\").val() == \"guest\"))",
+            "$other": {
+              ".validate": false
+            },
+            "guest": {
+              ".validate": "newData.isString()"
+            },
+            "status": {
+              ".validate": "newData.isString()"
+            },
+            "winner": {
+              ".validate": "newData.isString()"
+            }
+          },
+          "score": {
+            ".write": "((auth != null) && (auth.uid == $host)) && (newData.exists()) && (data.parent().child(\"meta/status\").val() == \"playing\")",
+            ".validate": "((newData.hasChild(\"host\")) && (newData.hasChild(\"guest\"))) && ((newData.child(\"host\").val() >= 0) && (newData.child(\"host\").val() <= 7)) && ((newData.child(\"guest\").val() >= 0) && (newData.child(\"guest\").val() <= 7)) && (((!data.exists()) && (newData.child(\"host\").val() == 0) && (newData.child(\"guest\").val() == 0)) || ((newData.child(\"host\").val() == data.child(\"host\").val() + 1) && (newData.child(\"guest\").val() == data.child(\"guest\").val())) || ((newData.child(\"guest\").val() == data.child(\"guest\").val() + 1) && (newData.child(\"host\").val() == data.child(\"host\").val()))) && (((newData.child(\"host\").val() < 7) && (newData.child(\"guest\").val() < 7)) || (newData.parent().child(\"meta/status\").val() == \"over\"))",
+            "$other": {
+              ".validate": false
+            },
+            "guest": {
+              ".validate": "newData.isNumber()"
+            },
+            "host": {
+              ".validate": "newData.isNumber()"
+            }
+          },
+          "presence": {
+            "$side": {
+              ".write": "(newData.exists()) && (data.parent().parent().child(\"meta/status\").val() == \"playing\") && ((($side == \"host\") && ((auth != null) && (auth.uid == $host))) || (($side == \"guest\") && ((auth != null) && (data.parent().parent().child(\"meta/guest\").val() == auth.uid))))",
+              ".validate": "newData.isBoolean()"
+            }
+          }
+        }
+      }
+    }
+  }
+}

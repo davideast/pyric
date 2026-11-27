@@ -1,4 +1,5 @@
 // Experimental opt-in entry. Standard rules loaders never import this grammar.
+import { emitRtdbNumericPredicate, type NumericSnapshot } from './rtdb-predicate.js';
 import { bindRealtime, composeFirestore, type FirestoreTemplate, type RealtimePlacement } from './placement.js';
 import { compileProjections, emitFirestoreModule, emitPureFunctionModule, lowerFirestore, field, type FirestoreBindings } from './firestore.js';
 import { bindDerivedLocals, derivedCollectionReads, projectDerivedField } from './derived-field.js';
@@ -188,7 +189,13 @@ export function compileFunction(source: string, { expressionLimit = 8192 } = {})
     if (loop) return evaluateLoop(fn, loop, ctx, scope);
     return evaluate(fn.body, ctx, scope);
   };
-  return Object.assign(invoke, { firestoreModule: () => loop ? emitLoopModule(fn, loop, expressionLimit) : emitPureFunctionModule(fn) });
+  return Object.assign(invoke, {
+    firestoreModule: () => loop ? emitLoopModule(fn, loop, expressionLimit) : emitPureFunctionModule(fn),
+    rtdbNumericPredicate(bindings: Record<string, NumericSnapshot>) {
+      if (loop) throw new Error('Loops have no RTDB numeric lowering');
+      return emitRtdbNumericPredicate(fn, bindings);
+    },
+  });
 }
 
 export interface Transition { before: unknown; after: unknown; input: unknown }
