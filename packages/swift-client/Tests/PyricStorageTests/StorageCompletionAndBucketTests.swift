@@ -303,15 +303,17 @@ struct StorageCompletionAndBucketTests {
             }
             #expect(downloadUrlMissing == true)
 
-            var updateMissing = false
+            // Client-plane updateMetadata returns storage/unauthorized for missing objects
+            // (conformance storage/metadata/87: server requires an existing object to synthesize request.resource).
+            var updateMissingUnauthorized = false
             do {
                 let m = StorageMetadata()
                 m.contentType = "application/octet-stream"
                 _ = try await missingRef.updateMetadata(m)
-            } catch StorageErrorCode.objectNotFound {
-                updateMissing = true
+            } catch StorageErrorCode.unauthorized {
+                updateMissingUnauthorized = true
             }
-            #expect(updateMissing == true)
+            #expect(updateMissingUnauthorized == true)
 
             // Upload 0-byte empty file and verify round-trip metadata + data(maxSize:).
             let emptyRef = storage.reference(withPath: "users/\(signedIn.user.uid)/empty.bin")
