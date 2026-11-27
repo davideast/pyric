@@ -8,6 +8,7 @@ import type {
   FunctionsDevelopmentRuntimeOptions,
 } from '../../src/functions/development-runtime.js';
 import type { BridgeMount } from '../../src/serve/bridge-mount.js';
+import { functionsTriggersLine } from '../../src/functions/http/report.js';
 import { attachViteFunctionsDevelopment } from '../../src/serve/vite-functions-development.js';
 
 class FakeHttpServer extends EventEmitter {
@@ -88,7 +89,7 @@ describe('Vite Functions development adapter', () => {
       instance: 'demo-project-default-rtdb',
       location: 'us-central1',
     });
-    expect(info.some((message) => message.includes('1 onValueCreated trigger'))).toBe(true);
+    expect(info.some((message) => message.includes('functions 1 trigger from '))).toBe(true);
 
     watcher.emit('change', '/elsewhere/index.js');
     watcher.emit('add', path.join(sourceDir, 'node_modules/pkg/index.js'));
@@ -335,4 +336,14 @@ it('transitions the HTTP gateway immediately to exited (503) without blocking wh
     await attachment.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+describe('functionsTriggersLine', () => {
+  it('formats singular and plural trigger counts without hardcoding a trigger kind', () => {
+    expect(functionsTriggersLine(0, 'functions/index.js')).toBe('functions 0 triggers from functions/index.js');
+    expect(functionsTriggersLine(1, 'functions/index.js')).toBe('functions 1 trigger from functions/index.js');
+    expect(functionsTriggersLine(3, 'functions/dist/index.js')).toBe(
+      'functions 3 triggers from functions/dist/index.js',
+    );
+  });
 });

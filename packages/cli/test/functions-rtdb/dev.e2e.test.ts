@@ -146,13 +146,13 @@ exports.makeUppercase = onValueCreated(
         );
         observer = await connectRemoteSandbox({ url: pointer.url, cwd });
         await waitFor(() =>
-          stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
+          stdout.includes('\u2714 functions 1 trigger from ') ? true : null);
 
         await observer.rtdb.set('messages/id/original', 'hello');
         await waitFor(async () =>
           (await observer!.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null);
         await waitFor(() =>
-          stdout.includes('✔ function  makeUppercase ← /messages/id/original') ? true : null);
+          stdout.includes('\u2714 function  makeUppercase \u2190 /messages/id/original') ? true : null);
 
         command.kill('SIGTERM');
         const code = await Promise.race([
@@ -175,7 +175,7 @@ exports.makeUppercase = onValueCreated(
     }
   }, 30_000);
 
-  test('an auth-gated read on the watched path does NOT deny the trigger (admin lens) — #401', async () => {
+  test('an auth-gated read on the watched path does NOT deny the trigger (admin lens) -- #401', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
     const cwd = mkdtempSync(join(tmpdir(), 'pyric-functions-dev-rules-'));
     mkdirSync(join(cwd, 'public'));
@@ -210,7 +210,7 @@ export const makeUppercase = onValueCreated(
     // non-admin subscription is PERMISSION_DENIED and the Functions child dies
     // at startup. The relayed trigger subscription must carry `actAs: admin`
     // all the way to the sandbox, where the admin listener bypasses this rule.
-    // Note `.read: true` deeper (on `/messages/$id/original`) would NOT help —
+    // Note `.read: true` deeper (on `/messages/$id/original`) would NOT help --
     // an RTDB read grant does not cascade UP to the subscribed parent.
     const databaseRules = {
       rules: {
@@ -245,19 +245,19 @@ export const makeUppercase = onValueCreated(
       observer = await connectRemoteSandbox({ url: pointer.url, cwd });
 
       // The trigger's admin subscription established despite the auth-gated
-      // read — the child neither PERMISSION_DENIED nor exited at startup.
+      // read -- the child neither PERMISSION_DENIED nor exited at startup.
       await waitFor(() =>
-        stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
+        stdout.includes('\u2714 functions 1 trigger from ') ? true : null);
       expect(stderr).not.toContain('PERMISSION_DENIED');
       expect(stderr).not.toContain('failed to start');
 
       // The trigger fires and its Firestore-adjacent effect (the uppercase
-      // stamp) lands — end to end through the rules-gated path.
+      // stamp) lands -- end to end through the rules-gated path.
       await observer.rtdb.set('messages/id/original', 'hello');
       await waitFor(async () =>
         (await observer!.rtdb.get('messages/id/uppercase')) === 'HELLO' ? true : null);
       await waitFor(() =>
-        stdout.includes('✔ function  makeUppercase ← /messages/id/original') ? true : null);
+        stdout.includes('\u2714 function  makeUppercase \u2190 /messages/id/original') ? true : null);
 
       command.kill('SIGTERM');
       const code = await Promise.race([
@@ -279,9 +279,9 @@ export const makeUppercase = onValueCreated(
 
   test('an onValueCreated trigger stamps a Firestore doc via firebase-admin (admin bypasses deny rules; client-lens denied) (#394)', async () => {
     if (!existsSync(cliEntry)) throw new Error(`build the CLI first: ${cliEntry}`);
-    // The pychat presence→users stamp shape: an RTDB write triggers a Cloud
+    // The pychat presence->users stamp shape: an RTDB write triggers a Cloud
     // Function that writes a Firestore doc through firebase-admin/firestore.
-    // The ruleset DENIES a signed-out (client/anon) caller on `users/*` — only
+    // The ruleset DENIES a signed-out (client/anon) caller on `users/*` -- only
     // the row's own owner may write. firebase-admin bypasses rules, so the
     // function's admin write must LAND; a client-lens (anon) write to the same
     // path must be DENIED.
@@ -308,7 +308,7 @@ service cloud.firestore {
       type: 'commonjs',
       main: 'index.cjs',
     }));
-    // Unchanged firebase-admin source — the register swap rewrites the imports.
+    // Unchanged firebase-admin source -- the register swap rewrites the imports.
     writeFileSync(join(cwd, 'functions/index.cjs'),
       `const { onValueCreated } = require('firebase-functions/v2/database');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -339,7 +339,7 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
           ? JSON.parse(readFileSync(path, 'utf8')) as { url: string }
           : null;
       });
-      // The worker peer owns the sandbox where data lands — deploy the
+      // The worker peer owns the sandbox where data lands -- deploy the
       // restrictive ruleset there (as a served page would).
       peer = await connectWorkerPeer(
         `${pointer.url.replace(/^http/, 'ws')}/__pyric/sandbox`,
@@ -347,7 +347,7 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
       );
       observer = await connectRemoteSandbox({ url: pointer.url, cwd });
       await waitFor(() =>
-        stdout.includes('✔ functions 1 onValueCreated trigger') ? true : null);
+        stdout.includes('\u2714 functions 1 trigger from ') ? true : null);
 
       // Trigger the function: an RTDB create at the watched path.
       await observer.rtdb.set('presence/u1/state', 'online');
@@ -365,7 +365,7 @@ exports.stampPresence = onValueCreated('/presence/{uid}/state', async (event) =>
       expect(JSON.parse(stamped.data!.json)).toEqual({ lastSeenAt: 'online' });
 
       // NEGATIVE INVARIANT: a client-lens (signed-out / anon) write to the
-      // SAME rules-protected path is DENIED — the fix routes only the server
+      // SAME rules-protected path is DENIED -- the fix routes only the server
       // admin context to the bypass lens, never a client lens.
       let clientErr: { code?: string } | undefined;
       try {

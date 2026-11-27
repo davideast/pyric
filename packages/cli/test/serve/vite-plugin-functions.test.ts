@@ -171,7 +171,7 @@ exports.makeUppercase = onValueCreated(
 
     // The child must reach "ready" (baseline subscribed) before the create -- a
     // write observed before baseline is folded into the baseline, not a create.
-    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
+    await waitFor(() => logs.some((l) => l.includes('functions 1 trigger from ')) ? true : null, 20_000);
 
     await obs.rtdb.set('messages/id/original', 'hello');
     const upper = await waitFor(
@@ -247,7 +247,7 @@ exports.makeUppercase = onValueCreated(
     // No functions + no bridge => no bridge mount => no serve.json pointer and no
     // functions banner. The bridge pointer is the observable "something mounted".
     expect(existsSync(join(cwd, '.pyric', 'serve.json'))).toBe(false);
-    expect(logs.some((l) => l.includes('onValueCreated'))).toBe(false);
+    expect(logs.some((l) => l.includes('trigger from '))).toBe(false);
   }, 40_000);
 
   test('functions: false suppresses discovery, the child, and the functions-forced bridge mount', async () => {
@@ -294,7 +294,7 @@ exports.makeUppercase = onValueCreated(
     // No bridge mount was forced on functions' behalf: no serve.json pointer,
     // and no functions banner ever logged.
     expect(existsSync(join(cwd, '.pyric', 'serve.json'))).toBe(false);
-    expect(logs.some((l) => l.includes('onValueCreated'))).toBe(false);
+    expect(logs.some((l) => l.includes('trigger from '))).toBe(false);
   }, 40_000);
 
   test('region/instance options flow to the child, and a save hot-reloads it (redeploy semantics)', async () => {
@@ -368,7 +368,7 @@ exports.echoMeta = onValueCreated(
     peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
     const obs = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
     observer = obs;
-    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000, logs);
+    await waitFor(() => logs.some((l) => l.includes('functions 1 trigger from ')) ? true : null, 20_000, logs);
 
     // Option flow: the trigger observes the plugin-configured instance/region.
     await obs.rtdb.set('messages/m1/original', 'x');
@@ -501,7 +501,7 @@ exports.onMsg = onValueCreated(
     peer = await withTimeout(connectWorkerPeer(`${base.replace(/^http/, 'ws')}/__pyric/sandbox`), 10_000, 'peer');
     const obs = await withTimeout(connectRemoteSandbox({ url: base }), 10_000, 'observer');
     observer = obs;
-    await waitFor(() => logs.some((l) => l.includes('onValueCreated')) ? true : null, 20_000);
+    await waitFor(() => logs.some((l) => l.includes('functions 1 trigger from ')) ? true : null, 20_000);
 
     // A save must NOT restart the child: overwrite with v2, emit a watcher
     // change directly, and verify a subsequent RTDB write is still handled by v1.
@@ -523,6 +523,6 @@ exports.onMsg = onValueCreated(
     );
     await waitFor(() => logs.some((l) => l.includes('onMsg')) ? true : null, 10_000, logs);
     expect(logs.filter((l) => l.includes('functions reloaded')).length).toBe(0);
-    expect(logs.filter((l) => l.includes('onValueCreated')).length).toBe(1);
+    expect(logs.filter((l) => l.includes('functions 1 trigger from ')).length).toBe(1);
   }, 60_000);
 });

@@ -24,7 +24,7 @@ export default scenario(async (app) => {
   const firstPage = await app.step('open a browser tab so the Functions child starts', async () => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'writeBatch' in window);
-    await host.process.waitForLog(/functions 1 onValueCreated trigger/, { timeoutMs: 60_000 });
+    await host.process.waitForLog(/functions 1 trigger from /, { timeoutMs: 60_000 });
     return page;
   });
 

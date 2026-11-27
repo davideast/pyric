@@ -12,6 +12,7 @@ import {
 import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
 import {
   createPrivateInvokerWarnings,
+  functionsTriggersLine,
   httpFunctionLines,
   servedLine,
   stateAfterStart,
@@ -154,10 +155,7 @@ function reportResult(
     if (mode === 'reload') {
       logger.info(`  \u21bb [pyric] functions reloaded (${ready.triggerCount} trigger${suffix})`);
     } else {
-      logger.info(
-        `  \u2714 [pyric] functions ${ready.triggerCount} onValueCreated ` +
-          `trigger${suffix} from ${path.relative(cwd, project.entry)}`,
-      );
+      logger.info(`  \u2714 [pyric] ${functionsTriggersLine(ready.triggerCount, path.relative(cwd, project.entry))}`);
     }
   }
   if (ready.http) {
