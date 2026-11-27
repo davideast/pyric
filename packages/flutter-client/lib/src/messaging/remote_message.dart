@@ -352,7 +352,9 @@ List<String> _stringList(Object? raw) {
 DateTime? _parseSentTime(Object? raw) {
   if (raw == null) return null;
   if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
-  if (raw is num) return DateTime.fromMillisecondsSinceEpoch(raw.toInt());
+  if (raw is num) {
+    return raw.isFinite ? DateTime.fromMillisecondsSinceEpoch(raw.toInt()) : null;
+  }
   if (raw is String) {
     final millis = int.tryParse(raw);
     if (millis != null) return DateTime.fromMillisecondsSinceEpoch(millis);

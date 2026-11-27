@@ -36,6 +36,7 @@ class FirebaseMessaging internal constructor(
     private var cachedToken: String? = null
     private var lastAnnouncedToken: String? = null
     private var inFlightToken: CompletableDeferred<String>? = null
+    private var tokenGeneration: Long = 0L
     private var serviceForegroundHandle: BridgeSubscriptionHandle? = null
     private var serviceBackgroundHandle: BridgeSubscriptionHandle? = null
 
@@ -140,6 +141,7 @@ class FirebaseMessaging internal constructor(
                     params = mapOf("registrationId" to registrationId)
                 )
                 val previous = synchronized(stateLock) {
+                    tokenGeneration += 1L
                     val prev = cachedToken ?: lastAnnouncedToken
                     cachedToken = null
                     lastAnnouncedToken = null
@@ -365,6 +367,7 @@ class FirebaseMessaging internal constructor(
         var cachedResult: String? = null
         var sharedDeferred: CompletableDeferred<String>? = null
         var isInitiator = false
+        var capturedGeneration = 0L
 
         synchronized(stateLock) {
             val cached = cachedToken
@@ -379,6 +382,7 @@ class FirebaseMessaging internal constructor(
                     inFlightToken = created
                     sharedDeferred = created
                     isInitiator = true
+                    capturedGeneration = tokenGeneration
                 }
             }
         }
@@ -396,13 +400,19 @@ class FirebaseMessaging internal constructor(
                     ?: throw IOException("Bridge messaging.getToken returned an empty token.")
 
                 val shouldAnnounce = synchronized(stateLock) {
-                    cachedToken = minted
+                    val stillCurrent = tokenGeneration == capturedGeneration &&
+                        inFlightToken === deferred
                     if (inFlightToken === deferred) {
                         inFlightToken = null
                     }
-                    val changed = lastAnnouncedToken != minted
-                    lastAnnouncedToken = minted
-                    changed
+                    if (!stillCurrent) {
+                        false
+                    } else {
+                        cachedToken = minted
+                        val changed = lastAnnouncedToken != minted
+                        lastAnnouncedToken = minted
+                        changed
+                    }
                 }
                 if (shouldAnnounce) {
                     _newTokenFlow.tryEmit(minted)
@@ -430,6 +440,13 @@ class FirebaseMessaging internal constructor(
     }
 
     fun close() {
+        synchronized(stateLock) {
+            tokenGeneration += 1L
+            cachedToken = null
+            lastAnnouncedToken = null
+            inFlightToken?.cancel()
+            inFlightToken = null
+        }
         stopServiceSubscriptions()
         registeredServices.forEach { it.active.set(false) }
         registeredServices.clear()

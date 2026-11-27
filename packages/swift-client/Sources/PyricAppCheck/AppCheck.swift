@@ -22,6 +22,7 @@ public final class AppCheck: NSObject, @unchecked Sendable {
     static let placeholderToken = "eyJlcnJvciI6IlVOS05PV05fRVJST1IifQ=="
     private static let autoRefreshBufferSeconds: TimeInterval = 300.0
     private static let minAutoRefreshDelaySeconds: TimeInterval = 0.05
+    private static let maxAutoRefreshDelaySeconds: TimeInterval = 86_400.0 * 365.0
 
     private static let registryLock = NSLock()
     nonisolated(unsafe) private static var instances: [String: AppCheck] = [:]
@@ -54,6 +55,7 @@ public final class AppCheck: NSObject, @unchecked Sendable {
     private var _bridgeClient: PyricBridgeClient
     private let explicitBridgeClient: PyricBridgeClient?
     private var bridgeObserverId: UUID?
+    private var bridgeTokenProviderId: UUID?
     private let notificationCenter: NotificationCenter
     private let clockNow: @Sendable () -> Date
 
@@ -61,6 +63,7 @@ public final class AppCheck: NSObject, @unchecked Sendable {
     private var cachedToken: AppCheckToken?
     private var inFlightStandardMintId: UUID?
     private var inFlightStandardMintTask: Task<AppCheckToken, Error>?
+    private var mintGeneration: UInt64 = 0
     private var autoRefreshTask: Task<Void, Never>?
     private var _isTokenAutoRefreshEnabled: Bool
 
@@ -86,6 +89,9 @@ public final class AppCheck: NSObject, @unchecked Sendable {
         self.clockNow = clockNow
         super.init()
 
+        if provider != nil {
+            self.installBridgeTokenProvider(on: self._bridgeClient)
+        }
         if bridgeClient == nil {
             self.bridgeObserverId = app.addBridgeObserver { [weak self] nextClient in
                 self?.applySharedBridgeClient(nextClient)
@@ -337,11 +343,18 @@ public final class AppCheck: NSObject, @unchecked Sendable {
                     return .join(existingTask)
                 }
                 let mintId = UUID()
+                mintGeneration &+= 1
+                let capturedGeneration = mintGeneration
                 let providerBox = UnsafeProviderBox(provider: provider)
                 let task = Task<AppCheckToken, Error> { [weak self] in
                     let minted = try await providerBox.provider.getToken()
                     if let self {
-                        self.completeStandardMint(mintId: mintId, provider: providerBox.provider, minted: minted)
+                        self.completeStandardMint(
+                            mintId: mintId,
+                            generation: capturedGeneration,
+                            provider: providerBox.provider,
+                            minted: minted
+                        )
                     }
                     return minted
                 }
@@ -351,11 +364,18 @@ public final class AppCheck: NSObject, @unchecked Sendable {
             }
 
             let mintId = UUID()
+            mintGeneration &+= 1
+            let capturedGeneration = mintGeneration
             let providerBox = UnsafeProviderBox(provider: provider)
             let task = Task<AppCheckToken, Error> { [weak self] in
                 let minted = try await providerBox.provider.getToken()
                 if let self {
-                    self.completeStandardMint(mintId: mintId, provider: providerBox.provider, minted: minted)
+                    self.completeStandardMint(
+                        mintId: mintId,
+                        generation: capturedGeneration,
+                        provider: providerBox.provider,
+                        minted: minted
+                    )
                 }
                 return minted
             }
@@ -389,6 +409,7 @@ public final class AppCheck: NSObject, @unchecked Sendable {
 
     private func completeStandardMint(
         mintId: UUID,
+        generation: UInt64,
         provider: any AppCheckProvider,
         minted: AppCheckToken
     ) {
@@ -399,7 +420,8 @@ public final class AppCheck: NSObject, @unchecked Sendable {
                 inFlightStandardMintId = nil
                 inFlightStandardMintTask = nil
             }
-            guard let activeProvider = installedProvider,
+            guard mintGeneration == generation,
+                  let activeProvider = installedProvider,
                   (activeProvider as AnyObject) === (provider as AnyObject) else {
                 return false
             }
@@ -442,12 +464,16 @@ public final class AppCheck: NSObject, @unchecked Sendable {
               let current = cachedToken else {
             return
         }
-        let remaining = current.expirationDate.timeIntervalSince(clockNow())
-        guard remaining > 0 else {
+        let rawRemaining = current.expirationDate.timeIntervalSince(clockNow())
+        guard rawRemaining > 0 else {
             return
         }
+        let remaining = rawRemaining.isFinite ? rawRemaining : Self.maxAutoRefreshDelaySeconds
         let lead = min(remaining / 2.0, Self.autoRefreshBufferSeconds)
-        let delaySeconds = max(remaining - lead, Self.minAutoRefreshDelaySeconds)
+        let delaySeconds = min(
+            max(remaining - lead, Self.minAutoRefreshDelaySeconds),
+            Self.maxAutoRefreshDelaySeconds
+        )
         let sleepNanoseconds = UInt64((delaySeconds * 1_000_000_000.0).rounded())
 
         autoRefreshTask = Task { [weak self] in
@@ -466,16 +492,42 @@ public final class AppCheck: NSObject, @unchecked Sendable {
         }
     }
 
-    private func applySharedBridgeClient(_ nextClient: PyricBridgeClient) {
+    private func installBridgeTokenProvider(on client: PyricBridgeClient) {
+        let regId = client.setAppCheckTokenProvider { [weak self] in
+            guard let self, self.hasInstalledProvider else { return nil }
+            do {
+                return try await self.token(forcingRefresh: false).token
+            } catch {
+                return Self.placeholderToken
+            }
+        }
         stateLock.lock()
-        _bridgeClient = nextClient
+        let keep = (_bridgeClient === client && installedProvider != nil)
+        if keep { bridgeTokenProviderId = regId }
         stateLock.unlock()
+        if !keep, let regId { client.clearAppCheckTokenProvider(id: regId) }
+    }
+
+    private func applySharedBridgeClient(_ nextClient: PyricBridgeClient) {
+        let (prev, prevTokenId, shouldInstall): (PyricBridgeClient, UUID?, Bool) = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            let previous = _bridgeClient
+            let changed = previous !== nextClient
+            let tokenId = changed ? bridgeTokenProviderId : nil
+            if changed { bridgeTokenProviderId = nil }
+            _bridgeClient = nextClient
+            return (previous, tokenId, installedProvider != nil && (changed || bridgeTokenProviderId == nil))
+        }()
+        if let prevTokenId { prev.clearAppCheckTokenProvider(id: prevTokenId) }
+        if shouldInstall { installBridgeTokenProvider(on: nextClient) }
     }
 
     private func dispose() {
-        let observerId: UUID? = {
+        let (observerId, tokenId, currentClient): (UUID?, UUID?, PyricBridgeClient) = {
             stateLock.lock()
             defer { stateLock.unlock() }
+            mintGeneration &+= 1
             autoRefreshTask?.cancel()
             autoRefreshTask = nil
             inFlightStandardMintTask?.cancel()
@@ -485,11 +537,12 @@ public final class AppCheck: NSObject, @unchecked Sendable {
             installedProvider = nil
             let id = bridgeObserverId
             bridgeObserverId = nil
-            return id
+            let tokId = bridgeTokenProviderId
+            bridgeTokenProviderId = nil
+            return (id, tokId, _bridgeClient)
         }()
-        if let observerId {
-            app.removeBridgeObserver(observerId)
-        }
+        if let tokenId { currentClient.clearAppCheckTokenProvider(id: tokenId) }
+        if let observerId { app.removeBridgeObserver(observerId) }
     }
 
     private static func getOrCreateUnconfiguredDefault(app: FirebaseApp) -> AppCheck {

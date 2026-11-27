@@ -210,12 +210,15 @@ public final class Crashlytics: NSObject, @unchecked Sendable {
     /// Adds a breadcrumb log message sent with subsequent crash and non-fatal reports.
     public func log(_ msg: String) {
         let ts = clockMillis()
-        stateLock.withLock {
+        let shouldEnqueue: Bool = stateLock.withLock {
+            if _isDisposed { return false }
             if _breadcrumbs.count >= Self.maxBreadcrumbs {
                 _breadcrumbs.removeFirst()
             }
             _breadcrumbs.append(CrashlyticsBreadcrumbEntry(message: msg, timestampMs: ts))
+            return true
         }
+        guard shouldEnqueue else { return }
         var params = baseParams()
         params["message"] = .string(msg)
         params["timestampMs"] = .int(ts)

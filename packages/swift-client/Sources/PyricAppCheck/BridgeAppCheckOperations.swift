@@ -11,13 +11,10 @@ extension PyricBridgeClient {
         provider: String? = nil,
         forcingRefresh: Bool = false
     ) async throws -> AppCheckToken {
-        try await appCheckGetToken(
-            turn: takeTurn(),
-            appId: appId,
-            projectId: projectId,
-            provider: provider,
-            forcingRefresh: forcingRefresh
-        )
+        var params = Self.baseAppCheckParams(appId: appId, projectId: projectId, provider: provider)
+        params["forceRefresh"] = .bool(forcingRefresh)
+        let res = try await opWithoutTurn(method: "appCheck.getToken", params: params)
+        return try Self.decodeAppCheckToken(res)
     }
 
     package func appCheckGetToken(

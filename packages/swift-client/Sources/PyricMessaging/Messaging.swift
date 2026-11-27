@@ -69,6 +69,7 @@ public final class Messaging: NSObject, @unchecked Sendable {
     package var _cachedToken: String?
     package var _lastAnnouncedToken: String?
     package var _inFlightTokenGate: InFlightTokenGate?
+    package var _tokenGeneration: UInt64 = 0
     package var _mintedSenderIDs: Set<String> = []
     private var _loggedMessageIDs: Set<String> = []
     private var _exportedDeliveryMetrics: [[String: String]] = []

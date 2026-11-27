@@ -20,6 +20,8 @@ final class BridgeLocalStreams: @unchecked Sendable {
     private var _closed = false
     private var _isDisposed = false
     private var _authRestorer: BridgeAuthRestorer?
+    private var _appCheckTokenProvider: BridgeAppCheckTokenProvider?
+    private var _appCheckTokenProviderId: UUID?
     private var _onDenial: (@Sendable (PyricBridgeError) -> Void)?
 
     private var stateContinuations: [UUID: AsyncStream<BridgeConnectionState>.Continuation] = [:]
@@ -55,6 +57,39 @@ final class BridgeLocalStreams: @unchecked Sendable {
             lock.lock()
             _authRestorer = newValue
             lock.unlock()
+        }
+    }
+
+    var appCheckTokenProvider: BridgeAppCheckTokenProvider? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _appCheckTokenProvider
+        }
+        set {
+            lock.lock()
+            _appCheckTokenProvider = newValue
+            _appCheckTokenProviderId = newValue != nil ? UUID() : nil
+            lock.unlock()
+        }
+    }
+
+    @discardableResult
+    func setAppCheckTokenProvider(_ provider: BridgeAppCheckTokenProvider?) -> UUID? {
+        lock.lock()
+        defer { lock.unlock() }
+        _appCheckTokenProvider = provider
+        let id = provider != nil ? UUID() : nil
+        _appCheckTokenProviderId = id
+        return id
+    }
+
+    func clearAppCheckTokenProvider(id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        if _appCheckTokenProviderId == id {
+            _appCheckTokenProvider = nil
+            _appCheckTokenProviderId = nil
         }
     }
 
@@ -214,6 +249,8 @@ final class BridgeLocalStreams: @unchecked Sendable {
         if disposed {
             _isDisposed = true
             _authRestorer = nil
+            _appCheckTokenProvider = nil
+            _appCheckTokenProviderId = nil
             _onDenial = nil
         }
         if _state != .closed {

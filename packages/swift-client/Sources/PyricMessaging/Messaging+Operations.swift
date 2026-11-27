@@ -117,13 +117,7 @@ extension Messaging {
     /// Deletes all FCM registrations (default and sender-scoped) and clears local Messaging state,
     /// matching `FIRMessaging.deleteDataWithCompletion:` (`deleteData()`).
     public func deleteData() async throws {
-        let senderIDs: [String] = {
-            stateLock.lock()
-            defer { stateLock.unlock() }
-            let current = Array(_mintedSenderIDs)
-            _mintedSenderIDs.removeAll()
-            return current
-        }()
+        let senderIDs: [String] = stateLock.withLock { Array(_mintedSenderIDs) }
         try await deleteDefaultRegistrationOnBroker()
         for sender in senderIDs {
             var params: [String: AnySendable] = ["registrationId": .string("\(registrationID):sender:\(sender)")]
@@ -131,6 +125,7 @@ extension Messaging {
                 params["recipientId"] = .string(wireRecipientID)
             }
             _ = try await runBridgeOp(method: "messaging.deleteToken", params: params)
+            stateLock.withLock { _ = _mintedSenderIDs.remove(sender) }
         }
         clearLoggedMessagesAndMetrics()
     }
@@ -364,7 +359,7 @@ extension Messaging {
         enum FetchAction {
             case cached(String)
             case join(InFlightTokenGate)
-            case initiate(InFlightTokenGate)
+            case initiate(InFlightTokenGate, UInt64)
         }
 
         let action: FetchAction = {
@@ -378,7 +373,7 @@ extension Messaging {
             }
             let newGate = InFlightTokenGate()
             _inFlightTokenGate = newGate
-            return .initiate(newGate)
+            return .initiate(newGate, _tokenGeneration)
         }()
 
         switch action {
@@ -386,7 +381,7 @@ extension Messaging {
             return token
         case .join(let gate):
             return try await gate.wait()
-        case .initiate(let gate):
+        case .initiate(let gate, let capturedGeneration):
             do {
                 var params: [String: AnySendable] = [:]
                 if let wireRegistrationID {
@@ -405,11 +400,14 @@ extension Messaging {
                 let shouldAnnounce: Bool = {
                     stateLock.lock()
                     defer { stateLock.unlock() }
-                    if _inFlightTokenGate === gate {
-                        _inFlightTokenGate = nil
-                        if !isInstallationIdEnabled {
-                            _cachedToken = minted
-                        }
+                    guard _inFlightTokenGate === gate,
+                          _tokenGeneration == capturedGeneration,
+                          !_isDisposed else {
+                        return false
+                    }
+                    _inFlightTokenGate = nil
+                    if !isInstallationIdEnabled {
+                        _cachedToken = minted
                     }
                     let changed = _lastAnnouncedToken != minted
                     _lastAnnouncedToken = minted
@@ -448,6 +446,7 @@ extension Messaging {
         }
         _ = try await runBridgeOp(method: "messaging.deleteToken", params: params)
         stateLock.withLock {
+            _tokenGeneration &+= 1
             _cachedToken = nil
             _lastAnnouncedToken = nil
             _inFlightTokenGate = nil

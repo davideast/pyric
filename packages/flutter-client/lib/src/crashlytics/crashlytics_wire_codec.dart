@@ -8,10 +8,18 @@ String truncateCrashlyticsString(
   String input, [
   int maxChars = maxCrashlyticsStringChars,
 ]) {
+  if (maxChars <= 0) {
+    return '';
+  }
   if (input.length <= maxChars) {
     return input;
   }
-  return input.substring(0, maxChars);
+  var end = maxChars;
+  final lastUnit = input.codeUnitAt(end - 1);
+  if (lastUnit >= 0xD800 && lastUnit <= 0xDBFF) {
+    end -= 1;
+  }
+  return input.substring(0, end);
 }
 
 /// Validates and normalizes one custom key/value pair for `crashlytics.setCustomKeys`.

@@ -35,6 +35,7 @@ open class FirebaseAppCheck internal constructor(
     private var installedProvider: AppCheckProvider? = null
     private var cachedToken: AppCheckToken? = null
     private var inFlightMint: CompletableDeferred<AppCheckToken>? = null
+    private var mintGeneration: Long = 0L
     private var autoRefreshJob: Job? = null
 
     @Volatile
@@ -73,6 +74,7 @@ open class FirebaseAppCheck internal constructor(
     ) {
         val createdProvider = factory.create(app)
         synchronized(stateLock) {
+            mintGeneration += 1L
             installedProviderFactory = factory
             installedProvider = createdProvider
             tokenAutoRefreshRequested = isTokenAutoRefreshEnabled
@@ -186,6 +188,7 @@ open class FirebaseAppCheck internal constructor(
 
     private suspend fun getOrMintToken(forceRefresh: Boolean): AppCheckToken {
         var ownsMint = false
+        var capturedGeneration = 0L
         val deferredToAwait: CompletableDeferred<AppCheckToken>
         val providerToCall: AppCheckProvider
 
@@ -204,11 +207,15 @@ open class FirebaseAppCheck internal constructor(
                 } else {
                     val created = CompletableDeferred<AppCheckToken>()
                     inFlightMint = created
+                    mintGeneration += 1L
+                    capturedGeneration = mintGeneration
                     ownsMint = true
                     deferredToAwait = created
                     providerToCall = provider
                 }
             } else {
+                mintGeneration += 1L
+                capturedGeneration = mintGeneration
                 ownsMint = true
                 deferredToAwait = CompletableDeferred()
                 providerToCall = provider
@@ -225,7 +232,8 @@ open class FirebaseAppCheck internal constructor(
                 if (inFlightMint === deferredToAwait) {
                     inFlightMint = null
                 }
-                val stillActive = installedProvider === providerToCall
+                val stillActive = installedProvider === providerToCall &&
+                    mintGeneration == capturedGeneration
                 if (stillActive) {
                     val previousToken = cachedToken?.token
                     cachedToken = minted
@@ -295,6 +303,7 @@ open class FirebaseAppCheck internal constructor(
 
     internal fun dispose() {
         synchronized(stateLock) {
+            mintGeneration += 1L
             autoRefreshJob?.cancel()
             autoRefreshJob = null
             inFlightMint?.cancel()

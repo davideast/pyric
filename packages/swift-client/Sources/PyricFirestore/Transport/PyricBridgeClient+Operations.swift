@@ -21,6 +21,17 @@ extension PyricBridgeClient {
         turnCounter.take()
     }
 
+    /// Dispatches an operation without reserving an `OperationTurn` (used for
+    /// internal App Check token minting invoked while another op holds a turn).
+    package func opWithoutTurn(
+        method: String,
+        params: [String: AnySendable] = [:],
+        actAs: AuthLens? = nil,
+        timeout: TimeInterval? = nil
+    ) async throws -> AnySendable {
+        try await admit(method: method, params: params, actAs: actAs, timeout: timeout, turn: nil)
+    }
+
     /// Dispatches an operation once every turn taken before this one has been admitted.
     package func op(
         turn: OperationTurn,
@@ -31,7 +42,12 @@ extension PyricBridgeClient {
     ) async throws -> AnySendable {
         await waitForTurn(turn)
         defer { releaseTurn(turn) }
-        return try await admit(method: method, params: params, actAs: actAs, timeout: timeout, turn: turn)
+        let resolved = await BridgeAppCheckAttachment.attachToOpParams(
+            method: method,
+            params: params,
+            tokenProvider: localStreams.appCheckTokenProvider
+        )
+        return try await admit(method: method, params: resolved, actAs: actAs, timeout: timeout, turn: turn)
     }
 
     /// Waits for a turn and releases it at once, for a call that turns out to send nothing.
@@ -83,9 +99,14 @@ extension PyricBridgeClient {
             let gate = OnceGate(continuation)
             startedTask = Task {
                 defer { gate.fire() }
-                return try await self.admit(
+                let resolved = await BridgeAppCheckAttachment.attachToOpParams(
                     method: method,
                     params: params,
+                    tokenProvider: self.localStreams.appCheckTokenProvider
+                )
+                return try await self.admit(
+                    method: method,
+                    params: resolved,
                     actAs: actAs,
                     timeout: nil,
                     turn: nil,

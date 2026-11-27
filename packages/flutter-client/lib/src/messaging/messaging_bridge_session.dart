@@ -192,11 +192,21 @@ class MessagingBridgeSession {
 
     final wantsFg = wantsStaticForeground() || _instanceForegroundListeners > 0;
     if (wantsFg && _foregroundBridgeSub == null) {
-      _foregroundBridgeSub = _bridgeClient.subscribeRaw(<String, dynamic>{
+      late final StreamSubscription<dynamic> fgSub;
+      fgSub = _bridgeClient.subscribeRaw(<String, dynamic>{
         'target': 'messaging.foreground',
         if (recipientId != null) 'recipientId': recipientId,
         'includeMetadataChanges': true,
-      }).listen(_handleForegroundSnap, onError: (_) {});
+      }).listen(
+        _handleForegroundSnap,
+        onError: (_) {},
+        onDone: () {
+          if (identical(_foregroundBridgeSub, fgSub)) {
+            _foregroundBridgeSub = null;
+          }
+        },
+      );
+      _foregroundBridgeSub = fgSub;
     } else if (!wantsFg && _foregroundBridgeSub != null) {
       final sub = _foregroundBridgeSub;
       _foregroundBridgeSub = null;
@@ -206,11 +216,21 @@ class MessagingBridgeSession {
     final wantsBg = resolveStaticBackgroundHandler() != null ||
         instanceBackgroundHandler != null;
     if (wantsBg && _backgroundBridgeSub == null) {
-      _backgroundBridgeSub = _bridgeClient.subscribeRaw(<String, dynamic>{
+      late final StreamSubscription<dynamic> bgSub;
+      bgSub = _bridgeClient.subscribeRaw(<String, dynamic>{
         'target': 'messaging.background',
         if (recipientId != null) 'recipientId': recipientId,
         'includeMetadataChanges': true,
-      }).listen(_handleBackgroundSnap, onError: (_) {});
+      }).listen(
+        _handleBackgroundSnap,
+        onError: (_) {},
+        onDone: () {
+          if (identical(_backgroundBridgeSub, bgSub)) {
+            _backgroundBridgeSub = null;
+          }
+        },
+      );
+      _backgroundBridgeSub = bgSub;
     } else if (!wantsBg && _backgroundBridgeSub != null) {
       final sub = _backgroundBridgeSub;
       _backgroundBridgeSub = null;

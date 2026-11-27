@@ -55,15 +55,32 @@ package final class CrashlyticsSerialQueue: @unchecked Sendable {
     }
 }
 
+private protocol _CrashlyticsOptionalBox {
+    var crashlyticsBoxedValue: Any? { get }
+}
+
+extension Optional: _CrashlyticsOptionalBox {
+    var crashlyticsBoxedValue: Any? { self }
+}
+
 /// Normalizes Swift and Foundation values into Crashlytics plain wire scalars and error fields.
 package enum CrashlyticsValueNormalizer {
     private static let maxCauseDepth = 16
 
     package static func normalizeCustomValue(_ raw: Any?) -> AnySendable {
-        guard let raw, !(raw is NSNull) else {
+        guard var current = raw else {
             return .null
         }
-        if let num = raw as? NSNumber {
+        while let box = current as? any _CrashlyticsOptionalBox {
+            guard let inner = box.crashlyticsBoxedValue else {
+                return .null
+            }
+            current = inner
+        }
+        guard !(current is NSNull) else {
+            return .null
+        }
+        if let num = current as? NSNumber {
             if NSNumberInspector.isBoolean(num) {
                 return .bool(num.boolValue)
             }
@@ -73,33 +90,33 @@ package enum CrashlyticsValueNormalizer {
             }
             return .int(num.int64Value)
         }
-        if let b = raw as? Bool { return .bool(b) }
-        if let i = raw as? Int { return .int(Int64(i)) }
-        if let i64 = raw as? Int64 { return .int(i64) }
-        if let i32 = raw as? Int32 { return .int(Int64(i32)) }
-        if let i16 = raw as? Int16 { return .int(Int64(i16)) }
-        if let i8 = raw as? Int8 { return .int(Int64(i8)) }
-        if let u = raw as? UInt {
+        if let b = current as? Bool { return .bool(b) }
+        if let i = current as? Int { return .int(Int64(i)) }
+        if let i64 = current as? Int64 { return .int(i64) }
+        if let i32 = current as? Int32 { return .int(Int64(i32)) }
+        if let i16 = current as? Int16 { return .int(Int64(i16)) }
+        if let i8 = current as? Int8 { return .int(Int64(i8)) }
+        if let u = current as? UInt {
             return u <= UInt(Int64.max) ? .int(Int64(u)) : .string(String(u))
         }
-        if let u64 = raw as? UInt64 {
+        if let u64 = current as? UInt64 {
             return u64 <= UInt64(Int64.max) ? .int(Int64(u64)) : .string(String(u64))
         }
-        if let u32 = raw as? UInt32 { return .int(Int64(u32)) }
-        if let u16 = raw as? UInt16 { return .int(Int64(u16)) }
-        if let u8 = raw as? UInt8 { return .int(Int64(u8)) }
-        if let d = raw as? Double {
+        if let u32 = current as? UInt32 { return .int(Int64(u32)) }
+        if let u16 = current as? UInt16 { return .int(Int64(u16)) }
+        if let u8 = current as? UInt8 { return .int(Int64(u8)) }
+        if let d = current as? Double {
             return d.isFinite ? .double(d) : .string(String(d))
         }
-        if let f = raw as? Float {
+        if let f = current as? Float {
             if f.isFinite, let exact = Double(String(f)) {
                 return .double(exact)
             }
             return f.isFinite ? .double(Double(f)) : .string(String(f))
         }
-        if let s = raw as? String { return .string(s) }
-        if let sub = raw as? Substring { return .string(String(sub)) }
-        return .string(String(describing: raw))
+        if let s = current as? String { return .string(s) }
+        if let sub = current as? Substring { return .string(String(sub)) }
+        return .string(String(describing: current))
     }
 
     package static func normalizeError(

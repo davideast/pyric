@@ -342,6 +342,10 @@ extension StorageDownloadTask {
                                    !sessionToken.isEmpty {
                                     headers["x-pyric-session-token"] = sessionToken
                                 }
+                                headers = await BridgeAppCheckAttachment.attachHeader(
+                                    to: headers,
+                                    tokenProvider: client.appCheckTokenProvider
+                                )
                                 outcomeBox.value = try await BridgeStorageTransport.performHTTPRequest(
                                     url: routeURL,
                                     method: "GET",

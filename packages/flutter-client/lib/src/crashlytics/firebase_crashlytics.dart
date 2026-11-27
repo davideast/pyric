@@ -155,6 +155,17 @@ class FirebaseCrashlytics {
   final int Function() _clockMillis;
   final LocalCrashlyticsStore _local = LocalCrashlyticsStore();
   final Set<Future<void>> _inFlightOps = <Future<void>>{};
+  bool _isDisposed = false;
+
+  void _ensureNotDisposed() {
+    if (_isDisposed) {
+      throw FirebaseException(
+        plugin: 'firebase_crashlytics',
+        code: 'disposed',
+        message: 'This FirebaseCrashlytics instance has been disposed.',
+      );
+    }
+  }
 
   /// Associated [FirebaseApp], if initialized.
   FirebaseApp? get app => _boundApp ?? _tryDefaultApp();
@@ -191,18 +202,20 @@ class FirebaseCrashlytics {
 
   /// Connects this [FirebaseCrashlytics] instance to `ws://<host>:<port>/__pyric/sandbox`.
   Future<void> useCrashlyticsEmulator(String host, int port) {
+    _ensureNotDisposed();
     return _session.useEmulator(host, port);
   }
 
   /// Alias for [useCrashlyticsEmulator].
   Future<void> useEmulator(String host, int port) {
+    _ensureNotDisposed();
     return _session.useEmulator(host, port);
   }
 
   /// Enables or disables automatic Crashlytics collection (pass `null` to reset
   /// back to [FirebaseApp.isAutomaticDataCollectionEnabled]).
   Future<void> setCrashlyticsCollectionEnabled(bool? enabled) async {
-    _local.collectionOverride = enabled;
+    _ensureNotDisposed();
     if (_session.hasLiveBridge) {
       await _session.runOp(
         'crashlytics.setCollectionEnabled',
@@ -212,54 +225,58 @@ class FirebaseCrashlytics {
         },
       );
     }
+    _local.collectionOverride = enabled;
   }
 
   /// Associates [identifier] with subsequent fatal and non-fatal reports.
   Future<void> setUserIdentifier(String identifier) async {
+    _ensureNotDisposed();
     final truncated = truncateCrashlyticsString(identifier);
-    _local.userId = truncated;
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.setUserId', <String, dynamic>{
         ..._baseParams(),
         'userId': truncated,
       });
     }
+    _local.userId = truncated;
   }
 
   /// Associates a custom [key] and scalar [value] (`bool`, `int`, `num`, `String`)
   /// with subsequent fatal and non-fatal reports.
   Future<void> setCustomKey(String key, Object value) async {
+    _ensureNotDisposed();
     final normalized = normalizeCrashlyticsCustomEntry(key, value);
-    _local.putCustomKey(normalized.key, normalized.value);
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.setCustomKeys', <String, dynamic>{
         ..._baseParams(),
         'keys': <String, dynamic>{normalized.key: normalized.value},
       });
     }
+    _local.putCustomKey(normalized.key, normalized.value);
   }
 
   /// Batch-updates custom keys; passing `null` for a key removes it on the broker.
   Future<void> setCustomKeysAndValues(
     Map<String, Object?> keysAndValues,
   ) async {
+    _ensureNotDisposed();
     if (keysAndValues.isEmpty) {
       return;
     }
     final normalized = normalizeCrashlyticsCustomKeyBatch(keysAndValues);
-    _local.applyCustomKeyBatch(normalized);
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.setCustomKeys', <String, dynamic>{
         ..._baseParams(),
         'keys': Map<String, dynamic>.from(normalized),
       });
     }
+    _local.applyCustomKeyBatch(normalized);
   }
 
   /// Logs a breadcrumb [message] attached to subsequent fatal and non-fatal reports.
   Future<void> log(String message) async {
+    _ensureNotDisposed();
     final ts = _clockMillis();
-    _local.addLog(message, ts);
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.log', <String, dynamic>{
         ..._baseParams(),
@@ -267,6 +284,7 @@ class FirebaseCrashlytics {
         'timestampMs': ts,
       });
     }
+    _local.addLog(message, ts);
   }
 
   /// Submits a fatal or non-fatal Crashlytics report for [exception] and [stack].
@@ -278,6 +296,7 @@ class FirebaseCrashlytics {
     bool? printDetails,
     bool fatal = false,
   }) async {
+    _ensureNotDisposed();
     final infoText = information.isEmpty ? '' : information.join('\n');
     final reasonText = reason?.toString().trim();
 
@@ -309,24 +328,6 @@ class FirebaseCrashlytics {
     final crumbsSnapshot =
         List<CrashlyticsBreadcrumb>.unmodifiable(_local.breadcrumbs);
 
-    if (fatal) {
-      _local.didCrashOnPreviousExecution = true;
-    }
-
-    _local.recordReport(
-      appId: wireAppId ?? 'default',
-      name: meta.name,
-      message: meta.message,
-      stack: formattedStack,
-      code: meta.code,
-      cause: meta.cause,
-      fatal: fatal,
-      attributes: attributes,
-      breadcrumbsSnapshot: crumbsSnapshot,
-      timestampMs: ts,
-      deferred: !enabledNow,
-    );
-
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.recordError', <String, dynamic>{
         ..._baseParams(),
@@ -346,6 +347,24 @@ class FirebaseCrashlytics {
         'deferred': !enabledNow,
       });
     }
+
+    if (fatal) {
+      _local.didCrashOnPreviousExecution = true;
+    }
+
+    _local.recordReport(
+      appId: wireAppId ?? 'default',
+      name: meta.name,
+      message: meta.message,
+      stack: formattedStack,
+      code: meta.code,
+      cause: meta.cause,
+      fatal: fatal,
+      attributes: attributes,
+      breadcrumbsSnapshot: crumbsSnapshot,
+      timestampMs: ts,
+      deferred: !enabledNow,
+    );
   }
 
   /// Submits a Crashlytics report for an error caught by the Flutter framework.
@@ -386,6 +405,7 @@ class FirebaseCrashlytics {
 
   /// Checks whether any deferred reports are queued in `unsentReports`.
   Future<bool> checkForUnsentReports() async {
+    _ensureNotDisposed();
     await _drainInFlightOps();
     if (_session.hasLiveBridge) {
       final raw = await _session.runOp(
@@ -407,29 +427,33 @@ class FirebaseCrashlytics {
 
   /// Promotes all queued `unsentReports` into flushed `reports`.
   Future<void> sendUnsentReports() async {
+    _ensureNotDisposed();
     await _drainInFlightOps();
-    _local.promoteUnsentReports();
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.sendUnsentReports', _baseParams());
     }
+    _local.promoteUnsentReports();
   }
 
   /// Discards all queued `unsentReports` without uploading them.
   Future<void> deleteUnsentReports() async {
+    _ensureNotDisposed();
     await _drainInFlightOps();
-    _local.unsentReports.clear();
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.deleteUnsentReports', _baseParams());
     }
+    _local.unsentReports.clear();
   }
 
   /// Returns whether a fatal crash occurred during a previous execution (or simulated crash).
   Future<bool> didCrashOnPreviousExecution() async {
+    _ensureNotDisposed();
     await _drainInFlightOps();
     if (_session.hasLiveBridge) {
       final raw = await _session.runOp('crashlytics.getState', _baseParams());
-      if (raw is Map && raw['didCrashOnPreviousExecution'] == true) {
-        _local.didCrashOnPreviousExecution = true;
+      if (raw is Map && raw['didCrashOnPreviousExecution'] is bool) {
+        _local.didCrashOnPreviousExecution =
+            raw['didCrashOnPreviousExecution'] as bool;
       }
     }
     return _local.didCrashOnPreviousExecution;
@@ -444,6 +468,7 @@ class FirebaseCrashlytics {
   /// and throws [CrashlyticsSimulatedCrashError] (`StateError`) rather than
   /// aborting the Dart VM process.
   Never crash() {
+    _ensureNotDisposed();
     _local.didCrashOnPreviousExecution = true;
     final error = CrashlyticsSimulatedCrashError();
     final stack = StackTrace.current;
@@ -460,22 +485,25 @@ class FirebaseCrashlytics {
 
   /// Marks all recorded reports for this app as flushed on the sandbox broker.
   Future<void> flush() async {
+    _ensureNotDisposed();
     await _drainInFlightOps();
-    _local.markReportsFlushed();
     if (_session.hasLiveBridge) {
       await _session.runOp('crashlytics.flush', _baseParams());
     }
+    _local.markReportsFlushed();
   }
 
   /// Reads the raw broker state map (`crashlytics.getState`) for this app.
   Future<Map<String, dynamic>> getState() async {
+    _ensureNotDisposed();
     await _drainInFlightOps();
     if (_session.hasLiveBridge) {
       final raw = await _session.runOp('crashlytics.getState', _baseParams());
       if (raw is Map) {
         final normalized = Map<String, dynamic>.from(raw);
-        if (normalized['didCrashOnPreviousExecution'] == true) {
-          _local.didCrashOnPreviousExecution = true;
+        if (normalized['didCrashOnPreviousExecution'] is bool) {
+          _local.didCrashOnPreviousExecution =
+              normalized['didCrashOnPreviousExecution'] as bool;
         }
         return normalized;
       }
@@ -493,6 +521,8 @@ class FirebaseCrashlytics {
 
   /// Awaits pending background operations and disconnects any owned bridge client.
   Future<void> dispose() async {
+    if (_isDisposed) return;
+    _isDisposed = true;
     _liveInstances.remove(this);
     await _drainInFlightOps();
     await _session.dispose();
