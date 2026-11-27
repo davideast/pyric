@@ -16,8 +16,8 @@ import {
   isHostMessage,
   serializeError,
   type FunctionsChildMessage,
-  type FunctionsReadyTriggerInfo,
 } from './child-protocol.js';
+import { collectChildReadyMetadata } from './child-ready-metadata.js';
 import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
 import {
   applyFunctionsDotenv,
@@ -25,11 +25,7 @@ import {
   resolveFunctionsSourceDir,
 } from './dotenv.js';
 import { resolveTimeoutSecondsOption } from './endpoint-options.js';
-import {
-  classifyEndpointOmit,
-  endpointTriggerLabel,
-  listFirebaseEndpoints,
-} from './endpoints.js';
+import { listFirebaseEndpoints } from './endpoints.js';
 import {
   createSecretRedactor,
   getActiveSecretRedactor,
@@ -539,38 +535,11 @@ async function runFunctionsChild(): Promise<void> {
       pubsubHost.triggerCount +
       tasksHost.triggerCount;
     const unsupportedNames = new Set(unsupportedTriggers.map((item) => item.exportName));
-    const httpByExport = new Map(httpFunctions.map((fn) => [fn.exportName, fn]));
-    const exportNames: string[] = [];
-    const triggers: FunctionsReadyTriggerInfo[] = [];
-    for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
-      const endpoint = callable.__endpoint;
-      if (!endpoint) continue;
-      if (classifyEndpointOmit(endpoint.omit) === 'omitted') continue;
-      exportNames.push(exportName);
-      if (unsupportedNames.has(exportName)) continue;
-      const httpFn = httpByExport.get(exportName);
-      if (httpFn !== undefined) {
-        triggers.push({
-          exportName,
-          kind: httpFn.kind === 'callable' ? 'callable' : 'http',
-          regions: httpFn.regions,
-        });
-      } else {
-        const entryInfo: FunctionsReadyTriggerInfo = {
-          exportName,
-          kind: endpointTriggerLabel(endpoint),
-        };
-        if (Array.isArray(endpoint.region)) {
-          const regions = endpoint.region.filter(
-            (r): r is string => typeof r === 'string' && r.length > 0,
-          );
-          if (regions.length > 0) entryInfo.regions = regions;
-        } else if (typeof endpoint.region === 'string' && endpoint.region.length > 0) {
-          entryInfo.regions = [endpoint.region];
-        }
-        triggers.push(entryInfo);
-      }
-    }
+    const { exportNames, triggers } = collectChildReadyMetadata(
+      exported,
+      httpFunctions,
+      unsupportedNames,
+    );
     let eventTimeouts: Array<number | null> = [];
     if (totalTriggerCount > 0) {
       eventTimeouts = collectActiveEventTimeouts(entry, exported, unsupportedNames);
