@@ -1,0 +1,46 @@
+use extension derive;
+
+transition boostPad {
+  derive {
+    let h = input.h;
+    let compressing = before.remaining > 0;
+    let airborne = !input.contact && !compressing;
+    let timeLeft = before.remaining > h ? before.remaining - h : 0;
+    let remaining = input.contact ? 0.044 : timeLeft;
+    let launch = compressing && remaining == 0;
+
+    let brake = input.contact ? 1180 : 180;
+    let limit = (input.direction == 0 ? brake : 1640) * h;
+    let change = input.direction * 244 - before.vx;
+    let accelerationStep = change < -limit ? -limit : change > limit ? limit : change;
+    let vx = compressing ? before.vx : before.vx + accelerationStep;
+    let rawX = before.x + (compressing ? vx * 0.35 : vx) * h;
+    let x = rawX < input.left ? input.left : rawX > input.right ? input.right : rawX;
+    let atWall = (vx < 0 && x <= input.left + 0.0001) || (vx > 0 && x >= input.right - 0.0001);
+
+    let gravity = input.held ? 1520 : 1520 * 1.1;
+    let vy = launch ? 802 : airborne ? before.vy - gravity * h : 0;
+    return {
+      'x': x, 'y': airborne ? before.y + vy * h : input.padY,
+      'vx': !compressing && atWall ? 0 : vx, 'vy': vy,
+      'remaining': remaining, 'flight': launch || airborne,
+      'support': input.contact ? input.padId : compressing && !launch ? before.support : null,
+      'event': input.contact ? 'boost-compress' : launch ? 'boost-launch' : 'none'
+    };
+  }
+
+  require episodeStep { return input.h > 0 && (input.contact ?
+    before.support == null && before.remaining == 0 && before.vy <= 0 :
+    before.remaining > 0 || before.event == 'boost-launch'); }
+  require insideShaft { return after.x >= input.left && after.x <= input.right; }
+  require supportedAtPad { return (before.remaining <= 0 || before.support == input.padId) &&
+    (after.remaining <= 0 || (after.support == input.padId && after.y == input.padY)); }
+
+  require compressionTimer { return after.remaining == derived.remaining; }
+  require supportAndFlight { return after.support == derived.support && after.flight == derived.flight; }
+  require boostEvent { return after.event == derived.event; }
+  require horizontalPosition { return after.x == derived.x; }
+  require verticalPosition { return after.y == derived.y; }
+  require horizontalVelocity { return after.vx == derived.vx; }
+  require verticalVelocity { return after.vy == derived.vy; }
+}

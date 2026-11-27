@@ -1,0 +1,136 @@
+{
+  "revision": "59737d2f544e213cecaebf8e9677cf95f39eaa60",
+  "seed": 7,
+  "states": {
+    "step-304": {
+      "x": 159.95495830341252,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.044,
+      "flight": false,
+      "event": "boost-compress"
+    },
+    "step-305": {
+      "x": 160.0075798311903,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.03983333333333333,
+      "flight": false,
+      "event": "none"
+    },
+    "step-306": {
+      "x": 160.06020135896807,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.035666666666666666,
+      "flight": false,
+      "event": "none"
+    },
+    "step-307": {
+      "x": 160.11282288674585,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.0315,
+      "flight": false,
+      "event": "none"
+    },
+    "step-308": {
+      "x": 160.16544441452362,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.027333333333333334,
+      "flight": false,
+      "event": "none"
+    },
+    "step-309": {
+      "x": 160.2180659423014,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.02316666666666667,
+      "flight": false,
+      "event": "none"
+    },
+    "step-310": {
+      "x": 160.27068747007917,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.019000000000000003,
+      "flight": false,
+      "event": "none"
+    },
+    "step-311": {
+      "x": 160.32330899785694,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.014833333333333337,
+      "flight": false,
+      "event": "none"
+    },
+    "step-312": {
+      "x": 160.37593052563471,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.010666666666666672,
+      "flight": false,
+      "event": "none"
+    },
+    "step-313": {
+      "x": 160.4285520534125,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.006500000000000005,
+      "flight": false,
+      "event": "none"
+    },
+    "step-314": {
+      "x": 160.48117358119026,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 0,
+      "support": 2,
+      "remaining": 0.0023333333333333383,
+      "flight": false,
+      "event": "none"
+    },
+    "step-315": {
+      "x": 160.53379510896804,
+      "y": 133,
+      "vx": 36.083333333333336,
+      "vy": 802,
+      "support": null,
+      "remaining": 0,
+      "flight": true,
+      "event": "boost-launch"
+    },
+    "step-316": {
+      "x": 160.68101733119025,
+      "y": 136.3126388888889,
+      "vx": 35.333333333333336,
+      "vy": 795.0333333333333,
+      "support": null,
+      "remaining": 0,
+      "flight": true,
+      "event": "none"
+    }
+  }
+}
