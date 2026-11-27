@@ -1,0 +1,39 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/arcade",
+    "revision": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "path": "app/database.rules.json"
+  },
+  "cases": [
+    "stock-host-x-48",
+    "stock-host-x-49",
+    "stock-guest-x-48",
+    "stock-guest-x-49",
+    "generated-host-x-48",
+    "generated-host-x-49",
+    "generated-guest-x-48",
+    "generated-guest-x-49"
+  ],
+  "pins": {
+    "replay.mjs": "655de0792db9ed9301f1ebb8482fa10a4300887f121bbfc0e5b7e970e2d50949",
+    "@oracle/adapters/air-hockey/v1/fixture.mjs": "cc7126e42a770f9f657e02d5856750b9950dca9b741bcc6efbdb4a84f7266e45",
+    "@oracle/adapters/air-hockey/v1/frame.policy": "988a474a305529aeb77f753c31f890627709881209d828ff49742eb0d250fa58",
+    "@oracle/adapters/air-hockey/v1/frames.json": "eb2e0b828d438fc0bce324446657ca60000cf97e7010faeab2655cebce874225",
+    "@oracle/adapters/air-hockey/v1/generated.json": "cd45fbe4a090c1ed84be6094979d59436e7e9249180f695557b7a49ef0a5e3dc",
+    "@oracle/adapters/air-hockey/v1/score.mjs": "3dc54b4cc830e01c4db2a29c60f580f2920c889463cfca9acdc50c47823d669f",
+    "@oracle/adapters/air-hockey/v1/stock.json": "b49acfb81416f3faa725fde7c91bf0871a2dd3db5520772ac5598be6b20d59bf",
+    "@oracle/adapters/air-hockey-winning/v1/frames.json": "418163dbf020e696619f43c0c0f7dcdd3104b8777fa7549d3310574d86bb5c66",
+    "@oracle/adapters/air-hockey-missing-frame/v1/fixture.mjs": "6117bc521dcf586e998334b4e868feb5c05cbda3101d1c1fc19e0ab4b8374951",
+    "@oracle/adapters/air-hockey-match-win/v1/fixture.mjs": "1e4063bcc683047e2d97a8cf4f7b2cee5dc9942cb2328af44a647dfa1e920e4e",
+    "@oracle/adapters/air-hockey-match-win/v1/reaches-seven.policy": "237ea21222dbd996767b01e64d1ce8789dd597d6874a978314c76f2cb821bb55",
+    "@oracle/adapters/air-hockey-match-win/v1/generated.json": "dd7b3fb0d3b4b3e0136baabb2482c125ae057321fe7ce39b6bcaf505e6c5a4de",
+    "@oracle/adapters/air-hockey-winning/v1/native.mjs": "9ae658d0d176cdf8f29ea3d80e0dcd0db4382f3b039e4f9fd94d7dc0d10cb632",
+    "@oracle/adapters/air-hockey-guest-win/v1/frames.json": "97db28418e72b02f666e92c3b1e4f8dace5f82fd973365e49881ea9b3db466e0",
+    "@oracle/adapters/air-hockey-guest-win/v1/native.mjs": "fd80592cdb574bf8a45c5beb1e60cdd53293fb00cddf8624f04f9ff1f709050e",
+    "@oracle/adapters/air-hockey-off-center-serve/v1/fixture.mjs": "773173ea88904ab9fac903c72b4579cc9a4f8caf2dc1214f78398348c89400d3",
+    "@oracle/adapters/air-hockey-off-center-serve/v1/score.mjs": "118cdc415ab7ce7e3193c915f819a7b3234199202dc0b8ebd005e22d1892bc2d",
+    "@oracle/adapters/air-hockey-off-center-serve/v1/verify.mjs": "13a9a15669a764cbf04cb9da54aa4adf3a0cd841f7f16026c05f797f25e523d6"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/air-hockey-off-center-serve/v1/verify.mjs"
+}

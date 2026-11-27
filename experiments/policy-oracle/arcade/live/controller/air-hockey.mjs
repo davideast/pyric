@@ -17,6 +17,7 @@ function scenarioFixtures() {
     case 'frame': return frameFixtures;
     case 'winning-goal': return JSON.parse(readFileSync(
       new URL('../../../adapters/air-hockey-winning/v1/frames.json',import.meta.url)));
+    case 'off-center-serve': return import('../../../adapters/air-hockey-off-center-serve/v1/fixture.mjs').then(module => module.fixtures);
     case 'vertical-serve': return import('../../../adapters/air-hockey-vertical-serve/v1/fixture.mjs').then(module => module.fixtures);
     case 'moving-serve': return import('../../../adapters/air-hockey-moving-serve/v1/fixture.mjs').then(module => module.fixtures);
     case 'host-serve-side': return import('../../../adapters/air-hockey-host-serve-side/v1/fixture.mjs').then(module => module.fixtures);
@@ -37,7 +38,7 @@ const resource = collection+'/'+name;
 const management = 'https://firebasedatabase.googleapis.com/v1beta/';
 const url = 'https://'+name+'.firebaseio.com';
 const closed = {rules:{'.read':false,'.write':false}};
-const generatedFile = ['match-win','guest-win','serve-side','host-serve-side','moving-serve','vertical-serve'].includes(scenario) ? 'air-hockey-match-win' : 'air-hockey';
+const generatedFile = ['match-win','guest-win','serve-side','host-serve-side','moving-serve','vertical-serve','off-center-serve'].includes(scenario) ? 'air-hockey-match-win' : 'air-hockey';
 const compiled = readFileSync(new URL('../../../adapters/'+generatedFile+'/v1/generated.json',import.meta.url),'utf8');
 const access = execFileSync('gcloud',['auth','print-access-token'],{encoding:'utf8'}).trim();
 const owner = {Authorization:'Bearer '+access};

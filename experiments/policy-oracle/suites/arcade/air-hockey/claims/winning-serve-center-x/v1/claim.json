@@ -1,0 +1,5 @@
+{
+  "description": "Compare stationary serves at x=48 and x=49 in complete host and guest winning frames from 6\u20136 at the correct serve y.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

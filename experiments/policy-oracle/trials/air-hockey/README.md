@@ -133,3 +133,16 @@ The [paired inputs](../../adapters/air-hockey-vertical-serve/v1/fixture.mjs) sta
 | Guest, vy=1 | Allow · 6–7, guest wins, vy=1 | Deny · 6–6, playing, no winner, original puck at (38,121) on tick 0 |
 
 The [live receipt](../../suites/arcade/air-hockey/claims/winning-serve-vertical-velocity/v1/probes/host-writes/v1/evidence/58aa2b17-5532-4dac-a8ca-6f09c1e81995.json) retains all eight signed writes and complete match readbacks. The entire match and its ETag stayed unchanged after both denials. The stock and generated rules digests match the horizontal velocity capture. Recapture with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" vertical-serve` from the oracle directory and import with `node adapters/air-hockey-vertical-serve/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
+
+## Off-center serve after either winning goal
+
+The [paired inputs](../../adapters/air-hockey-off-center-serve/v1/fixture.mjs) use each winner’s native 6–6 transition. Only the final puck x changes, from 48 to 49. Both velocities are zero on tick 3. The serve y is 32 for a host win and 96 for a guest win.
+
+| Winning serve | Stock readback | Generated readback |
+|---|---|---|
+| Host, (48,32) | Allow · 7–6, host wins, puck at (48,32) | Allow · identical final match |
+| Host, (49,32) | Allow · 7–6, host wins, puck at (49,32) | Deny · 6–6, playing, no winner, puck at (38,7) on tick 0 |
+| Guest, (48,96) | Allow · 6–7, guest wins, puck at (48,96) | Allow · identical final match |
+| Guest, (49,96) | Allow · 6–7, guest wins, puck at (49,96) | Deny · 6–6, playing, no winner, puck at (38,121) on tick 0 |
+
+The [live receipt](../../suites/arcade/air-hockey/claims/winning-serve-center-x/v1/probes/host-writes/v1/evidence/4a26135a-0521-48c7-b4d6-d567d4429d9d.json) retains all eight signed writes and full match readbacks. Both refusals preserved the entire match and ETag. Recapture with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" off-center-serve` from the oracle directory and import with `node adapters/air-hockey-off-center-serve/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
