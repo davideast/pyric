@@ -1,0 +1,105 @@
+{
+  "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "positions": [
+    {
+      "board": "qb-pawn",
+      "pyric": {
+        "sliding": [
+          "b1b2",
+          "c3b2"
+        ],
+        "all": [
+          "b1b2",
+          "c3b2"
+        ],
+        "outcome": "playing"
+      },
+      "native": {
+        "eligible": true,
+        "all": [
+          "b1b2",
+          "c3b2"
+        ],
+        "sliding": [
+          "b1b2",
+          "c3b2"
+        ],
+        "outcome": "playing"
+      }
+    },
+    {
+      "board": "qb-no-pawn",
+      "pyric": {
+        "sliding": [
+          "b1b2",
+          "c3b2"
+        ],
+        "all": [
+          "b1b2",
+          "c3b2"
+        ],
+        "outcome": "playing"
+      },
+      "native": {
+        "eligible": true,
+        "all": [
+          "b1b2",
+          "c3b2"
+        ],
+        "sliding": [
+          "b1b2",
+          "c3b2"
+        ],
+        "outcome": "playing"
+      }
+    }
+  ],
+  "sdkWrites": [
+    {
+      "id": "qb-pawn-playing",
+      "claim": "playing",
+      "verdict": "ALLOW",
+      "storedStatus": "playing",
+      "storedWinner": "",
+      "beforeVersion": "2026-11-27T04:07:45.219593Z",
+      "afterVersion": "2026-11-27T04:07:45.441719Z"
+    },
+    {
+      "id": "qb-pawn-won",
+      "claim": "won",
+      "verdict": "ALLOW",
+      "storedStatus": "won",
+      "storedWinner": "guest",
+      "beforeVersion": "2026-11-27T04:07:52.678561Z",
+      "afterVersion": "2026-11-27T04:07:52.891274Z"
+    },
+    {
+      "id": "qb-no-pawn-playing",
+      "claim": "playing",
+      "verdict": "ALLOW",
+      "storedStatus": "playing",
+      "storedWinner": "",
+      "beforeVersion": "2026-11-27T04:07:59.207816Z",
+      "afterVersion": "2026-11-27T04:07:59.396753Z"
+    },
+    {
+      "id": "qb-no-pawn-won",
+      "claim": "won",
+      "verdict": "DENY",
+      "storedStatus": "playing",
+      "storedWinner": "",
+      "beforeVersion": "2026-11-27T04:08:05.894725Z",
+      "afterVersion": "2026-11-27T04:08:05.894725Z"
+    }
+  ],
+  "receiptSha256": "8e2b04fe2ab0185cf418b52be28f442e1bb0b311dc6a3c8988ea802653019488",
+  "receipt": "qd2-b2-pawn-pair.json.gz",
+  "closure": {
+    "version": "2026-11-27T04:08:11.219363Z",
+    "verifiedAt": "2026-11-27T04:08:37.552Z",
+    "leaseReleased": true,
+    "signedRead": "DENY",
+    "signedWrite": "DENY"
+  }
+}
