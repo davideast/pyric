@@ -1,0 +1,253 @@
+{
+  "variant": "all-paired-records-v16-dense3-lean",
+  "controls": {
+    "equivalent-repack": {
+      "packageSha256": "b24d0f3e48e45f4041245089d2bfe2cf555b36e2cc3ea1eeb54ec9b7d1dd94c6",
+      "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+      "exitCode": 0,
+      "passes": true,
+      "localConforms": true,
+      "live": {
+        "status": "measured",
+        "distinctCases": 238,
+        "nativeMatches": 238
+      },
+      "standalone": {
+        "match": 104
+      },
+      "local": {
+        "original-190": {
+          "cases": 190,
+          "outcomes": {
+            "match": 190
+          },
+          "diagnostics": {}
+        },
+        "rook": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "diagnostics": {}
+        },
+        "bishop": {
+          "cases": 18,
+          "outcomes": {
+            "match": 18
+          },
+          "diagnostics": {}
+        },
+        "queen": {
+          "cases": 30,
+          "outcomes": {
+            "match": 30
+          },
+          "diagnostics": {}
+        }
+      },
+      "witnessBoards": 18,
+      "changedClaimDecisions": 0,
+      "firstChangedClaim": null,
+      "correctWitnesses": 18,
+      "firstWrongWitness": null
+    },
+    "wrong-witness": {
+      "packageSha256": "a9deeb4b3b8ee76b8268bf9100f0c672e72ecd3fe0f971632738cde2f303f93e",
+      "rulesSha256": "de53cde8271877de5956799ac3dc8ca6b23c39cb26385a24989a3903fd272ae4",
+      "exitCode": 1,
+      "passes": false,
+      "localConforms": false,
+      "live": {
+        "status": "unmeasured",
+        "distinctCases": 0,
+        "nativeMatches": 0
+      },
+      "standalone": {
+        "match": 104
+      },
+      "local": {
+        "original-190": {
+          "cases": 190,
+          "outcomes": {
+            "match": 190
+          },
+          "diagnostics": {}
+        },
+        "rook": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "diagnostics": {}
+        },
+        "bishop": {
+          "cases": 18,
+          "outcomes": {
+            "match": 18
+          },
+          "diagnostics": {}
+        },
+        "queen": {
+          "cases": 30,
+          "outcomes": {
+            "match": 30
+          },
+          "diagnostics": {}
+        }
+      },
+      "witnessBoards": 18,
+      "changedClaimDecisions": 0,
+      "firstChangedClaim": null,
+      "correctWitnesses": 9,
+      "firstWrongWitness": {
+        "id": "rook-c5-after-queen",
+        "supported": true,
+        "code": 3390,
+        "move": "c5a4",
+        "expected": [
+          "c5c8"
+        ],
+        "outcome": "illegal-witness",
+        "expressions": 217
+      }
+    },
+    "ignore-blockers": {
+      "packageSha256": "23a3f5f4ad633118f88f5ebe48731778af6b9d632baac924a2eb8539ad3804f0",
+      "rulesSha256": "b336f99cc85b5342c447f9ecd62ae52cef2e835a78b8d748e4c3f78610d5fe58",
+      "exitCode": 1,
+      "passes": false,
+      "localConforms": false,
+      "live": {
+        "status": "unmeasured",
+        "distinctCases": 0,
+        "nativeMatches": 0
+      },
+      "standalone": {
+        "match": 104
+      },
+      "local": {
+        "original-190": {
+          "cases": 190,
+          "outcomes": {
+            "match": 190
+          },
+          "diagnostics": {}
+        },
+        "rook": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "diagnostics": {}
+        },
+        "bishop": {
+          "cases": 18,
+          "outcomes": {
+            "match": 14,
+            "false-allow": 2,
+            "false-refusal": 2
+          },
+          "diagnostics": {}
+        },
+        "queen": {
+          "cases": 30,
+          "outcomes": {
+            "match": 22,
+            "false-allow": 4,
+            "false-refusal": 4
+          },
+          "diagnostics": {}
+        }
+      },
+      "witnessBoards": 18,
+      "changedClaimDecisions": 12,
+      "firstChangedClaim": "bishop-e5-d6-blocker-playing",
+      "correctWitnesses": 10,
+      "firstWrongWitness": {
+        "id": "bishop-e5-d6-blocker",
+        "supported": true,
+        "code": 3591,
+        "move": "e5b8",
+        "expected": [],
+        "outcome": "illegal-witness",
+        "expressions": 222
+      }
+    },
+    "skip-post-reply-king-safety": {
+      "packageSha256": "f3bba4ef47bf705585ee7326655412c179111e7009317effd90f91c61b7c3364",
+      "rulesSha256": "2f4851d219239d8185e3b25c07eb80e2a570a7678bf76fc1dc3c06bfe0d6d8e3",
+      "exitCode": 1,
+      "passes": false,
+      "localConforms": false,
+      "live": {
+        "status": "unmeasured",
+        "distinctCases": 0,
+        "nativeMatches": 0
+      },
+      "standalone": {
+        "match": 104
+      },
+      "local": {
+        "original-190": {
+          "cases": 190,
+          "outcomes": {
+            "match": 186,
+            "false-allow": 2,
+            "false-refusal": 2
+          },
+          "diagnostics": {}
+        },
+        "rook": {
+          "cases": 6,
+          "outcomes": {
+            "match": 4,
+            "false-allow": 1,
+            "false-refusal": 1
+          },
+          "diagnostics": {}
+        },
+        "bishop": {
+          "cases": 18,
+          "outcomes": {
+            "match": 14,
+            "false-allow": 2,
+            "false-refusal": 2
+          },
+          "diagnostics": {}
+        },
+        "queen": {
+          "cases": 30,
+          "outcomes": {
+            "match": 28,
+            "false-allow": 1,
+            "false-refusal": 1
+          },
+          "diagnostics": {}
+        }
+      },
+      "witnessBoards": 18,
+      "changedClaimDecisions": 10,
+      "firstChangedClaim": "holdout-interior-v1-b-mate-playing",
+      "correctWitnesses": 11,
+      "firstWrongWitness": {
+        "id": "rook-h5-after-queen",
+        "supported": true,
+        "code": 3837,
+        "move": "h5h8",
+        "expected": [],
+        "outcome": "illegal-witness",
+        "expressions": 212
+      }
+    }
+  },
+  "stockCompiler": {
+    "packageSha256": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "exitCode": 1,
+    "compile": "cannot-compile",
+    "diagnostic": "error: methodCall is outside the experimental pure expression subset",
+    "standalone": {
+      "standalone-error": 104
+    },
+    "liveCases": 0
+  }
+}

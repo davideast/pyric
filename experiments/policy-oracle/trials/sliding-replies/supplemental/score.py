@@ -25,13 +25,11 @@ def main():
     p.add_argument('--reference',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--python-chess-archive',type=Path,help='independently verify each minimized move and its complete reply list')
-    p.add_argument('--from-report',type=Path,help='reuse complete results from the pinned exploration CLI')
     args=p.parse_args()
     source=args.rules.resolve(strict=True);ref=args.reference.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='sliding-supplement-') as temp:
-        root=Path(temp); report=args.from_report or root/'wide.json'
-        if not args.from_report:
-            subprocess.run(['python3','-B',EXPLORATION/'replay.py','--rules',source,'--reference',ref,'--report',report,
+        root=Path(temp); report=root/'wide.json'
+        subprocess.run(['python3','-B',EXPLORATION/'replay.py','--rules',source,'--reference',ref,'--report',report,
                             '--extended-endings','--bare-defender','--knight-replies'],check=True,stdout=subprocess.DEVNULL)
         wide=read(report)
         assert hashlib.sha256(source.read_bytes()).hexdigest()==wide['rulesSha256']
@@ -50,13 +48,12 @@ def main():
             requests.append(req);ids[result['kind']]=[case]
             observations[case]={'native':'ALLOW' if candidate['nativeAdmission'] else 'DENY','decision':result['actual'],
                                'status':result['status'],'diagnostic':result['cause']}
-        assert requests
         minimal_report=root/'case.json'
         minimal_report.write_text(json.dumps({'compile':{'rulesSha256':wide['rulesSha256']},'groups':ids,'local':{'rows':observations}}))
         reduced=run(['bun','--no-install',TRIAL/'minimize.mjs',ref,source,minimal_report],requests)
     scores={k:wide[k] for k in ('authority','rulesSha256','cases','outcomes','cohorts')}
     scores['scope']='Local comparisons counted by frozen corpus ID across eleven cohorts. Cases may repeat a document under another ID.'
-    scores['firstInFrozenOrder']=requests[0]['description']
+    scores['firstInFrozenOrder']=requests[0]['description'] if requests else None
     scores['reductions']=reduced
     minimal_requests=[]
     for item in reduced['reductions']:
@@ -84,11 +81,15 @@ def main():
                 case=item['smallest']
                 board=chess.Board(case['fen']+' 0 1')
                 move=chess.Move.from_uci(case['uci'])
-                assert board.is_valid() and board.is_legal(move)
+                assert board.is_valid() and board.is_legal(move)==case['nativeLegal']
+                if not case['nativeLegal']:
+                    assert case['native']=='DENY' and case['replies'] is None
+                    verified[item['id']]=None
+                    continue
                 board.push(move)
                 replies=sorted(m.uci() for m in board.legal_moves)
                 assert board.is_valid() and referee['fen'](board)==case['successor'] and replies==case['replies']
-                assert board.is_check()==case['checkedDefender'] and referee['adjudicate'](board)=='playing'
+                assert board.is_check()==case['checkedDefender'] and referee['adjudicate'](board)==case['outcome']
                 verified[item['id']]=replies
         scores['independentReducedPositions']={'refereeSourceSha256':referee['PIN'],'legalReplies':verified}
     args.output.write_text(json.dumps(scores,indent=2)+'\n')

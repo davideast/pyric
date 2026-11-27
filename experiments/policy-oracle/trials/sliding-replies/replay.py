@@ -320,7 +320,8 @@ def main():
             def order(path):
                 version=re.search(r'-v(\d+)(?:-|$)',path.stem)
                 return (int(version[1]) if version else 0,path.stem.endswith('-dense3'),path.stem)
-            for file in sorted((HERE/'revisions').glob('*.json'),key=order):
+            revisions=sorted((HERE/'revisions').glob('*.json'),key=order)
+            for index,file in enumerate(revisions,start=1):
                 frozen=read(file)
                 if file.stem==args.variant:
                     scored=r
@@ -343,6 +344,8 @@ def main():
                                 'overall':scored.get('local',{}).get('overall'),
                                 'officialSource':sorted({row['state'] for row in scored['live'].get('compileDiagnostics',[])}),
                                 'live':{k:scored['live'][k] for k in ('status','distinctCases')}})
+                if args.summary:
+                    print(f"Regraded {index}/{len(revisions)}: {file.stem}",file=sys.stderr,flush=True)
             r['revisionHistory']=entries
     if args.record:
         if args.candidate_package: raise ValueError('Recorded revision packages are rebuilt from the pinned source')

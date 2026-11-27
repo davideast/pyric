@@ -36,6 +36,15 @@ def repack(source,dest,mode):
     assert touched==int(mode in mutations)
 
 
+def score_package(package,variant,report):
+    result=subprocess.run([sys.executable,'-B',HERE/'replay.py','--candidate-package',package,
+                           '--variant',variant,'--report',report,'--summary'],capture_output=True,text=True)
+    if not report.is_file(): raise RuntimeError(result.stderr)
+    scored=json.loads(report.read_bytes())
+    assert result.returncode==int(not scored['passes'])
+    return scored,result.returncode
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variant',required=True)
@@ -54,12 +63,8 @@ def main():
         for name in modes:
             pkg=root/(name+'.tgz');repack(package,pkg,name)
             report=root/(name+'.json')
-            result=subprocess.run([sys.executable,'-B',HERE/'replay.py','--candidate-package',pkg,'--variant',args.variant,
-                                   '--report',report,'--summary'],capture_output=True,text=True)
-            if not report.is_file():raise RuntimeError(result.stderr)
-            r=json.loads(report.read_bytes())
+            r,exit_code=score_package(pkg,args.variant,report)
             assert r['packageSha256']!=PIN and r['compile']['status']=='emitted'
-            assert result.returncode==int(not r['passes'])
             changed=[]
             if baseline is None:
                 baseline=r
@@ -71,14 +76,14 @@ def main():
                 if name=='wrong-witness': assert not changed
                 else: assert changed
                 assert r['compiledWitness']['verifiedFocused']<baseline['compiledWitness']['verifiedFocused']
-                assert r['live']['status']=='unmeasured' and not r['passes'] and result.returncode==1
+                assert r['live']['status']=='unmeasured' and not r['passes'] and exit_code==1
             witness=r['compiledWitness']
             if args.geometry and name in ('ignore-blockers','skip-post-reply-king-safety'):
                 negative=next(row for row in witness['focused'] if row['id']==(
                     'bishop-e5-d6-blocker' if name=='ignore-blockers' else 'bishop-b7-pinned'))
                 assert negative['expected']==[] and negative['outcome']=='illegal-witness'
             scores[name]={'packageSha256':r['packageSha256'],'rulesSha256':r['compile']['rulesSha256'],
-                          'exitCode':result.returncode,'passes':r['passes'],'localConforms':r['localConforms'],
+                          'exitCode':exit_code,'passes':r['passes'],'localConforms':r['localConforms'],
                           'live':{k:r['live'][k] for k in ('status','distinctCases','nativeMatches')},
                           'standalone':r['standalone']['outcomes'],
                           'local':r['local']['groups'],'witnessBoards':witness['requiredFocused'],
@@ -88,6 +93,16 @@ def main():
                                                    row['outcome'] not in ('legal-witness','correct-absence')),None)}
         pin=json.loads((HERE/'revisions'/(args.variant+'.json')).read_bytes())
         assert scores['equivalent-repack']['rulesSha256']==pin['compile']['rulesSha256']
-    args.report.write_text(json.dumps({'variant':args.variant,'controls':scores},indent=2)+'\n')
+        evidence={'variant':args.variant,'controls':scores}
+        if args.geometry:
+            vendor=HERE.parents[1]/'arcade/vendor/pyric-rules-0.1.0.tgz'
+            stock,exit_code=score_package(vendor,args.variant,root/'stock.json')
+            assert stock['compile']['status']=='cannot-compile' and stock['live']['distinctCases']==0
+            errors=[line for line in stock['compile']['error'].splitlines() if line.startswith('error: ')]
+            assert errors and exit_code==1
+            evidence['stockCompiler']={'packageSha256':stock['packageSha256'],'exitCode':exit_code,
+                'compile':stock['compile']['status'],'diagnostic':errors[0],
+                'standalone':stock['standalone']['outcomes'],'liveCases':0}
+    args.report.write_text(json.dumps(evidence,indent=2)+'\n')
 
 if __name__=='__main__': main()
