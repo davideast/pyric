@@ -69,7 +69,7 @@ internal object AiBridgeCallPolicy {
         if (error is FirebaseFirestoreException) {
             val message = error.message ?: "Unknown AI backend error"
             val wireCode = error.wireCode ?: error.code.name
-            return classifyWireError(wireCode, message, null, error)
+            return classifyWireError(wireCode, message, error.aiEnvelope, error)
         }
         return UnknownException(error.message ?: "Something unexpected happened.", error)
     }

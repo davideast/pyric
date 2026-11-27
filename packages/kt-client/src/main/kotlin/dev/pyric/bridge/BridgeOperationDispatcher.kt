@@ -220,13 +220,16 @@ class BridgeOperationDispatcher(
             val codeStr = errorMap["code"] as? String ?: "unknown"
             val messageStr = errorMap["message"] as? String ?: "Unknown sandbox error"
             val denialContext = mergeDenialExtras(errorMap)
+            @Suppress("UNCHECKED_CAST")
+            val aiEnvelope = (errorMap["aiEnvelope"] ?: errorMap["envelope"]) as? Map<String, Any?>
 
             val firestoreCode = FirebaseFirestoreException.Code.fromWireCode(codeStr)
             val exception = FirebaseFirestoreException(
                 messageStr,
                 firestoreCode,
                 denialContext = denialContext,
-                wireCode = codeStr
+                wireCode = codeStr,
+                aiEnvelope = aiEnvelope
             )
             val isStorageDenial =
                 codeStr.equals("storage/unauthorized", ignoreCase = true) ||
@@ -241,24 +244,8 @@ class BridgeOperationDispatcher(
         }
     }
 
-    private fun mergeDenialExtras(errorMap: Map<String, Any?>): Any? {
-        val rawContext = errorMap["denialContext"]
-        val topQueryProof = errorMap["queryProof"]
-        val topRepro = errorMap["repro"]
-        val topRemediation = errorMap["remediation"]
-        if (rawContext is Map<*, *>) {
-            val needsQueryProof = topQueryProof != null && !rawContext.containsKey("queryProof")
-            val needsRepro = topRepro != null && !rawContext.containsKey("repro")
-            val needsRemediation = topRemediation != null && !rawContext.containsKey("remediation")
-            if (!needsQueryProof && !needsRepro && !needsRemediation) return rawContext
-            val merged = LinkedHashMap<Any?, Any?>(rawContext)
-            if (needsQueryProof) merged["queryProof"] = topQueryProof
-            if (needsRepro) merged["repro"] = topRepro
-            if (needsRemediation) merged["remediation"] = topRemediation
-            return merged
-        }
-        return rawContext
-    }
+    private fun mergeDenialExtras(errorMap: Map<String, Any?>): Any? =
+        mergeBridgeDenialExtras(errorMap)
 
     /**
      * Fails every operation whose frame was handed to the transport. With
@@ -280,4 +267,23 @@ class BridgeOperationDispatcher(
             fail(id, pending, error)
         }
     }
+}
+
+internal fun mergeBridgeDenialExtras(errorMap: Map<String, Any?>): Any? {
+    val rawContext = errorMap["denialContext"]
+    val topQueryProof = errorMap["queryProof"]
+    val topRepro = errorMap["repro"]
+    val topRemediation = errorMap["remediation"]
+    if (rawContext is Map<*, *>) {
+        val needsQueryProof = topQueryProof != null && !rawContext.containsKey("queryProof")
+        val needsRepro = topRepro != null && !rawContext.containsKey("repro")
+        val needsRemediation = topRemediation != null && !rawContext.containsKey("remediation")
+        if (!needsQueryProof && !needsRepro && !needsRemediation) return rawContext
+        val merged = LinkedHashMap<Any?, Any?>(rawContext)
+        if (needsQueryProof) merged["queryProof"] = topQueryProof
+        if (needsRepro) merged["repro"] = topRepro
+        if (needsRemediation) merged["remediation"] = topRemediation
+        return merged
+    }
+    return rawContext
 }

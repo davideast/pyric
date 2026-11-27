@@ -29,6 +29,7 @@ internal class BridgeEventHub(
     private val lensLock = Any()
     private val denialLock = Any()
 
+    private var currentConnectionState: BridgeConnectionState = BridgeConnectionState.CONNECTING
     private val _connectionStates = MutableStateFlow(BridgeConnectionState.CONNECTING)
     val connectionStates: StateFlow<BridgeConnectionState> = _connectionStates.asStateFlow()
     val connectionState: BridgeConnectionState get() = _connectionStates.value
@@ -50,11 +51,14 @@ internal class BridgeEventHub(
         closeError: FirebaseFirestoreException? = null
     ) {
         synchronized(connectionLock) {
-            _connectionStates.value = next
+            currentConnectionState = next
             lastCloseError = if (next == BridgeConnectionState.CLOSED) closeError else null
+            // Notify synchronous observers before publishing to StateFlow so
+            // callers waking on connectionStates never race ahead of internal hubs.
             for (observer in connectionObservers) {
                 observer.onStateChange(next, lastCloseError)
             }
+            _connectionStates.value = next
         }
     }
 
@@ -65,7 +69,7 @@ internal class BridgeEventHub(
     fun addConnectionStateObserver(observer: BridgeConnectionObserver): () -> Unit {
         synchronized(connectionLock) {
             connectionObservers.add(observer)
-            observer.onStateChange(_connectionStates.value, lastCloseError)
+            observer.onStateChange(currentConnectionState, lastCloseError)
         }
         return {
             synchronized(connectionLock) {
@@ -77,10 +81,10 @@ internal class BridgeEventHub(
     fun publishRemoteLens(lens: AuthLens) {
         synchronized(lensLock) {
             lastRemoteLens = lens
-            _remoteLensEvents.tryEmit(lens)
             for (observer in remoteLensObservers) {
                 observer(lens)
             }
+            _remoteLensEvents.tryEmit(lens)
         }
     }
 
@@ -110,7 +114,6 @@ internal class BridgeEventHub(
     fun dispatchDenial(exception: FirebaseFirestoreException) {
         if (!isRulesDenial(exception)) return
         synchronized(denialLock) {
-            _denialEvents.tryEmit(exception)
             val snapshot = denialObservers.toList()
             if (snapshot.isNotEmpty()) {
                 deliveryQueue.enqueue {
@@ -119,6 +122,7 @@ internal class BridgeEventHub(
                     }
                 }
             }
+            _denialEvents.tryEmit(exception)
         }
     }
 

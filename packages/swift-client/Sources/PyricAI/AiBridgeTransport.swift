@@ -446,7 +446,7 @@ package actor AiBridgeSession {
     }
 
     package static func decodeWireError(_ errorObj: AnySendable) -> BackendError {
-        if let aiEnvelope = errorObj["aiEnvelope"],
+        if let aiEnvelope = errorObj["aiEnvelope"] ?? errorObj["envelope"],
            let data = try? JSONEncoder().encode(aiEnvelope),
            let decoded = try? JSONDecoder().decode(BackendError.self, from: data) {
             return decoded
