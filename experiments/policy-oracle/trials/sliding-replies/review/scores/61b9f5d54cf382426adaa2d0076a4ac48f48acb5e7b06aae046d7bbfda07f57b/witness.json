@@ -1,0 +1,1441 @@
+{
+  "authority": "pinned independent local Rules evaluator on the emitted helper and original write paths",
+  "rulesSha256": "61b9f5d54cf382426adaa2d0076a4ac48f48acb5e7b06aae046d7bbfda07f57b",
+  "diagnosticRulesSha256": "a974cf7a6e6f5b81a5d8d5e52142b9b35bdf1558bdb074e1278c34619076db44",
+  "interface": {
+    "status": "present",
+    "missing": []
+  },
+  "focused": [
+    {
+      "id": "rook-c5-after-queen",
+      "supported": true,
+      "code": 3432,
+      "move": "c5c8",
+      "expected": [
+        "c5c8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 145
+    },
+    {
+      "id": "rook-h5-after-queen",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 136
+    },
+    {
+      "id": "bishop-e5-clear",
+      "supported": true,
+      "code": 3591,
+      "move": "e5b8",
+      "expected": [
+        "e5b8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 161
+    },
+    {
+      "id": "bishop-e5-d6-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 152
+    },
+    {
+      "id": "bishop-b6-clear",
+      "supported": true,
+      "code": 4153,
+      "move": "b6d8",
+      "expected": [
+        "b6d8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 161
+    },
+    {
+      "id": "bishop-b6-c7-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 152
+    },
+    {
+      "id": "bishop-b7-free",
+      "supported": true,
+      "code": 4952,
+      "move": "b7c8",
+      "expected": [
+        "b7c8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 161
+    },
+    {
+      "id": "bishop-b7-pinned",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 152
+    },
+    {
+      "id": "queen-rank-clear",
+      "supported": true,
+      "code": 232,
+      "move": "c1c8",
+      "expected": [
+        "c1c8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 169
+    },
+    {
+      "id": "queen-rank-c4-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 160
+    },
+    {
+      "id": "queen-file-clear",
+      "supported": true,
+      "code": 1627,
+      "move": "a3h3",
+      "expected": [
+        "a3h3"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 185
+    },
+    {
+      "id": "queen-file-d3-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 176
+    },
+    {
+      "id": "queen-diagonal-clear",
+      "supported": true,
+      "code": 5243,
+      "move": "f7d5",
+      "expected": [
+        "f7d5"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 229
+    },
+    {
+      "id": "queen-diagonal-e6-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 220
+    },
+    {
+      "id": "queen-capture-clear",
+      "supported": true,
+      "code": 1356,
+      "move": "g2g8",
+      "expected": [
+        "g2g8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 169
+    },
+    {
+      "id": "queen-capture-g3-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 160
+    },
+    {
+      "id": "queen-captures-only-checker",
+      "supported": true,
+      "code": 5243,
+      "move": "f7d5",
+      "expected": [
+        "f7d5"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 229
+    },
+    {
+      "id": "queen-capture-leaves-rook-check",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 178
+    }
+  ],
+  "routes": [
+    {
+      "id": "rook-c5-after-queen-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 783,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3432,
+          "move": "c5c8"
+        }
+      ]
+    },
+    {
+      "id": "rook-c5-after-queen-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "rook-c5-after-queen-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 662,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3432,
+          "move": "c5c8"
+        }
+      ]
+    },
+    {
+      "id": "rook-h5-after-queen-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 694,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "rook-h5-after-queen-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "rook-h5-after-queen-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 829,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 799,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3591,
+          "move": "e5b8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-e5-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 678,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3591,
+          "move": "e5b8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-d6-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 739,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-d6-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-e5-d6-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 874,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 799,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4153,
+          "move": "b6d8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b6-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 678,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4153,
+          "move": "b6d8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-c7-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 739,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-c7-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b6-c7-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 874,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-free-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 799,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4952,
+          "move": "b7c8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-free-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b7-free-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 678,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4952,
+          "move": "b7c8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-pinned-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 710,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-pinned-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b7-pinned-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 845,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 807,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 232,
+          "move": "c1c8"
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-rank-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 686,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 232,
+          "move": "c1c8"
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-c4-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 747,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-c4-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-rank-c4-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 882,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-file-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 818,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1627,
+          "move": "a3h3"
+        }
+      ]
+    },
+    {
+      "id": "queen-file-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 551,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-file-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 697,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1627,
+          "move": "a3h3"
+        }
+      ]
+    },
+    {
+      "id": "queen-file-d3-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 758,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-file-d3-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 551,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-file-d3-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 893,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 867,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 570,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-diagonal-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 746,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-e6-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 807,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-e6-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 570,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-diagonal-e6-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 942,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 807,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1356,
+          "move": "g2g8"
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-capture-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 686,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1356,
+          "move": "g2g8"
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-g3-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 747,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-g3-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 549,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-capture-g3-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 882,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-captures-only-checker-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 886,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-captures-only-checker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 589,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-captures-only-checker-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 765,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-leaves-rook-check-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 755,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-leaves-rook-check-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 575,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-capture-leaves-rook-check-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 890,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    }
+  ],
+  "panel": {
+    "inputsAndRepliesSha256": "5c4e2de98be4c3663c88ecbb05324b18d7e2373033c6c9d8a0d090a3db2e1167",
+    "boards": 2232,
+    "scopes": {
+      "guard-true": {
+        "legal-witness": 835,
+        "correct-absence": 865
+      },
+      "guard-false": {
+        "illegal-witness": 58,
+        "missed-reply": 175,
+        "correct-absence": 237,
+        "legal-witness": 62
+      }
+    },
+    "byFamily": {
+      "transformed-rook": {
+        "guard-true/legal-witness": 16,
+        "guard-true/correct-absence": 16
+      },
+      "transformed-bishop": {
+        "guard-true/legal-witness": 48,
+        "guard-true/correct-absence": 48
+      },
+      "transformed-queen": {
+        "guard-true/legal-witness": 80,
+        "guard-true/correct-absence": 80
+      },
+      "stratified-none": {
+        "guard-true/legal-witness": 324,
+        "guard-true/correct-absence": 324
+      },
+      "stratified-attacker": {
+        "guard-true/legal-witness": 324,
+        "guard-true/correct-absence": 324
+      },
+      "stratified-defender": {
+        "guard-true/correct-absence": 73,
+        "guard-false/illegal-witness": 58,
+        "guard-false/missed-reply": 175,
+        "guard-true/legal-witness": 43,
+        "guard-false/correct-absence": 237,
+        "guard-false/legal-witness": 62
+      }
+    },
+    "byDefendingMaterial": {
+      "r": {
+        "guard-true/legal-witness": 232,
+        "guard-true/correct-absence": 232
+      },
+      "b": {
+        "guard-true/legal-witness": 264,
+        "guard-true/correct-absence": 232
+      },
+      "bp": {
+        "guard-true/correct-absence": 51,
+        "guard-true/legal-witness": 11
+      },
+      "q": {
+        "guard-true/legal-witness": 296,
+        "guard-true/correct-absence": 232
+      },
+      "pq": {
+        "guard-true/correct-absence": 90,
+        "guard-true/legal-witness": 18
+      },
+      "pr": {
+        "guard-true/correct-absence": 28,
+        "guard-true/legal-witness": 14
+      },
+      "nr": {
+        "guard-false/illegal-witness": 11,
+        "guard-false/missed-reply": 2,
+        "guard-false/correct-absence": 29,
+        "guard-false/legal-witness": 5
+      },
+      "br": {
+        "guard-false/missed-reply": 43,
+        "guard-false/illegal-witness": 4,
+        "guard-false/correct-absence": 44,
+        "guard-false/legal-witness": 3
+      },
+      "qr": {
+        "guard-false/missed-reply": 27,
+        "guard-false/legal-witness": 12,
+        "guard-false/correct-absence": 24,
+        "guard-false/illegal-witness": 2
+      },
+      "bb": {
+        "guard-false/correct-absence": 27,
+        "guard-false/missed-reply": 19,
+        "guard-false/legal-witness": 9
+      },
+      "bq": {
+        "guard-false/missed-reply": 39,
+        "guard-false/correct-absence": 28,
+        "guard-false/legal-witness": 9,
+        "guard-false/illegal-witness": 8
+      },
+      "bn": {
+        "guard-false/legal-witness": 1,
+        "guard-false/correct-absence": 31,
+        "guard-false/missed-reply": 3,
+        "guard-false/illegal-witness": 10
+      },
+      "nq": {
+        "guard-false/legal-witness": 8,
+        "guard-false/illegal-witness": 22,
+        "guard-false/correct-absence": 27,
+        "guard-false/missed-reply": 4
+      },
+      "qq": {
+        "guard-false/correct-absence": 8,
+        "guard-false/missed-reply": 17,
+        "guard-false/legal-witness": 7
+      },
+      "rr": {
+        "guard-false/missed-reply": 21,
+        "guard-false/correct-absence": 19,
+        "guard-false/legal-witness": 8,
+        "guard-false/illegal-witness": 1
+      }
+    },
+    "byFeature": {
+      "defender-b": {
+        "guard-true/legal-witness": 417,
+        "guard-true/correct-absence": 436,
+        "guard-false/correct-absence": 115,
+        "guard-false/missed-reply": 93,
+        "guard-false/legal-witness": 28,
+        "guard-false/illegal-witness": 27
+      },
+      "corner": {
+        "guard-true/legal-witness": 375,
+        "guard-true/correct-absence": 384,
+        "guard-false/illegal-witness": 25,
+        "guard-false/missed-reply": 54,
+        "guard-false/correct-absence": 77,
+        "guard-false/legal-witness": 21
+      },
+      "legal-interposition": {
+        "guard-true/legal-witness": 531,
+        "guard-false/illegal-witness": 29,
+        "guard-false/missed-reply": 119,
+        "guard-false/legal-witness": 52
+      },
+      "defender-w": {
+        "guard-true/legal-witness": 418,
+        "guard-true/correct-absence": 429,
+        "guard-false/illegal-witness": 31,
+        "guard-false/missed-reply": 82,
+        "guard-false/correct-absence": 122,
+        "guard-false/legal-witness": 34
+      },
+      "mate": {
+        "guard-true/correct-absence": 155,
+        "guard-false/correct-absence": 3
+      },
+      "pinned-slider": {
+        "guard-true/correct-absence": 21
+      },
+      "legal-capture": {
+        "guard-true/legal-witness": 350,
+        "guard-false/missed-reply": 89,
+        "guard-false/legal-witness": 33,
+        "guard-false/illegal-witness": 21
+      },
+      "double-check": {
+        "guard-true/correct-absence": 26
+      },
+      "king-reply": {
+        "guard-true/legal-witness": 682,
+        "guard-true/correct-absence": 706,
+        "guard-false/illegal-witness": 58,
+        "guard-false/missed-reply": 173,
+        "guard-false/correct-absence": 234,
+        "guard-false/legal-witness": 60
+      },
+      "multiple-slider-replies": {
+        "guard-false/missed-reply": 66,
+        "guard-true/legal-witness": 102,
+        "guard-false/legal-witness": 37,
+        "guard-false/illegal-witness": 13
+      },
+      "edge": {
+        "guard-true/legal-witness": 233,
+        "guard-true/correct-absence": 240,
+        "guard-false/missed-reply": 61,
+        "guard-false/legal-witness": 24,
+        "guard-false/correct-absence": 81,
+        "guard-false/illegal-witness": 9
+      },
+      "interior": {
+        "guard-true/legal-witness": 227,
+        "guard-true/correct-absence": 241,
+        "guard-false/correct-absence": 79,
+        "guard-false/illegal-witness": 24,
+        "guard-false/missed-reply": 60,
+        "guard-false/legal-witness": 17
+      }
+    },
+    "firstDivergences": {
+      "guard-false/illegal-witness": {
+        "id": "sample-w-corner-r-r-defender-1-0",
+        "supported": false,
+        "code": 4394,
+        "move": "e6e8",
+        "expected": [
+          "d6d8"
+        ],
+        "outcome": "illegal-witness",
+        "expressions": 143,
+        "source": "K7/8/3R4/8/5N2/7r/7k/8 b - -",
+        "uci": "h3h8",
+        "successor": "K6r/8/3R4/8/5N2/8/7k/8 w - -",
+        "allReplies": [
+          "a8a7",
+          "a8b7",
+          "d6d8"
+        ]
+      },
+      "guard-false/missed-reply": {
+        "id": "sample-w-corner-r-r-defender-1-1",
+        "supported": false,
+        "code": -1,
+        "move": null,
+        "expected": [
+          "d7a4",
+          "e5a5"
+        ],
+        "outcome": "missed-reply",
+        "expressions": 166,
+        "source": "K7/3B4/5k2/4R3/8/8/8/1r6 b - -",
+        "uci": "b1a1",
+        "successor": "K7/3B4/5k2/4R3/8/8/8/r7 w - -",
+        "allReplies": [
+          "a8b7",
+          "a8b8",
+          "d7a4",
+          "e5a5"
+        ]
+      }
+    },
+    "smallestSupportedDivergences": {},
+    "decisionsSha256": "7cd40e61132197d812d739508e3649f8de031078f84acfc1e4fd7dd2567ff7cf"
+  },
+  "otherTurns": {
+    "inputsAndRepliesSha256": "15441c2844502945ac90d07d9404ff9102a9f332c7da1339f33f7e1a5582326c",
+    "boards": 564,
+    "scopes": {
+      "guard-true": {
+        "legal-witness": 296,
+        "correct-absence": 196
+      },
+      "guard-false": {
+        "correct-absence": 36,
+        "legal-witness": 36
+      }
+    },
+    "byFamily": {
+      "quiet": {
+        "guard-true/legal-witness": 108
+      },
+      "pawn": {
+        "guard-true/correct-absence": 72,
+        "guard-true/legal-witness": 72,
+        "guard-false/correct-absence": 36,
+        "guard-false/legal-witness": 36
+      },
+      "knight": {
+        "guard-true/legal-witness": 108,
+        "guard-true/correct-absence": 108
+      },
+      "quiet-targeted": {
+        "guard-true/correct-absence": 16,
+        "guard-true/legal-witness": 8
+      }
+    },
+    "byDefendingMaterial": {
+      "r": {
+        "guard-true/legal-witness": 76,
+        "guard-true/correct-absence": 52
+      },
+      "pr": {
+        "guard-true/legal-witness": 24,
+        "guard-false/correct-absence": 12,
+        "guard-false/legal-witness": 12,
+        "guard-true/correct-absence": 16
+      },
+      "b": {
+        "guard-true/legal-witness": 72,
+        "guard-true/correct-absence": 52
+      },
+      "bp": {
+        "guard-true/legal-witness": 24,
+        "guard-false/correct-absence": 12,
+        "guard-false/legal-witness": 12,
+        "guard-true/correct-absence": 16
+      },
+      "q": {
+        "guard-true/legal-witness": 76,
+        "guard-true/correct-absence": 48
+      },
+      "pq": {
+        "guard-true/legal-witness": 24,
+        "guard-false/legal-witness": 12,
+        "guard-false/correct-absence": 12,
+        "guard-true/correct-absence": 12
+      }
+    },
+    "byFeature": {
+      "defender-w": {
+        "guard-true/legal-witness": 148,
+        "guard-true/correct-absence": 98,
+        "guard-false/correct-absence": 18,
+        "guard-false/legal-witness": 18
+      },
+      "interior": {
+        "guard-true/legal-witness": 167,
+        "guard-true/correct-absence": 100,
+        "guard-false/correct-absence": 21,
+        "guard-false/legal-witness": 22
+      },
+      "quiet-slide": {
+        "guard-true/legal-witness": 116
+      },
+      "king-reply": {
+        "guard-true/legal-witness": 296,
+        "guard-true/correct-absence": 196,
+        "guard-false/correct-absence": 36,
+        "guard-false/legal-witness": 36
+      },
+      "multiple-slider-replies": {
+        "guard-true/legal-witness": 115
+      },
+      "quiet": {
+        "guard-true/legal-witness": 116,
+        "guard-true/correct-absence": 16
+      },
+      "edge": {
+        "guard-true/legal-witness": 101,
+        "guard-true/correct-absence": 79,
+        "guard-false/correct-absence": 14,
+        "guard-false/legal-witness": 12
+      },
+      "legal-capture": {
+        "guard-true/legal-witness": 224,
+        "guard-false/legal-witness": 36
+      },
+      "corner": {
+        "guard-true/legal-witness": 28,
+        "guard-true/correct-absence": 17,
+        "guard-false/legal-witness": 2,
+        "guard-false/correct-absence": 1
+      },
+      "defender-b": {
+        "guard-true/legal-witness": 148,
+        "guard-true/correct-absence": 98,
+        "guard-false/legal-witness": 18,
+        "guard-false/correct-absence": 18
+      },
+      "pawn": {
+        "guard-true/correct-absence": 72,
+        "guard-true/legal-witness": 72,
+        "guard-false/correct-absence": 36,
+        "guard-false/legal-witness": 36
+      },
+      "knight": {
+        "guard-true/legal-witness": 108,
+        "guard-true/correct-absence": 108
+      },
+      "pinned-slider": {
+        "guard-true/correct-absence": 9,
+        "guard-true/legal-witness": 8
+      },
+      "targeted": {
+        "guard-true/correct-absence": 16,
+        "guard-true/legal-witness": 8
+      }
+    },
+    "firstDivergences": {},
+    "smallestSupportedDivergences": {},
+    "decisionsSha256": "f5ab3e4abef7fcf86c8d2b200c8dcc984af036bace632347de6b622f65478a14"
+  }
+}
