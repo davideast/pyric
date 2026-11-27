@@ -1,6 +1,6 @@
 import { aiEndpoint, aiUsageEvidence, getAiEvidence, setAiEvidence, type AiEvidence } from '../../sandbox/internal/ai-evidence.js';
 /**
- * The sandbox AI broker — the ONE in-process Gemini-wire model every plane
+ * The sandbox AI broker -- the ONE in-process Gemini-wire model every plane
  * consumes (house pattern: the messaging broker):
  *
  *   - the client mirror (`pyric/ai`, next stage) calls generateContent /
@@ -11,13 +11,13 @@ import { aiEndpoint, aiUsageEvidence, getAiEvidence, setAiEvidence, type AiEvide
  *   - answering is delegated through ONE seam ({@link AnswerEngine},
  *     cdd-deltas #97): `scripted` (default, zero-I/O) or `openai`.
  *
- * The broker validates requests LIKE PRODUCTION does — before any engine
- * runs — throwing {@link AiBrokerError} carrying the exact captured error
+ * The broker validates requests LIKE PRODUCTION does -- before any engine
+ * runs -- throwing {@link AiBrokerError} carrying the exact captured error
  * envelope:
- *   - empty/missing `contents`            → `ai-error-empty-contents`
- *   - a role outside the captured list    → `ai-error-bad-role`
+ *   - empty/missing `contents`            -> `ai-error-empty-contents`
+ *   - a role outside the captured list    -> `ai-error-bad-role`
  *   - a model-turn functionCall part with no thoughtSignature
- *                                         → `ai-error-fncall-missing-thought-signature`
+ *                                         -> `ai-error-fncall-missing-thought-signature`
  *
  * It also announces the refusals production does NOT throw for: a safety /
  * recitation / blocklist block arrives as a 200 with an empty candidate, so
@@ -32,7 +32,7 @@ import { aiEndpoint, aiUsageEvidence, getAiEvidence, setAiEvidence, type AiEvide
  *
  * Event emission is best-effort behind one small choke-point ({@link emit}):
  * a throw from the emit path (or any event consumer downstream) must never
- * poison the AI operation the caller just completed — handler errors are the
+ * poison the AI operation the caller just completed -- handler errors are the
  * consumer's problem, never the broker's (the sandbox's emit fan-out already
  * isolates listener throws; this guard covers the emit path itself).
  */
@@ -166,6 +166,7 @@ export class AiBroker {
       usageSource: this.engineKind === 'scripted' ? 'scripted' : 'unknown' };
   }
   private annotate<T extends WireResponse>(response: T, identity: AiEvidence): T {
+    if (response === null || typeof response !== 'object') return response;
     const usage = response.usageMetadata;
     const original = getAiEvidence(response);
     const { reportedModel, ...tokens } = aiUsageEvidence(usage, response.modelVersion);
@@ -224,7 +225,7 @@ export class AiBroker {
   }
 
   /**
-   * Announce a SAFETY / RECITATION / BLOCKLIST / … block on the event stream.
+   * Announce a SAFETY / RECITATION / BLOCKLIST / ... block on the event stream.
    *
    * A block is the broker's SILENT refusal: unlike `request_rejected` nothing
    * throws (production answers 200 with an empty candidate), so an app that
@@ -345,7 +346,7 @@ export class AiBroker {
 
   /**
    * Chunk objects with the captured framing SEMANTICS (finishReason last
-   * chunk only, usageMetadata every chunk). Validation runs EAGERLY — a bad
+   * chunk only, usageMetadata every chunk). Validation runs EAGERLY -- a bad
    * request throws here, before iteration, the way production answers with
    * an HTTP error instead of a stream.
    *
@@ -443,7 +444,7 @@ export class AiBroker {
     }
   }
 
-  // ── Production-shaped validation ──────────────────────────────────────────
+  // -- Production-shaped validation ------------------------------------------
 
   private validateModelIfEnabled(modelResource: string): void {
     if (!this.validateModels || this.engineKind !== 'scripted') {
@@ -513,7 +514,7 @@ export class AiBroker {
     throw new AiBrokerError(envelope);
   }
 
-  // ── Event emission (Studio stream consumer seam) ──────────────────────────
+  // -- Event emission (Studio stream consumer seam) --------------------------
 
   /**
    * Land a broker operation on the sandbox's unified event stream.
@@ -536,7 +537,7 @@ export class AiBroker {
         { service: 'ai' },
       );
     } catch {
-      // Observational — never let event emission break an AI op.
+      // Observational -- never let event emission break an AI op.
     }
   }
 }

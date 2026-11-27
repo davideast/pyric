@@ -1,5 +1,5 @@
 /**
- * Response helpers for `pyric/ai` — `EnhancedGenerateContentResponse`
+ * Response helpers for `pyric/ai` -- `EnhancedGenerateContentResponse`
  * decoration ported from the installed `@firebase/ai@2.12.0`
  * response-helpers (dist/index.node.mjs):
  *
@@ -20,6 +20,7 @@
  */
 
 import type { WireCandidate, WirePart, WireResponse } from './broker/index.js';
+import { isJsonErrorEnvelope } from './broker/upstream-stream-redaction.js';
 import { AIError, AIErrorCode } from './errors.js';
 import { isBlockingFinishReason } from './blocked.js';
 
@@ -163,18 +164,42 @@ export function createEnhancedContentResponse(response: WireResponse): EnhancedR
   return enhanced;
 }
 
+function isPlainWireResponse(value: unknown): value is WireResponse {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasGenerateContentFields(response: WireResponse): boolean {
+  return (
+    Array.isArray(response.candidates) ||
+    response.promptFeedback !== undefined ||
+    response.usageMetadata !== undefined ||
+    response.modelVersion !== undefined ||
+    response.responseId !== undefined
+  );
+}
+
 /**
  * Aggregate streamed chunk envelopes into one response: upstream 2.12.0's
  * candidate/part merge, plus the pinned final-chunk metadata carry.
+ * Candidate-less mid-stream error frames (including transport-packed array
+ * envelopes) never leak into the aggregate or erase `promptFeedback`,
+ * `usageMetadata`, `modelVersion`, or `responseId` (#1753).
  */
 export function aggregateResponses(responses: WireResponse[]): WireResponse {
-  const lastResponse = responses[responses.length - 1];
   const aggregated: WireResponse = {};
-  if (lastResponse?.promptFeedback) {
-    aggregated.promptFeedback = lastResponse.promptFeedback;
-  }
+  let lastPromptFeedback: WireResponse['promptFeedback'];
+  let lastUsage: WireResponse['usageMetadata'];
+  let lastModelVersion: string | undefined;
+  let lastResponseId: string | undefined;
   for (const response of responses) {
-    if (!response.candidates) continue;
+    if (!isPlainWireResponse(response)) continue;
+    const isErrorOnly = isJsonErrorEnvelope(response) && !Array.isArray(response.candidates);
+    if (isErrorOnly || !hasGenerateContentFields(response)) continue;
+    if (response.promptFeedback !== undefined) lastPromptFeedback = response.promptFeedback;
+    if (response.usageMetadata !== undefined) lastUsage = response.usageMetadata;
+    if (response.modelVersion !== undefined) lastModelVersion = response.modelVersion;
+    if (response.responseId !== undefined) lastResponseId = response.responseId;
+    if (!Array.isArray(response.candidates)) continue;
     for (const candidate of response.candidates) {
       const i = candidate.index || 0;
       aggregated.candidates ??= [];
@@ -186,6 +211,29 @@ export function aggregateResponses(responses: WireResponse[]): WireResponse {
       if (candidate.finishReason !== undefined) slot.finishReason = candidate.finishReason;
       if (candidate.finishMessage !== undefined) slot.finishMessage = candidate.finishMessage;
       if (candidate.safetyRatings !== undefined) slot.safetyRatings = candidate.safetyRatings;
+      const extended = candidate as WireCandidate & {
+        citationMetadata?: unknown;
+        groundingMetadata?: unknown;
+        urlContextMetadata?: unknown;
+      };
+      const slotExtended = slot as WireCandidate & {
+        citationMetadata?: unknown;
+        groundingMetadata?: unknown;
+        urlContextMetadata?: unknown;
+      };
+      if (extended.citationMetadata !== undefined) {
+        slotExtended.citationMetadata = extended.citationMetadata;
+      }
+      if (extended.groundingMetadata !== undefined) {
+        slotExtended.groundingMetadata = extended.groundingMetadata;
+      }
+      if (
+        typeof extended.urlContextMetadata === 'object' &&
+        extended.urlContextMetadata !== null &&
+        Object.keys(extended.urlContextMetadata as Record<string, unknown>).length > 0
+      ) {
+        slotExtended.urlContextMetadata = extended.urlContextMetadata;
+      }
       if (candidate.content) {
         if (!candidate.content.parts) continue;
         if (!slot.content) {
@@ -202,10 +250,13 @@ export function aggregateResponses(responses: WireResponse[]): WireResponse {
       }
     }
   }
+  if (lastPromptFeedback !== undefined) {
+    aggregated.promptFeedback = lastPromptFeedback;
+  }
   // Pinned delta vs installed 2.12.0 (which drops usage on the aggregate):
   // the final chunk's usageMetadata / modelVersion / responseId ride along.
-  if (lastResponse?.usageMetadata) aggregated.usageMetadata = structuredClone(lastResponse.usageMetadata);
-  if (lastResponse?.modelVersion !== undefined) aggregated.modelVersion = lastResponse.modelVersion;
-  if (lastResponse?.responseId !== undefined) aggregated.responseId = lastResponse.responseId;
+  if (lastUsage !== undefined) aggregated.usageMetadata = structuredClone(lastUsage);
+  if (lastModelVersion !== undefined) aggregated.modelVersion = lastModelVersion;
+  if (lastResponseId !== undefined) aggregated.responseId = lastResponseId;
   return aggregated;
 }

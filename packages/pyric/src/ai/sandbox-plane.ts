@@ -22,8 +22,10 @@ import type {
   AppCheckClaim,
   CountTokensResponse,
   GenerateContentRequest,
+  WireCandidate,
   WireResponse,
 } from './broker/index.js';
+import { isJsonErrorEnvelope } from './broker/upstream-stream-redaction.js';
 import { toAIError } from './errors.js';
 import { isAppCheckRefusal } from './app-check-gate.js';
 import { cleanRequestForWire } from './request-helpers.js';
@@ -231,6 +233,65 @@ function emptyStream(): AsyncGenerator<EnhancedResponse> {
   })();
 }
 
+/**
+ * Matches `@firebase/ai`'s `generateResponseSequence` filter: a streamed chunk
+ * is yielded to the caller only when its first candidate carries `content.parts`,
+ * `finishReason`, `citationMetadata`, or `urlContextMetadata`. Candidate-less
+ * frames -- including mid-stream `{"error": ...}` / `[{"error": ...}]` error
+ * envelopes, empty-candidate frames, usage-only frames, and promptFeedback-only
+ * frames -- are skipped from `result.stream` (#1753).
+ */
+function isYieldableStreamChunk(chunk: unknown): chunk is WireResponse {
+  if (chunk === null || typeof chunk !== 'object' || Array.isArray(chunk)) {
+    return false;
+  }
+  const candidates = (chunk as WireResponse).candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return false;
+  }
+  const firstCandidate = candidates[0] as
+    | (WireCandidate & {
+        citationMetadata?: unknown;
+        urlContextMetadata?: unknown;
+      })
+    | undefined;
+  if (firstCandidate === undefined || firstCandidate === null) {
+    return false;
+  }
+  return Boolean(
+    firstCandidate.content?.parts ||
+      firstCandidate.finishReason ||
+      firstCandidate.citationMetadata ||
+      firstCandidate.urlContextMetadata,
+  );
+}
+
+/** Avoid overwriting stream usage evidence with a candidate-less mid-stream error frame. */
+function isObservableStreamChunk(chunk: unknown): chunk is object {
+  if (chunk === null || typeof chunk !== 'object' || Array.isArray(chunk)) {
+    return false;
+  }
+  if (isYieldableStreamChunk(chunk)) return true;
+  if (isJsonErrorEnvelope(chunk)) return false;
+  const response = chunk as WireResponse;
+  return (
+    response.usageMetadata !== undefined ||
+    response.promptFeedback !== undefined ||
+    response.modelVersion !== undefined ||
+    response.responseId !== undefined
+  );
+}
+
+function lastObservableChunk(chunks: readonly WireResponse[]): object | undefined {
+  for (let i = chunks.length - 1; i >= 0; i -= 1) {
+    const candidate = chunks[i];
+    if (isObservableStreamChunk(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 function pumpStream(
   target: AITarget,
   modelResource: string,
@@ -264,7 +325,9 @@ function pumpStream(
         const step = await streamScope.race(iterator.next());
         streamScope.clearTimeout();
         if (step.done) break;
-        activity.chunk(step.value);
+        if (isObservableStreamChunk(step.value)) {
+          activity.chunk(step.value);
+        }
         buffered.push(step.value);
         wake();
       }
@@ -282,7 +345,7 @@ function pumpStream(
       done = true;
       wake();
     }
-    const lastChunk = buffered.length > 0 ? buffered[buffered.length - 1] : undefined;
+    const lastChunk = lastObservableChunk(buffered);
     const aggregate = aggregateResponses(buffered);
     activity.finish(lastChunk ?? {}, aggregate);
     return aggregate;
@@ -306,7 +369,7 @@ function pumpStream(
       if (next < buffered.length) {
         const chunk = buffered[next];
         next += 1;
-        if (chunk === undefined) continue;
+        if (!isYieldableStreamChunk(chunk)) continue;
         // Chunks are broker-owned fresh objects; enhance in place.
         activity.progress();
         yield createEnhancedContentResponse(structuredClone(chunk));
@@ -369,7 +432,9 @@ export async function planeGenerateContentStream(
       if (firstStep.done) {
         initialDone = true;
       } else {
-        activity.chunk(firstStep.value);
+        if (isObservableStreamChunk(firstStep.value)) {
+          activity.chunk(firstStep.value);
+        }
         buffered.push(firstStep.value);
       }
     }

@@ -79,9 +79,12 @@ export interface ResponseBlock {
  * (including a plain `STOP` or `MAX_TOKENS`) is not.
  *
  * Returns `null` when the response is fine, so a caller reads as
- * `const block = describeResponseBlock(res); if (block !== null) …`.
+ * `const block = describeResponseBlock(res); if (block !== null) ...`.
  */
 export function describeResponseBlock(response: WireResponse): ResponseBlock | null {
+  if (response === null || typeof response !== 'object' || Array.isArray(response)) {
+    return null;
+  }
   const firstCandidate = response.candidates?.[0];
   if (firstCandidate !== undefined) {
     if (!isBlockingFinishReason(firstCandidate.finishReason)) return null;
