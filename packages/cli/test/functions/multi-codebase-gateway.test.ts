@@ -51,6 +51,57 @@ async function startEchoBackend(label: string, expectedToken: string): Promise<n
   return (server.address() as AddressInfo).port;
 }
 
+function createHttpChildStub(options: {
+  exportName: string;
+  port: number;
+  token: string;
+  readyPromise?: Promise<unknown>;
+  captureCrash?: (fn: (code: number) => void) => void;
+  onStop?: () => void;
+}): FunctionsChildHandle {
+  const child = new EventEmitter() as unknown as ChildProcess;
+  (child as unknown as { stdout: PassThrough; stderr: PassThrough }).stdout = new PassThrough();
+  (child as unknown as { stdout: PassThrough; stderr: PassThrough }).stderr = new PassThrough();
+  let resolveExit: (code: number) => void = () => undefined;
+  const exited = new Promise<number>((res) => {
+    resolveExit = res;
+  });
+  options.captureCrash?.(resolveExit);
+  let isStopped = false;
+  const ready = (options.readyPromise ??
+    Promise.resolve({
+      triggerCount: 0,
+      unsupportedTriggers: [],
+      exportNames: [options.exportName],
+      http: {
+        port: options.port,
+        token: options.token,
+        functions: [
+          {
+            exportName: options.exportName,
+            regions: ['us-central1'],
+            platform: 'gcfv2',
+            privateInvoker: false,
+            timeoutSeconds: null,
+          },
+        ],
+      },
+    })) as FunctionsChildHandle['ready'];
+  return {
+    child,
+    ready,
+    exited,
+    async stop(): Promise<number> {
+      if (!isStopped) {
+        isStopped = true;
+        options.onStop?.();
+        resolveExit(0);
+      }
+      return exited;
+    },
+  };
+}
+
 describe('createFunctionsHttpGateway cross-codebase routing and Hosting rewrites', () => {
   test('routes emulator URLs and Hosting rewrites to each codebase backend and records codebase metadata', async () => {
     const portApi = await startEchoBackend('codebase-api', 'tok-api');
@@ -201,52 +252,9 @@ describe('createFunctionsHttpGateway cross-codebase routing and Hosting rewrites
     let triggerApiCrash: ((code: number) => void) | null = null;
     const events: FunctionsDevelopmentEvent[] = [];
 
-    const makeFakeChild = (
-      codebase: string,
-      exportName: string,
-      port: number,
-      token: string,
-      captureCrash?: (fn: (code: number) => void) => void,
-    ): FunctionsChildHandle => {
-      const child = new EventEmitter() as unknown as ChildProcess;
-      (child as unknown as { stdout: PassThrough; stderr: PassThrough }).stdout = new PassThrough();
-      (child as unknown as { stdout: PassThrough; stderr: PassThrough }).stderr = new PassThrough();
-      let resolveExit: (code: number) => void = () => undefined;
-      const exited = new Promise<number>((res) => {
-        resolveExit = res;
-      });
-      captureCrash?.(resolveExit);
-      return {
-        child,
-        ready: Promise.resolve({
-          triggerCount: 0,
-          unsupportedTriggers: [],
-          exportNames: [exportName],
-          http: {
-            port,
-            token,
-            functions: [
-              {
-                exportName,
-                regions: ['us-central1'],
-                platform: 'gcfv2',
-                privateInvoker: false,
-                timeoutSeconds: null,
-              },
-            ],
-          },
-        }),
-        exited,
-        async stop(): Promise<number> {
-          resolveExit(0);
-          return exited;
-        },
-      };
-    };
-
     const gateway = createFunctionsHttpGateway({
       projectId: 'demo-crash',
-      initial: { kind: 'pending' },
+      initial: { kind: 'starting' },
       plane: 'pyric-sandbox',
     });
 
@@ -274,13 +282,18 @@ describe('createFunctionsHttpGateway cross-codebase routing and Hosting rewrites
         if (opts.codebase === 'api') {
           apiSpawnCount += 1;
           if (apiSpawnCount === 1) {
-            return makeFakeChild('api', 'apiFn', portApiV1, 'tok-api-1', (fn) => {
-              triggerApiCrash = fn;
+            return createHttpChildStub({
+              exportName: 'apiFn',
+              port: portApiV1,
+              token: 'tok-api-1',
+              captureCrash: (fn) => {
+                triggerApiCrash = fn;
+              },
             });
           }
-          return makeFakeChild('api', 'apiFn', portApiV2, 'tok-api-2');
+          return createHttpChildStub({ exportName: 'apiFn', port: portApiV2, token: 'tok-api-2' });
         }
-        return makeFakeChild('admin', 'adminFn', portAdmin, 'tok-admin-1');
+        return createHttpChildStub({ exportName: 'adminFn', port: portAdmin, token: 'tok-admin-1' });
       },
     });
 
@@ -321,6 +334,252 @@ describe('createFunctionsHttpGateway cross-codebase routing and Hosting rewrites
         target: 'adminFn',
         url: '/',
       });
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  test('evicts crashed sibling backend from merged ready and tears down all children on restart export collision', async () => {
+    const events: FunctionsDevelopmentEvent[] = [];
+    const stopped: string[] = [];
+    let apiSpawn = 0;
+    let adminSpawn = 0;
+    let crashApi: ((code: number) => void) | null = null;
+    let crashAdmin: ((code: number) => void) | null = null;
+    let resolveAdminRestartReady: ((value: unknown) => void) | null = null;
+
+    const makeStubChild = (
+      label: string,
+      exportName: string,
+      port: number,
+      readyPromise?: Promise<unknown>,
+      captureCrash?: (fn: (code: number) => void) => void,
+    ): FunctionsChildHandle =>
+      createHttpChildStub({
+        exportName,
+        port,
+        token: `tok-${label}`,
+        readyPromise,
+        captureCrash,
+        onStop: () => stopped.push(label),
+      });
+
+    const runtime = createFunctionsDevelopmentRuntime({
+      sourceDir: '/tmp/api',
+      entry: '/tmp/api/index.js',
+      codebases: [
+        { codebase: 'api', sourceDir: '/tmp/api', entry: '/tmp/api/index.js' },
+        { codebase: 'admin', sourceDir: '/tmp/admin', entry: '/tmp/admin/index.js' },
+      ],
+      baseEnv: {},
+      serveUrl: 'http://127.0.0.1:4100',
+      registerUrl: 'file:///register.js',
+      instance: 'demo-default-rtdb',
+      location: 'us-central1',
+      projectId: 'demo-crash-evict',
+      readiness: { wait: () => Promise.resolve(true) },
+      onEvent: (event) => events.push(event),
+      spawn: (opts: SpawnFunctionsChildOptions) => {
+        if (opts.codebase === 'api') {
+          apiSpawn += 1;
+          if (apiSpawn === 1) {
+            return makeStubChild('api-1', 'apiFn', 7101, undefined, (fn) => {
+              crashApi = fn;
+            });
+          }
+          if (apiSpawn === 2) {
+            return makeStubChild('api-2', 'apiFn', 7102, undefined, (fn) => {
+              crashApi = fn;
+            });
+          }
+          // Third spawn introduces a duplicate export collision with `adminFn`.
+          return makeStubChild('api-3', 'adminFn', 7103);
+        }
+        adminSpawn += 1;
+        if (adminSpawn === 1) {
+          return makeStubChild('admin-1', 'adminFn', 7201, undefined, (fn) => {
+            crashAdmin = fn;
+          });
+        }
+        const pendingReady = new Promise((res) => {
+          resolveAdminRestartReady = res;
+        });
+        return makeStubChild('admin-2', 'adminFn', 7202, pendingReady);
+      },
+    });
+
+    try {
+      const started = await runtime.start();
+      expect(started.kind).toBe('ready');
+
+      // Crash BOTH admin (slow restart) and api (fast restart): when api finishes
+      // restarting first, admin's stale dead port 7201 must NOT be merged back in.
+      crashAdmin!(1);
+      crashApi!(1);
+      const deadline1 = Date.now() + 5_000;
+      while (Date.now() < deadline1 && !events.some((e) => e.type === 'restarted')) {
+        await Bun.sleep(25);
+      }
+      const firstRestart = events.find(
+        (e): e is Extract<FunctionsDevelopmentEvent, { type: 'restarted' }> => e.type === 'restarted',
+      );
+      expect(firstRestart?.result.kind).toBe('ready');
+      if (firstRestart?.result.kind === 'ready') {
+        expect(firstRestart.result.ready.http?.backends?.map((b) => [b.codebase, b.port])).toEqual([
+          ['api', 7102],
+        ]);
+      }
+
+      // Now let admin-2 finish starting so both codebases are live again.
+      resolveAdminRestartReady!({
+        triggerCount: 0,
+        unsupportedTriggers: [],
+        exportNames: ['adminFn'],
+        http: {
+          port: 7202,
+          token: 'tok-admin-2',
+          functions: [
+            {
+              exportName: 'adminFn',
+              regions: ['us-central1'],
+              platform: 'gcfv2',
+              privateInvoker: false,
+              timeoutSeconds: null,
+            },
+          ],
+        },
+      });
+      const deadline2 = Date.now() + 5_000;
+      while (
+        Date.now() < deadline2 &&
+        events.filter((e) => e.type === 'restarted').length < 2
+      ) {
+        await Bun.sleep(25);
+      }
+
+      // Now crash api-2 so api-3 comes back exporting `adminFn` (collision):
+      // all active children must be stopped and a failed restart emitted.
+      crashApi!(1);
+      const deadline3 = Date.now() + 5_000;
+      while (
+        Date.now() < deadline3 &&
+        events.filter((e) => e.type === 'restarted').length < 3
+      ) {
+        await Bun.sleep(25);
+      }
+      const collisionEvent = events.filter(
+        (e): e is Extract<FunctionsDevelopmentEvent, { type: 'restarted' }> => e.type === 'restarted',
+      )[2];
+      expect(collisionEvent?.result.kind).toBe('failed');
+      if (collisionEvent?.result.kind === 'failed') {
+        expect(collisionEvent.result.error.message).toContain('"adminFn"');
+        expect(collisionEvent.result.error.message).toContain('"api"');
+        expect(collisionEvent.result.error.message).toContain('"admin"');
+      }
+      expect(stopped).toContain('api-3');
+      expect(stopped).toContain('admin-2');
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  test('publishPubSub fans out one shared messageId and publishTime across all codebases', async () => {
+    const receivedByCodebase: Record<string, { messageId?: string; publishTime?: string; attributes?: Record<string, string> }> = {};
+
+    const makePubSubChild = (codebase: string): FunctionsChildHandle => {
+      const child = new EventEmitter() as unknown as ChildProcess & {
+        exitCode: number | null;
+        signalCode: NodeJS.Signals | null;
+        connected: boolean;
+        stdout: PassThrough;
+        stderr: PassThrough;
+        send: (msg: Record<string, unknown>, cb?: (err: Error | null) => void) => boolean;
+      };
+      child.exitCode = null;
+      child.signalCode = null;
+      child.connected = true;
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      child.send = (msg, cb) => {
+        cb?.(null);
+        if (msg.type === 'publish-pubsub') {
+          receivedByCodebase[codebase] = {
+            messageId: msg.messageId as string | undefined,
+            publishTime: msg.publishTime as string | undefined,
+            attributes: msg.attributes as Record<string, string> | undefined,
+          };
+          queueMicrotask(() => {
+            child.emit('message', {
+              type: 'publish-pubsub-result',
+              requestId: msg.requestId,
+              outcome: 'ok',
+              result: {
+                topic: 'projects/demo-pubsub/topics/orders',
+                messageId: msg.messageId,
+                publishTime: msg.publishTime,
+                deliveries: [
+                  {
+                    exportName: `${codebase}Subscriber`,
+                    subscription: `sub-${codebase}`,
+                    status: 'fulfilled',
+                  },
+                ],
+              },
+            });
+          });
+        }
+        return true;
+      };
+      let resolveExit: (code: number) => void = () => undefined;
+      const exited = new Promise<number>((res) => {
+        resolveExit = res;
+      });
+      return {
+        child,
+        ready: Promise.resolve({
+          triggerCount: 1,
+          unsupportedTriggers: [],
+          exportNames: [`${codebase}Subscriber`],
+        }),
+        exited,
+        async stop(): Promise<number> {
+          child.connected = false;
+          resolveExit(0);
+          return exited;
+        },
+      };
+    };
+
+    const runtime = createFunctionsDevelopmentRuntime({
+      sourceDir: '/tmp/a',
+      entry: '/tmp/a/index.js',
+      codebases: [
+        { codebase: 'a', sourceDir: '/tmp/a', entry: '/tmp/a/index.js' },
+        { codebase: 'b', sourceDir: '/tmp/b', entry: '/tmp/b/index.js' },
+      ],
+      baseEnv: {},
+      serveUrl: 'http://127.0.0.1:4100',
+      registerUrl: 'file:///register.js',
+      instance: 'demo-default-rtdb',
+      location: 'us-central1',
+      projectId: 'demo-pubsub',
+      readiness: { wait: () => Promise.resolve(true) },
+      spawn: (opts: SpawnFunctionsChildOptions) => makePubSubChild(opts.codebase ?? 'unknown'),
+    });
+
+    try {
+      const started = await runtime.start();
+      expect(started.kind).toBe('ready');
+
+      const published = await runtime.publishPubSub('orders', { id: 1 }, { env: 'staging' });
+      expect(receivedByCodebase.a?.messageId).toBeString();
+      expect(receivedByCodebase.a?.messageId).toBe(receivedByCodebase.b?.messageId);
+      expect(receivedByCodebase.a?.publishTime).toBe(receivedByCodebase.b?.publishTime);
+      expect(receivedByCodebase.a?.attributes).toEqual({ env: 'staging' });
+      expect(receivedByCodebase.b?.attributes).toEqual({ env: 'staging' });
+      expect(published.messageId).toBe(receivedByCodebase.a!.messageId!);
+      expect(published.publishTime).toBe(receivedByCodebase.a!.publishTime!);
+      expect(published.deliveries).toHaveLength(2);
     } finally {
       await runtime.close();
     }

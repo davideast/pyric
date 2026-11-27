@@ -12,6 +12,7 @@
  *  - `codebase` metadata is preserved across trigger listings, HTTP backends,
  *    output prefixes, child events, and recorded execution logs.
  */
+import { randomUUID } from 'node:crypto';
 import type { FunctionsChildReady } from './child-protocol.js';
 import type {
   FunctionsDevelopmentEvent,
@@ -28,7 +29,11 @@ import {
 } from './multi-codebase-metadata.js';
 import type { FunctionsCodebaseProject } from './project.js';
 import type { PubSubPublishResult } from './pubsub/delivery.js';
-import type { PubSubPublishAttributesOrOptions } from './pubsub/event.js';
+import {
+  normalizePubSubPublishOptions,
+  type PubSubPublishAttributesOrOptions,
+  type PubSubPublishOptions,
+} from './pubsub/event.js';
 import type {
   ScheduledTriggerInvocationResult,
   TriggerScheduledOptions,
@@ -131,6 +136,11 @@ export function createMultiCodebaseFunctionsDevelopmentRuntime(
       onEvent: (event) => {
         if (closed) return;
         if (event.type === 'starting') return;
+        if (event.type === 'unexpected-exit' || event.type === 'unresponsive') {
+          latestReady.delete(cb.codebase);
+          emit(event);
+          return;
+        }
         if (event.type === 'restarted') {
           if (suppressingChildRestarts) return;
           if (event.result.kind === 'ready') {
@@ -139,7 +149,11 @@ export function createMultiCodebaseFunctionsDevelopmentRuntime(
             if (merged.ok) {
               emit({ type: 'restarted', result: { kind: 'ready', ready: merged.ready } });
             } else {
-              emit({ type: 'restarted', result: { kind: 'failed', error: merged.error } });
+              void stopAllChildren().then(() => {
+                if (!closed) {
+                  emit({ type: 'restarted', result: { kind: 'failed', error: merged.error } });
+                }
+              });
             }
           } else {
             latestReady.delete(cb.codebase);
@@ -353,9 +367,15 @@ export function createMultiCodebaseFunctionsDevelopmentRuntime(
       if (activeRuntimes.length === 0) {
         throw new Error('Functions runtime has no active child process');
       }
+      const normalized = normalizePubSubPublishOptions(attributes);
+      const sharedOptions: PubSubPublishOptions = {
+        ...normalized,
+        messageId: normalized.messageId ?? randomUUID(),
+        publishTime: normalized.publishTime ?? new Date().toISOString(),
+      };
       const results: PubSubPublishResult[] = [];
       for (const active of activeRuntimes) {
-        results.push(await active.publishPubSub(topic, payload, attributes));
+        results.push(await active.publishPubSub(topic, payload, sharedOptions));
       }
       const first = results[0]!;
       return {
