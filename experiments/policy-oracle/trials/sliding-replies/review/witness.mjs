@@ -96,7 +96,8 @@ function routes(handle=original,groups=null) {
       const wrapper=calls(r,'sliderMove');
       // v3+ reuses a decoded board and check direction. Its status path calls
       // the integer-producing function directly; false status alone is no witness.
-      const shared=calls(r,'slideTyped'+side);
+      const specialized=calls(r,'slideTyped'+side);
+      const shared=specialized.length?specialized:calls(r,'slideTyped');
       const helper=wrapper.length?wrapper:shared;
       const status=calls(r,'sliderStatus');
       const branch=helper.length?'witness-called':status.length?'slider-status-short-circuit':
@@ -168,7 +169,7 @@ function auditUsage(focused,traces){
   for(const [label,code] of [['absent',-1],['present',3432]]){
     let modified=full;
     for(const name of names){
-      assert.ok(['sliderMove','slideTypedw','slideTypedb'].includes(name));
+      assert.ok(['sliderMove','slideTypedw','slideTypedb','slideTyped'].includes(name));
       const declaration=new RegExp('\\bfunction\\s+'+name+'\\s*(\\([^)]*\\))\\s*\\{','g');
       const matches=[...modified.matchAll(declaration)];
       if(matches.length!==1) continue;
