@@ -1,5 +1,5 @@
 /**
- * ─── Scenario: interpolated-lookup-path-segments ────────────────────────────
+ * --- Scenario: interpolated-lookup-path-segments ----------------------------
  * A `$(value)` in a get() or exists() path is one path segment, whatever it
  * holds. A value holding `/` names no document, so the lookup errors and the
  * request is denied (#1888, hunt finding FS3-SIM-1). The controls read a
@@ -33,7 +33,7 @@ export const scenario: ScenarioRecord = {
   },
   {
     "description": "ex1: exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "create",
     "path": "ex1/1",
     "data": {
@@ -49,7 +49,7 @@ export const scenario: ScenarioRecord = {
   },
   {
     "description": "ex2: !exists(/databases/$(database)/documents/allowed/$(request.resource.data.k))",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "create",
     "path": "ex2/1",
     "data": {
@@ -81,7 +81,7 @@ export const scenario: ScenarioRecord = {
   },
   {
     "description": "ge0: get(/databases/$(database)/documents/users/$(request.resource.data.owner)).data.role == 'admin'",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "create",
     "path": "ge0/1",
     "data": {

@@ -1,5 +1,5 @@
 /**
- * ─── Scenario: int64-and-duration-range ─────────────────────────────────────
+ * --- Scenario: int64-and-duration-range -------------------------------------
  * Rules integers are signed 64-bit values. Literals and arithmetic above 2^53
  * must keep every bit (`9223372036854775807 > 9223372036854775806`,
  * `string(9007199254740993)`); `+` and `*` past the range fail at evaluation
@@ -94,7 +94,7 @@ export const scenario: ScenarioRecord = {
   },
   {
     "description": "max plus one wraps to min",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "get",
     "path": "ovf0/1",
     "requestTime": "2026-01-01T00:00:00Z"
@@ -108,14 +108,14 @@ export const scenario: ScenarioRecord = {
   },
   {
     "description": "max times two wraps to minus two",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "get",
     "path": "ovf2/1",
     "requestTime": "2026-01-01T00:00:00Z"
   },
   {
     "description": "negated min is min",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "get",
     "path": "ovf3/1",
     "requestTime": "2026-01-01T00:00:00Z"

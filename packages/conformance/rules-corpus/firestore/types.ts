@@ -37,6 +37,11 @@ export interface Scenario {
   /** True when the scenario probes a ruleset that production may reject at
    *  compile time (issues without testResults) rather than evaluating cases. */
   allowCompileError?: boolean;
+  /** True when the scenario uses rules features (such as getAfter/existsAfter)
+   *  that the hosted Rules Test API cannot evaluate, so production verdicts are
+   *  captured against a real database by run-firestore-real.ts instead of
+   *  projects.test. Excluded from live Rules Test API parity packs. */
+  realDatabaseOnly?: boolean;
 }
 
 /**
@@ -51,12 +56,12 @@ export type ScenarioGroup = 'stress' | 'fix-class';
 
 /**
  * The authored shape for one file in rules-corpus/firestore/. The filename
- * IS the scenario id, so the record carries no `id` field — the loader
+ * IS the scenario id, so the record carries no `id` field -- the loader
  * (./load.ts) injects it from the filename. `group` is loader-only
  * classification metadata: it is consumed to reconstruct STRESS_SCENARIOS /
  * FIX_CLASS_SCENARIOS and is stripped before a `Scenario` reaches any other
  * consumer, so the `Scenario` type itself (and everything that already reads
- * it — the capture runner, the replay suite, the live parity harness)
+ * it -- the capture runner, the replay suite, the live parity harness)
  * stays unchanged.
  */
 export type ScenarioRecord = Omit<Scenario, 'id'> & { group: ScenarioGroup };

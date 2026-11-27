@@ -1,6 +1,6 @@
 /**
- * ─── Scenario 12: get-after-and-exists-after ──────────────────────────────────
- * Targets Item 7 — getAfter()/existsAfter() with projectAfterState. The hosted
+ * --- Scenario 12: get-after-and-exists-after ----------------------------------
+ * Targets Item 7 -- getAfter()/existsAfter() with projectAfterState. The hosted
  * Rules Test API cannot evaluate these functions, so production verdicts are
  * captured through temporarily deployed rules and authenticated Web SDK
  * operations against the real database.
@@ -9,6 +9,7 @@ import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   fm: 'Item 7',
+  realDatabaseOnly: true,
   rationale: 'Live-database evidence covers target and existence semantics; local atomic-projection tests additionally pin cross-document batch behavior.',
   rules: `rules_version = '2';
 service cloud.firestore {
@@ -33,7 +34,7 @@ service cloud.firestore {
       allow create: if request.auth != null
         && existsAfter(/databases/$(database)/documents/other/x) == true;
     }
-    // DENY witness — wrong existsAfter
+    // DENY witness \u2014 wrong existsAfter
     match /existsAfterWrongDeny/{id} {
       allow create: if request.auth != null
         && existsAfter(request.path) == false;

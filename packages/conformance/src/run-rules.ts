@@ -71,7 +71,7 @@ interface Observation {
   name: string;
   /** Display prose only; machines read rowIds. Empty until matrix rows land. */
   matrixRow: string;
-  /** Structured registry links. Empty here — the capture phase wires these
+  /** Structured registry links. Empty here -- the capture phase wires these
    *  (a matrix row citing the observation, or an observationExceptions entry).
    *  Until then `compat:validate` will flag a freshly captured file, which is
    *  the signal to wire it. */
@@ -124,7 +124,8 @@ export function isRealDatabaseObservation(path: string): boolean {
 const REAL_DATABASE_SCENARIO_IDS: ReadonlySet<string> = new Set(['atomic-batch-sibling-merge']);
 
 function isOwnedByRealDatabaseRig(scenario: Scenario): boolean {
-  return REAL_DATABASE_SCENARIO_IDS.has(scenario.id)
+  return scenario.realDatabaseOnly === true
+    || REAL_DATABASE_SCENARIO_IDS.has(scenario.id)
     || isRealDatabaseObservation(observationPath(scenario));
 }
 
@@ -166,7 +167,7 @@ export function selectFirestoreScenarios(args: string[]): Scenario[] {
   return selected;
 }
 
-/** Build the verdict table (case description → prod decision) for a scenario. */
+/** Build the verdict table (case description -> prod decision) for a scenario. */
 type SuccessfulRulesResult = Extract<TestFirestoreRulesResult, { success: true }>;
 
 function assertSuccessfulRulesResult(
@@ -240,7 +241,7 @@ function printInertPlan(scenarios: Scenario[]): void {
     totalCases += scenario.cases.length;
     console.log(
       `    - ${scenario.id.padEnd(42)} [${scenario.fm.padEnd(9)}] ` +
-        `${String(scenario.cases.length).padStart(2)} cases → ${observationName(scenario)}.json`,
+        `${String(scenario.cases.length).padStart(2)} cases -> ${observationName(scenario)}.json`,
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
@@ -296,7 +297,7 @@ async function capture(scenarios: Scenario[]): Promise<void> {
     const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
     const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
     console.log(
-      `  ✓ ${scenario.id.padEnd(42)} allow=${allows} deny=${denies} → ${observationName(scenario)}.json`,
+      `  [ok] ${scenario.id.padEnd(42)} allow=${allows} deny=${denies} -> ${observationName(scenario)}.json`,
     );
   }
 
