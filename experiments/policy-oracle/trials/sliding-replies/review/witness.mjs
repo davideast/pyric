@@ -9,7 +9,7 @@ import {squareName} from '../../chess/reference/arcade-reference.ts';
 import {sample} from '../../chess-safety/reference/fixtures.mjs';
 
 const [sdk,bundle,option]=process.argv.slice(2);
-if (!sdk || !bundle || (option && option!=='--focused')) throw Error('Usage: bun witness.mjs PINNED_SDK COMPLETE_RULES [--focused]');
+if (!sdk || !bundle || (option && !['--focused','--roster'].includes(option))) throw Error('Usage: bun witness.mjs PINNED_SDK COMPLETE_RULES [--focused|--roster]');
 const {firestoreRules}=await import(pathToFileURL(resolve(sdk,'dist/index.js')));
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const read=path=>JSON.parse(readFileSync(new URL(path,import.meta.url)));
@@ -82,10 +82,10 @@ function inspected(row) {
   return {id:row.id,supported,code,move,expected,outcome,expressions:result.evaluatedExpressions,
     ...(guardErrors?{guardError:guardErrors}:{})};
 }
-function routes(handle=original) {
+function routes(handle=original,groups=null) {
   const all=[];
-  for(const piece of ['rook','bishop','queen']){
-    const {cases}=read('../native/'+piece+'/native.json');
+  const cohorts=groups??['rook','bishop','queen'].map(piece=>read('../native/'+piece+'/native.json').cases);
+  for(const cases of cohorts){
     for(const row of cases){
       const {before,proposal}=sample(row,'writer','other');
       const req={description:row.id,path:'chess/oracle',method:'update',auth:{uid:'writer'},
@@ -124,28 +124,39 @@ function materialPromises(fen) {
   const sliders=material.filter(piece=>'rbq'.includes(piece));
   const single=sliders.length===1;
   const optionalPawn=material.length===1 || (material.length===2 && material.includes('p') && !opponent.includes('p'));
+  const twoDefenders=(single && optionalPawn) ||
+    (material.length===2 && (material.every(p=>p==='r') || single && material.includes('n')));
   return {rook:single && material.length===1 && sliders[0]==='r',
     bishop:single && optionalPawn && 'rb'.includes(sliders[0]),
     queen:single && optionalPawn,
-    'queen-with-knight-or-rooks':single && optionalPawn ||
-      (material.length===2 && (material.every(p=>p==='r') || single && material.includes('n')))};
+    'queen-with-knight-or-rooks':twoDefenders,
+    'including-sole-knight':twoDefenders || (material.length===1 && material[0]==='n')};
 }
 
 function auditMaterial(rows,scores) {
-  const promises={rook:{},bishop:{},queen:{},'queen-with-knight-or-rooks':{}};
+  const promises={rook:{},bishop:{},queen:{},'queen-with-knight-or-rooks':{},'including-sole-knight':{}};
   const firstMismatch={};
+  const qualification=Object.fromEntries(Object.keys(promises).map(profile=>[profile,{
+    boards:rows.length,eligible:0,verifiedWitnesses:0,guardDisagreements:0}]));
   for(let i=0;i<rows.length;i++){
     const row=rows[i],score=scores[i];
     for(const [profile,expected] of Object.entries(materialPromises(row.successor))){
       const category=score.supported===null?'guard-error':
         expected?(score.supported?'included':'omitted'):(score.supported?'overincluded':'excluded');
       add(promises[profile],category);
+      const q=qualification[profile];
+      if(expected){
+        q.eligible++;
+        if(score.supported===true && ['legal-witness','correct-absence'].includes(score.outcome)) q.verifiedWitnesses++;
+      }
       if(!['included','excluded'].includes(category)){
+        q.guardDisagreements++;
         (firstMismatch[profile]??={})[category]??={id:row.id,successor:row.successor};
       }
     }
   }
-  return {promises,firstMismatch};
+  for(const q of Object.values(qualification)) q.passes=q.guardDisagreements===0 && q.eligible===q.verifiedWitnesses;
+  return {promises,firstMismatch,qualification};
 }
 
 function auditUsage(focused,traces){
@@ -230,16 +241,28 @@ for(const group of ['rook','bishop','queen']) {
 }
 const result={authority:'pinned independent local Rules evaluator on the emitted helper and original write paths',
   rulesSha256:sha(full),diagnosticRulesSha256:sha(diagnostic),interface:{status:missing.length?'missing':'present',missing}};
+function rosterControls(){
+  const text=readFileSync(new URL('./roster/boards.json',import.meta.url),'utf8').trimEnd();
+  const meta=read('./roster/freeze.json');assert.equal(sha(text),meta.inputsAndRepliesSha256);
+  const rows=JSON.parse(text),scores=rows.map(inspected);
+  const inputs=rows.flatMap(row=>['playing','draw','won'].map(status=>({...row,id:row.id+'-'+status,
+    claim:{status,winner:status==='won'?(row.fen.split(' ')[1]==='w'?'host':'guest'):''},nativeAdmission:status===row.status})));
+  const writeRoutes=routes(original,[inputs]);
+  return {inputsAndRepliesSha256:meta.inputsAndRepliesSha256,scores,materialAudit:auditMaterial(rows,scores),routes:writeRoutes};
+}
 if(missing.length){
   result.focused=focused.map(row=>({id:row.id,supported:null,code:null,move:null,expected:row.sliderReplies,
     outcome:'missing-witness-interface',expressions:0}));
   result.routes=[];
+}else if(option==='--roster'){
+  result.rosterControls=rosterControls();
 }else{
   result.focused=focused.map(inspected);
   result.routes=routes();
   result.materialAudit={focused:auditMaterial(focused,result.focused)};
   result.fullWriteDerivation=auditUsage(result.focused,result.routes);
   if(option!=='--focused'){
+    result.rosterControls=rosterControls();
     for(const [field,directory] of [['panel','panel'],['otherTurns','other-turns']]){
       const bytes=gunzipSync(readFileSync(new URL('./'+directory+'/boards.json.gz',import.meta.url)));
       const meta=read('./'+directory+'/freeze.json');assert.equal(sha(bytes),meta.inputsAndRepliesSha256);

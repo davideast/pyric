@@ -34,3 +34,11 @@ The output reports unmeasured, partial or measured tied to the full source diges
 The material audit computes four eligibility profiles independently from the native successor FEN. The rook profile accepts a sole defending rook. The bishop profile includes a sole rook or bishop and permits one friendly pawn when the opponent has no pawn. The queen profile extends that choice to a queen. The two-defender profile also includes a supported slider and knight, or two rooks, against arbitrary opposing material. Each profile reports included, excluded, omitted and overincluded counts, along with any guard error.
 
 For the 36 focused playing and won proposals, the reviewer additionally runs two diagnostic rulesets that retain the entire write path and replace the observed integer producer with a fixed absence or a fixed presence. A verified claim must match its native outcome in the untouched source, return a legal integer or correct absence on its actual trace, and switch verdict as the diagnostic sign switches. A resource error or an unobservable dependency remains inconclusive. The contradictory draw claims can be refused directly from check.
+
+The roster controls include both colors across seven separately named positions. Two originate in the broad panel. They cover a reply from the second rook alone, replies from two distinct rooks, an exclusive knight evasion with and without a friendly slider, a sole-knight stalemate, a quiet knight-only escape and an excluded extra knight. The `including-sole-knight` profile covers the two-defender roster plus a defending king and lone knight. The full panel output’s `rosterControls` keeps these 42 supplemental writes outside the 238 campaign submissions.
+
+```sh
+python3 -B review/roster/generate.py "$CHESS_SOURCE"
+bun --no-install review/panel/arcade.mjs --roster
+bun --no-install review/witness.mjs "$PINNED_RULES_SDK" "$COMPLETE_RULES" --roster
+```

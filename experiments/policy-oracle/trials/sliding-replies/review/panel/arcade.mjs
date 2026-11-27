@@ -7,9 +7,11 @@ import {inCheck,isLegal,squareOf} from '../../../chess/reference/arcade-referenc
 import {apply,legalMoves,outcome} from '../../../chess/reference/native.mjs';
 
 const other=process.argv[2]==='--other-turns';
-assert.ok(process.argv.length===2 || other && process.argv.length===3);
-const directory=other?'../other-turns/':'./';
-const bytes=gunzipSync(readFileSync(new URL(directory+'boards.json.gz',import.meta.url)));
+const roster=process.argv[2]==='--roster';
+assert.ok(process.argv.length===2 || (other || roster) && process.argv.length===3);
+const directory=other?'../other-turns/':roster?'../roster/':'./';
+const bytes=roster?Buffer.from(readFileSync(new URL(directory+'boards.json',import.meta.url),'utf8').trimEnd()):
+  gunzipSync(readFileSync(new URL(directory+'boards.json.gz',import.meta.url)));
 const meta=JSON.parse(readFileSync(new URL(directory+'freeze.json',import.meta.url)));
 assert.equal(createHash('sha256').update(bytes).digest('hex'),meta.inputsAndRepliesSha256);
 const rows=JSON.parse(bytes);
@@ -20,7 +22,7 @@ for(const row of rows) {
   assert.ok(isLegal(before,move),row.id);
   const after=apply(before,row.uci);
   assert.deepEqual(after,position(row.successor),row.id);
-  const checking=!row.features.includes('quiet');
+  const checking=roster?!['quiet','stalemate'].includes(row.family):!row.features.includes('quiet');
   assert.equal(inCheck(after),checking,row.id);
   const replies=legalMoves(after).sort();
   assert.deepEqual(replies,row.replies,row.id);
@@ -30,4 +32,4 @@ for(const row of rows) {
 }
 assert.equal(rows.length,meta.boards);
 console.log(JSON.stringify({authority:'pinned Arcade native chess reference',inputsAndRepliesSha256:meta.inputsAndRepliesSha256,
-  ...(other?{sourceMoves:rows.length}:{checkingMoves:rows.length}),exactLegalSuccessors:rows.length,legalReplies:moves,legalSliderReplies:sliders},null,2));
+  ...(other || roster?{sourceMoves:rows.length}:{checkingMoves:rows.length}),exactLegalSuccessors:rows.length,legalReplies:moves,legalSliderReplies:sliders},null,2));
