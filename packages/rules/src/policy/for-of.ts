@@ -27,7 +27,7 @@ export interface FunctionLoop {
 export interface LoopFunction extends FunctionDef {
   loop?: FunctionLoop;
 }
-interface CheckedLoop extends FunctionLoop {
+export interface CheckedLoop extends FunctionLoop {
   limit: number;
   input: Expression;
   readValue: (expr: Expression, value: unknown) => unknown;
