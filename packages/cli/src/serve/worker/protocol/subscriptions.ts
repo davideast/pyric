@@ -64,6 +64,16 @@ export interface StorageSubMessage {
   relaySource?: 'remote';
 }
 
+export interface AuthLifecycleSubMessage {
+  t: 'sub';
+  subId: string;
+  target: {
+    service: 'auth.lifecycle';
+  };
+  actAs?: AuthLens;
+  relaySource?: 'remote';
+}
+
 export interface AiStreamSubMessage {
   t: 'sub';
   subId: string;
@@ -113,6 +123,7 @@ export type SubMessage =
   | FirestoreSubMessage
   | FirestoreWriteSubMessage
   | AuthSubMessage
+  | AuthLifecycleSubMessage
   | EventSubMessage
   | RtdbValueSubMessage
   | StorageSubMessage
@@ -165,6 +176,15 @@ export function isStorageSub(msg: SubMessage): msg is StorageSubMessage {
     msg.target !== null &&
     'service' in msg.target &&
     msg.target.service === 'storage'
+  );
+}
+
+export function isAuthLifecycleSub(msg: SubMessage): msg is AuthLifecycleSubMessage {
+  return (
+    typeof msg.target === 'object' &&
+    msg.target !== null &&
+    'service' in msg.target &&
+    msg.target.service === 'auth.lifecycle'
   );
 }
 

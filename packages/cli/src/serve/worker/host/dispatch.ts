@@ -20,6 +20,7 @@ import { refuseInvalidInboundMessage } from '../inbound-validation.js';
 import { requestDatabaseId } from '../request-database-id.js';
 import {
   isAuthSub,
+  isAuthLifecycleSub,
   isEventSub,
   isRtdbSub,
   isStorageSub,
@@ -104,6 +105,7 @@ import {
   isUndeclaredRequestedDatabase,
 } from './firestore-databases.js';
 import { handleStorageSub } from './storage-subscriptions.js';
+import { handleAuthLifecycleSub } from './auth-lifecycle-subscriptions.js';
 
 // --- Op orchestrator ---------------------------------------------------------
 
@@ -380,6 +382,7 @@ async function dispatchMessage(
     }
   } else if (isSubscription) {
     const isAuth = isAuthSub(msg);
+    const isAuthLifecycle = isAuthLifecycleSub(msg);
     const isEvent = isEventSub(msg);
     const isRtdb = isRtdbSub(msg);
     const isStorage = isStorageSub(msg);
@@ -388,6 +391,8 @@ async function dispatchMessage(
     const isPresence = isPresenceSub(msg);
     if (isAuth) {
       handleAuthSub(ctx, port, msg);
+    } else if (isAuthLifecycle) {
+      handleAuthLifecycleSub(ctx, port, msg);
     } else if (isEvent) {
       if (msg.tabId !== undefined) claimObservedPageTab(ctx, port, msg.tabId);
       handleEventSub(ctx, port, msg);

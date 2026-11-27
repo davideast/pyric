@@ -45,6 +45,8 @@ export function assertSubscription(message: Record<string, unknown>): void {
       requireOptionalString(target.bucket, 'target.bucket');
       requireOptionalString(target.defaultBucket, 'target.defaultBucket');
       return;
+    case 'auth.lifecycle':
+      return;
     case 'ai': {
       const isStream = target.op === 'streamGenerateContent';
       requireShape(isStream, 'target.op');
