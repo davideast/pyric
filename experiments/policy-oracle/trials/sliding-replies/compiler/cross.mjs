@@ -127,7 +127,7 @@ export function crossSources(variant) {
     const axisTests=axes.map((axis,i)=>"board.matches('"+lineDanger(axis)+"') ? "+(i+1)+" : ");
     out[name]='function '+name+"(board) { return "+axisTests.join('')+"board.matches('.*"+attacks(color)+".*') ? 5 : 0; }";
     for(const kind of kinds){
-      const functions=axes.map(axis=>axisSource(kind,axis,color,variant!=='rook-cross-v2',['all-tabled-path-v6','all-rights-king-v7'].includes(variant)));
+      const functions=axes.map(axis=>axisSource(kind,axis,color,variant!=='rook-cross-v2',variant.startsWith('all-') && variant!=='all-packed-path-v5'));
       functions.push(quietSource(kind,color,false),quietSource(kind,color,true));
       for(const fn of functions)out[fn.name]=fn.source;
     }

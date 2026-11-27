@@ -15,7 +15,7 @@ export function lowerProtocol(source,variant) {
   source=replaceOnce(source,prior,canonical);
   const original='boardTransition(old, next, mv, piece, color, fromSquare, toSquare) && old.status';
   const dispatch="(piece.matches('[wb][rbq]') && old.castling == '' && (fromSquare + toSquare).matches('[a-h][1-8][a-h][1-8]') && next.board.values().hasOnly(',wp,wn,wb,wr,wq,wk,bp,bn,bb,br,bq,bk'.split(',')) ? orderedSliderTransition(next, mv, piece, color, fromSquare, toSquare) : boardTransition(old, next, mv, piece, color, fromSquare, toSquare)) && old.status";
-  source=replaceOnce(source,original,variant==='all-rights-king-v7' ? dispatch.replace(" && old.castling == ''",'').replace("(fromSquare + toSquare).matches('[a-h][1-8][a-h][1-8]')","fromSquare.matches('[a-h][1-8]') && toSquare.matches('[a-h][1-8]')").replace('orderedSliderTransition(next','orderedSliderTransition(old,next') : dispatch);
+  source=replaceOnce(source,original,!['all-packed-path-v5','all-tabled-path-v6'].includes(variant) ? dispatch.replace(" && old.castling == ''",'').replace("(fromSquare + toSquare).matches('[a-h][1-8][a-h][1-8]')","fromSquare.matches('[a-h][1-8]') && toSquare.matches('[a-h][1-8]')").replace('orderedSliderTransition(next','orderedSliderTransition(old,next') : dispatch);
   const coordinate="return {'a': 0, 'b': 1, 'c': 2, 'd': 3, 'e': 4, 'f': 5, 'g': 6, 'h': 7}[file];";
   // split() accepts a regular expression. Validate the lookup key first; an
   // invalid key deliberately indexes the empty map, retaining Rules error semantics.
@@ -33,7 +33,7 @@ export function protocolBinding(variant) {
     return mv.extra == [] && next.enPassant=='' && next.castling=='' &&
       sliderTravel(text,piece[1:2],x,y,xt,yt) && packedSafe(text,color) && admittedStatus(text,color,next.status);
   }`;
-  return variant==='all-rights-king-v7' ? fn.replace('orderedSliderTransition(next','orderedSliderTransition(old,next')
+  return !['all-packed-path-v5','all-tabled-path-v6'].includes(variant) ? fn.replace('orderedSliderTransition(next','orderedSliderTransition(old,next')
     .replace("next.castling==''", "(old.castling=='' ? next.castling=='' : next.castling==(old.castling.matches('K?Q?k?q?') ? _games_chess_chess_helpers__dropRights(old.castling,piece,fromSquare,toSquare) : keptRights(old.castling,piece,fromSquare,toSquare)))") : fn;
 }
 

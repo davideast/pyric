@@ -1,5 +1,6 @@
 import {protocolSources,protocolBinding} from './lowering.mjs';
 import {crossBinding,crossSources} from './cross.mjs';
+import {mixedSources,mixedBinding} from './material.mjs';
 import {extendedBinding,extendedSources} from './family.mjs';
 // In a compact post-move board each playable square occupies one character.
 // Two walls between ranks make offsets 1, 9, 10 and 11 the four slider lines.
@@ -42,11 +43,12 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq','all-two-defenders-v8':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
   if (!kinds) throw Error('Unknown slider policy variant: ' + variant);
+  if (variant==='all-two-defenders-v8') return {...mixedSources(),...crossSources(variant),...protocolSources(variant)};
   if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant),...(variant.startsWith('all-')?protocolSources(variant):{})};
   const out = {};
   for (const color of ['w', 'b']) {
@@ -84,6 +86,7 @@ export function sources(variant) {
 }
 
 export function binding(variant) {
+  if (variant==='all-two-defenders-v8') return mixedBinding()+'\n  '+protocolBinding(variant);
   if (variants[variant]?.length > 1) {
     const optimized=variant.startsWith('all-');
     return extendedBinding(variants[variant],optimized,variant)+(optimized?'\n  '+protocolBinding(variant):'');
