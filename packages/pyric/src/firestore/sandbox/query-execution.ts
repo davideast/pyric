@@ -269,7 +269,8 @@ function toProofWhereConstraint(
   // rather than nested map paths, so skip conservative map-rule proof.
   if (filter.field === KEY_FIELD || filter.field.includes('`')) return undefined;
   const raw = filter.value;
-  if (filter.op === 'in' && Array.isArray(raw) && raw.length > 0 && raw.length <= 30) {
+  const hasAlternatives = filter.op === 'in' || filter.op === 'array-contains-any';
+  if (hasAlternatives && Array.isArray(raw) && raw.length > 0 && raw.length <= 30) {
     const mapped: RulesScalar[] = [];
     for (const item of raw) {
       const converted = toProofScalarOperand(item);
