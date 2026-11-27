@@ -14,6 +14,14 @@ To audit the two live captures against native chess and compare the wider local 
 python3 -B review/two-knights.py aa2da0c0522d4de0a8006a51591508ce4912c7bb40a102665d23f3a7bd27d341 "$PRIVATE_ARCHIVE" "$CHESS_SOURCE"
 ```
 
+The v19 solver handles a defending king with one pawn. Three four-piece boards distinguish mate, stalemate and a legal pawn reply. On the Qc3–b4 pair, moving the black pawn from a7 to a4 gives Black exactly one reply, a4–a3. Each successor has a different correct status, so three is the minimum. Two independent chess referees agree on every legal reply. Live Firestore agreed on seven of nine baseline writes and all nine final writes. The 249 existing proposals plus the nine pawn claims all passed locally. [Boards and legal moves](native/lone-pawn/independent.json) · [v19 scorecard](LONE-PAWN.md)
+
+The additional local controls check both pawn colors when a double push or en passant is the only reply. An intermediate build passed the three live boards and exceeded the local expression budget on the two legal en passant continuations. The selected candidate evaluates en passant earlier and passes all twelve control claims. The 524-write two-ply en passant corpus also reproduced its v18 verdicts. [Before and after audit](review/scores/031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097/lone-pawn.json)
+
+```sh
+python3 -B review/lone-pawn.py 031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097 "$PRIVATE_ARCHIVE" "$CHESS_SOURCE" "$PINNED_RULES"
+```
+
 ## Score a compiler
 
 Run from this directory on Linux with Python 3, Bun, Node, npm, Bubblewrap, and user and network namespaces available. The bundled fixtures and portable receipts support offline scoring. Substitute the tarball built by the compiler under test. It must expose the public `@pyric/rules/experimental/policy` entry point.
@@ -77,6 +85,8 @@ The declared material includes one defending slider, two defending rooks, a slid
 For the short diagonal check, the emitted function marks the checking bishop or queen and the two intervening empty squares. It tests every defending nonking piece for geometric access to the relevant squares. Pawn captures, advances and double advances have separate tests. A negative result proves that only a king move can answer the check. A positive geometric possibility defers to the previous policy. The path requires an empty successor en passant target. On this domain a dense position such as the fourth-ply mate can be decided without general full-board reply enumeration. [Proof source](protocol/dense.mjs) · [Frozen 2,400-board independent control](protocol/dense-freeze.json) · [Incorrect geometries](review/dense-geometry.py)
 
 ## Where the selected rules still disagree with chess
+
+The v19 local replay matched 15,875 of 15,905 proposals. All 20 lone-pawn disagreements were repaired, with zero new disagreements. The remaining 30 comprise 26 false approvals and four expression-limit refusals. [Full-write comparison](review/scores/031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097/lone-pawn.json) · [All 30 remaining disagreements](review/scores/031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097/residuals.json)
 
 The wider v18 replay repaired 25 false continuations across 17 checkmates and eight stalemates. It introduced zero disagreements on the 15,905 proposals. The 50 remaining disagreements comprise 46 false approvals and four expression-limit refusals. [Per-write before and after comparison](review/scores/aa2da0c0522d4de0a8006a51591508ce4912c7bb40a102665d23f3a7bd27d341/two-knights.json)
 

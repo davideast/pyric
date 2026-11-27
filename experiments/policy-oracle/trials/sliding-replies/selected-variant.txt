@@ -1,1 +1,1 @@
-all-two-knights-v18-dense3-lean
+all-lone-pawn-v19-dense3-lean

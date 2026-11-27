@@ -1,0 +1,1102 @@
+{
+  "authority": "independent local full Rules evaluator joined with frozen native reply lists",
+  "rulesSha256": "031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097",
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "decisionsSha256": "b3f3ffbdcd1683594e7640899240f14ed0d958ee069a890dfc19655a2b0c5322"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "decisionsSha256": "8f5eb5dfdb2b2943d9e7b9710f10a5b33a9f5ba3f6727f55f1828412375ad3a9"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "decisionsSha256": "cede7ae6bc02e6dadc804c9346897c091ef0fea157b21979dbb0e54a0074751f"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "decisionsSha256": "631ff32604646177e43000befaf1d39ce6dd62e7c0582539a6c61ce4aeab70be"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "decisionsSha256": "f73cadd0e98f34d424097f206e2e8ddcd1438ee3d774b7f3a4526cce132bdd64"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "decisionsSha256": "b59842306a78f771058db07e99855b532bd8c3cfcfde1f8d5c6449cb1494ef5f"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "decisionsSha256": "6d5e7dace00252732d07d9984cd243709e1ef8f157ee70a7afbae2a08fc79f41"
+    },
+    "king-last-v1": {
+      "cases": 288,
+      "decisionsSha256": "536753259bd73f5b08c22c1e797fa8e038797c1b7b3258d69beae884cf4ac6c1"
+    },
+    "successor-claims-v1": {
+      "cases": 762,
+      "decisionsSha256": "4a2852aba9cceb319ba03354843bde8474620bfd1be5ae951f75a01390bb9167"
+    },
+    "bare-defender-v1": {
+      "cases": 1992,
+      "decisionsSha256": "59a7e0c1beba7339b379c7e813e3c93bb2b8ab6297ae55ae7304db5d35d3b9f2"
+    },
+    "knight-replies-v1": {
+      "cases": 492,
+      "decisionsSha256": "a1aa111e2e7a4184ca1a339381546cecb4389169bb03735005d1b2b7575fa973"
+    }
+  },
+  "caseOccurrences": {
+    "evaluation-budget": 4,
+    "refute-won-with-legal-reply": 16,
+    "refute-draw-with-legal-reply": 1,
+    "reject-playing-after-checkmate": 8,
+    "reject-playing-after-stalemate": 1
+  },
+  "distinctWrites": 30,
+  "obligations": {
+    "evaluation-budget": 4,
+    "refute-won-with-legal-reply": 16,
+    "refute-draw-with-legal-reply": 1,
+    "reject-playing-after-checkmate": 8,
+    "reject-playing-after-stalemate": 1
+  },
+  "replyFamilies": {
+    "b+n+q": 1,
+    "b+q+r": 1,
+    "r": 4,
+    "b": 7,
+    "n": 4
+  },
+  "examples": {
+    "evaluation-budget": {
+      "writeSha256": "43082bedde2e3c307d39d122120f4079bd383dc2753434edf07711f92473f34c",
+      "pieces": 6,
+      "fen": "kr6/4Q3/8/8/8/1Q6/8/4K2R w K -",
+      "uci": "e1g1",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "nativeAdmission": true,
+      "observed": "DENY",
+      "outcome": "false-refusal/resource-limit",
+      "localCost": 1000,
+      "obligation": "evaluation-budget",
+      "first": {
+        "cohort": "v1",
+        "id": "black-short-clear-1-0-2"
+      }
+    },
+    "refute-won-with-legal-reply": {
+      "writeSha256": "f6577b28ed8e6c6f5a76e51ddfe717006104dbb1a6320a74bc3a467965717a96",
+      "pieces": 5,
+      "fen": "k7/8/Kn6/4Q3/8/4p3/8/8 w - -",
+      "uci": "e5e8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 811,
+      "obligation": "refute-won-with-legal-reply",
+      "witnessKinds": [
+        "n"
+      ],
+      "legalReplies": [
+        "b6c8"
+      ],
+      "first": {
+        "cohort": "replies-v1",
+        "id": "only-n-move-in-check-6-false"
+      }
+    },
+    "refute-draw-with-legal-reply": {
+      "writeSha256": "e7277003d1d8ca8a8a5c57f727d150e09e6237aff9286c3f4bb0307dec07108f",
+      "pieces": 15,
+      "fen": "k7/3Q1r1q/1K3b2/1b2R1QP/8/1R6/P6q/4q2R w - -",
+      "uci": "d7c7",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 738,
+      "obligation": "refute-draw-with-legal-reply",
+      "witnessKinds": [
+        "b",
+        "q",
+        "r"
+      ],
+      "legalReplies": [
+        "b5a4",
+        "b5a6",
+        "b5c4",
+        "b5c6",
+        "b5d3",
+        "b5d7",
+        "b5e2",
+        "b5e8",
+        "b5f1",
+        "e1a1",
+        "e1a5",
+        "e1b1",
+        "e1b4",
+        "e1c1",
+        "e1c3",
+        "e1d1",
+        "e1d2",
+        "e1e2",
+        "e1e3",
+        "e1e4",
+        "e1e5",
+        "e1f1",
+        "e1f2",
+        "e1g1",
+        "e1g3",
+        "e1h1",
+        "e1h4",
+        "f6d8",
+        "f6e5",
+        "f6e7",
+        "f6g5",
+        "f6g7",
+        "f6h8",
+        "f7c7",
+        "f7d7",
+        "f7e7",
+        "f7f8",
+        "f7g7",
+        "h2a2",
+        "h2b2",
+        "h2c2",
+        "h2d2",
+        "h2e2",
+        "h2e5",
+        "h2f2",
+        "h2f4",
+        "h2g1",
+        "h2g2",
+        "h2g3",
+        "h2h1",
+        "h2h3",
+        "h2h4",
+        "h2h5",
+        "h7b1",
+        "h7c2",
+        "h7d3",
+        "h7e4",
+        "h7f5",
+        "h7g6",
+        "h7g7",
+        "h7g8",
+        "h7h5",
+        "h7h6",
+        "h7h8"
+      ],
+      "first": {
+        "cohort": "v1",
+        "id": "stalemate-correct-0-1-6"
+      }
+    },
+    "reject-playing-after-checkmate": {
+      "writeSha256": "7c067e6df13f5852d4e7e45dff6f7d9e2190d1590bab9faa85dd60a8051657b9",
+      "pieces": 5,
+      "fen": "6k1/3Q4/7K/8/8/5p2/1n6/8 w - -",
+      "uci": "d7e8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 655,
+      "obligation": "reject-playing-after-checkmate",
+      "witnessKinds": [],
+      "legalReplies": [],
+      "first": {
+        "cohort": "successor-claims-v1",
+        "id": "remaining-claim-057"
+      }
+    },
+    "reject-playing-after-stalemate": {
+      "writeSha256": "b307cd4a5fd977b7b45738464daad2a46b1c3da5f796d468989275ca4ed5bced",
+      "pieces": 6,
+      "fen": "7k/7p/4Q2p/7K/8/8/6B1/8 w - -",
+      "uci": "e6g4",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "nativeAdmission": false,
+      "observed": "ALLOW",
+      "outcome": "false-allow",
+      "localCost": 726,
+      "obligation": "reject-playing-after-stalemate",
+      "witnessKinds": [],
+      "legalReplies": [],
+      "first": {
+        "cohort": "successor-claims-v1",
+        "id": "remaining-claim-297"
+      }
+    }
+  },
+  "recordsSha256": "61b8245e9b0351515cd16b50ed688238bb11a1a36493068f6ff56ff2c71a0758",
+  "records": [
+    {
+      "writeSha256": "43082bedde2e3c307d39d122120f4079bd383dc2753434edf07711f92473f34c",
+      "observation": {
+        "fen": "kr6/4Q3/8/8/8/1Q6/8/4K2R w K -",
+        "uci": "e1g1",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-short-clear-1-0-2"
+        }
+      ]
+    },
+    {
+      "writeSha256": "ab5bde09d0802b1c061bdc98fec666aae423356c66e4dcb7ad7fe15d6e781bd8",
+      "observation": {
+        "fen": "3Q2q1/8/1p6/B3RP2/N4Q1N/1kB2R2/3q4/KQ6 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 811,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b",
+          "n",
+          "q"
+        ],
+        "legalReplies": [
+          "a4b2",
+          "b1b2",
+          "c3b2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "mate-correct-1-1-6"
+        }
+      ]
+    },
+    {
+      "writeSha256": "e7277003d1d8ca8a8a5c57f727d150e09e6237aff9286c3f4bb0307dec07108f",
+      "observation": {
+        "fen": "k7/3Q1r1q/1K3b2/1b2R1QP/8/1R6/P6q/4q2R w - -",
+        "uci": "d7c7",
+        "claim": {
+          "status": "draw",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 738,
+        "obligation": "refute-draw-with-legal-reply",
+        "witnessKinds": [
+          "b",
+          "q",
+          "r"
+        ],
+        "legalReplies": [
+          "b5a4",
+          "b5a6",
+          "b5c4",
+          "b5c6",
+          "b5d3",
+          "b5d7",
+          "b5e2",
+          "b5e8",
+          "b5f1",
+          "e1a1",
+          "e1a5",
+          "e1b1",
+          "e1b4",
+          "e1c1",
+          "e1c3",
+          "e1d1",
+          "e1d2",
+          "e1e2",
+          "e1e3",
+          "e1e4",
+          "e1e5",
+          "e1f1",
+          "e1f2",
+          "e1g1",
+          "e1g3",
+          "e1h1",
+          "e1h4",
+          "f6d8",
+          "f6e5",
+          "f6e7",
+          "f6g5",
+          "f6g7",
+          "f6h8",
+          "f7c7",
+          "f7d7",
+          "f7e7",
+          "f7f8",
+          "f7g7",
+          "h2a2",
+          "h2b2",
+          "h2c2",
+          "h2d2",
+          "h2e2",
+          "h2e5",
+          "h2f2",
+          "h2f4",
+          "h2g1",
+          "h2g2",
+          "h2g3",
+          "h2h1",
+          "h2h3",
+          "h2h4",
+          "h2h5",
+          "h7b1",
+          "h7c2",
+          "h7d3",
+          "h7e4",
+          "h7f5",
+          "h7g6",
+          "h7g7",
+          "h7g8",
+          "h7h5",
+          "h7h6",
+          "h7h8"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "stalemate-correct-0-1-6"
+        }
+      ]
+    },
+    {
+      "writeSha256": "68cec68c30f6141e586754a358ad3ec0aba817dc0981b388f65816cc666fd8e8",
+      "observation": {
+        "fen": "k7/3Q3r/1K6/8/1Q6/8/1r6/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-correct-0-1-2"
+        }
+      ]
+    },
+    {
+      "writeSha256": "cd859fc839903db7ce0d67d6499af6b93d4950b599f3aaa383e9a40b1fb4de73",
+      "observation": {
+        "fen": "k2N4/3Q2nr/1K5N/5r2/3Q4/1Q2b3/3P3n/1R2Qq2 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 656,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-correct-0-1-6"
+        }
+      ]
+    },
+    {
+      "writeSha256": "15163ae0c133de293db2f0fb6d98594cac1a2ae655a724743204f11fa153b7c3",
+      "observation": {
+        "fen": "8/3q4/4b3/8/8/1k6/3q1P1R/K1R5 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 676,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-correct-1-1-4"
+        }
+      ]
+    },
+    {
+      "writeSha256": "3e0857a308d2028d2dbb4bfce010933b321c69a342668eff644f981f3adfa9cf",
+      "observation": {
+        "fen": "k2B4/3Q3r/1K6/8/7P/2nBQ1n1/n2b4/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 853,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "h7b7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-wrong-result-0-1-5"
+        }
+      ]
+    },
+    {
+      "writeSha256": "4be24fb0ba4786a41eeb050997d666675469c0f1133eb96ce8519603b05e86cb",
+      "observation": {
+        "fen": "8/8/8/8/8/2n3k1/R3q3/B6K b - -",
+        "uci": "e2g2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 780,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "a2g2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-wrong-result-1-0-3"
+        }
+      ]
+    },
+    {
+      "writeSha256": "3e449660d14d197785f9279d3c4640dcafbfd89c9623e307a055c39fe2c286b0",
+      "observation": {
+        "fen": "8/8/7n/8/8/1k4B1/3q3R/K7 b - -",
+        "uci": "d2b2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 777,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "h2b2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "one-rook-reply-wrong-result-1-1-2"
+        }
+      ]
+    },
+    {
+      "writeSha256": "67245d61ad59054568add628f46a98f9c3d8823306e0e26128211244d2d98175",
+      "observation": {
+        "fen": "k1b5/3Q4/1K6/8/2bB4/8/8/8 w - -",
+        "uci": "d7b7",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 765,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "c8b7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-correct-1-1-3"
+        }
+      ]
+    },
+    {
+      "writeSha256": "b4856eade0476bbb264d63bbc92624ec2f9c5d8a1b7b46d746929f7919a615d2",
+      "observation": {
+        "fen": "7k/1R2Q3/1N2NPK1/4N3/R7/5r2/8/6b1 w - -",
+        "uci": "e7g7",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 659,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "v1",
+          "id": "black-mate-reported-playing-1-0-5"
+        }
+      ]
+    },
+    {
+      "writeSha256": "f6577b28ed8e6c6f5a76e51ddfe717006104dbb1a6320a74bc3a467965717a96",
+      "observation": {
+        "fen": "k7/8/Kn6/4Q3/8/4p3/8/8 w - -",
+        "uci": "e5e8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 811,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "b6c8"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "replies-v1",
+          "id": "only-n-move-in-check-6-false"
+        }
+      ]
+    },
+    {
+      "writeSha256": "3a0741cb01a1005889e8d233273020e16b0727325f9f2e3e8e11b9983075b10c",
+      "observation": {
+        "fen": "8/knK3R1/8/8/1R6/7p/8/8 w - -",
+        "uci": "b4a4",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 771,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "b7a5"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "replies-v1",
+          "id": "only-n-move-in-check-10-false"
+        }
+      ]
+    },
+    {
+      "writeSha256": "e5f54525506095d45edb27c4b2a852ed0e4378dafff803b733e86ac24372d67e",
+      "observation": {
+        "fen": "kn6/8/1K4p1/8/1Q6/8/8/8 w - -",
+        "uci": "b4a4",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 775,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "b8a6"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "replies-v1",
+          "id": "only-n-move-in-check-11-false"
+        }
+      ]
+    },
+    {
+      "writeSha256": "ae0acc751423b387c9f62e68aa158b2c7b0256af032c66482e46fcebe7b2a48c",
+      "observation": {
+        "fen": "6r1/2q2qk1/8/1K6/8/3N4/3R4/8 b - -",
+        "uci": "f7c4",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-189"
+        }
+      ]
+    },
+    {
+      "writeSha256": "73aa9ab7f5c82be52a8f9918c3958e672550558ebeadae81e232b73dbc34ab3f",
+      "observation": {
+        "fen": "5B2/4q2r/2K5/2b5/1k6/8/8/5qR1 b - -",
+        "uci": "f1g2",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 776,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "r"
+        ],
+        "legalReplies": [
+          "g1g2"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-212"
+        }
+      ]
+    },
+    {
+      "writeSha256": "bbdc75a0e038e8426c12494b4dc8e32e16b242fdda56bb367e9f3a31dff4d722",
+      "observation": {
+        "fen": "6R1/7R/2k4K/6Qb/8/6R1/8/2b5 w - -",
+        "uci": "g8g6",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 770,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "h5g6"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-228"
+        }
+      ]
+    },
+    {
+      "writeSha256": "c84ec55769eda4f7313f067f242e502fe13fa1481b7742d834c36cd0b099b111",
+      "observation": {
+        "fen": "3q4/2B5/1b6/4KB2/8/b7/8/k6q b - -",
+        "uci": "d8d6",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 782,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "c7d6"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-248"
+        }
+      ]
+    },
+    {
+      "writeSha256": "b69a96023efee1e8e4c753db93f02c53ccd64a8d2ee456fd02479f811731ec8f",
+      "observation": {
+        "fen": "1r6/8/2kq4/6K1/1r6/2B5/q7/3B4 b - -",
+        "uci": "b8b5",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 782,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "c3e5"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-272"
+        }
+      ]
+    },
+    {
+      "writeSha256": "c13611ccd7cf79b2dc44fd1869ed9e5e8dd3310639781054db4c052e1cee269b",
+      "observation": {
+        "fen": "k3r1N1/2K5/7r/8/8/b5P1/8/4q3 b - -",
+        "uci": "e1e7",
+        "claim": {
+          "status": "won",
+          "winner": "guest"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 819,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "n"
+        ],
+        "legalReplies": [
+          "g8e7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-282"
+        }
+      ]
+    },
+    {
+      "writeSha256": "41c0a5a78fecc3087ba4eafef9f6c04c44fb4c80f74ee4f74ac9becfad24c16c",
+      "observation": {
+        "fen": "8/5b2/8/5R2/1k1K1Q2/8/5R1b/Q7 w - -",
+        "uci": "f4b8",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 800,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "h2b8"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-304"
+        }
+      ]
+    },
+    {
+      "writeSha256": "dd72ff0f1dd3f9e97b02b3c7912d0aff1557601336a790c2f7e700cb8bca9a28",
+      "observation": {
+        "fen": "8/3Q3Q/5k1b/4r3/3Q4/8/1KB5/8 w - -",
+        "uci": "h7g7",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 737,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "h6g7"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-314"
+        }
+      ]
+    },
+    {
+      "writeSha256": "ed08b869da90fef978307dc0eeb9bf26f50f43d8cb9b9ad017241a3876cd9b3b",
+      "observation": {
+        "fen": "1k6/2R5/8/8/7q/3K1R2/8/2q5 b - -",
+        "uci": "h4c4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": true,
+        "observed": "DENY",
+        "outcome": "false-refusal/resource-limit",
+        "localCost": 1000,
+        "obligation": "evaluation-budget"
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-333"
+        }
+      ]
+    },
+    {
+      "writeSha256": "5dedbb7ba19fb4c95799bd1fcf87f767eb6a232cc844308b6fc423a48f8fa9e4",
+      "observation": {
+        "fen": "r7/1QQ5/1b4KQ/8/8/8/4k3/6Q1 w - -",
+        "uci": "h6e3",
+        "claim": {
+          "status": "won",
+          "winner": "host"
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 789,
+        "obligation": "refute-won-with-legal-reply",
+        "witnessKinds": [
+          "b"
+        ],
+        "legalReplies": [
+          "b6e3"
+        ]
+      },
+      "occurrences": [
+        {
+          "cohort": "interior-v1",
+          "id": "interior-340"
+        }
+      ]
+    },
+    {
+      "writeSha256": "7c067e6df13f5852d4e7e45dff6f7d9e2190d1590bab9faa85dd60a8051657b9",
+      "observation": {
+        "fen": "6k1/3Q4/7K/8/8/5p2/1n6/8 w - -",
+        "uci": "d7e8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 655,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-057"
+        }
+      ]
+    },
+    {
+      "writeSha256": "b307cd4a5fd977b7b45738464daad2a46b1c3da5f796d468989275ca4ed5bced",
+      "observation": {
+        "fen": "7k/7p/4Q2p/7K/8/8/6B1/8 w - -",
+        "uci": "e6g4",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 726,
+        "obligation": "reject-playing-after-stalemate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-297"
+        }
+      ]
+    },
+    {
+      "writeSha256": "e6ecd85171f20381fef5d56e493cde349bca2df78cdcb24b4f701abaf23613c7",
+      "observation": {
+        "fen": "8/2pQ4/8/4k3/6Q1/5Q2/p1K5/8 w - -",
+        "uci": "d7d5",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 699,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-397"
+        }
+      ]
+    },
+    {
+      "writeSha256": "4791adfa8778b32aa674e0ec152d15309cf1d55f3c90965aa0181f632548beb9",
+      "observation": {
+        "fen": "1B1r3q/3k1K2/8/5b1R/7r/8/8/8 b - -",
+        "uci": "h8f8",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 676,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-409"
+        }
+      ]
+    },
+    {
+      "writeSha256": "ada5451f4d0263691b2a13b7c9dab611945ca70dfee1d9db220e59df9bb7c5bb",
+      "observation": {
+        "fen": "4q3/8/r2q4/5B1R/3k4/8/5K2/6r1 b - -",
+        "uci": "e8e3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 681,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-433"
+        }
+      ]
+    },
+    {
+      "writeSha256": "6a9b1c9da84ae80e5d118360914ef4e0d4cf042529e5e6b34bf69f744fb14884",
+      "observation": {
+        "fen": "8/2K4R/6Q1/3R4/1B6/8/p3kp2/8 w - -",
+        "uci": "g6d3",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "nativeAdmission": false,
+        "observed": "ALLOW",
+        "outcome": "false-allow",
+        "localCost": 718,
+        "obligation": "reject-playing-after-checkmate",
+        "witnessKinds": [],
+        "legalReplies": []
+      },
+      "occurrences": [
+        {
+          "cohort": "successor-claims-v1",
+          "id": "remaining-claim-581"
+        }
+      ]
+    }
+  ]
+}

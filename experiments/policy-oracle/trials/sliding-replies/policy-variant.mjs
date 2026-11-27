@@ -8,7 +8,11 @@ import {linkSharedStatus} from './protocol/shared-status.mjs';
 
 import {twoKnightSources,linkTwoKnights} from './compiler/two-knights.mjs';
 
+import {lonePawnSources,linkLonePawn} from './compiler/lone-pawn.mjs';
+
 function options(variant) {
+  const lonePawn=variant==='all-lone-pawn-v19-dense3-lean';
+  if(lonePawn) variant='all-two-knights-v18-dense3-lean';
   const twoKnights=variant==='all-two-knights-v18-dense3-lean';
   if(twoKnights) variant='all-mixed-sliders-v17-dense3-lean';
   const leanProtocol=variant.endsWith('-lean');
@@ -23,16 +27,16 @@ function options(variant) {
   // The earlier -targets experiment omitted the projection exports. Its saved
   // evaluation errors are retained for the revision-history replay.
   const target=['-targets','-mask'].find(suffix=>middle.endsWith(suffix));
-  return {twoKnights,base:target?middle.slice(0,-target.length):middle,dense:base!==null,once,leanProtocol,target,boxed,cut};
+  return {lonePawn,twoKnights,base:target?middle.slice(0,-target.length):middle,dense:base!==null,once,leanProtocol,target,boxed,cut};
 }
 export function sources(variant) {
-  const {twoKnights,base,dense,target,boxed,cut}=options(variant);
+  const {lonePawn,twoKnights,base,dense,target,boxed,cut}=options(variant);
   const src=target==='-mask'?targetSources():baseSources(base);
-  return {...src,...(twoKnights?twoKnightSources:{}),...(dense?denseSources(boxed):{}),...(cut?fileCheckSources:{})};
+  return {...src,...(lonePawn?lonePawnSources:{}),...(twoKnights?twoKnightSources:{}),...(dense?denseSources(boxed):{}),...(cut?fileCheckSources:{})};
 }
 
 export function link(modules,variant) {
-  const {twoKnights,base,dense,once,leanProtocol,target,boxed,cut}=options(variant);
+  const {lonePawn,twoKnights,base,dense,once,leanProtocol,target,boxed,cut}=options(variant);
   let source;
   if(dense) {
     const extra=Object.fromEntries(Object.keys(denseSources(boxed)).map(k=>[k,modules[k]]));
@@ -40,6 +44,7 @@ export function link(modules,variant) {
     source=denseLink(baseLink(ordinary,base),extra,boxed);
   } else source=baseLink(modules,base);
   if(twoKnights) source=linkTwoKnights(source);
+  if(lonePawn) source=linkLonePawn(source);
   if(target) source=targetLink(source);
   if(once) source=linkSharedStatus(source,dense);
   if(cut) source=skipImpossibleSecondRook(source);

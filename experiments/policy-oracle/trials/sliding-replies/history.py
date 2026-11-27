@@ -15,6 +15,7 @@ def projection(result):
                        'disagreements':{k:v for k,v in local['rows'].items() if v['status']!='match'}}
     elif local:
         data['local']=local
+    if 'specialPawnReplies' in result: data['specialPawnReplies']=result['specialPawnReplies']
     return data
 
 

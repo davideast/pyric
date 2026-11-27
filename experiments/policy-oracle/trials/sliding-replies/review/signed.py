@@ -177,16 +177,19 @@ def release(rules,private,release_root=None,first_window=False):
         if not (release/'plan.json').exists(): return {},[]
         plan=read(release/'plan.json')
         assert digest((release/'firestore.rules').read_bytes())==rules==plan['rulesSha256']
-        assert plan['version'] in (1,2,3) and plan['previousRulesSha256']==PREVIOUS
+        assert plan['version'] in (1,2,3,4) and plan['previousRulesSha256']==PREVIOUS
         names=(('sliding-queen-bishop',)+NEW_PLANS) if plan['version']==2 else NEW_PLANS
         sizes=([4,120,118] if plan['version']==2 else [120,118])
-        if plan['version']==3:
+        if plan['version']>=3:
             names=('two-knights','sliding-queen-bishop',*NEW_PLANS)
             sizes=[9,4,118,118]
+        if plan['version']==4:
+            names=('lone-pawn',*names)
+            sizes=[9,*sizes]
         planned={c['name']:c['ids'] for c in plan['chunks']}
         assert list(planned)==list(names) and list(map(len,planned.values()))==sizes
         assert len({key for ids in planned.values() for key in ids})==sum(sizes)==plan['expectedCases']
-        assert len(set(planned[NEW_PLANS[0]]+planned[NEW_PLANS[1]]))==(236 if plan['version']==3 else 238)
+        assert len(set(planned[NEW_PLANS[0]]+planned[NEW_PLANS[1]]))==(236 if plan['version']>=3 else 238)
         folder=release/'receipts'
         expected_names=names[:1] if first_window else names
         names=tuple(name for name in expected_names if (folder/(name+'.pin.json')).exists())
@@ -249,13 +252,20 @@ def compare(rules,private,archive,release_root=None,first_window=False):
             assert row['id'] not in native
             native[row['id']]=row['nativeAdmission']
             focused[row['id']]=row
-    if version==3:
+    if version>=3:
         for row in read(TRIAL/'native/two-knights/native.json')['cases']:
             key=row['id']
             assert key not in native or native[key]==row['nativeAdmission']
             native[key]=row['nativeAdmission']
             focused[key]=row
         assert len(native)==249
+    if version>=4:
+        for row in read(TRIAL/'native/lone-pawn/native.json')['cases']:
+            key=row['id']
+            assert key not in native
+            native[key]=row['nativeAdmission']
+            focused[key]=row
+        assert len(native)==258
     assert set(current)<=native.keys()
     changes={'repaired':[],'regressed':[],'stillDisagree':[]}
     adjudications={}

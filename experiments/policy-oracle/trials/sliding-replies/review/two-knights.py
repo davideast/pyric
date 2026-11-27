@@ -31,11 +31,14 @@ def operands(row):
     return [actor, reader, before, submitted]
 
 
-def compare(digest, archive, chess):
+def compare(digest, archive, chess, *, family='two-knights', baseline_digest=BASELINE,
+            defending_material=None, expected_targets=25):
+    if defending_material is None:
+        defending_material = [chess.KNIGHT, chess.KNIGHT]
     candidate = TRIAL/'live/releases'/digest
-    cases = read(TRIAL/'native/two-knights/native.json')['cases']
-    baseline, before_proof = AUDIT['read_capture'](TRIAL/'supplemental/two-knights', 'two-knights', BASELINE, archive)
-    fixed, after_proof = AUDIT['read_capture'](candidate/'receipts', 'two-knights', digest, archive)
+    cases = read(TRIAL/'native'/family/'native.json')['cases']
+    baseline, before_proof = AUDIT['read_capture'](TRIAL/'supplemental'/family, family, baseline_digest, archive)
+    fixed, after_proof = AUDIT['read_capture'](candidate/'receipts', family, digest, archive)
     rows = []
     for case, old, new in zip(cases, baseline['rows'], fixed['rows'], strict=True):
         assert old['id'] == new['id'] == case['id']
@@ -44,7 +47,7 @@ def compare(digest, archive, chess):
         assert valid and allowed == case['nativeAdmission']
         rows.append({'id': case['id'], 'claim': case['claim']['status'], 'native': 'ALLOW' if allowed else 'DENY',
                      'before': old['observed'], 'after': new['observed']})
-    old, new = residuals(BASELINE), residuals(digest)
+    old, new = residuals(baseline_digest), residuals(digest)
     target = {}
     for key, record in old.items():
         observation = record['observation']
@@ -52,12 +55,12 @@ def compare(digest, archive, chess):
         board = chess.Board(observation['fen']+' 0 1')
         board.push_uci(observation['uci'])
         material = sorted(p.piece_type for p in board.piece_map().values() if p.color == board.turn)
-        if material == sorted([chess.KING, chess.KNIGHT, chess.KNIGHT]):
+        if material == sorted([chess.KING, *defending_material]):
             assert board.is_checkmate() or board.is_stalemate()
             target[key] = {'id': record['occurrences'][0]['id'], 'native': 'mate' if board.is_checkmate() else 'stalemate',
                            'fixed': key not in new}
-    assert len(target) == 25
-    return {'baselineRulesSha256': BASELINE, 'candidateRulesSha256': digest, 'live': rows,
+    assert len(target) == expected_targets
+    return {'baselineRulesSha256': baseline_digest, 'candidateRulesSha256': digest, 'live': rows,
             'captures': [before_proof, after_proof], 'wideLocal': {'caseCount': 15905, 'before': len(old),
             'after': len(new), 'newDisagreements': sorted(new.keys()-old.keys()),
             'outsideGroupFixed': sorted(old.keys()-new.keys()-target.keys()),

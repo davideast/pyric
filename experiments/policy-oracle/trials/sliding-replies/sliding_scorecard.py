@@ -88,7 +88,7 @@ def render(result):
     output.extend([table(['Piece','Board','Move','Native legal replies','Standalone Pyric sliders','Emitted helper (local trace)','Native P/D/W','Local P/D/W','Live P/D/W'],rows),
                    'Claims are ordered playing, draw, won. A means allow, D means deny, and — means unmeasured.'])
     for family, heading in [('queen-bishop','Qd2–b2 with and without the b6 pawn'),
-                            ('two-knights','Two defending knights')]:
+                            ('two-knights','Two defending knights'), ('lone-pawn','One defending pawn')]:
         if family not in groups: continue
         rows=[]
         fixtures={r['id']:r for r in read(HERE/'native'/family/'positions.json')}
@@ -102,6 +102,11 @@ def render(result):
                          observed.get(key,{}).get('verdict','unmeasured')))
         output.extend(['## '+heading,
                        table(['Claim','Native replies','Pyric replies','Native','Local Rules','Live Firestore'],rows)])
+    if 'specialPawnReplies' in result:
+        controls=result['specialPawnReplies']
+        output.extend(['## Special pawn replies',
+                       table(['Starting FEN','Move','Only legal reply'],[(b['fen'],b['move'],b['onlyReply']) for b in controls['boards']]),
+                       f"Local full writes matched native chess on {len(controls['localDecisions'])-len(controls['disagreements'])} of {len(controls['localDecisions'])} claims."])
     output.append('## Changes from the historical release on the original 190')
     changes = result.get('local',{}).get('changes',{}).get('original-190')
     if changes:

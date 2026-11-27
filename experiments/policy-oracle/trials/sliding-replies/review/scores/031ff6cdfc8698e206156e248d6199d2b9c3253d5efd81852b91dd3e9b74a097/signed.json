@@ -1,0 +1,49 @@
+{
+  "rulesSha256": "031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097",
+  "source": "private authenticated controller journals; independent chess rules on exact signed operands",
+  "status": "partial",
+  "distinctWrites": 9,
+  "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "nativeComparedOnActualDocuments": 9,
+  "priorIdenticalSignedOperands": 0,
+  "focusCasesWithExactSuccessorAndCompleteReplies": 9,
+  "nativeDecisions": {
+    "DENY": 6,
+    "ALLOW": 3
+  },
+  "firestoreDecisions": {
+    "DENY": 6,
+    "ALLOW": 3
+  },
+  "nativeVersusFirestore": {
+    "match": 9
+  },
+  "captures": [
+    {
+      "capture": "lone-pawn",
+      "caseCount": 9,
+      "controllerSha256": "a40baa336c3162e68fa573dcdbdbab35835aee77f044e876f1fe8c620ccc8245",
+      "journalSha256": "8fe085224c73bbe7f449a12dc7aa1e0732a0107ea3c6b813bb46e466e0a1ab51",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 9,
+      "openReleaseUpdateTime": "2026-11-27T13:39:46.146524Z"
+    }
+  ],
+  "mismatches": {},
+  "oldCorpusChanges": {
+    "repaired": [],
+    "regressed": [],
+    "stillDisagree": []
+  },
+  "shapeSensitivityControl": {
+    "source": "rook-safe",
+    "addedField": "unexpectedNullField",
+    "value": null,
+    "originalNative": "ALLOW",
+    "amendedNative": "DENY"
+  },
+  "invalidSourcePositions": [],
+  "perCaseAdjudicationsSha256": "d999936bcc98649ab36aafc023c72306685db3dcdd46d07c68d11a971ef1ac87"
+}

@@ -1,0 +1,247 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "lone-pawn-mate-playing",
+      "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+      "uci": "d7b7",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k7/1Q6/pK6/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "lone-pawn-mate-draw",
+      "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+      "uci": "d7b7",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k7/1Q6/pK6/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "lone-pawn-mate-won",
+      "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+      "uci": "d7b7",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k7/1Q6/pK6/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "lone-pawn-blocked-playing",
+      "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+      "uci": "c3b4",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k7/p7/K7/8/1Q6/8/8/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "lone-pawn-blocked-draw",
+      "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+      "uci": "c3b4",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k7/p7/K7/8/1Q6/8/8/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "lone-pawn-blocked-won",
+      "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+      "uci": "c3b4",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k7/p7/K7/8/1Q6/8/8/8 b - -",
+      "outcome": "stalemate",
+      "expected": {
+        "status": "draw",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "lone-pawn-mobile-playing",
+      "fen": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+      "uci": "c3b4",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k7/8/K7/8/pQ6/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "a4a3"
+      ]
+    },
+    {
+      "id": "lone-pawn-mobile-draw",
+      "fen": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+      "uci": "c3b4",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k7/8/K7/8/pQ6/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "a4a3"
+      ]
+    },
+    {
+      "id": "lone-pawn-mobile-won",
+      "fen": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+      "uci": "c3b4",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k7/8/K7/8/pQ6/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "a4a3"
+      ]
+    }
+  ]
+}

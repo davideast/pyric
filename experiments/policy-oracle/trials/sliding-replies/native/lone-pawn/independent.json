@@ -1,0 +1,43 @@
+{
+  "authority": "hash-pinned python-chess",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "boards": [
+    {
+      "id": "lone-pawn-mate",
+      "source": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+      "move": "d7b7",
+      "successor": "k7/1Q6/pK6/8/8/8/8/8 b - -",
+      "checkers": [
+        "b7"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "lone-pawn-blocked",
+      "source": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+      "move": "c3b4",
+      "successor": "k7/p7/K7/8/1Q6/8/8/8 b - -",
+      "checkers": [],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "draw"
+    },
+    {
+      "id": "lone-pawn-mobile",
+      "source": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+      "move": "c3b4",
+      "successor": "k7/8/K7/8/pQ6/8/8/8 b - -",
+      "checkers": [],
+      "replies": [
+        "a4a3"
+      ],
+      "afterReply": {
+        "a4a3": "k7/8/K7/8/1Q6/p7/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    }
+  ],
+  "claims": 9
+}

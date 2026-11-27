@@ -46,4 +46,5 @@ for(const p of pairs){
 }
 console.log(JSON.stringify({authority:'pinned independent Rules evaluator, two consecutive match transitions',
   rulesSha256:sha(rules),corpusSha256:sha(rows),scoreSha256:sha(JSON.stringify(decisions)),groups,
+  ...(process.argv.includes('--verdict-digest')?{verdictsSha256:sha(JSON.stringify(decisions.map(([id,group,decision,kind])=>[id,group,decision,kind])))}:{}),
   writes:decisions.length,pairs:pairs.length,pairMatches,first},null,2));

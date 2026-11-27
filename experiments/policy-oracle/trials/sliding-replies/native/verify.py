@@ -11,7 +11,7 @@ import tempfile
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 TRIALS = HERE.parent.parent
-COHORTS = ('rook', 'bishop', 'queen', 'queen-bishop', 'two-knights')
+COHORTS = ('rook', 'bishop', 'queen', 'queen-bishop', 'two-knights', 'lone-pawn')
 EXTERNAL = runpy.run_path(str(TRIALS / 'chess/reference/generate.py'))
 
 
@@ -81,7 +81,7 @@ def verify(archive=None, record=False):
             assert rebuilt == read(native), f'Arcade native output changed: {cohort}'
             claims = ['playing', 'won'] if cohort=='queen-bishop' else ['playing', 'draw', 'won']
             if chess:
-                result = independent(chess, read(positions), rebuilt, claims, require_check=cohort!='two-knights')
+                result = independent(chess, read(positions), rebuilt, claims, require_check=cohort not in ('two-knights','lone-pawn'))
                 if record:
                     with independent_file.open('x') as target:
                         target.write(json.dumps(result, indent=2)+'\n')

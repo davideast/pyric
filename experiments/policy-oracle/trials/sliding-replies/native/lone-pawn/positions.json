@@ -1,0 +1,83 @@
+[
+  {
+    "id": "lone-pawn-mate-playing",
+    "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+    "uci": "d7b7",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "lone-pawn-mate-draw",
+    "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+    "uci": "d7b7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "lone-pawn-mate-won",
+    "fen": "k7/3Q4/pK6/8/8/8/8/8 w - -",
+    "uci": "d7b7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "lone-pawn-blocked-playing",
+    "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+    "uci": "c3b4",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "lone-pawn-blocked-draw",
+    "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+    "uci": "c3b4",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "lone-pawn-blocked-won",
+    "fen": "k7/p7/K7/8/8/2Q5/8/8 w - -",
+    "uci": "c3b4",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "lone-pawn-mobile-playing",
+    "fen": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+    "uci": "c3b4",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "lone-pawn-mobile-draw",
+    "fen": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+    "uci": "c3b4",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "lone-pawn-mobile-won",
+    "fen": "k7/8/K7/8/p7/2Q5/8/8 w - -",
+    "uci": "c3b4",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  }
+]

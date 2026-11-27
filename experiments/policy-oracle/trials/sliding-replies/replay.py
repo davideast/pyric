@@ -126,7 +126,7 @@ def difference(before,after,ids):
 
 def material_profile(variant):
     if variant=='prior': return None
-    if variant.startswith(('all-mixed-sliders-v17','all-two-knights-v18')): return 'including-queen-bishop'
+    if variant.startswith(('all-mixed-sliders-v17','all-two-knights-v18','all-lone-pawn-v19')): return 'including-queen-bishop'
     if variant.startswith('rook-'): return 'rook'
     if variant.startswith('bishop-'): return 'bishop'
     if variant.startswith('all-two-defenders-'): return 'queen-with-knight-or-rooks'
@@ -237,7 +237,7 @@ def replay(args,scratch,suite):
                 *([] if args.witness_panel else ['--focused']),
                 *(['--include-queen-bishop'] if 'queen-bishop' in groups else []))
     assert witness['rulesSha256']==rules_sha
-    selected={board['id'] for group in groups if group in COHORTS and group != 'two-knights'
+    selected={board['id'] for group in groups if group in COHORTS and group not in ('two-knights','lone-pawn')
               for board in read(HERE/'native'/group/'independent.json')['boards']}
     scored=[r for r in witness['focused'] if r['id'] in selected]
     assert len(scored)==len(selected)
@@ -286,6 +286,10 @@ def replay(args,scratch,suite):
                              and witness['verifiedWritePaths']==witness['requiredWritePaths']
                              and not witness['uncertainScope'] and not witness['panelErrors']) and all(r['status']=='match' for r in local.values()) and all(
         r['status']=='match' for r in standalone['positions'].values())
+    if 'lone-pawn' in groups:
+        from pawn_controls import score
+        result['specialPawnReplies']=score(path,reference,evaluate)
+        result['localConforms'] &= not result['specialPawnReplies']['disagreements']
     result['passes']=result['localConforms'] and len(joined)==len(answers) and all(
         row['status']=='match' for row in joined.values())
     return result
@@ -309,7 +313,8 @@ def main():
     args=p.parse_args()
     if args.variant is None: args.variant=(HERE/'selected-variant.txt').read_text().strip()
     if args.through is None:
-        if args.variant.startswith('all-two-knights-v18'): args.through='two-knights'
+        if args.variant.startswith('all-lone-pawn-v19'): args.through='lone-pawn'
+        elif args.variant.startswith('all-two-knights-v18'): args.through='two-knights'
         elif args.variant.startswith('all-mixed-sliders-v17'): args.through='queen-bishop'
         else: args.through='queen'
     if args.candidate_package:
@@ -321,7 +326,7 @@ def main():
         suite=reference_suite(args,scratch)
         r=replay(args,scratch,suite)
         if args.with_history:
-            if args.through not in ('queen','queen-bishop','two-knights'): p.error('--with-history requires the full corpus')
+            if args.through not in ('queen','queen-bishop','two-knights','lone-pawn'): p.error('--with-history requires the full corpus')
             suites={args.through:suite}
             entries=[]
             def order(path):
