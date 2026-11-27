@@ -1,0 +1,284 @@
+{
+  "candidateRulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "refereeSourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "scope": "All subsets of pieces on the original starting squares. Both kings, mover, destination occupant, castling and en passant rights are held fixed. Compare only positions with the original legality, predecessor and successor check, native outcome, claim and same Rules failure class.",
+  "reductions": [
+    {
+      "id": "black-short-clear-1-0-2",
+      "source": "kr6/4Q3/8/8/8/1Q6/8/4K2R w K -",
+      "uci": "e1g1",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "optionalSquares": [
+        "h1",
+        "b3",
+        "e7",
+        "b8"
+      ],
+      "subsets": 16,
+      "chessQualified": 7,
+      "failuresByPieceCount": {
+        "5": 1,
+        "6": 1
+      },
+      "minimumPieces": 5,
+      "minimumWitnesses": [
+        {
+          "fen": "kr6/4Q3/8/8/8/8/8/4K2R w K -",
+          "replies": [
+            "b8b1",
+            "b8b2",
+            "b8b3",
+            "b8b4",
+            "b8b5",
+            "b8b6",
+            "b8b7",
+            "b8c8",
+            "b8d8",
+            "b8e8",
+            "b8f8",
+            "b8g8",
+            "b8h8"
+          ],
+          "pieces": 5,
+          "successor": "kr6/4Q3/8/8/8/8/8/5RK1 b - -",
+          "decision": "DENY",
+          "diagnostic": "resource-limit",
+          "expressions": 1000
+        }
+      ],
+      "matchingReducedReplyListByPieceCount": {
+        "5": 1
+      },
+      "minimumWithExactReplyList": 5,
+      "minimumExactReplyWitnesses": [
+        {
+          "fen": "kr6/4Q3/8/8/8/8/8/4K2R w K -",
+          "replies": [
+            "b8b1",
+            "b8b2",
+            "b8b3",
+            "b8b4",
+            "b8b5",
+            "b8b6",
+            "b8b7",
+            "b8c8",
+            "b8d8",
+            "b8e8",
+            "b8f8",
+            "b8g8",
+            "b8h8"
+          ],
+          "pieces": 5,
+          "successor": "kr6/4Q3/8/8/8/8/8/5RK1 b - -",
+          "decision": "DENY",
+          "diagnostic": "resource-limit",
+          "expressions": 1000
+        }
+      ]
+    },
+    {
+      "id": "mate-correct-1-1-6",
+      "source": "3Q2q1/8/1p6/B3RP2/N4Q1N/1kB2R2/3q4/KQ6 b - -",
+      "uci": "d2b2",
+      "claim": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "optionalSquares": [
+        "b1",
+        "c3",
+        "f3",
+        "a4",
+        "f4",
+        "h4",
+        "a5",
+        "e5",
+        "f5",
+        "b6",
+        "d8",
+        "g8"
+      ],
+      "subsets": 4096,
+      "chessQualified": 1536,
+      "failuresByPieceCount": {
+        "6": 11,
+        "7": 52,
+        "8": 117,
+        "9": 179,
+        "10": 198,
+        "11": 160,
+        "12": 93,
+        "13": 37,
+        "14": 9,
+        "15": 1
+      },
+      "minimumPieces": 6,
+      "minimumWitnesses": [
+        {
+          "fen": "8/8/1p6/8/8/1kB5/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2",
+            "c3b2"
+          ],
+          "pieces": 6,
+          "successor": "8/8/1p6/8/8/1kB5/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "6q1/8/8/8/8/1kB5/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2",
+            "c3b2"
+          ],
+          "pieces": 6,
+          "successor": "6q1/8/8/8/8/1kB5/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "8/8/1p6/8/5Q2/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "8/8/1p6/8/5Q2/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "6q1/8/8/8/5Q2/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "6q1/8/8/8/5Q2/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "8/8/1p6/B7/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "8/8/1p6/B7/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "6q1/8/8/B7/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "6q1/8/8/B7/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "8/8/1p6/4R3/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "8/8/1p6/4R3/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "6q1/8/8/4R3/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "6q1/8/8/4R3/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "8/8/1p6/5P2/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "8/8/1p6/5P2/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 798
+        },
+        {
+          "fen": "3Q4/8/1p6/8/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "3Q4/8/1p6/8/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "3Q2q1/8/8/8/8/1k6/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2"
+          ],
+          "pieces": 6,
+          "successor": "3Q2q1/8/8/8/8/1k6/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        }
+      ],
+      "matchingReducedReplyListByPieceCount": {
+        "6": 2,
+        "7": 15,
+        "8": 49,
+        "9": 91,
+        "10": 105,
+        "11": 77,
+        "12": 35,
+        "13": 9,
+        "14": 1
+      },
+      "minimumWithExactReplyList": 6,
+      "minimumExactReplyWitnesses": [
+        {
+          "fen": "8/8/1p6/8/8/1kB5/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2",
+            "c3b2"
+          ],
+          "pieces": 6,
+          "successor": "8/8/1p6/8/8/1kB5/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        },
+        {
+          "fen": "6q1/8/8/8/8/1kB5/3q4/KQ6 b - -",
+          "replies": [
+            "b1b2",
+            "c3b2"
+          ],
+          "pieces": 6,
+          "successor": "6q1/8/8/8/8/1kB5/1q6/KQ6 w - -",
+          "decision": "ALLOW",
+          "diagnostic": null,
+          "expressions": 764
+        }
+      ]
+    }
+  ]
+}
