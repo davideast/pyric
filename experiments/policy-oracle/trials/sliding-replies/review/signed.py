@@ -166,7 +166,7 @@ def read_capture(folder,name,rules,private):
                      'attemptProofPairsVerified':len(original['rows']),'openReleaseUpdateTime':open_fields['releaseUpdateTime']}
 
 
-def release(rules,private,release_root=None):
+def release(rules,private,release_root=None,first_window=False):
     if rules==PREVIOUS:
         folder=OLD/'live/receipts'/rules
         assert digest(OLD_RULES.read_bytes())==rules
@@ -182,7 +182,8 @@ def release(rules,private,release_root=None):
         assert list(planned)==list(NEW_PLANS) and list(map(len,planned.values()))==[120,118]
         assert len(set(planned[NEW_PLANS[0]]+planned[NEW_PLANS[1]]))==238
         folder=release/'receipts'
-        names=tuple(name for name in NEW_PLANS if (folder/(name+'.pin.json')).exists())
+        expected_names=NEW_PLANS[:1] if first_window else NEW_PLANS
+        names=tuple(name for name in expected_names if (folder/(name+'.pin.json')).exists())
     rows={}
     sources=[]
     for name in names:
@@ -201,10 +202,10 @@ def input_shape(row):
             [{'path':old['path'],'data':old['data']} for old in row['before']],row['submitted']]
 
 
-def compare(rules,private,archive,release_root=None):
+def compare(rules,private,archive,release_root=None,first_window=False):
     prior,old_sources=release(PREVIOUS,private)
     assert len(prior)==190
-    current,sources=(prior,old_sources) if rules==PREVIOUS else release(rules,private,release_root)
+    current,sources=(prior,old_sources) if rules==PREVIOUS else release(rules,private,release_root,first_window)
     old_native,_=SIGNED['native_replay']()
     native={key:old_native[key] for key in prior}
     focused={row['id']:row for group in ('rook','bishop','queen')
@@ -257,6 +258,8 @@ def compare(rules,private,archive,release_root=None):
             'status':'unmeasured' if not current else 'historical' if rules==PREVIOUS else 'measured' if len(current)==238 else 'partial',
             'distinctWrites':len(current),'nativeRefereeSha256':REF['PIN'],'nativeComparedOnActualDocuments':len(adjudications),
             'priorIdenticalSignedOperands':len(set(prior)&set(current)),'focusCasesWithExactSuccessorAndCompleteReplies':len(set(focused)&set(current)),
+            'nativeDecisions':dict(Counter(row['native'] for row in adjudications.values())),
+            'firestoreDecisions':dict(Counter(row['observed'] for row in current.values())),
             'nativeVersusFirestore':dict(checked),'captures':sources,'mismatches':mismatches,'oldCorpusChanges':changes,
             'shapeSensitivityControl':{'source':'rook-safe','addedField':'unexpectedNullField','value':None,
                                        'originalNative':'ALLOW','amendedNative':'DENY'},
@@ -269,6 +272,8 @@ if __name__=='__main__':
     parser.add_argument('private_archive',type=Path)
     parser.add_argument('python_chess_archive',type=Path)
     parser.add_argument('--release-root',type=Path,help='qualified public release tree to audit during a parallel capture')
+    parser.add_argument('--first-window',action='store_true',help='replay only the first closed 120-write window')
     args=parser.parse_args()
     if not re.fullmatch(r'[0-9a-f]{64}',args.rules_digest): parser.error('Expected a full SHA-256 digest')
-    print(json.dumps(compare(args.rules_digest,args.private_archive,args.python_chess_archive,args.release_root),indent=2))
+    if args.first_window and args.rules_digest==PREVIOUS: parser.error('--first-window applies to the new 238-write campaign')
+    print(json.dumps(compare(args.rules_digest,args.private_archive,args.python_chess_archive,args.release_root,args.first_window),indent=2))

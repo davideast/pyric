@@ -119,6 +119,11 @@ def run(args):
         signed=check(sys.executable,'-B','review/signed.py',sha,live,referee)
         assert signed['distinctWrites']==snapshot['signedCases'] and signed['nativeVersusFirestore'].get('match',0)==snapshot['signedAgreements']
         snapshot['independentSignedAudit']=signed
+        first_pin=evidence/'signed-first-window.json'
+        if first_pin.exists():
+            first=check(sys.executable,'-B','review/signed.py',sha,live,referee,'--first-window')
+            assert retained_fields(first,read(first_pin))
+            snapshot['firstClosedWindowReproduced']=first['distinctWrites']
         before=check(sys.executable,'-B','review/signed.py',PRIOR,live,referee)
         assert before['distinctWrites']==190 and before['nativeVersusFirestore']=={'match':182,'false-allow':7,'false-refusal':1}
         snapshot['previousPrivateJournalsVerified']=before['distinctWrites']

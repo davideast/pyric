@@ -60,3 +60,5 @@ Any named board in the frozen 2,232-position checking panel can be inspected thr
 ```sh
 bun --no-install review/witness.mjs "$PINNED_RULES_SDK" "$COMPLETE_RULES" --boards sample-w-edge-r-b-defender-0-3 sample-b-edge-q-q-defender-0-4
 ```
+
+The signed auditor accepts `--first-window` to reproduce the 120-write checkpoint after the second window closes. The clean replay checks that the partial report reproduces from its own controller receipt and records the full-run result separately.
