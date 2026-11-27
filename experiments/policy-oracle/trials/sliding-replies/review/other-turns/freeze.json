@@ -1,0 +1,30 @@
+{
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "seed": 73287,
+  "samplesPerStratum": 6,
+  "boards": 564,
+  "uniqueSuccessors": 564,
+  "families": {
+    "quiet": 108,
+    "pawn": 216,
+    "knight": 216,
+    "quiet-targeted": 24
+  },
+  "features": {
+    "corner": 48,
+    "defender-b": 282,
+    "defender-w": 282,
+    "edge": 206,
+    "interior": 310,
+    "king-reply": 564,
+    "knight": 216,
+    "legal-capture": 260,
+    "multiple-slider-replies": 115,
+    "pawn": 216,
+    "pinned-slider": 17,
+    "quiet": 132,
+    "quiet-slide": 116,
+    "targeted": 24
+  },
+  "inputsAndRepliesSha256": "15441c2844502945ac90d07d9404ff9102a9f332c7da1339f33f7e1a5582326c"
+}

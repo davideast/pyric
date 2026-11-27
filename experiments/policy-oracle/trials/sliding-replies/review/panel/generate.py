@@ -26,12 +26,12 @@ def squares(c):
     return values
 
 
-def describe(c, before, move, name, source):
+def describe(c, before, move, name, source, require_check=True):
     if not before.is_valid() or not before.is_legal(move):
         return None
     after=before.copy(stack=False)
     after.push(move)
-    if not after.is_valid() or not after.is_check():
+    if not after.is_valid() or after.is_check()!=require_check:
         return None
     replies=sorted(after.legal_moves, key=lambda m: m.uci())
     slider=[m for m in replies if after.piece_type_at(m.from_square) in (c.ROOK,c.BISHOP,c.QUEEN)]
@@ -44,9 +44,9 @@ def describe(c, before, move, name, source):
     if any(after.is_pinned(after.turn,sq) for sq in after.piece_map()
            if after.color_at(sq)==after.turn and after.piece_type_at(sq) in (c.ROOK,c.BISHOP,c.QUEEN)): attrs.append('pinned-slider')
     if any(after.is_capture(m) for m in slider): attrs.append('legal-capture')
-    if any(not after.is_capture(m) for m in slider): attrs.append('legal-interposition')
+    if any(not after.is_capture(m) for m in slider): attrs.append('legal-interposition' if require_check else 'quiet-slide')
     if any(after.piece_type_at(m.from_square)==c.KING for m in replies): attrs.append('king-reply')
-    if not replies: attrs.append('mate')
+    if not replies: attrs.append('mate' if require_check else 'stalemate')
     if len(slider)>1: attrs.append('multiple-slider-replies')
     return {'id':name,'family':source,'fen':REF['fen'](before),'uci':move.uci(),'successor':REF['fen'](after),
             'defenderMaterial':material,'features':attrs,'replies':[m.uci() for m in replies],

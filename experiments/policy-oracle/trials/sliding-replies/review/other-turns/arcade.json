@@ -1,0 +1,8 @@
+{
+  "authority": "pinned Arcade native chess reference",
+  "inputsAndRepliesSha256": "15441c2844502945ac90d07d9404ff9102a9f332c7da1339f33f7e1a5582326c",
+  "sourceMoves": 564,
+  "exactLegalSuccessors": 564,
+  "legalReplies": 4772,
+  "legalSliderReplies": 1708
+}
