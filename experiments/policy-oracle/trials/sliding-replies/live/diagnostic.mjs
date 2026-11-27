@@ -12,23 +12,26 @@ const endpoint='https://firebaserules.googleapis.com/v1/projects/'+manifest.targ
 const sample={expectation:'DENY',request:{method:'get',path:'/databases/'+manifest.target.database+'/documents/chess/compile-control'}};
 const target=digest=>new URL('diagnostics/'+digest+'/',root);
 
-function body(source) {
-  return {source:{files:[{name:'firestore.rules',content:source}]},testSuite:{testCases:[sample]}};
+function body(source,sourceOnly) {
+  const request={source:{files:[{name:'firestore.rules',content:source}]}};
+  if(!sourceOnly) request.testSuite={testCases:[sample]};
+  return request;
 }
 function observation(raw) {
   assert.equal(raw.endpoint,endpoint);
   const source=raw.request.source.files[0].content,digest=sha(source);
-  assert.deepEqual(raw.request,body(source));
+  const sourceOnly=!Object.hasOwn(raw.request,'testSuite');
+  assert.deepEqual(raw.request,body(source,sourceOnly));
   verifySource(source,digest);
   const issues=(raw.response.issues??[]).map(item=>({severity:item.severity,line:item.sourcePosition?.line??null,
     column:item.sourcePosition?.column??null,message:item.description.split(' Pattern: ')[0]}));
   let state;
   if(raw.status===200 && !issues.some(i=>i.severity==='ERROR')) {
-    assert.deepEqual(raw.response.testResults?.map(x=>x.state),['SUCCESS']);state='compiled';
+    assert.deepEqual((raw.response.testResults??[]).map(x=>x.state),sourceOnly?[]:['SUCCESS']);state='compiled';
   } else if([200,400].includes(raw.status) && issues.some(i=>i.severity==='ERROR')) state='compile-error';
   else state='service-error';
   return {authority:'Google Rules Test API',rulesSha256:digest,requestSha256:sha(JSON.stringify(raw.request)),
-    httpStatus:raw.status,state,issues,caseWrites:0,releasesActivated:0};
+    ...(sourceOnly?{mode:'source-only'}:{}),httpStatus:raw.status,state,issues,caseWrites:0,releasesActivated:0};
 }
 
 export function diagnostics(digest,archive) {
@@ -43,9 +46,10 @@ export function diagnostics(digest,archive) {
   });
 }
 
-async function measure(digest,file,archive) {
+async function measure(digest,file,archive,option) {
+  assert.ok(option===undefined || option==='--source-only');
   const source=readFileSync(file,'utf8');verifySource(source,digest);
-  const request=body(source),token=execFileSync('gcloud',['auth','print-access-token'],{encoding:'utf8'}).trim();
+  const request=body(source,option==='--source-only'),token=execFileSync('gcloud',['auth','print-access-token'],{encoding:'utf8'}).trim();
   const result=await fetch(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(45000),
     headers:{Authorization:'Bearer '+token,'x-goog-user-project':manifest.target.project,'content-type':'application/json'},
     body:JSON.stringify(request)});

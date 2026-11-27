@@ -1,0 +1,12 @@
+{
+  "authority": "Google Rules Test API",
+  "rulesSha256": "e3ec5422a2427ce6d1286f12acb66a968e39b8ab626ae37b42a0d1c61f0c6d71",
+  "requestSha256": "5450d8d7718146f83d0f7b839f4003451b8cc1f5462dec302f6fa99cc99cd75a",
+  "mode": "source-only",
+  "httpStatus": 503,
+  "state": "service-error",
+  "issues": [],
+  "caseWrites": 0,
+  "releasesActivated": 0,
+  "receipt": "bd4a6099efe1c0535a5476296636ad539efa80dd91a2d77337bca3d4d8e906cb"
+}
