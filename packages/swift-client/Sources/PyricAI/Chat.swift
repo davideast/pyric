@@ -177,12 +177,14 @@ public final class Chat: Sendable {
                     )
                     var collectedChunks: [ModelContent] = []
                     for try await chunk in innerStream {
+                        try Task.checkCancellation()
                         if let candidateContent = chunk.candidates.first?.content {
                             collectedChunks.append(candidateContent)
                         }
                         continuation.yield(chunk)
                     }
 
+                    try Task.checkCancellation()
                     let aggregated = ChatHistoryStore.aggregateChunks(collectedChunks)
                     guard !aggregated.internalParts.isEmpty else {
                         await releaseGate.releaseOnce()

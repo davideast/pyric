@@ -157,6 +157,7 @@ package actor AiBridgeSession {
     private var activeHeaders: [String: String] = [:]
     private var transport: (any WebSocketTransport)?
     private var receiveTask: Task<Void, Never>?
+    private var attachTask: Task<Void, any Error>?
     private var attachContinuation: CheckedContinuation<Void, any Error>?
     private var isAttached = false
     private var isDisposed = false
@@ -201,24 +202,34 @@ package actor AiBridgeSession {
         }
 
         let opFrame = WorkerOpFrame(id: id, op: payload)
-        let effectiveTimeout = max(0.1, timeout)
-        let nanos = UInt64((effectiveTimeout * 1_000_000_000.0).rounded())
+        let clampedTimeout = timeout.isFinite ? min(max(0.1, timeout), 86_400.0) : 86_400.0
+        let nanos = UInt64((clampedTimeout * 1_000_000_000.0).rounded())
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: nanos)
-                if !Task.isCancelled {
-                    await self?.failTimedOutOp(id: id, method: method, timeout: effectiveTimeout)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                let timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: nanos)
+                    if !Task.isCancelled {
+                        await self?.failTimedOutOp(id: id, method: method, timeout: clampedTimeout)
+                    }
+                }
+                self.pendingOps[id] = PendingUnary(continuation: continuation, timeoutTask: timeoutTask)
+                Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await self.sendEncoded(opFrame)
+                    } catch {
+                        await self.failDispatchedOp(id: id, error: error)
+                    }
                 }
             }
-            self.pendingOps[id] = PendingUnary(continuation: continuation, timeoutTask: timeoutTask)
+        } onCancel: {
             Task { [weak self] in
-                guard let self else { return }
-                do {
-                    try await self.sendEncoded(opFrame)
-                } catch {
-                    await self.failDispatchedOp(id: id, error: error)
-                }
+                await self?.failDispatchedOp(id: id, error: CancellationError())
             }
         }
     }
@@ -293,7 +304,7 @@ package actor AiBridgeSession {
             )
         }
         if fixedTransport == nil,
-           isAttached,
+           (isAttached || attachTask != nil),
            (activeEndpoint != endpoint || activeHeaders != headers) {
             let stale = tearDownCurrentSocket(
                 error: BackendError(
@@ -307,7 +318,24 @@ package actor AiBridgeSession {
         if isAttached, transport != nil {
             return
         }
+        if let inFlight = attachTask {
+            try await inFlight.value
+            return
+        }
 
+        let newAttachTask = Task<Void, any Error> {
+            try await self.performAttach(endpoint: endpoint, headers: headers)
+        }
+        attachTask = newAttachTask
+        defer {
+            if attachTask == newAttachTask {
+                attachTask = nil
+            }
+        }
+        try await newAttachTask.value
+    }
+
+    private func performAttach(endpoint: URL, headers: [String: String]) async throws {
         connectionGeneration += 1
         let generation = connectionGeneration
         let opened: any WebSocketTransport
@@ -508,6 +536,7 @@ package actor AiBridgeSession {
     private func tearDownCurrentSocket(error: any Error) -> (any WebSocketTransport)? {
         connectionGeneration += 1
         isAttached = false
+        attachTask = nil
         receiveTask?.cancel()
         receiveTask = nil
 

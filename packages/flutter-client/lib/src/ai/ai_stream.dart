@@ -21,14 +21,24 @@ Stream<T> streamAiGenerateContent<T>({
   required Future<Map<String, dynamic>> Function() buildSubPayload,
   required T Function(Object? rawChunk) decodeChunk,
   required Object Function(Object error) mapError,
+  Duration? timeout,
 }) {
   late final StreamController<T> controller;
   StreamSubscription<dynamic>? upstreamSub;
+  StreamSubscription<BridgeConnectionState>? stateSub;
+  Timer? timeoutTimer;
   Future<void>? detachFuture;
   var isCancelled = false;
   var isFinished = false;
 
   Future<void> detachUpstream() {
+    timeoutTimer?.cancel();
+    timeoutTimer = null;
+    final activeState = stateSub;
+    stateSub = null;
+    if (activeState != null) {
+      unawaited(activeState.cancel());
+    }
     final inFlight = detachFuture;
     if (inFlight != null) {
       return inFlight;
@@ -90,6 +100,19 @@ Stream<T> streamAiGenerateContent<T>({
           return;
         }
 
+        final effectiveTimeout = timeout ?? const Duration(seconds: 180);
+        if (effectiveTimeout > Duration.zero) {
+          timeoutTimer = Timer(effectiveTimeout, () {
+            failAndClose(
+              PyricBridgeException(
+                code: 'deadline-exceeded',
+                message:
+                    'AI stream timed out after ${effectiveTimeout.inMilliseconds}ms.',
+              ),
+            );
+          });
+        }
+
         final Stream<dynamic> rawStream;
         try {
           rawStream = bridgeClient.subscribeRaw(subPayload);
@@ -97,6 +120,23 @@ Stream<T> streamAiGenerateContent<T>({
           failAndClose(error, stackTrace);
           return;
         }
+
+        stateSub = bridgeClient.connectionStates.listen(
+          (state) {
+            if (isCancelled || isFinished) return;
+            if (state == BridgeConnectionState.interrupted ||
+                state == BridgeConnectionState.closed) {
+              failAndClose(
+                const PyricBridgeException(
+                  code: 'unavailable',
+                  message:
+                      'AI stream interrupted by WebSocket disconnect before completion.',
+                ),
+              );
+            }
+          },
+          onError: (Object _, StackTrace __) {},
+        );
 
         upstreamSub = rawStream.listen(
           (dynamic rawFrame) {
@@ -167,11 +207,13 @@ Stream<T> streamAiGenerateContent<T>({
             if (isCancelled || isFinished) {
               return;
             }
-            isFinished = true;
             upstreamSub = null;
-            if (!controller.isClosed) {
-              unawaited(controller.close());
-            }
+            failAndClose(
+              const PyricBridgeException(
+                code: 'unavailable',
+                message: 'AI stream ended before receiving terminal done frame.',
+              ),
+            );
           },
           cancelOnError: true,
         );

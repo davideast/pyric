@@ -141,11 +141,11 @@ final class FirebaseAI {
         : 'googleai';
     final cacheKey = '$appKey|$backendKey|$useLimitedUseAppCheckTokens';
 
-    final usesSharedConfiguration = bridgeClient == null && engine == null;
+    final usesSharedConfiguration =
+        bridgeClient == null && engine == null && appCheck == null;
     if (usesSharedConfiguration) {
       final cached = _instancesByKey[cacheKey];
-      if (cached != null &&
-          (appCheck == null || identical(cached._explicitAppCheck, appCheck))) {
+      if (cached != null) {
         return cached;
       }
     }
@@ -216,7 +216,8 @@ final class FirebaseAI {
           return delegate;
         }
       }
-      if (root.isActivated) {
+      if ((app == null || app.name == defaultFirebaseAppName) &&
+          root.isActivated) {
         return root;
       }
     } catch (_) {
@@ -263,6 +264,7 @@ final class FirebaseAI {
       modelName: model,
       isVertexAI: backendType == FirebaseAIBackendType.vertexAI,
       bridgeClient: _bridgeClient,
+      bridgeClientProvider: () => _bridgeClient,
       appCheckResolver: _resolveAppCheckClaim,
       engineWire: _engineWire,
       generationConfig: generationConfig,
