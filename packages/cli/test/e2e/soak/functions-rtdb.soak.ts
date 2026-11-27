@@ -50,7 +50,7 @@ exports.makeUppercase = onValueCreated(
     await expect(studio.getByRole('heading', { name: 'RTDB', exact: true })).toBeVisible();
     await expect
       .poll(() => serve.stderr())
-      .toContain('✔ functions 1 onValueCreated trigger');
+      .toContain('\u2714 functions 1 trigger');
 
     await app.evaluate(() => window.__soak.setRtdb('messages/id/original', 'hello'));
     await expect
@@ -68,7 +68,7 @@ exports.makeUppercase = onValueCreated(
     const executionReports = serve
       .stderr()
       .split('\n')
-      .filter((line) => line.includes('✔ function  makeUppercase ← /messages/id/original'));
+      .filter((line) => line.includes('\u2714 function  makeUppercase \u2190 /messages/id/original'));
     expect(executionReports).toEqual([
       expect.stringContaining('pushId=id'),
     ]);

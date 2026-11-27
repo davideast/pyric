@@ -177,7 +177,7 @@ describe('pyric sandbox with an unbuilt Functions source (#1812)', () => {
         return JSON.parse(readFileSync(pointerPath, 'utf8')) as { url: string };
       });
       await waitFor(() => {
-        if (secondRun.stdout().includes('1 onValueCreated trigger')) return true;
+        if (secondRun.stdout().includes('functions 1 trigger from ')) return true;
         return null;
       });
       expect(secondRun.stderr()).not.toContain('has no entry at');

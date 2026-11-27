@@ -1,104 +1,24 @@
 /**
- * `pyric sandbox` is the local server with the Pyric sandbox standing in for
- * Firebase. Feels like `firebase serve` (banner, labeled lines, port 3473,
- * SIGINT shutdown) with the sandbox-flavored extras firebase can't do: the
- * served page runs an in-browser backend, your `firestore.rules` deploy into
- * it at page load, and unmodified `firebase/*` imports resolve to pyric via a
- * served import map.
+ * `pyric sandbox` CLI entry point and re-exports.
  *
- * Orchestration: firebase.json (optional — warn + serve cwd without it) →
- * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
- * version) → static server with the `/__pyric/` namespace + HTML injection.
+ * Orchestration helpers live in sibling modules (`serve-runtime.ts`,
+ * `serve-rules-watchers.ts`, `serve-startup-banner.ts`, `serve-functions.ts`)
+ * so each file stays focused and compact.
  */
-import { randomBytes } from 'node:crypto';
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { relative } from 'node:path';
-import { existsSync } from 'node:fs';
-import type { ParsedArgs } from './parse-args.js';
+import type { LocalSandbox } from 'pyric/sandbox';
+import {
+  formatBridgeTipLine,
+  resolvePlannedChildAppOrigin,
+} from './child-app-origin.js';
 import {
   extractHosting,
-  hostingNoStaticSiteLine,
   readFirebaseJson,
   readFirebaseRc,
-  resolveHostingSite,
   wantsSpaRewrite,
-  withDefaultFirestoreRules,
-  type FirebaseJson,
 } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
-import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
-import {
-  assertStandaloneSupportsAiMode,
-  embeddedWorkerVersion,
-  isStandalone,
-  materializeServeAssets,
-  materializeSiteUi,
-} from '../serve/standalone-assets.js';
-import { resolveProjectAndDefaultInstance } from '../bridge/surface/database-instance-project.js';
-import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import { watchRulesFiles } from '../serve/rules-files-watch.js';
-import {
-  formatFirestoreReloadNotes,
-  formatFirestoreWatcherErrorNote,
-  formatStartupFirestoreRulesLines,
-} from '../serve/firestore-project-rules.js';
-import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from '../serve/rules.js';
-import { formatBeaconReceipt } from '../serve/beacon-route.js';
-import type { InitPayload } from '../serve/namespace.js';
-import { injectServeAiEngineTag } from '../serve/ai-engine-wire.js';
-import { formatAiStatusLine } from '../serve/ai-status.js';
-import { geminiProxyConfig } from '../serve/gemini-proxy.js';
-import { injectServeTags } from '../serve/html-injection.js';
-import { opaqueProjectKey } from '../serve/project-key.js';
-import { liveHostPageImportMap } from '../serve/live-host-pages.js';
-import { requireLiveProject } from '../serve/live-project.js';
-import { createLiveHostState } from '../serve/live-host-state.js';
-import { rulesFilesOf } from '../serve/live-terminal-lines.js';
-import { refuseOwnWrite, type PyricWriteRefusal } from '../serve/hosted/own-writes.js';
-import { workerInitPayload } from '../serve/runtime/hosted-target.js';
-import type { WorkerInitPayload } from '../serve/init-payload.js';
-import { resolveOwnersConfig } from '../serve/owners-config.js';
-import {
-  browserAiEngineWire,
-  hasIgnoredBrowserGeminiKey,
-  loadViteAiEnv,
-  resolveViteAiConfig,
-  type PyricAiOptions,
-} from '../serve/vite-ai-config.js';
-import { formatActivityWarning } from '../serve/activity-warning.js';
-import {
-  consoleServeLogger, getHeader, isAllowedOriginOnPorts, isForeignFetchSite,
-  requestSocketScheme, resolveHostingFile, startStaticServer, type ServeHandle,
-} from '../serve/server.js';
-import { createBridgeMount } from '../serve/bridge-mount.js';
-import { writeOwnedSessionFile } from '../serve/local-session-token.js';
-import { createAppPorts } from '../serve/app-ports.js';
-import {
-  effectiveRequestScheme,
-  parseTrustProxySetting,
-  type RemoteAccessOptions,
-} from '../serve/guard-policy.js';
-import {
-  formatRemoteAccessStartupLines,
-  resolveRemoteAccessConfig,
-  type RemoteAccessSetting,
-} from '../serve/remote-access-config.js';
-import {
-  parseAllowedHostsInput,
-  parseAllowRemotePeersInput,
-  parseTrustProxyInput,
-} from '../serve/remote-access-parse.js';
-import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
+import type { ParsedArgs } from './parse-args.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
-import {
-  buildChildEnv,
-  formatStartupEnvExport,
-  registerModuleUrl,
-  resolveSandboxChild,
-  spawnSandboxChild,
-  waitForSandboxPeer,
-  type SandboxChildHandle,
-} from './sandbox-runner.js';
 import {
   describeInterlock,
   formatInterlockLine,
@@ -113,972 +33,50 @@ import {
   runBoundedTeardown,
   writeStreamQuietly,
 } from './sandbox-process-guard.js';
+import {
+  buildChildEnv,
+  formatStartupEnvExport,
+  registerModuleUrl,
+  resolveSandboxChild,
+  spawnSandboxChild,
+  waitForSandboxPeer,
+  type SandboxChildHandle,
+} from './sandbox-runner.js';
+import { startServeFunctionsRuntime } from './serve-functions.js';
+import { serveErrorMessage } from './serve-rules-watchers.js';
+import {
+  serveJsonLine,
+  startServe,
+  type LiveServeStart,
+  type ServeRuntime,
+} from './serve-runtime.js';
+import { undeployedStorageLine } from './serve-startup-banner.js';
 import { checkSandboxChildLaunch } from './unsupported-runtime.js';
-import { scanForInlinedFirebase } from './inlined-sdk-scanner.js';
-import {
-  createFunctionsDevelopmentRuntime,
-  createHttpFunctionsPeerReadiness,
-  type FunctionsDevelopmentEvent,
-  type FunctionsDevelopmentRuntime,
-} from '../functions/development-runtime.js';
-import type { LocalSandbox } from 'pyric/sandbox';
+import type { FunctionsDevelopmentRuntime } from '../functions/development-runtime.js';
 import { createFunctionsHttpGateway, type FunctionsHttpGateway } from '../functions/http/gateway.js';
-import { captureHostedSandbox } from '../functions/http/host-events.js';
-import {
-  createPrivateInvokerWarnings,
-  httpFunctionLines,
-  servedLine,
-  stateAfterStart,
-  UNRESPONSIVE_LINE,
-  uncaughtErrorLine,
-  unexpectedExitLine,
-} from '../functions/http/report.js';
+import { servedLine } from '../functions/http/report.js';
 import { hostingRewrites } from '../functions/http/rewrites.js';
-import {
-  discoverFunctionsProject,
-  type FunctionsProject,
-} from '../functions/project.js';
-import {
-  createSandboxSession,
-  SandboxSeedError,
-  type SandboxSession,
-} from '../serve/sandbox-session.js';
-import { resolveAvatarsConfig } from '../serve/avatars-config.js';
-import { createVerifyHint } from '../serve/verify-hint.js';
+import { discoverFunctionsProject, type FunctionsProject } from '../functions/project.js';
 import { SANDBOX_APP_ORIGIN_ENV } from '../remote/app-origin.js';
+import { parseTrustProxySetting, type RemoteAccessOptions } from '../serve/guard-policy.js';
+import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
+import { resolveRemoteAccessConfig } from '../serve/remote-access-config.js';
 import {
-  formatBridgeTipLine,
-  formatBrowserPersistNoticeLine,
-  resolvePlannedChildAppOrigin,
-} from './child-app-origin.js';
-import { formatPyricCommand } from './command-hint.js';
+  parseAllowedHostsInput,
+  parseAllowRemotePeersInput,
+  parseTrustProxyInput,
+} from '../serve/remote-access-parse.js';
+import { resolveHostingFile } from '../serve/server.js';
 
-export { extractHosting, wantsSpaRewrite };
-
-/**
- * The startup line for Storage buckets firebase.json deploys no rules to. A
- * bucket with no rules is locked, as production creates one, or open under
- * permissive mode, as an RTDB instance without rules is (#1313).
- */
-export function undeployedStorageLine(hasNoStorageRules: boolean, policy: 'allow' | 'deny'): string {
-  const isOpen = policy === 'allow';
-  if (hasNoStorageRules) {
-    return isOpen
-      ? '• rules    no storage.rules — storage sandbox allows client operations (permissive mode)'
-      : '• rules    no storage.rules — storage sandbox denies client operations by default';
-  }
-  return isOpen
-    ? '• rules    any other Storage bucket allows every client operation (permissive mode) until firebase.json deploys rules to it'
-    : '• rules    any other Storage bucket denies every client operation until firebase.json deploys rules to it';
-}
-
-
-export interface ServeRuntime {
-  handle: ServeHandle;
-  /** `hosting.public`, resolved; `null` when no `hosting.public` directory is configured. */
-  publicDir: string | null;
-  payload: () => InitPayload;
-  /** HTTP MCP endpoint when `--bridge` is on; null otherwise. */
-  mcpUrl: string | null;
-  /** The Studio hub URL (`/__pyric/ui/studio`) when `--ui` is on and the build is
-   *  present; null otherwise. */
-  uiUrl: string | null;
-  /** Persistence summary (null when `--persist` is off). */
-  persist: { restoredDocs: number; restoredUsers: number } | null;
-  /** Handshake beacons posted to `/__pyric/beacon` so far, the interlock
-   *  watchdog's only input. */
-  beaconCount: () => number;
-  /** The per-launch secret a beacon must present, placed in every child's
-   *  `PYRIC_BEACON_TOKEN`. */
-  beaconToken: string;
-  /** The per-boot capability token required on `/__pyric/*` control, admin,
-   *  live, MCP, and WebSocket routes. */
-  sessionToken: string;
-  /** The bridge's host identity, the `instanceId` its `.pyric/serve.json`
-   *  records; placed in every child's `PYRIC_SANDBOX_INSTANCE`. Undefined
-   *  without the bridge mount. */
-  instanceId: string | undefined;
-  /** The transport selection this host stamps into the HTML it serves; placed
-   *  in every child's `PYRIC_WORKER_INIT` for pages it does not serve. */
-  workerInit: WorkerInitPayload;
-  /** The Node-hosted sandbox when `hosted` is enabled; null otherwise or after stop. */
-  hostedSandbox?: LocalSandbox | null;
-}
-
-/** The `--json` stdout contract — one line, keep stable; agents parse this.
- *  Readiness probe: GET {url}/__pyric/init.json → 200 (body carries the live
- *  rules hash). */
-export function serveJsonLine(runtime: ServeRuntime): string {
-  return JSON.stringify({
-    url: runtime.handle.url,
-    port: runtime.handle.port,
-    uiUrl: runtime.uiUrl,
-    mcpUrl: runtime.mcpUrl,
-    rulesHash: runtime.payload().rulesHash,
-    databaseRulesHash: runtime.payload().databaseRulesHash ?? null,
-    persist: runtime.persist !== null,
-    restoredDocs: runtime.persist?.restoredDocs ?? 0,
-    restoredUsers: runtime.persist?.restoredUsers ?? 0,
-  });
-}
-
-function serveErrorMessage(error: unknown): string {
-  const isError = error instanceof Error;
-  if (isError) return error.message;
-  return String(error);
-}
-
-/**
- * Programmatic entry — everything but flag parsing and process lifecycle.
- * Exported so integration tests drive a real server without a subprocess.
- */
-export async function startServe(opts: Parameters<typeof startServeRuntime>[0]): Promise<ServeRuntime> {
-  const usesHostedSandbox = opts.hosted === true;
-  const usesBrowserPersistence = opts.persist === true;
-  const ownsPersistedState = usesHostedSandbox || usesBrowserPersistence;
-  if (ownsPersistedState) {
-    const { claimProjectState } = await import('../serve/hosted/project-ownership.js');
-    // A hosted run keeps its state in `.pyric/state/hosted` and writes no
-    // `state.json`, so the sandbox it runs decides which files are at stake.
-    const scope = usesHostedSandbox ? 'host' : 'browser-state';
-    const owner = await claimProjectState(opts.cwd, scope);
-    try {
-      return await startServeRuntime(opts, owner.close);
-    } catch (error) {
-      owner.close();
-      throw error;
-    }
-  }
-  return startServeRuntime(opts);
-}
-
-async function startServeRuntime(opts: {
-  cwd: string;
-  port?: number;
-  host?: string;
-  noCache?: boolean;
-  /** Override the bundle cache root (tests). */
-  cacheRoot?: string;
-  /** Mount the MCP bridge on the serve origin (`--bridge`). */
-  bridge?: boolean;
-  /** Run the authoritative sandbox in this Node process. */
-  hosted?: boolean;
-  /** The explicit project (`--project`), and the label for the bridge
-   *  health/audit surfaces. */
-  project?: string;
-  /** The resolved project. Absent, `project` is resolved with
-   *  `resolveFirebaseProject` as its explicit option. */
-  firebaseProject?: FirebaseProjectResolution;
-  /** Disable the bridge audit writer (tests). */
-  disableAuditLog?: boolean;
-  /** Path to a seed JSON file (path → fields map), applied at page init. */
-  seed?: string;
-  /** Watch firestore.rules and hot-reload over SSE. Default true when a
-   *  rules file exists. */
-  watch?: boolean;
-  /** Persist sandbox state to `.pyric/state/state.json` (flow doc section 3c).
-   *  Ephemeral remains the default. */
-  persist?: boolean;
-  /** With `--persist`: discard any existing state file and re-seed from
-   *  scratch (the escape hatch from "state wins after the first run"). */
-  fresh?: boolean;
-  /** Extra hostnames allowed past the DNS-rebinding guard. */
-  allowedHosts?: string[];
-  /** Explicit remote workstation / reverse-proxy access configuration. */
-  remoteAccess?: RemoteAccessSetting;
-  /** Write the session capture to `.pyric/last-session.json` so `pyric verify`
-   *  can replay it. Default true; pass false (via `--no-capture`) to suppress.
-   *  This is independent of `--persist` — capture records the live session
-   *  fixture for the verify loop regardless of whether state is persisted. */
-  capture?: boolean;
-  /** Mount the Pyric Studio storage routes (`--ui`): `/__pyric/workspace`
-   *  (the served project's file tree) + `/__pyric/projects` (single-project
-   *  store over `cwd`). The Studio app's `local` mode talks to these. */
-  ui?: boolean;
-  /** Explicit opt-in to permissive mode (default-allow RTDB rules when unconfigured). */
-  permissive?: boolean;
-  /** Optional AI Logic configuration (overrides `pyric.json` `ai`). */
-  ai?: PyricAiOptions;
-  logger?: Parameters<typeof startStaticServer>[0]['logger'];
-  /** Functions HTTP routes (`pyric sandbox` passes its gateway's handler). */
-  functionsHandler?: FunctionsHttpGateway['handle'];
-  /** A child command runs beside the server and resolves `firebase` itself. */
-  hasChildCommand?: boolean;
-  /** Require a per-boot session capability token on every local route in sandbox mode. */
-  sessionToken?: boolean;
-  /** Set only by `@pyric/live`'s seam (`serve/live-host.ts`): the host reports its status as live. */
-  liveHost?: LiveServeStart;
-}, releaseOwnership?: () => void): Promise<ServeRuntime> {
-  const logger = opts.logger ?? consoleServeLogger();
-  const pyricConfig = await readPyricConfig(opts.cwd);
-  const firebaseProject =
-    opts.firebaseProject ??
-    resolveFirebaseProject({
-      projectDir: opts.cwd,
-      option: opts.project,
-      configProject: pyricConfig.project,
-    });
-  const liveStart = opts.liveHost;
-  const isLive = liveStart !== undefined;
-  let liveHost: ReturnType<typeof createLiveHostState> | undefined;
-  if (liveStart !== undefined) {
-    liveHost = createLiveHostState({
-      configProjectId: requireLiveProject(liveStart.project, opts.cwd),
-      configSource: liveStart.project.source,
-      optionName: '--project',
-      warn: (line) => logger.note(line),
-      passThrough: liveStart.passThrough,
-      deployedRules: liveStart.deployedRules === true,
-    });
-  }
-  // A live host makes none of pyric's own writes, the seed file's among them (`hosted/own-writes.ts`).
-  const seedsLiveHost = isLive && opts.seed !== undefined;
-  if (seedsLiveHost) refuseOwnWrite(liveStart.writeRefusal, { action: `seed ${opts.seed}`, writer: 'seed' });
-
-  // Handshake beacons from pyric-launched children, plus the per-launch secret
-  // that authorizes one. Both live here because the route does.
-  let beaconsSeen = 0;
-  const beaconCount = (): number => beaconsSeen;
-  const beaconToken = randomBytes(24).toString('base64url');
-  const sessionToken = randomBytes(24).toString('base64url');
-
-  const freshWithoutPersistence = Boolean(opts.fresh && !opts.persist && !opts.hosted);
-  if (freshWithoutPersistence) {
-    throw new Error(
-      'pyric sandbox: --fresh requires --hosted or --persist. ' +
-        'Browser-stored data is cleared from Studio → Settings → Reset, or DevTools → Clear site data.',
-    );
-  }
-
-  // firebase.json is optional. Without one, or without a `hosting` block in
-  // it, production has no Hosting site, so pyric serves no static files.
-  let config: FirebaseJson | null = null;
-  let hasFirebaseJson = true;
-  try {
-    config = await readFirebaseJson(opts.cwd);
-  } catch (e) {
-    const isMissingConfig = e instanceof Error && e.message.includes('no firebase.json');
-    const shouldFailStartup = !isMissingConfig;
-    if (shouldFailStartup) throw e;
-    hasFirebaseJson = false;
-    logger.note('  ⚠ no firebase.json found');
-  }
-
-  const requireSessionToken =
-    isLive ||
-    opts.sessionToken === true ||
-    (opts.sessionToken === undefined && pyricConfig.sessionToken === true);
-  const resolvedRemote = resolveRemoteAccessConfig({
-    option: opts.remoteAccess,
-    allowedHosts: opts.allowedHosts,
-    configAllowedHosts: pyricConfig.allowedHosts,
-    configRemoteAccess: pyricConfig.remoteAccess,
-    env: process.env,
-  });
-  const effectiveAllowedHosts = resolvedRemote.allowedHosts;
-  const effectiveRemoteAccess: RemoteAccessOptions | undefined = resolvedRemote.remoteAccess;
-  const effectiveTrustProxy = parseTrustProxySetting(effectiveRemoteAccess?.trustProxy);
-  const owners = resolveOwnersConfig(pyricConfig.owners);
-  const ruleOverrides = pyricConfig.rules;
-  const hasRuleOverrides = ruleOverrides !== undefined && ruleOverrides !== '';
-  if (hasRuleOverrides) {
-    config ??= {};
-    const isFirestorePath = typeof ruleOverrides === 'string';
-    if (isFirestorePath) {
-      config.firestore = withDefaultFirestoreRules(config.firestore, ruleOverrides);
-    } else {
-      const firestoreOverride = ruleOverrides.firestore;
-      const hasFirestoreOverride = firestoreOverride !== undefined && firestoreOverride !== '';
-      if (hasFirestoreOverride) {
-        config.firestore = withDefaultFirestoreRules(config.firestore, firestoreOverride);
-      }
-      const hasDatabaseOverride = Boolean(ruleOverrides.database);
-      if (hasDatabaseOverride) {
-        // The override names one rules file, so it deploys to the default
-        // instance in place of any per-instance configuration.
-        config.database = { rules: ruleOverrides.database };
-      }
-      const hasStorageOverride = Boolean(ruleOverrides.storage);
-      if (hasStorageOverride) {
-        const storageConfig = config.storage;
-        const isSingleStorageConfig = typeof storageConfig === 'object' && !Array.isArray(storageConfig);
-        const baseStorage = isSingleStorageConfig ? storageConfig : {};
-        config.storage = { ...baseStorage, rules: ruleOverrides.storage };
-      }
-    }
-  }
-
-  const hosting = extractHosting(config);
-  const hostingConfig = config?.hosting;
-  const hasMultipleHostingSites = Array.isArray(hostingConfig) && hostingConfig.length > 1;
-  if (hasMultipleHostingSites) {
-    logger.note('  \u26a0 multiple hosting sites configured. pyric sandbox serves the first entry only');
-  }
-  const hostingSite = resolveHostingSite(opts.cwd, hosting, { hosted: opts.hosted === true });
-  const publicDir = hostingSite.publicDir;
-  const publicDirLabel = hostingSite.publicLabel ?? 'hosting.public';
-
-  // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
-  // build (`vite build`) inlines the real SDK into the app chunk, leaving
-  // nothing to intercept: the page would then talk to REAL Firebase endpoints
-  // with the sandbox's fake credentials while the injected banner claims
-  // otherwise. That hole is structural, so `pyric sandbox` refuses such a dist
-  // rather than serving it. A pyric SANDBOX build (`vite build --mode
-  // development`) carries the marker and bundles pyric's in-page adapters, so it
-  // is trusted and the scan is skipped (marker present, no real SDK to find).
-  const needsSdkScan = publicDir !== null && !hasSandboxBuildMarker(publicDir);
-  if (needsSdkScan) {
-    const scanWarnings: string[] = [];
-    const inlined = scanForInlinedFirebase(publicDir, {
-      publicDirLabel,
-      onWarning: (line) => {
-        scanWarnings.push(line);
-      },
-    });
-    const hasInlinedSdk = inlined.length > 0;
-    if (hasInlinedSdk) {
-      throw new Error(
-        `pyric sandbox: ${inlined[0]} bundles the real Firebase SDK, so this dist cannot be ` +
-          `sandboxed - its firebase/* calls would reach LIVE Google endpoints, not the ` +
-          `pyric sandbox. Two ways forward:\n` +
-          `  (a) \`pyric sandbox -- <command>\` runs the child server with the @pyric/cli/vite ` +
-          `plugin swaps firebase/* live) - use \`bun run dev\`;\n` +
-          `  (b) rebuild as a self-contained sandbox bundle and serve THAT: ` +
-          `\`vite build --mode development\` (or pyric({ swapInBuild: true })) then ` +
-          `\`pyric sandbox\`.\n` +
-          `A plain \`vite build\` is your production build - deploy it, don't sandbox it.`,
-      );
-    }
-    for (const warning of scanWarnings) {
-      logger.note(warning);
-    }
-  }
-
-  // SDK bundles (cached per pyric version + entry hash). In a standalone
-  // binary the runtime esbuild bundler is unavailable, so the deterministic
-  // bundles were built at compile time and embedded; materialize them to a
-  // temp dir instead (see serve/standalone-assets.ts). Everything downstream
-  // (the /__pyric/sdk/* namespace, worker route) reads from `bundle.outDir`
-  // and is identical either way.
-  const t0 = performance.now();
-  let bundle: { outDir: string; cached: boolean; dispose?: () => void };
-  // The worker executable epoch: stamped into the page (`<meta name="pyric-worker-v">`)
-  // so the page can WARN when a still-running worker is older than the served
-  // bundle. The worker NAME is origin-generation scoped — all tabs share
-  // one backend — so a SharedWorker (which can't hot-update) is detected as
-  // stale, not auto-replaced; the user closes all tabs to load the new worker.
-  let workerVersion: string;
-  const usesEmbeddedAssets = isStandalone();
-  const loadedAiEnv = loadViteAiEnv('development', opts.cwd, undefined);
-  const resolvedAi = resolveViteAiConfig(opts.ai ?? pyricConfig.ai, loadedAiEnv, 'pyric sandbox');
-  const ignoredGeminiKey = hasIgnoredBrowserGeminiKey(loadedAiEnv);
-  const aiMode = resolvedAi.mode;
-  const browserAiEngine = browserAiEngineWire(resolvedAi.engineWire);
-  let sessionAi: InitPayload['ai'] = null;
-  if (browserAiEngine !== undefined) {
-    sessionAi = { engine: browserAiEngine };
-  }
-  if (usesEmbeddedAssets) {
-    assertStandaloneSupportsAiMode(aiMode, loadedAiEnv);
-  }
-  // Production AI mode serves the project's own Firebase SDK for firebase/ai,
-  // firebase/app and firebase/app-check (#1290).
-  let projectFirebase: { projectDir: string } | undefined;
-  if (aiMode === 'production') {
-    const firebasePlan = planProjectFirebase(opts.cwd, Boolean(opts.hasChildCommand));
-    projectFirebase = firebasePlan.projectFirebase;
-    if (firebasePlan.warning) logger.note(firebasePlan.warning);
-  }
-  if (usesEmbeddedAssets) {
-    bundle = await materializeServeAssets({ aiMode });
-    workerVersion = embeddedWorkerVersion();
-  } else {
-    bundle = await bundleSdk({
-      entries: defaultSdkEntries(),
-      noCache: opts.noCache,
-      cacheRoot: opts.cacheRoot,
-      projectFirebase,
-    });
-    // The SharedWorker host (Phase 3c): bundled into the SAME sdk dir so the
-    // existing /__pyric/sdk/worker.js route serves it. The page's entry
-    // adapters feature-detect SharedWorker → this worker; unsupported browsers
-    // fall back to the in-page sandbox. Built alongside the SDK so a warm
-    // start skips both.
-    try {
-      const worker = await bundleWorker({ outDir: bundle.outDir, noCache: opts.noCache });
-      workerVersion = worker.epoch;
-    } catch (error) {
-      bundle.dispose?.();
-      throw error;
-    }
-  }
-  const bundleMs = Math.round(performance.now() - t0);
-
-  // `pyric sandbox -- next dev` serves the page from Next's port, so the
-  // bridge and the guarded `/__pyric/*` routes accept the port they learn.
-  const appPorts = createAppPorts(opts.host ?? 'localhost', {
-    allowedHosts: effectiveAllowedHosts,
-    trustProxy: effectiveRemoteAccess?.trustProxy,
-  });
-  const needsBridge = Boolean(opts.bridge || opts.hosted);
-  let bridgeMount: ReturnType<typeof createBridgeMount> | null = null;
-  if (needsBridge) {
-    bridgeMount = createBridgeMount({
-        hosted: opts.hosted,
-        project: opts.project,
-        projectKey: opts.cwd,
-        disableAuditLog: opts.disableAuditLog,
-        liveHost,
-        ownWriteRefusal: liveStart?.writeRefusal,
-        upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: effectiveAllowedHosts },
-        learnsProxyPorts: true,
-        appPorts,
-        sessionToken,
-        requireSessionToken,
-        remoteAccess: effectiveRemoteAccess,
-        upgradeRejectionLogger: (line) => logger.note(line),
-    });
-  }
-  const mount = bridgeMount;
-  const hasBridge = mount !== null;
-
-  // bridgeUrl needs the BOUND port; resolved after listen via this box.
-  const origin = { host: opts.host ?? 'localhost', port: 0 };
-  // --ui also serves the unified Astro site under /__pyric/ui/. The dir is
-  // resolved by file path (never imported), so a missing build is a clear
-  // warning rather than a crash; the data routes still mount.
-  let siteUiDir: string | undefined;
-  const mountsStudio = Boolean(opts.ui);
-  if (mountsStudio) {
-    let dir: string | null;
-    if (usesEmbeddedAssets) {
-      dir = await materializeSiteUi();
-    } else {
-      dir = resolveSiteUiDir();
-    }
-    const availableDir = dir;
-    const hasSiteBuild = availableDir !== null && availableDir.length > 0;
-    if (hasSiteBuild) {
-      siteUiDir = availableDir;
-    } else {
-      logger.note(
-        '  ⚠ --ui: built Astro site not found (run the full build first). ' +
-          'The data routes are mounted, but /__pyric/ui/ will 404.',
-      );
-    }
-  }
-  const usesPersistence = Boolean(opts.persist || opts.hosted);
-  const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
-  const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
-  const usesHostedSandbox = opts.hosted === true;
-  let session: SandboxSession;
-  try {
-    session = await createSandboxSession({
-      projectDir: opts.cwd,
-      boundHost: opts.host ?? 'localhost',
-      allowedHosts: effectiveAllowedHosts,
-      remoteAccess: effectiveRemoteAccess,
-      appPorts,
-      firebaseConfig: config,
-      sdk: { dir: bundle.outDir, workerVersion },
-      seedFile: opts.seed,
-      persistence: persistenceOptions,
-      capture: opts.capture,
-      studio: studioOptions,
-      ai: sessionAi,
-      aiProxyUpstream: resolvedAi.proxyUpstream,
-      aiGemini: geminiProxyConfig(resolvedAi.engineWire),
-      // No CLI flag (design decision): `pyric sandbox` resolves avatars from
-      // `PYRIC_AVATARS` only, same precedence as the Vite plugin minus the
-      // explicit-option tier.
-      avatars: resolveAvatarsConfig(undefined, process.env, opts.cwd),
-      bridgeUrl: () => {
-        const isListening = origin.port > 0;
-        const canAddressBridge = hasBridge && isListening;
-        if (canAddressBridge) return mount.wsUrl(origin);
-        return null;
-      },
-      activity: (incident) => logger.note(formatActivityWarning(incident)),
-      beaconToken,
-      beacon: (report) => {
-        beaconsSeen += 1;
-        logger.note(formatBeaconReceipt(report));
-      },
-      permissive: opts.permissive,
-      project: firebaseProject,
-      hosted: opts.hosted,
-      hostInstanceId: () => mount?.instanceId,
-      deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
-      sessionToken,
-      requireSessionToken,
-      logger,
-    });
-  } catch (error) {
-    bundle.dispose?.();
-    const isSeedError = error instanceof SandboxSeedError;
-    if (isSeedError) {
-      const isReadFailure = error.kind === 'read';
-      if (isReadFailure) {
-        throw new Error(`pyric sandbox: failed to read --seed ${error.path}: ${error.detail}`);
-      }
-      throw new Error(`pyric sandbox: --seed must be a JSON object of "collection/doc" to fields, ${error.detail}`);
-    }
-    throw error;
-  }
-  const runningSession = session;
-  liveHost?.readRulesFiles(() => rulesFilesOf(runningSession, opts.cwd));
-  const resetsHostedState = Boolean(opts.hosted && opts.fresh);
-  if (resetsHostedState) logger.note('  ⓘ --fresh: archived hosted state; starting a new store');
-  const resetsPersistedState = Boolean(opts.persist && opts.fresh && !opts.hosted);
-  if (resetsPersistedState) {
-    logger.note('  ⓘ --fresh: discarded the existing state file; re-seeding');
-    logger.note(
-      '  ⚠ --fresh only resets the server-side state file — a browser tab that already has ' +
-        'sandbox data in IndexedDB keeps it and will write it straight back on its next flush. ' +
-        'For a full reset, also clear the browser store: Studio → Settings → Reset, or open an ' +
-        'incognito/private window.',
-    );
-  }
-  const payload = session.payload;
-  const hosted = usesHostedSandbox ? { projectKey: opts.cwd } : undefined;
-  // The live host serves its pages no Firebase SDK (`live-host-pages.ts`).
-  const pageImportMap = isLive ? liveHostPageImportMap() : undefined;
-  // Learn before any guard runs: a page's first request may be a guarded write.
-  const namespaceHandler: SandboxSession['handle'] = async (req, res, url) => {
-    appPorts.learn(req);
-    const handledByBridge = hasBridge && await mount.handler(req, res, url);
-    if (handledByBridge) return true;
-    return session.handle(req, res, url);
-  };
-  // A private function answers only the app's own pages: the same ports and scheme the bridge accepts.
-  const allowsAppOrigin = (req: IncomingMessage): boolean => {
-    const boundHost = opts.host ?? 'localhost';
-    const ports = appPorts.forRequest(req);
-    const scheme = effectiveRequestScheme(req, effectiveTrustProxy) ?? requestSocketScheme(req);
-    return (
-      isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, effectiveAllowedHosts, ports, scheme) &&
-      !isForeignFetchSite(req, boundHost, ports, scheme, effectiveAllowedHosts)
-    );
-  };
-  const gatewayHandler = opts.functionsHandler;
-  let functionsHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<boolean>) | undefined;
-  const servesFunctions = gatewayHandler !== undefined;
-  if (servesFunctions) functionsHandler = (req, res) => gatewayHandler(req, res, allowsAppOrigin);
-  let handle: Awaited<ReturnType<typeof startStaticServer>>;
-  try {
-    handle = await startStaticServer({
-      publicDir,
-      port: opts.port ?? 3473,
-      host: opts.host ?? 'localhost',
-      spaRewrite: wantsSpaRewrite(hosting),
-      namespaceHandler,
-      functionsHandler,
-      // Never force in-page: serve always serves the worker, and the bridge peer
-      // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
-      // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html, ctx) => {
-        let htmlHosted = hosted;
-        if (hosted !== undefined && ctx.remoteClient === true) {
-          htmlHosted = { projectKey: opaqueProjectKey(hosted.projectKey) };
-        }
-        const tagged = injectServeTags(html, {
-          workerVersion, hosted: htmlHosted, aiMode, owners,
-          importMap: pageImportMap,
-          sessionToken: ctx.localPeer ? sessionToken : undefined,
-          remotePeer: !ctx.localPeer,
-        });
-        return injectServeAiEngineTag(tagged, browserAiEngine);
-      },
-      sessionToken,
-      allowedHosts: effectiveAllowedHosts,
-      remoteAccess: effectiveRemoteAccess,
-      logger,
-    });
-  } catch (error) {
-    await mount?.close();
-    await session.close();
-    bundle.dispose?.();
-    throw error;
-  }
-  origin.port = handle.port;
-  const canWriteSessionFile = !hasBridge && !isLive && (usesHostedSandbox || Boolean(opts.persist) || opts.capture !== false);
-  const removeOwnedSessionFile = canWriteSessionFile
-    ? writeOwnedSessionFile(opts.cwd, { port: handle.port, token: sessionToken })
-    : undefined;
-  // The bridge attachment owns upgrades on every bound family plus discovery.
-  // Its explicit close handle is also folded into stop() below, before the
-  // sandbox session is released.
-  let hostedSandboxCapture: ReturnType<typeof captureHostedSandbox> | null = null;
-  if (usesHostedSandbox && !isLive) {
-    hostedSandboxCapture = captureHostedSandbox(session.hostedPersistence?.checkpoints);
-  }
-  let bridgeAttachment;
-  try {
-    if (usesHostedSandbox) {
-      let hostedPayload = session.payload();
-      if (resolvedAi.engineWire !== undefined) {
-        hostedPayload = { ...hostedPayload, ai: { engine: resolvedAi.engineWire } };
-      }
-      await mount?.startHostedSandbox(hostedPayload, handle.url, {
-        proxyUpstream: resolvedAi.proxyUpstream,
-        logger,
-        persistence: session.hostedPersistence,
-        ownWriteRefusal: liveStart?.writeRefusal,
-      });
-    }
-    bridgeAttachment = mount?.attachHost({
-      servers: handle.servers,
-      lifecycleServer: handle.server,
-      projectDir: opts.cwd,
-      origin: () => {
-        const isListening = origin.port > 0;
-        return isListening ? origin : null;
-      },
-    });
-  } catch (error) {
-    hostedSandboxCapture?.clear();
-    removeOwnedSessionFile?.();
-    await mount?.close();
-    await session.close();
-    await handle.stop().catch(() => undefined);
-    bundle.dispose?.();
-    throw error;
-  }
-  const stopServer = handle.stop.bind(handle);
-  let closeResources: Promise<void> | null = null;
-  const closeOwnedResources = (): Promise<void> => {
-    closeResources ??= (async () => {
-      hostedSandboxCapture?.clear();
-      removeOwnedSessionFile?.();
-      await bridgeAttachment?.close();
-      await mount?.close();
-      await session.close();
-      releaseOwnership?.();
-    })();
-    return closeResources;
-  };
-  handle = {
-    ...handle,
-    async stop() {
-      // Initiate listener shutdown before terminating upgraded sockets. Bun's
-      // node:http compatibility layer can strand close callbacks when an
-      // upgraded socket is destroyed first. Resource teardown remains ordered
-      // bridge → sandbox, and the server close is awaited last.
-      const serverStop = stopServer();
-      try {
-        await closeOwnedResources();
-      } finally {
-        await serverStop;
-      }
-    },
-  };
-  const disposeBundle = bundle.dispose;
-  const needsBundleCleanup = disposeBundle !== undefined;
-  if (needsBundleCleanup) handle.server.once('close', disposeBundle);
-  handle.server.once('close', () => void closeOwnedResources());
-  const hasSiteUi = Boolean(siteUiDir);
-  const uiUrl = hasSiteUi ? `${handle.url}/__pyric/ui/studio` : null;
-  const docsUrl = hasSiteUi ? `${handle.url}/__pyric/ui/docs/` : null;
-
-  // Hot-reload: the static adapter observes the filesystem; the session owns
-  // read/prepare/last-good replacement and event broadcast. The rules source
-  // and every module file it imports are watched, including the module files
-  // a failed reload asked for, so fixing or creating one reloads. The source
-  // is the path the rules load from, watched whether or not it exists at
-  // startup, so a rules file created later loads. On a live host each reload
-  // line says it changed the sandbox only, with no `pyric verify` hint.
-  const getVerifyHint = createVerifyHint({
-    live: isLive,
-    capturePath: session.summary.capturePath,
-  });
-
-  const isWatchEnabled = opts.watch ?? true;
-  if (isWatchEnabled) {
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const changedFirestoreFiles = new Set<string>();
-    const rulesFiles = watchRulesFiles(
-      () => session.firestoreRulesFiles(),
-      (file) => {
-        changedFirestoreFiles.add(file);
-        const pendingReload = debounce;
-        const hasPendingReload = pendingReload !== null;
-        if (hasPendingReload) clearTimeout(pendingReload);
-        debounce = setTimeout(() => {
-          const files = [...changedFirestoreFiles];
-          changedFirestoreFiles.clear();
-          for (const changed of files) {
-            void session.reloadFirestoreDatabaseRules(changed).then((results) => {
-              rulesFiles.sync();
-              const hasReloaded = results.some((entry) => entry.result.kind === 'reloaded');
-              const hint = hasReloaded ? getVerifyHint('firestore', changed) : '';
-              for (const line of formatFirestoreReloadNotes(results, hint)) {
-                logger.note(line);
-              }
-            });
-          }
-        }, 150);
-      },
-      (error) => {
-        logger.note(formatFirestoreWatcherErrorNote(serveErrorMessage(error)));
-      },
-    );
-    handle.server.once('close', () => {
-      const pendingReload = debounce;
-      const hasPendingReload = pendingReload !== null;
-      if (hasPendingReload) clearTimeout(pendingReload);
-      rulesFiles.close();
-    });
-  }
-  // Each Realtime Database instance's rules file is watched the same way:
-  // created, changed, and deleted files all reload, and only the instances
-  // that deploy the changed file reload. A deleted file returns its instances
-  // to the default policy, the state the server starts in without the file.
-  if (isWatchEnabled) {
-    let debounceDb: ReturnType<typeof setTimeout> | null = null;
-    const changedDatabaseFiles = new Set<string>();
-    const dbRulesFiles = watchRulesFiles(
-      () => session.databaseRulesFiles(),
-      (file) => {
-        changedDatabaseFiles.add(file);
-        const pendingReload = debounceDb;
-        const hasPendingReload = pendingReload !== null;
-        if (hasPendingReload) clearTimeout(pendingReload);
-        debounceDb = setTimeout(() => {
-          const files = [...changedDatabaseFiles];
-          changedDatabaseFiles.clear();
-          for (const changed of files) {
-            void session.reloadDatabaseRules(changed).then((results) => {
-              for (const { instance, file: source, result } of results) {
-                if (result.kind === 'reloaded') {
-                  logger.note(
-                    `  \u21bb rtdb rules reloaded for ${instance} (hash ${result.rulesHash}) \u2192 ${result.clients} page(s)${getVerifyHint('database', changed)}`,
-                  );
-                  if (result.fixtureCheck && result.fixtureCheck.ran > 0) {
-                    for (const line of result.fixtureCheck.lines) logger.note(line);
-                  }
-                } else if (result.kind === 'rejected') {
-                  logger.note(`  ⚠ rtdb rules NOT reloaded for ${instance} (last-good stays live): ${result.error.message}`);
-                } else if (result.kind === 'removed') {
-                  logger.note(`  ⚠ ${formatDatabaseRulesRemoved(source, result.policy, instance)} → ${result.clients} page(s)`);
-                }
-              }
-            });
-          }
-        }, 150);
-      },
-      (error) => {
-        const message = serveErrorMessage(error);
-        logger.note(`  ⚠ rtdb rules watcher failed (hot reload off): ${message}`);
-      },
-    );
-    handle.server.once('close', () => {
-      const pendingReload = debounceDb;
-      const hasPendingReload = pendingReload !== null;
-      if (hasPendingReload) clearTimeout(pendingReload);
-      dbRulesFiles.close();
-    });
-  }
-  // Each bucket's Storage rules file is watched the same way, and only the
-  // buckets that deploy the changed file reload. A deleted file returns its
-  // buckets to denying every client operation, the state the server starts
-  // in without the file.
-  if (isWatchEnabled) {
-    let debounceStorage: ReturnType<typeof setTimeout> | null = null;
-    const changedStorageFiles = new Set<string>();
-    const storageRulesFiles = watchRulesFiles(
-      () => session.storageRulesFiles(),
-      (file) => {
-        changedStorageFiles.add(file);
-        const pendingReload = debounceStorage;
-        const hasPendingReload = pendingReload !== null;
-        if (hasPendingReload) clearTimeout(pendingReload);
-        debounceStorage = setTimeout(() => {
-          const files = [...changedStorageFiles];
-          changedStorageFiles.clear();
-          for (const changed of files) {
-            void session.reloadStorageRules(changed).then((results) => {
-              storageRulesFiles.sync();
-              for (const { bucket, target, file: source, result } of results) {
-                const named = storageBucketSuffix(bucket, target);
-                if (result.kind === 'reloaded') {
-                  logger.note(
-                    `  \u21bb storage rules reloaded${named} (hash ${result.rulesHash}) \u2192 ${result.clients} page(s)${getVerifyHint('storage', changed)}`,
-                  );
-                } else if (result.kind === 'rejected') {
-                  logger.note(`  ⚠ storage rules NOT reloaded (last-good stays live): ${result.error.message}${named}`);
-                } else if (result.kind === 'removed') {
-                  logger.note(`  ⚠ ${formatStorageRulesRemoved(source, result.policy, bucket, target)} → ${result.clients} page(s)`);
-                }
-              }
-            });
-          }
-        }, 150);
-      },
-      (error) => {
-        const message = serveErrorMessage(error);
-        logger.note(`  ⚠ storage rules watcher failed (hot reload off): ${message}`);
-      },
-    );
-    handle.server.once('close', () => {
-      const pendingReload = debounceStorage;
-      const hasPendingReload = pendingReload !== null;
-      if (hasPendingReload) clearTimeout(pendingReload);
-      storageRulesFiles.close();
-    });
-  }
-
-  logger.info(`=== Serving from '${opts.cwd}'...`);
-  logger.info('');
-  if (publicDir === null) {
-    logger.info(hostingNoStaticSiteLine(hasFirebaseJson, hosting !== null));
-  } else {
-    logger.info(`\u2714 hosting  Serving files from: ${publicDirLabel}`);
-  }
-  logger.info(`✔ hosting  Local server: ${handle.url}`);
-  const usedCachedBundle = bundle.cached;
-  if (usesEmbeddedAssets) {
-    logger.info('✔ sandbox  pyric SDK bundles ready (embedded)');
-  } else if (usedCachedBundle) {
-    logger.info('✔ sandbox  pyric SDK bundles ready (cache)');
-  } else {
-    logger.info(`✔ sandbox  pyric SDK bundles built in ${bundleMs}ms`);
-  }
-  const rulesTarget = usesHostedSandbox ? 'Node sandbox' : 'in-page sandbox';
-  for (const line of formatStartupFirestoreRulesLines({
-    hasDefaultRules: Boolean(session.payload().rules),
-    defaultSourcePath: session.summary.rules.firestore.sourcePath,
-    defaultHash: session.summary.rules.firestore.hash,
-    rulesTarget,
-    namedDatabases: session.summary.rules.firestoreDatabases,
-    permissive: Boolean(opts.permissive),
-  })) {
-    logger.info(line);
-  }
-  const loadedDatabaseRules = session.summary.rules.database;
-  const hasDatabaseRules = loadedDatabaseRules.length > 0;
-  if (hasDatabaseRules) {
-    for (const loaded of loadedDatabaseRules) {
-      logger.info(`✔ rules    ${loaded.sourcePath} → deployed to RTDB instance ${loaded.instance} (hash ${loaded.hash})`);
-    }
-  } else {
-    logger.info('• rules    no database.rules — RTDB sandbox runs with default rules');
-  }
-  const hasStorageRules = Boolean(session.payload().storageRules);
-  const storageBuckets = session.summary.rules.storageBuckets;
-  if (hasStorageRules) {
-    logger.info(`✔ rules    ${session.summary.rules.storage.sourcePath} → deployed to the default Storage bucket (hash ${session.summary.rules.storage.hash})`);
-  }
-  for (const loaded of storageBuckets) {
-    logger.info(`✔ rules    ${loaded.sourcePath} → deployed to Storage bucket ${loaded.bucket} (hash ${loaded.hash})`);
-  }
-  const hasNoStorageRules = !hasStorageRules && storageBuckets.length === 0;
-  logger.info(undeployedStorageLine(hasNoStorageRules, opts.permissive ? 'allow' : 'deny'));
-  const hasStudioUrl = uiUrl !== null;
-  if (hasStudioUrl) {
-    logger.info(`✔ studio   Pyric Studio: ${uiUrl}`);
-  }
-  const hasDocsUrl = docsUrl !== null;
-  if (hasDocsUrl) {
-    logger.info(`✔ docs     Pyric docs: ${docsUrl}`);
-  }
-  if (hasBridge) {
-    logger.info(`✔ bridge   MCP endpoint: ${handle.url}/__pyric/mcp (sandbox peers over ws at /__pyric/sandbox)`);
-  }
-  if (effectiveRemoteAccess !== undefined) {
-    const startupLines = formatRemoteAccessStartupLines({
-      remoteAccess: effectiveRemoteAccess,
-      sessionToken,
-      https: handle.url.startsWith('https://'),
-      prefix: '  ',
-    });
-    for (const line of startupLines) {
-      logger.info(line);
-    }
-  }
-  // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
-  // the first request on, whether or not anything is configured. Report the
-  // engine and proxy upstream resolved from `pyric.json` (`ai`) and env.
-  logger.info(
-    formatAiStatusLine({
-      hosted: usesHostedSandbox,
-      mode: aiMode,
-      engine: resolvedAi.engineWire,
-      proxyUpstream: resolvedAi.proxyUpstream,
-      ignoredGeminiKey,
-    }),
-  );
-  let persistSummary: ServeRuntime['persist'] = null;
-  const persistence = session.summary.persistence;
-  const hasPersistence = persistence !== null;
-  if (hasPersistence) {
-    const fsDocs = persistence.restoredDocs;
-    const users = persistence.restoredUsers;
-    persistSummary = { restoredDocs: fsDocs, restoredUsers: users };
-    const restoredState = persistence.restored;
-    const appliedHostedSeed = usesHostedSandbox && persistence.seedApplied;
-    if (appliedHostedSeed) {
-      logger.info(`✔ persist  ${persistence.path} (${fsDocs} doc(s), ${users} user(s); --seed applied)`);
-    } else if (restoredState) {
-      logger.info(`✔ persist  ${persistence.path} (${fsDocs} doc(s), ${users} user(s) restored; --seed skipped)`);
-    } else {
-      logger.info(`✔ persist  new state file at ${persistence.path} (first run — seed applies)`);
-    }
-    const hasRecoveryBackup = existsSync(persistence.backupPath);
-    if (hasRecoveryBackup) {
-      const recoveryInstructions = usesHostedSandbox
-        ? 'Restore: stop the host, move the current .pyric/state/hosted directory aside, then rename this archive to .pyric/state/hosted.'
-        : '(prior non-empty state was replaced by an empty one — e.g. a reset). Restore: mv it back over state.json.';
-      logger.note(`  ⓘ a recovery backup exists at ${persistence.backupPath} ${recoveryInstructions}`);
-    }
-  } else if (usesHostedSandbox) {
-    logger.note('  ⓘ persist  data is held in Node memory and is lost when this process stops.');
-  } else {
-    logger.note(formatBrowserPersistNoticeLine());
-  }
-  // (A fixture that primed the persist store is reported by the persist
-  // line; a fixture ignored because lived state exists is intentionally
-  // silent about staging.)
-  const hasStagedSeed = session.summary.seedStaged;
-  if (hasStagedSeed) {
-    logger.info(`✔ seed     ${session.summary.seedLabel} staged for page init`);
-  }
-  const hasCapture = Boolean(session.summary.capturePath);
-  if (hasCapture) {
-    const verifyCmd = formatPyricCommand('verify');
-    logger.info(`\u2714 capture  session \u2192 ${session.summary.capturePath} (run \`${verifyCmd}\` to replay it)`);
-  }
-  if (isWatchEnabled) {
-    const [firestoreRulesFile] = session.firestoreRulesFiles();
-    logger.info(`✔ watch    hot-reloading ${firestoreRulesFile} over /__pyric/events`);
-    for (const databaseRulesFile of session.databaseRulesFiles()) {
-      logger.info(`✔ watch    hot-reloading ${databaseRulesFile} over /__pyric/events`);
-    }
-    for (const storageRulesFile of session.storageRulesFiles()) {
-      logger.info(`✔ watch    hot-reloading ${storageRulesFile} over /__pyric/events`);
-    }
-  }
-  // Browser-honesty: the sandbox is browser-resident — firestore/auth and
-  // persistence run IN the served page. With no page open, data ops silently
-  // no-op. This warning (paired with auto-open in runServe) is the fix for the
-  // "I ran serve and nothing happened" surprise. Always printed.
-  logger.note('');
-  if (usesHostedSandbox) {
-    logger.note('  ⓘ the pyric sandbox executes in this Node process.');
-  } else {
-    logger.note('  ⚠ the pyric sandbox runs IN the served page — keep the browser tab open.');
-    logger.note('    Firestore/auth data and persistence stop when no page is open.');
-  }
-  let mcpUrl: string | null = null;
-  if (hasBridge) mcpUrl = mount.mcpUrl(origin);
-  const workerInit = workerInitPayload(hosted?.projectKey, owners, mount?.instanceId, sessionToken);
-  return {
-    handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken,
-    sessionToken, instanceId: mount?.instanceId, workerInit,
-    get hostedSandbox() {
-      return hostedSandboxCapture?.get() ?? null;
-    },
-  };
-}
+export {
+  extractHosting,
+  installServeProcessGuard,
+  serveJsonLine,
+  startServe,
+  undeployedStorageLine,
+  wantsSpaRewrite,
+  type ServeRuntime,
+};
 
 /**
  * `--ui` implies `--bridge` (hybrid-MCP plan Phase 3): a Studio user almost
@@ -1092,9 +90,8 @@ export function bridgeEnabledFromFlags(flags: { get(key: string): unknown }): bo
 /**
  * A dev child also implies the bridge: the runner injects
  * `PYRIC_SANDBOX=remote:<url>` into the child, whose remote client dials the
- * `/__pyric/sandbox` WS — without the bridge mount that upgrade 404s and
- * `pyric sandbox -- <cmd>` breaks its own
- * child. Pure + exported for unit coverage.
+ * `/__pyric/sandbox` WS -- without the bridge mount that upgrade 404s and
+ * `pyric sandbox -- <cmd>` breaks its own child. Pure + exported for unit coverage.
  */
 export function bridgeEnabledFor(
   flags: { get(key: string): unknown },
@@ -1103,8 +100,6 @@ export function bridgeEnabledFor(
 ): boolean {
   return bridgeEnabledFromFlags(flags) || childPlan != null || functionsProject != null;
 }
-
-export { installServeProcessGuard };
 
 function resolveServePort(flagPort: unknown, configPort?: number): number {
   if (typeof flagPort === 'string') return Number(flagPort);
@@ -1123,30 +118,17 @@ function resolveExplicitCommand(parsed: ParsedArgs): string[] | null {
   return null;
 }
 
-/** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 /** How a live host's clients reach it, in place of the sandbox's export block. */
 const LIVE_HOST_CLIENTS =
   '\n  To show a Node process\'s calls here, start it in this project with:\n' +
   '    node --import @pyric/live/register server.js\n' +
   '  For a Vite app, add pyricLive() from @pyric/live/vite: its dev server is the live host.\n';
 
-/** What only `@pyric/live`'s seam (`serve/live-host.ts`) sets on a run: the project it resolved, and where from. */
-interface LiveServeStart {
-  project: FirebaseProjectResolution;
-  /** The installed `@pyric/live`'s refusal of pyric's own writes: Studio's, an MCP tool's, a command's, the seed file's. */
-  writeRefusal: PyricWriteRefusal;
-  /** Explicit second opt-in set only by `pyric-live --allow-remote-live` to admit non-loopback peers in live mode. */
-  allowRemotePeers?: boolean;
-  /** Validated `firebase/*` imports the live host passes through (`pyric-live --pass-through`). */
-  passThrough?: readonly string[];
-  /** Explicit opt-in to read deployed Security Rules read-only via CLI/ADC login (`pyric-live --deployed-rules`). */
-  deployedRules?: boolean;
-}
-
 export interface ServeRunHost {
   liveHost?: LiveServeStart;
 }
 
+/** CLI entry. Resolves on SIGINT/SIGTERM after a clean stop. */
 export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): Promise<number> {
   const removeOutputPipeGuard = installOutputPipeGuard();
   try {
@@ -1163,25 +145,21 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
   try {
     pyricConfig = await readPyricConfig(cwd);
   } catch (error) {
-    const message = serveErrorMessage(error);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`${serveErrorMessage(error)}\n`);
     return 2;
   }
 
   const flagPort = parsed.flags.get('port');
   const port = resolveServePort(flagPort, pyricConfig.port);
-  const isInvalidPort = !Number.isFinite(port) || port < 0 || port > 65535;
-  if (isInvalidPort) {
+  if (!Number.isFinite(port) || port < 0 || port > 65535) {
     process.stderr.write(`pyric: invalid --port '${flagPort}'.\n`);
     return 1;
   }
   const flagHost = parsed.flags.get('host');
-  const hasHostFlag = typeof flagHost === 'string';
-  const host = hasHostFlag ? flagHost : 'localhost';
+  const host = typeof flagHost === 'string' ? flagHost : 'localhost';
 
   const only = parsed.flags.get('only');
-  const requestsUnsupportedService = typeof only === 'string' && only !== 'hosting';
-  if (requestsUnsupportedService) {
+  if (typeof only === 'string' && only !== 'hosting') {
     process.stderr.write(
       `pyric: --only '${only}' is not supported. pyric sandbox serves hosting with the in-page sandbox standing in for Firestore and Auth.\n`,
     );
@@ -1205,9 +183,7 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
   const uiOn = !parsed.flags.get('no-ui');
 
   // Resolve the child plan BEFORE the server starts: a planned child implies
-  // the bridge (see bridgeEnabledFor) — the child's injected PYRIC_SANDBOX
-  // is useless without the /__pyric/sandbox WS mount.
-  // One project for the database rules, deploy targets and functions child.
+  // the bridge (see bridgeEnabledFor).
   let discoveredFunctionsProject: FunctionsProject | null;
   let firebaseProject: FirebaseProjectResolution;
   try {
@@ -1220,17 +196,14 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       rc: await readFirebaseRc(cwd),
     });
   } catch (error) {
-    const message = serveErrorMessage(error);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`${serveErrorMessage(error)}\n`);
     return 2;
   }
   const functionsProject = discoveredFunctionsProject;
   const functionsProjectId = functionsProject === null ? null : firebaseProject.projectId ?? 'demo-project';
-  // Created before the server starts so its routes exist from the first request.
   let functionsGateway: FunctionsHttpGateway | null = null;
 
   const explicitCommand = resolveExplicitCommand(parsed);
-
   const plan = resolveSandboxChild({
     explicitCommand,
     configCommand: pyricConfig.command,
@@ -1243,10 +216,8 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
   let runtime: ServeRuntime;
   try {
     const flagSeed = parsed.flags.get('seed');
-    const hasSeedFlag = typeof flagSeed === 'string';
-    const seed = hasSeedFlag ? flagSeed : undefined;
-    const disablesWatch = Boolean(parsed.flags.get('no-watch'));
-    const watch = disablesWatch ? false : undefined;
+    const seed = typeof flagSeed === 'string' ? flagSeed : undefined;
+    const watch = Boolean(parsed.flags.get('no-watch')) ? false : undefined;
     const capture = !parsed.flags.get('no-capture');
     const flagAllowedHosts = parsed.flags.get('allowed-host');
     let allowedHosts: string[] | undefined;
@@ -1254,12 +225,9 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       if (typeof flagAllowedHosts === 'boolean') {
         throw new Error('pyric: --allowed-host requires a hostname or comma-separated list.');
       }
-      let hostInputs: string[];
-      if (Array.isArray(flagAllowedHosts)) {
-        hostInputs = flagAllowedHosts.filter((entry): entry is string => typeof entry === 'string');
-      } else {
-        hostInputs = [flagAllowedHosts];
-      }
+      const hostInputs = Array.isArray(flagAllowedHosts)
+        ? flagAllowedHosts.filter((entry): entry is string => typeof entry === 'string')
+        : [flagAllowedHosts];
       allowedHosts = parseAllowedHostsInput(hostInputs);
     }
     const flagAllowPeers = parsed.flags.get('allow-remote-peers');
@@ -1269,23 +237,17 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     if (flagAllowPeers !== undefined || flagTrustProxy !== undefined || allowLiveRemotePeers) {
       const parsedRemote: RemoteAccessOptions = {};
       if (flagAllowPeers !== undefined) {
-        let lastPeer: string | boolean | undefined;
-        if (Array.isArray(flagAllowPeers)) {
-          lastPeer = flagAllowPeers[flagAllowPeers.length - 1];
-        } else {
-          lastPeer = flagAllowPeers;
-        }
+        const lastPeer = Array.isArray(flagAllowPeers)
+          ? flagAllowPeers[flagAllowPeers.length - 1]
+          : flagAllowPeers;
         if (lastPeer !== undefined) {
           parsedRemote.allowPeers = parseAllowRemotePeersInput(lastPeer);
         }
       }
       if (flagTrustProxy !== undefined) {
-        let lastTrust: string | boolean | undefined;
-        if (Array.isArray(flagTrustProxy)) {
-          lastTrust = flagTrustProxy[flagTrustProxy.length - 1];
-        } else {
-          lastTrust = flagTrustProxy;
-        }
+        const lastTrust = Array.isArray(flagTrustProxy)
+          ? flagTrustProxy[flagTrustProxy.length - 1]
+          : flagTrustProxy;
         if (lastTrust !== undefined) {
           parsedRemote.trustProxy = parseTrustProxyInput(lastTrust);
         }
@@ -1310,10 +272,8 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     };
     if (functionsProjectId !== null) {
       const served = json ? process.stderr : process.stdout;
-      let gatewaySandbox: (() => LocalSandbox | null | undefined) | undefined;
-      if (usesHostedSandbox && runHost.liveHost === undefined) {
-        gatewaySandbox = () => runtime?.hostedSandbox;
-      }
+      const gatewaySandbox: (() => LocalSandbox | null | undefined) | undefined =
+        usesHostedSandbox && runHost.liveHost === undefined ? () => runtime?.hostedSandbox : undefined;
       functionsGateway = createFunctionsHttpGateway({
         projectId: functionsProjectId,
         initial: { kind: 'starting' },
@@ -1321,7 +281,10 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
           await readFirebaseJson(cwd).catch(() => null),
           (warning) => writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`),
         ),
-        staticFileExists: (pathname) => runtime !== undefined && runtime.publicDir !== null && resolveHostingFile(runtime.publicDir, pathname) !== null,
+        staticFileExists: (pathname) =>
+          runtime !== undefined &&
+          runtime.publicDir !== null &&
+          resolveHostingFile(runtime.publicDir, pathname) !== null,
         trustProxy: gatewayTrustProxy,
         sandbox: gatewaySandbox,
         onWarning: (warning) => writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`),
@@ -1346,10 +309,7 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       persist: Boolean(parsed.flags.get('persist')),
       fresh: Boolean(parsed.flags.get('fresh')),
       permissive: Boolean(parsed.flags.get('permissive')),
-      // --ui mounts the Pyric Studio storage routes (workspace + projects).
       ui: uiOn,
-      // --no-capture disables the default-on session capture. The pattern
-      // mirrors --no-open: default is true, one flag inverts it.
       capture,
       allowedHosts,
       remoteAccess,
@@ -1361,29 +321,16 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       liveHost: runHost.liveHost,
     });
   } catch (e) {
-    const message = serveErrorMessage(e);
-    process.stderr.write(`${message}\n`);
+    process.stderr.write(`${serveErrorMessage(e)}\n`);
     return 2;
   }
 
-  // The server is up: from here on, no single bad request/WS/watcher error
-  // may kill the process -- log loudly and keep serving (startup errors above
-  // still fail fast).
   const uninstallProcessGuard = installServeProcessGuard((m) => writeStreamQuietly(process.stderr, `${m}\n`));
-
-  // The agent contract: with --json, stdout carries exactly this one line
-  // (the banner went to stderr). Readiness probe: GET /__pyric/init.json.
   if (json) writeStreamQuietly(process.stdout, `${serveJsonLine(runtime)}\n`);
-
-  // Suggest `--bridge` only when no MCP endpoint is mounted on this runtime.
-  const shouldSuggestBridge = runtime.mcpUrl === null && usesHumanOutput;
-  if (shouldSuggestBridge) {
+  if (runtime.mcpUrl === null && usesHumanOutput) {
     writeStreamQuietly(process.stderr, formatBridgeTipLine());
   }
 
-  // Auto-open the served page (best-effort) so the browser-resident sandbox is
-  // actually running. Suppressed in non-interactive paths (--json, --no-open,
-  // no TTY, CI) -- see shouldAutoOpen. A failed open never fails serve.
   const opened = shouldAutoOpen({
     json,
     noOpen: Boolean(parsed.flags.get('no-open')),
@@ -1391,10 +338,8 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     env: process.env,
   });
   if (opened) {
-    // When explicit --ui is passed, open Studio directly; otherwise open the served page.
     const studioUrl = runtime.uiUrl;
-    const opensStudio = explicitUi && studioUrl !== null;
-    const targetUrl = opensStudio ? studioUrl : runtime.handle.url;
+    const targetUrl = explicitUi && studioUrl !== null ? studioUrl : runtime.handle.url;
     void openBrowser(targetUrl);
   }
 
@@ -1424,9 +369,9 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     writeStreamQuietly(output, '\nShutting down...\n');
     beaconWatchdog?.stop();
     const activeChild = devChild;
-    const hasRunningChild =
-      activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null;
-    if (hasRunningChild) activeChild.signal(await signal);
+    if (activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null) {
+      activeChild.signal(await signal);
+    }
     resolveCrashRestartWait();
     await runBoundedTeardown(async () => {
       await functionsRuntime?.close().catch(ignoreShutdownError);
@@ -1436,181 +381,40 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     return 0;
   };
 
-  const hasFunctionsIdentity = functionsProjectId !== null && functionsProjectId.length > 0;
-  const canStartFunctions = functionsProject !== null && hasFunctionsIdentity;
-  if (canStartFunctions) {
-    const info = json ? process.stderr : process.stdout;
-    writeStreamQuietly(info, '\u2022 functions waiting for the browser tab to connect the sandbox\u2026\n');
-    const serveUrl = runtime.handle.url;
-    functionsGateway?.update(usesHostedSandbox ? { kind: 'starting' } : { kind: 'waiting-peer', serveUrl });
-    const warnPrivateInvokers = createPrivateInvokerWarnings();
-    const reportFunctionsEvent = (event: FunctionsDevelopmentEvent): void => {
-      if (event.type === 'starting') {
-        if (crashRestartWait === null) {
-          let nextKind: 'starting' | 'reloading' = 'starting';
-          if (event.mode === 'reload') {
-            nextKind = 'reloading';
-          }
-          functionsGateway?.update({ kind: nextKind });
-        }
-        return;
-      }
-      const isOutput = event.type === 'output';
-      if (isOutput) {
-        const isStdout = event.stream === 'stdout';
-        const output = isStdout ? info : process.stderr;
-        writeStreamQuietly(output, event.line);
-        return;
-      }
-      const isUnexpectedExit = event.type === 'unexpected-exit';
-      if (isUnexpectedExit) {
-        resolveCrashRestartWait();
-        const isRestarting = event.restarting !== false;
-        if (isRestarting) {
-          crashRestartWait = Promise.withResolvers<void>();
-          functionsGateway?.update({
-            kind: 'restarting',
-            code: event.code,
-            ready: crashRestartWait.promise,
-          });
-        } else {
-          functionsGateway?.update({ kind: 'exited', code: event.code });
-        }
-        writeStreamQuietly(process.stderr, `pyric sandbox: ${unexpectedExitLine(event.code, isRestarting)}\n`);
-        return;
-      }
-      if (event.type === 'unresponsive') {
-        functionsGateway?.update({ kind: 'unresponsive' });
-        writeStreamQuietly(process.stderr, `\u2716 ${UNRESPONSIVE_LINE}\n`);
-        return;
-      }
-      if (event.type === 'restarted') {
-        functionsGateway?.update(stateAfterStart(event.result, serveUrl));
-        resolveCrashRestartWait();
-        const restarted = event.result.kind === 'ready';
-        if (restarted) {
-          writeStreamQuietly(info, '\u21bb functions restarted\n');
-        } else {
-          const reason = event.result.kind === 'failed' ? event.result.error.message : 'no sandbox peer';
-          writeStreamQuietly(process.stderr, `\u2716 functions did not restart (${reason})\n`);
-        }
-        return;
-      }
-      const childEvent = event.event;
-      if (childEvent.type === 'uncaught-error') {
-        writeStreamQuietly(process.stderr, `\u2716 ${uncaughtErrorLine(childEvent.error)}\n`);
-        return;
-      }
-      const isExecution = childEvent.type === 'execution';
-      if (isExecution) {
-        const params = Object.entries(childEvent.params)
-          .map(([name, value]) => `${name}=${value}`)
-          .join(', ');
-        const hasParams = params.length > 0;
-        const paramsSuffix = hasParams ? ` (${params})` : '';
-        const isFulfilled = childEvent.status === 'fulfilled';
-        if (isFulfilled) {
-          writeStreamQuietly(info, `\u2714 function  ${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}\n`);
-        } else {
-          writeStreamQuietly(
-            process.stderr,
-            `\u2716 function  ${childEvent.exportName} \u2190 /${childEvent.ref}${paramsSuffix}: ${childEvent.error.message}\n`,
-          );
-        }
-      } else {
-        writeStreamQuietly(
-          process.stderr,
-          `\u2716 functions delivery for ${childEvent.exportName}: ${childEvent.error.message}\n`,
-        );
-      }
-    };
-    functionsRuntime = createFunctionsDevelopmentRuntime({
-      sourceDir: functionsProject.sourceDir,
-      entry: functionsProject.entry,
-      baseEnv: process.env,
-      serveUrl: runtime.handle.url,
-      registerUrl: registerModuleUrl(),
-      beaconToken: runtime.beaconToken,
-      hostInstanceId: runtime.instanceId,
-      sessionToken: runtime.sessionToken,
-      instance: (await resolveProjectAndDefaultInstance(cwd, firebaseProject)).defaultInstance,
-      location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
-      projectId: functionsProjectId ?? 'demo-project',
-      readiness: createHttpFunctionsPeerReadiness(runtime.handle.url),
-      onEvent: reportFunctionsEvent,
+  if (functionsProject !== null && functionsProjectId !== null && functionsProjectId.length > 0) {
+    const exitCode = await startServeFunctionsRuntime({
+      cwd,
+      json,
+      usesHostedSandbox,
+      runtime,
+      firebaseProject,
+      functionsProject,
+      functionsProjectId,
+      functionsGateway,
+      waitOrSignal,
+      stopAfterSignal,
+      cleanupLifecycleListeners,
+      setFunctionsRuntime: (next) => {
+        functionsRuntime = next;
+      },
+      getCrashRestartWait: () => crashRestartWait,
+      setCrashRestartWait: (next) => {
+        crashRestartWait = next;
+      },
+      resolveCrashRestartWait,
     });
-    const startOutcome = await waitOrSignal(functionsRuntime.start());
-    const interruptedStartup = 'signal' in startOutcome;
-    if (interruptedStartup) return stopAfterSignal();
-    const result = startOutcome.value;
-    functionsGateway?.update(stateAfterStart(result, serveUrl));
-    const isMissingPeer = result.kind === 'no-peer';
-    const failedStartup = result.kind === 'failed';
-    if (isMissingPeer) {
-      writeStreamQuietly(
-        process.stderr,
-        `  \u26a0 functions not started \u2014 no browser tab connected after 30s. ` +
-          `Open ${runtime.handle.url} and restart ${formatPyricCommand('sandbox')}.\n`,
-      );
-    } else if (failedStartup) {
-      writeStreamQuietly(process.stderr, `${result.error.message}\n`);
-      await runBoundedTeardown(async () => {
-        await functionsRuntime?.close().catch(ignoreShutdownError);
-        await runtime.handle.stop().catch(ignoreShutdownError);
-      });
-      cleanupLifecycleListeners();
-      return 2;
-    } else {
-      const ready = result.ready;
-      const hasSingleTrigger = ready.triggerCount === 1;
-      const triggerSuffix = hasSingleTrigger ? '' : 's';
-      const reportsTriggers = ready.triggerCount > 0 || ready.http === undefined;
-      if (reportsTriggers) {
-        writeStreamQuietly(
-          info,
-          `\u2714 functions ${ready.triggerCount} onValueCreated trigger${triggerSuffix} ` +
-            `from ${relative(cwd, functionsProject.entry)}\n`,
-        );
-      }
-      if (ready.http) {
-        const [heading, ...urls] = httpFunctionLines(ready.http, serveUrl, functionsProjectId ?? 'demo-project');
-        writeStreamQuietly(info, `\u2714 ${heading}\n${urls.map((line) => `${line}\n`).join('')}`);
-        for (const warning of warnPrivateInvokers(ready.http)) {
-          writeStreamQuietly(process.stderr, `  \u26a0 ${warning}\n`);
-        }
-      }
-      for (const unsupported of ready.unsupportedTriggers) {
-        writeStreamQuietly(
-          process.stderr,
-          `  \u26a0 functions export ${unsupported.exportName} uses unsupported trigger ` +
-            `${unsupported.eventType}; it will not run in pyric sandbox.\n`,
-        );
-      }
-    }
+    if (exitCode !== null) return exitCode;
   }
 
-  // Run the explicit or configured command with the sandbox environment.
-  // `--no-run` forces host-only. `--json` skips the configured command, but an
-  // explicit command still runs.
-  // (`plan` was resolved above so it could imply the bridge mount.)
-  const hasChildPlan = plan !== null;
-  if (hasChildPlan) {
+  if (plan !== null) {
     const info = json ? process.stderr : process.stdout;
     const childAppOrigin = resolvePlannedChildAppOrigin(plan.argv, cwd, process.env);
     const browserTargetUrl = childAppOrigin ?? runtime.handle.url;
-    // First-run race guard: we just opened the tab ourselves, so wait
-    // (bounded) for it to register as the sandbox peer before the child's
-    // first op can lose the race and die on the no-tab fail-fast. Skipped
-    // when nothing was opened (CI/--no-open/--json): no tab is coming, and
-    // stalling would only delay the honest failure.
     if (opened) {
       writeStreamQuietly(info, '\u2022 run      waiting for the browser tab to connect the sandbox\u2026\n');
       const connectedOutcome = await waitOrSignal(waitForSandboxPeer(runtime.handle.url));
-      const interruptedConnection = 'signal' in connectedOutcome;
-      if (interruptedConnection) return stopAfterSignal();
-      const connected = connectedOutcome.value;
-      const missingPeer = !connected;
-      if (missingPeer) {
+      if ('signal' in connectedOutcome) return stopAfterSignal();
+      if (!connectedOutcome.value) {
         writeStreamQuietly(
           info,
           `  \u26a0 no browser tab connected after 30s \u2014 starting your command anyway; sandbox ops will fail until ${browserTargetUrl} is open.\n`,
@@ -1638,13 +442,10 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
     if (childAppOrigin !== undefined) {
       childEnv[SANDBOX_APP_ORIGIN_ENV] = childAppOrigin;
     }
-    // What we are handing the child, stated before it starts.
     const interlock = describeInterlock(childEnv, registerModuleUrl());
     writeStreamQuietly(info, formatInterlockLine(interlock));
 
     devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
-    // A child still alive well after launch that never posted a beacon is very
-    // likely not intercepted. `startBeaconWatchdog` says why this only warns.
     const beaconsAtSpawn = runtime.beaconCount();
     beaconWatchdog = startBeaconWatchdog({
       label: plan.label,
@@ -1678,9 +479,7 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
         await runBoundedTeardown(async () => {
           await functionsRuntime?.close().catch(ignoreShutdownError);
           const activeChild = devChild;
-          const hasRunningChild =
-            activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null;
-          if (hasRunningChild) {
+          if (activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null) {
             activeChild.signal('SIGTERM');
           }
           if (activeChild !== null) {
@@ -1700,21 +499,14 @@ async function runServeInner(parsed: ParsedArgs, runHost: ServeRunHost): Promise
       resolveCrashRestartWait();
       void functionsRuntime?.close().catch(ignoreShutdownError);
       const activeChild = devChild;
-      const hasRunningChild =
-        activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null;
-      if (hasRunningChild) {
-        // Forward the signal; the child's exit (below) closes the host.
-        // (The terminal delivers Ctrl-C to the whole group too -- the
-        // forward makes non-TTY / programmatic signals behave the same.)
+      if (activeChild !== null && activeChild.child.exitCode === null && activeChild.child.signalCode === null) {
         activeChild.signal(receivedSignal);
       } else {
         finish(0);
       }
     };
-    // Child exits -> close the host and propagate its code (Ctrl-C -> 0).
     const activeChild = devChild;
-    const hasChild = activeChild !== null;
-    if (hasChild) void activeChild.exited.then((code) => finish(code));
+    if (activeChild !== null) void activeChild.exited.then((code) => finish(code));
     void signal.then(shutdown);
   });
 }

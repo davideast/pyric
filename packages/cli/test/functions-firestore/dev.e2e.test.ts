@@ -180,7 +180,7 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
       return match !== null ? match[0] : null;
     });
 
-    await waitFor(() => (stdout.includes('1 onValueCreated trigger') ? true : null));
+    await waitFor(() => (stdout.includes('functions 1 trigger from ') ? true : null));
 
     activeObserver = await connectRemoteSandbox({ url: serveUrl, cwd });
 
@@ -342,7 +342,7 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
       const match = /http:\/\/127\.0\.0\.1:\d+/.exec(stdout);
       return match !== null ? match[0] : null;
     });
-    await waitFor(() => (stdout.includes('3 onValueCreated triggers') ? true : null));
+    await waitFor(() => (stdout.includes('functions 3 triggers from ') ? true : null));
 
     activeObserver = await connectRemoteSandbox({ url: serveUrl, cwd });
 
@@ -501,7 +501,7 @@ describe('pyric sandbox --hosted Firestore v2 onDocumentCreated E2E', () => {
       const match = /http:\/\/127\.0\.0\.1:\d+/.exec(stdout);
       return match !== null ? match[0] : null;
     });
-    await waitFor(() => (stdout.includes('3 onValueCreated triggers') ? true : null));
+    await waitFor(() => (stdout.includes('functions 3 triggers from ') ? true : null));
 
     activeObserver = await connectRemoteSandbox({ url: serveUrl, cwd });
 

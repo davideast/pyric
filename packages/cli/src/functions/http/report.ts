@@ -20,6 +20,12 @@ function formatFunctionGroup(
   return [`functions ${count} ${label} function${suffix}:`, ...urls];
 }
 
+/** Summary line printed on initial discovery of non-HTTP Functions triggers. */
+export function functionsTriggersLine(triggerCount: number, entryPath: string): string {
+  const suffix = triggerCount === 1 ? '' : 's';
+  return `functions ${triggerCount} trigger${suffix} from ${entryPath}`;
+}
+
 /** One URL per served function and region, under the emulator path. */
 export function httpFunctionLines(http: FunctionsChildHttpReady, serveUrl: string, projectId: string): string[] {
   const base = serveUrl.replace(/\/$/, '');
@@ -99,6 +105,6 @@ export function servedLine(record: FunctionsHttpRecord): { failed: boolean; line
   const pathOnly = record.path.split(/[?#]/, 1)[0];
   return {
     failed,
-    line: `function  ${record.exportName} ← ${record.method} ${pathOnly} ${outcome}${timedOut} (${record.durationMs} ms)`,
+    line: `function  ${record.exportName} \u2190 ${record.method} ${pathOnly} ${outcome}${timedOut} (${record.durationMs} ms)`,
   };
 }

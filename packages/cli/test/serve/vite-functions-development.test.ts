@@ -88,7 +88,7 @@ describe('Vite Functions development adapter', () => {
       instance: 'demo-project-default-rtdb',
       location: 'us-central1',
     });
-    expect(info.some((message) => message.includes('1 onValueCreated trigger'))).toBe(true);
+    expect(info.some((message) => message.includes('functions 1 trigger from '))).toBe(true);
 
     watcher.emit('change', '/elsewhere/index.js');
     watcher.emit('add', path.join(sourceDir, 'node_modules/pkg/index.js'));

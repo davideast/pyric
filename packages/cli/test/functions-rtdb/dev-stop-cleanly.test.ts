@@ -203,7 +203,7 @@ describe('#1543 clean SIGTERM shutdown guarantees', () => {
       cwd,
     });
     activeObserver = await connectRemoteSandbox({ url: pointer.url, cwd });
-    await waitFor(() => (stdout.includes('1 onValueCreated trigger') ? true : null));
+    await waitFor(() => (stdout.includes('functions 1 trigger from ') ? true : null));
 
     await activeObserver.rtdb.set('jobs/j1/input', 'go');
     await waitFor(async () => {
