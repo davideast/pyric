@@ -1,0 +1,87 @@
+{
+  "winning-goal": {
+    "before": {
+      "frame": {
+        "puck": {
+          "x": 38,
+          "y": 7,
+          "vx": 0,
+          "vy": -170,
+          "t": 0
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "score": {
+        "host": 6,
+        "guest": 6
+      }
+    },
+    "method": "update",
+    "path": "",
+    "value": {
+      "frame": {
+        "puck": {
+          "x": 48,
+          "y": 32,
+          "vx": 0,
+          "vy": 0,
+          "t": 3
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "score": {
+        "host": 7,
+        "guest": 6
+      },
+      "meta/status": "over",
+      "meta/winner": "host"
+    }
+  },
+  "score-only": {
+    "before": {
+      "frame": {
+        "puck": {
+          "x": 38,
+          "y": 7,
+          "vx": 0,
+          "vy": -170,
+          "t": 0
+        },
+        "host": {
+          "x": 48,
+          "y": 112
+        },
+        "guest": {
+          "x": 48,
+          "y": 16
+        }
+      },
+      "score": {
+        "host": 6,
+        "guest": 6
+      }
+    },
+    "method": "update",
+    "path": "",
+    "value": {
+      "score": {
+        "host": 7,
+        "guest": 6
+      }
+    }
+  }
+}

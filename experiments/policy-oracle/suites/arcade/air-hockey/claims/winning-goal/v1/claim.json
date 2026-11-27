@@ -1,0 +1,5 @@
+{
+  "description": "Compare the host\u2019s atomic winning frame, score and match closure from 6\u20136 with the same score submitted alone under stock and generated RTDB rules.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

@@ -39,3 +39,16 @@ To regenerate inputs, run `bun experiments/policy-oracle/adapters/air-hockey/v1/
 node arcade/live/controller/air-hockey.mjs "$trusted_archive"
 node adapters/air-hockey/v1/import-reviewed.mjs "$trusted_archive" "$run_id"
 ```
+
+## Winning goal from 6–6
+
+The [winning-goal receipt](../../suites/arcade/air-hockey/claims/winning-goal/v1/probes/host-writes/v1/evidence/0dfd9ead-080c-445f-97ca-8ac503286296.json) records four signed host writes. Each began with the same full match. The [fixture generator](../../adapters/air-hockey-winning/v1/native.mjs) ran three physics ticks and took the winning patch directly from Arcade’s `frameOp`. The control sent only the score entry of that patch to the same match-relative location.
+
+| Match-root PATCH | Stock RTDB | Generated RTDB | Full match readback under both releases |
+|---|---|---|---|
+| Frame, score, `meta/status`, `meta/winner` | Allow | Allow | 7–6, over, host wins. Stationary puck at (48,32), tick 3. Guest identity, both mallets and presence preserved. |
+| Score only | Deny | Deny | Identical 6–6 playing match and ETag. Puck at (38,7), tick 0, no winner. |
+
+The generated release retains Arcade’s score validator, which requires the merged match status to be `over` when a side reaches seven. The generated frame predicate participates when the frame is written. These two writes establish that the real winning patch works and that a score alone cannot close the match. A terminal patch containing score and metadata but omitting the frame is a separate case.
+
+Recapture with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" winning-goal` from the oracle directory, then admit the completed run with `node adapters/air-hockey-winning/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.

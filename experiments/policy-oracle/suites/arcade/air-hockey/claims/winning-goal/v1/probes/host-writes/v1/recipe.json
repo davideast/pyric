@@ -1,0 +1,28 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/arcade",
+    "revision": "66e14d4f4b0aeab22c05db8d748704dde053d2e5",
+    "path": "app/database.rules.json"
+  },
+  "cases": [
+    "stock-winning-goal",
+    "stock-score-only",
+    "generated-winning-goal",
+    "generated-score-only"
+  ],
+  "pins": {
+    "replay.mjs": "59691458df4823ee14e14c38af121563c741af79636c50e05b4c3bd8ec8fdc6b",
+    "@oracle/adapters/air-hockey/v1/fixture.mjs": "cc7126e42a770f9f657e02d5856750b9950dca9b741bcc6efbdb4a84f7266e45",
+    "@oracle/adapters/air-hockey/v1/frame.policy": "988a474a305529aeb77f753c31f890627709881209d828ff49742eb0d250fa58",
+    "@oracle/adapters/air-hockey/v1/frames.json": "eb2e0b828d438fc0bce324446657ca60000cf97e7010faeab2655cebce874225",
+    "@oracle/adapters/air-hockey/v1/generated.json": "cd45fbe4a090c1ed84be6094979d59436e7e9249180f695557b7a49ef0a5e3dc",
+    "@oracle/adapters/air-hockey/v1/score.mjs": "3dc54b4cc830e01c4db2a29c60f580f2920c889463cfca9acdc50c47823d669f",
+    "@oracle/adapters/air-hockey/v1/stock.json": "b49acfb81416f3faa725fde7c91bf0871a2dd3db5520772ac5598be6b20d59bf",
+    "@oracle/adapters/air-hockey-winning/v1/frames.json": "418163dbf020e696619f43c0c0f7dcdd3104b8777fa7549d3310574d86bb5c66",
+    "@oracle/adapters/air-hockey-winning/v1/native.mjs": "9ae658d0d176cdf8f29ea3d80e0dcd0db4382f3b039e4f9fd94d7dc0d10cb632",
+    "@oracle/adapters/air-hockey-winning/v1/score.mjs": "a24636c6e6d3cc6efa4c57f7c8496268e7b93ae442152e8aad130f641db83e22",
+    "@oracle/adapters/air-hockey-winning/v1/verify.mjs": "592d067598e81d9fca837b89d3bc1ae71cf4050f1689a1c3d59428cb0277e189"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/air-hockey-winning/v1/verify.mjs"
+}

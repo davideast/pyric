@@ -9,8 +9,12 @@ import {initializeAuth,inMemoryPersistence,signInAnonymously,deleteUser,getIdTok
 import {api} from '../control.mjs';
 import {sha} from '../../corpus.mjs';
 import {startJournal} from './archive.mjs';
-import {fixtures,seed,stock} from '../../../adapters/air-hockey/v1/fixture.mjs';
+import {fixtures as frameFixtures,seed,stock} from '../../../adapters/air-hockey/v1/fixture.mjs';
 
+const scenario = process.argv[3] ?? 'frame';
+assert.ok(['frame','winning-goal'].includes(scenario));
+const fixtures = scenario === 'frame' ? frameFixtures : JSON.parse(readFileSync(
+  new URL('../../../adapters/air-hockey-winning/v1/frames.json',import.meta.url)));
 const project = 'digame-mas', number = '803835021738';
 const runId = randomUUID(), name = 'pyric-frame-'+runId.slice(0,8);
 const journal = startJournal(process.argv[2],runId);

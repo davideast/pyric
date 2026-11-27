@@ -1,0 +1,20 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "5eac6ed42f69f06b485935e52d64141a32c295fae0c95a85c175c6f47d6b7d0e",
+  "results": {
+    "stock-winning-goal": "ALLOW",
+    "stock-score-only": "DENY",
+    "generated-winning-goal": "ALLOW",
+    "generated-score-only": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/0dfd9ead-080c-445f-97ca-8ac503286296.json",
+    "sha256": "5d6296b198afb898299469c3baf399393c1df4f14fb8a73902249377e0d6f533",
+    "pointers": {
+      "stock-winning-goal": "/rows/stock-winning-goal/decision",
+      "stock-score-only": "/rows/stock-score-only/decision",
+      "generated-winning-goal": "/rows/generated-winning-goal/decision",
+      "generated-score-only": "/rows/generated-score-only/decision"
+    }
+  }
+}

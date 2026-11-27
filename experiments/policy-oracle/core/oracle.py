@@ -31,8 +31,12 @@ CAMPAIGN_PROBES = {
     "blockingfun": {"blocking": ("session-access", "lobby-transitions")},
 }
 AIR_HOCKEY_PROBE = "suites/arcade/air-hockey/claims/frame-plausibility/v1/probes/host-writes/v1"
-SDK_VERIFIERS = {
+RTDB_VERIFIERS = {
     AIR_HOCKEY_PROBE: "@oracle/adapters/air-hockey/v1/verify.mjs",
+    "suites/arcade/air-hockey/claims/winning-goal/v1/probes/host-writes/v1": "@oracle/adapters/air-hockey-winning/v1/verify.mjs",
+}
+SDK_VERIFIERS = {
+    **RTDB_VERIFIERS,
     "suites/satisfy/tally-slate/claims/compiled-two-strike-validation/v1/probes/turns/v1": "@oracle/adapters/tally-strikes/v1/verify.mjs",
     "suites/satisfy/tally-slate/claims/compiled-two-action-fold/v1/probes/turns/v1": "@oracle/adapters/tally-fold/v1/verify.mjs",
     "suites/ai-jrpg/genkit/claims/conversation-queries/v1/probes/genkit/v1": "@oracle/adapters/conversation-queries/v1/verify.mjs",
@@ -261,7 +265,7 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, s
     if witness == "authenticated-write-readback":
         probe_id = version.relative_to(root).as_posix()
         require((authority == "storage-production") == (probe_id == CLIP_PROBE) and
-                (authority == "rtdb-production") == (probe_id == AIR_HOCKEY_PROBE),
+                (authority == "rtdb-production") == (probe_id in RTDB_VERIFIERS),
                 f"incorrect service for SDK receipt: {probe_id}")
         verifier = SDK_VERIFIERS.get(probe_id, ARCADE_VERIFIER)
         require(recipe.get("verifyEvidence") == verifier and verifier in recipe["pins"],
