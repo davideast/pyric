@@ -1,4 +1,5 @@
 import {crossBinding,crossSources} from './cross.mjs';
+import {extendedBinding,extendedSources} from './family.mjs';
 // In a compact post-move board each playable square occupies one character.
 // Two walls between ranks make offsets 1, 9, 10 and 11 the four slider lines.
 const directions = {orthogonal: [1, 10], diagonal: [9, 11]};
@@ -40,11 +41,12 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
   if (!kinds) throw Error('Unknown slider policy variant: ' + variant);
+  if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant)};
   const out = {};
   for (const color of ['w', 'b']) {
     const enemy = color === 'w' ? 'b' : 'w';
@@ -81,6 +83,7 @@ export function sources(variant) {
 }
 
 export function binding(variant) {
+  if (variants[variant]?.length > 1) return extendedBinding(variants[variant]);
   if (variant !== 'rook-rays-v1') return crossBinding(variant);
   return `function sliderMove(text, defender) {
     return defender == 'w' ? sliderorthogonalw(sliderEncodew(text)) : sliderorthogonalb(sliderEncodeb(text));

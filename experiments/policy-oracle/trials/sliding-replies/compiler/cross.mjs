@@ -54,7 +54,7 @@ function classify(color) {
   return first=='' ? -1 : origin*80 + first.replace('X.*','').size();`;
 }
 
-function axisSource(kind,axis,color) {
+function axisSource(kind,axis,color,compact) {
   const lines=[];
   lines.push(prelude);
   const dx=axis.a!==0,dy=axis.b!==0;
@@ -69,9 +69,10 @@ function axisSource(kind,axis,color) {
     if(!denominator){collinear.push(firstCapture(v,true),firstCapture(v,false));continue;}
     const n=denominator<0?'(-d)':'d';
     const length=Math.abs(denominator)===2?'('+n+' / 2)':n;
-    const pack=Array.from({length:8},(_,i)=>literal(between(v.stride,i))).join(',');
+    const spans=Array.from({length:8},(_,i)=>between(v.stride,i));
+    const spanTable=compact?literal(spans.join('~'))+".split('~')":'['+spans.map(literal).join(',')+']';
     const index='('+length+' > 0 ? '+length+' : -'+length+')';
-    const span='['+pack+']['+index+']';
+    const span=spanTable+'['+index+']';
     const positive=move('board',span,true),negative=move('board',span,false);
     const invalid=[];
     if(Math.abs(denominator)===2)invalid.push('d % 2 != 0');
@@ -105,14 +106,15 @@ function lineDanger(axis) {
   return '.*(?:K'+path+axis.checkers+'|'+axis.checkers+path+'K).*';
 }
 
-export function crossSources() {
+export function crossSources(variant) {
+  const kinds = variant === 'rook-cross-v2' ? 'r' : variant === 'bishop-cross-v3' ? 'rb' : 'rbq';
   const out={};
   for(const color of ['w','b']) {
     const name='slideCheck'+color;
     const axisTests=axes.map((axis,i)=>"board.matches('"+lineDanger(axis)+"') ? "+(i+1)+" : ");
     out[name]='function '+name+"(board) { return "+axisTests.join('')+"board.matches('.*"+attacks(color)+".*') ? 5 : 0; }";
-    for(const kind of ['r']){
-      const functions=axes.map(axis=>axisSource(kind,axis,color));
+    for(const kind of kinds){
+      const functions=axes.map(axis=>axisSource(kind,axis,color,variant!=='rook-cross-v2'));
       functions.push(quietSource(kind,color,false),quietSource(kind,color,true));
       for(const fn of functions)out[fn.name]=fn.source;
     }
@@ -137,4 +139,10 @@ export function crossBinding() {
       : packedSafe(text,defender)==(status=='draw') && !hasKingReply(text,defender) && sliderMove(text,defender)<0;
   }`);
   return functions.join('\n  ');
+}
+
+export function familyRoute(kind,color) {
+  const stem = 'slide'+kind;
+  const choose=axes.map((axis,i)=>'direction == '+(i+1)+' ? '+stem+axis.name+color+'(board) : ').join('');
+  return choose+'direction == 0 ? '+stem+'Step'+color+'(board) : '+stem+'Capture'+color+'(board)';
 }
