@@ -1,12 +1,13 @@
+import {crossBinding,crossSources} from './cross.mjs';
 // In a compact post-move board each playable square occupies one character.
 // Two walls between ranks make offsets 1, 9, 10 and 11 the four slider lines.
 const directions = {orthogonal: [1, 10], diagonal: [9, 11]};
-const gap = n => n === 0 ? '' : n === 1 ? '[^;]' : '[^;]{' + n + '}';
+export const gap = n => n === 0 ? '' : n === 1 ? '[^;]' : '[^;]{' + n + '}';
 const alternate = options => '(?:' + options.join('|') + ')';
 
 // An enemy attacks K on a ray exactly when all intervening ray cells are empty.
 // Other cells between adjacent ray steps belong to different files or ranks.
-function attacks(color) {
+export function attacks(color) {
   const tests = [];
   function both(piece, between) {
     tests.push('K' + between + piece, piece + between + 'K');
@@ -39,7 +40,7 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r'};
 
 export function sources(variant) {
   const kinds = variants[variant];
@@ -72,10 +73,15 @@ export function sources(variant) {
 }`;
     }
   }
+  if (variant !== 'rook-rays-v1') {
+    for (const key of Object.keys(out)) if (key.startsWith('sliderorthogonal') || key.startsWith('sliderdiagonal')) delete out[key];
+    Object.assign(out,crossSources(variant));
+  }
   return out;
 }
 
-export function binding() {
+export function binding(variant) {
+  if (variant !== 'rook-rays-v1') return crossBinding(variant);
   return `function sliderMove(text, defender) {
     return defender == 'w' ? sliderorthogonalw(sliderEncodew(text)) : sliderorthogonalb(sliderEncodeb(text));
   }
