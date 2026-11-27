@@ -56,16 +56,19 @@ export function isResourceData(expr: Expression): boolean {
 }
 
 /**
- * If `expr` is a single-segment `resource.data.<field>` or `resource.data['<field>']`
- * access (including `resource['data']`), return `<field>`; otherwise null.
+ * Return the unescaped query path for a static member chain rooted at resource.data.
+ * A literal key containing a dot is a single segment, not a nested field filter.
  */
 export function dataFieldPath(expr: Expression): string | null {
-  const step = memberStep(expr);
-  if (!step || step.property.length === 0 || step.property.includes('.')) {
-    return null;
+  const segments: string[] = [];
+  let step = memberStep(expr);
+  while (step) {
+    if (!step.property || /[.`\\]/.test(step.property)) return null;
+    segments.push(step.property);
+    if (isResourceData(step.object)) return segments.reverse().join('.');
+    step = memberStep(step.object);
   }
-  if (!isResourceData(step.object)) return null;
-  return step.property;
+  return null;
 }
 
 /** True for `request.auth.uid` (dot or bracket access). */

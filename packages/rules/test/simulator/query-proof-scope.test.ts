@@ -40,6 +40,9 @@ describe('query-proof-scope', () => {
 
     expect(dataFieldPath(dotExpr)).toBe('orgId');
     expect(dataFieldPath(bracketExpr)).toBe('orgId');
+    expect(dataFieldPath(parseCondition("resource['data'].owner['contact'].email"))).toBe('owner.contact.email');
+    expect(dataFieldPath(parseCondition("resource.data['owner.contact'].email"))).toBeNull();
+    expect(dataFieldPath(parseCondition('resource.data[request.auth.uid].email'))).toBeNull();
     expect(dataFieldPath(nestedDotKey)).toBeNull();
     expect(dataFieldPath(writeExpr)).toBeNull();
   });

@@ -443,7 +443,9 @@ function asDataEquality(
   if (!e || e.type !== 'binaryOp' || e.op !== '==') return null;
   const fromSide = (data: Expression, other: Expression): RequiredEquality | null => {
     const field = dataFieldPath(data);
-    if (field === null) return null;
+    // A nested member can be known from the leaf filter or from a pinned
+    // parent (e.g. a reference's id). Let queryResidual evaluate either.
+    if (field === null || field.includes('.')) return null;
     if (isRequestAuthUid(other)) {
       if (authUid === undefined) return null;
       return { field, value: authUid, rulesValue: authUid, fromAuthUid: true };

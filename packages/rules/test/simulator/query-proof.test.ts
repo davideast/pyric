@@ -705,6 +705,16 @@ service cloud.firestore {
       expect(String(substitutedPath)).toBe('/databases/(default)/documents/users/u-42');
     });
 
+    test('a query may pin the parent reference of a member used in an equality', () => {
+      const check = firestoreRules(rules('allow list: if resource.data.ownerRef.id == request.auth.uid;'));
+      const report = check.simulate([{
+        description: 'owner id comes from the pinned reference',
+        expectation: 'ALLOW', method: 'list', path: 'c', auth: { uid: 'u1' },
+        query: { where: [{ field: 'ownerRef', op: '==', value: reference('users/u1') }] },
+      }]);
+      expect(report.cases[0]?.decision).toBe('ALLOW');
+    });
+
     test('preserves Reference type and .id/.path/.parent members on Reference equality and finite-in pins', () => {
       const refRules = firestoreRules(`
         rules_version = '2';

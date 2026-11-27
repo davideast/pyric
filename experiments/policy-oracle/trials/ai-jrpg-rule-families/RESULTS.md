@@ -30,6 +30,21 @@ Two owners created one session each. For each caller, Firestore accepted an equa
 
 Pyric’s list-query proof returned `UNPROVABLE` with reason `unsupported-predicate` for `request.auth.token.email == resource.data._savedBy.email`. The public Pyric sandbox SDK reproduced the two permission denials on `getDocs()` with `pyric@0.1.0-alpha.36` and `@pyric/rules@0.1.0`. A future repair can score these two positives alongside the other-user and unfiltered negatives. [SDK reproduction](../../adapters/ai-jrpg-campaign/v1/session-sdk.mjs)
 
+## Session query repair
+
+Against the same live receipts, the repaired package matched **1,493/1,493**. Comparing every case with the original run found exactly two changed answers. Both changed from denial to the recorded owner-only result. The packed Pyric SDK (`0.1.0-alpha.36`) returned these document IDs from `getDocs()` on the replay fixture.
+
+| Caller and filter | SDK result |
+| --- | --- |
+| A, own email | `offline-run-a` only |
+| B, own email | `offline-run-b` only |
+| A, B’s email | `permission-denied` |
+| A, no filter | `permission-denied` |
+
+The list proof now follows static field segments and substitutes the query’s value for the constrained leaf. The ordinary rules evaluator compares that value with the authenticated email. The packed-app regression checks both directions of cross-user access, unfiltered reads by both users, and a single literal key containing a dot. It failed on the original main package and passed on the fix. [SDK regression](../../../../test/apps/firestore-query-owner-email/owner-query.mjs)
+
+The full replay used the experimental compiler source at `d386b3596a6cc0288dfdd14f18996059d6bce60d` with this branch’s `packages/rules/src/simulator/query-proof.ts` and `query-proof-scope.ts`. Build and pack that rules package and pass its tarball to the candidate command below. The scored candidate SHA-256 was `dc9c7b69d0790612795ac1889fa091539782c1244d70609c0f5f8651c8775995`. Both runs used evidence digest `a67cfc9ad0ed9afc4725f198c6227ab0e5816ee50d7c78e55f03dede5259b5d1`.
+
 ## Existing evidence reused
 
 The existing chat claim scores the ledger and message independently within each send. A mechanics-only profile allowed the ledger write and refused the message. The immediate repeat refused the ledger and skipped the message. The later ledger advanced by 1,716 ms and the message succeeded. The fixed-clock SDK replay denied 1,499 and 1,500 ms and accepted 1,501 ms. The exact 1,500 ms verdict has standalone evidence only. Existing app and deploy event-deletion observations are also part of the full replay. [Chat readbacks and timing](../../suites/ai-jrpg/pixelwood/claims/chat-send/v1/README.md) · [World-role comparison](../../suites/ai-jrpg/pixelwood/claims/world-role/v1/README.md)
