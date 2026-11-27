@@ -1,0 +1,417 @@
+{
+  "authority": "each archived compiler revision recompiled and scored locally in a clean Git archive",
+  "sourceAtManifestComparison": "da0411f11d9fd6a10d3add72a574abc1ccc223a4",
+  "manifestSetSha256": "3b86221fb5fd2f9ed1b7d0315de162d77c329430f796d37ca2cf0875b25372a9",
+  "canonicalRequestsPerRevision": 238,
+  "distinctRevisions": 30,
+  "distinctCompiledRules": 30,
+  "compileRuns": {
+    "individual-clean-replay": 18,
+    "full-clean-history": 12
+  },
+  "rows": [
+    {
+      "variant": "all-marked-records-v15-boxed-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "60f14ac548e697fd1950b1037b803690c2581c48cb800989d83695543a9e1a4a",
+      "frozenProjectionSha256": "7a2218c63bf0269f2d6ad8e8a9f37938d7d5500aaba4425f1f351b5b530516ae",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-refusal": 1,
+        "match": 237
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-marked-records-v15-dense3-filecut-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "d218a9ef5b7fd87306de3d4ed3a1e04c94d808f59a8457e3fe55c3965b4499dc",
+      "frozenProjectionSha256": "f06f1383527911b2531ada4acebe72b9b8a0e96ee95e1f48e4071ca6f6cb8390",
+      "original190Matches": 190,
+      "full238Outcomes": {
+        "match": 238
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-marked-records-v15-dense3-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "7a2afc57123b7818744da106d401e3af4377c3b86d90b562d550fbe6316a3c89",
+      "frozenProjectionSha256": "a0cb1844ff17abe465e8cffbf38f4180431c596a0fabcfe815e1f239287124ff",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-refusal": 1,
+        "match": 237
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-marked-records-v15",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "96bca07eda3b81811218cface1b58df61178a92ab2aa273979715bd3f2188cbc",
+      "frozenProjectionSha256": "2ded5f2c9530f79c2ba20d9a53f14400c4a29a9367625d7a1931ccca9766e3cf",
+      "original190Matches": 188,
+      "full238Outcomes": {
+        "false-allow": 1,
+        "false-refusal": 1,
+        "match": 236
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-minors-v9-dense3",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "a4baf12caaff67284ef27e59a0d8bd277222e5e1f9c8fd9910f9ac9a71fffc02",
+      "frozenProjectionSha256": "491b3639c9d133872197798393ff9ec95497c3ec9dedf388f06ca99e6f2ab463",
+      "original190Matches": 190,
+      "full238Outcomes": {
+        "match": 238
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-minors-v9",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "1337e1b977d674bf52dee39cd38ca2741d260c56e4102c4182c505ca18210aeb",
+      "frozenProjectionSha256": "ab0673c48701be029764bf2a646a3731b3f2b214046f663fc92369c304c878cb",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-allow": 1,
+        "match": 237
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-mode-table-v14",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "618492b1277aded5d6322ccb609f06793b6d770ef88ad85547edcd8ac91c2e7c",
+      "frozenProjectionSha256": "cdcbd2013943b43a0b8ff2298cbb1de9e96bbe4e74e3a016e062aa61e825029a",
+      "original190Matches": 185,
+      "full238Outcomes": {
+        "evaluation-error": 1,
+        "false-allow": 1,
+        "false-refusal": 15,
+        "match": 221
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-packed-path-v5",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "0fd767a12595bb8a7d8588c254d56dfe8b9607f1cb6240edba62a21feed6629f",
+      "frozenProjectionSha256": "a691f08430915866f2bfe3b1590f85ae8b8a8f98b83214df5d44aa4e27b3a8f3",
+      "original190Matches": 176,
+      "full238Outcomes": {
+        "false-allow": 4,
+        "false-refusal": 11,
+        "match": 223
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-paired-records-v16-dense3-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+      "frozenProjectionSha256": "5b82ab5f8d9e0242718aad51ca742297ba35ed495b9b9a6be75a50848d68d23e",
+      "original190Matches": 190,
+      "full238Outcomes": {
+        "match": 238
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-paired-records-v16",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "577e67d6e22541ce873aad9ab88d6e97f04b1b7117551ebcb6dc02d3f64cf1d6",
+      "frozenProjectionSha256": "c14ce8db01f3b643b0e597385d0ab8067988f8fbbee11d43f99bbe1bd58d4663",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-allow": 1,
+        "match": 237
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-projected-king-v11-dense3-once",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "cafc9223c0d6fdd1ebad46a56c380d94636913d242e0eee9775fe13a49c84629",
+      "frozenProjectionSha256": "681d10b72e12b12355240a837179137feff05d6d90906ea5c7fe6197ce00ba26",
+      "original190Matches": 186,
+      "full238Outcomes": {
+        "false-refusal": 5,
+        "match": 233
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-projected-king-v11-dense3",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "2e5c799fe6ff8cdcdeb586b71bb101741144210441597f64e9a6f5054254419d",
+      "frozenProjectionSha256": "9dd06450780353f4caba5fb85285d0f58d0b2fb66364a90e94fa837925350194",
+      "original190Matches": 190,
+      "full238Outcomes": {
+        "match": 238
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-projected-king-v11-mask-dense3-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "a081d65cbeff1e7ae8b2537eaac3c4a1f01aab4909cdcc56c415cf5282d8abfa",
+      "frozenProjectionSha256": "182f1f017c9c83f45717442d49f5c61780db821af79656f1cecd6df14e0de5a6",
+      "original190Matches": 181,
+      "full238Outcomes": {
+        "evaluation-error": 12,
+        "false-refusal": 23,
+        "match": 203
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-projected-king-v11-targets-dense3-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "90a7a1bdbe7d29e2e2b5acc3419bd8a586e92581fec455bb322362beb5f5630d",
+      "frozenProjectionSha256": "be39a710340fd82ff52ca21c316b8e52e725f5c59c19edc978b2f308393d4b91",
+      "original190Matches": 176,
+      "full238Outcomes": {
+        "evaluation-error": 23,
+        "false-refusal": 23,
+        "match": 192
+      },
+      "verifiedFocusedWitnessesOf18": 0
+    },
+    {
+      "variant": "all-projected-king-v11",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "c89f8ad7a1bfc0a56158d4f4f4a3aba2d51cb7b87a5fdf2da05d12b734dbfcd1",
+      "frozenProjectionSha256": "188c87a3f1f6a34f9b0a8c23fc9d434b1fb720cfe8b2ce96f38a38d0591df05d",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-allow": 1,
+        "match": 237
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-rights-king-v7-dense3",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "84f6c57cf27259c47c68931039309631337d8d4626fcf6e7c77547d253e1d497",
+      "frozenProjectionSha256": "0a4c800b4c5279ca6e52e98694539fd1402d05d92b71190b2af0d15174e306ce",
+      "original190Matches": 187,
+      "full238Outcomes": {
+        "false-allow": 3,
+        "match": 235
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-rights-king-v7",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "c5543604497ff698ee864b7ffbb120ffa3ec82dfff84182234cd0c44605ae9ca",
+      "frozenProjectionSha256": "fca3147394fddb711007621b5424a0fe2c175c350bbad48303b5d2aaa4153142",
+      "original190Matches": 186,
+      "full238Outcomes": {
+        "false-allow": 4,
+        "match": 234
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-shared-axes-v13-dense3",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "0c3f0826253dbdaca3f7ac7ba266edcc249257ff2e51d567027b699034e217b6",
+      "frozenProjectionSha256": "ed879493fe3b3906f64df53776e30b7ffd93088243e1ef149798e86c7ef8f1e5",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-refusal": 5,
+        "match": 233
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-shared-axes-v13",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "b755cf8e5e4198e52222fa0816e6d973eac0f89990e0a0266e391445243d8f88",
+      "frozenProjectionSha256": "38fcb6ceeb7c32f5f1f182e8fab7bb1a9fe4ed536637457f64373ab8222c35b7",
+      "original190Matches": 188,
+      "full238Outcomes": {
+        "false-allow": 1,
+        "false-refusal": 3,
+        "match": 234
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-shared-rays-v10-dense3",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "f32a09f8ac3e7e67b96105f4f6ec99a7bb346b81cb123e0bbd50c8516195c4f2",
+      "frozenProjectionSha256": "30c860c04ef0dc8f35ad2ae6aec68e8da9001c9adee6deb597e3d1931ca83721",
+      "original190Matches": 190,
+      "full238Outcomes": {
+        "match": 238
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-shared-rays-v10",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "1b35732f02a4a12f59efc5f036c3ef2099982d02d75e85dc3a3fb81309c3d187",
+      "frozenProjectionSha256": "b73d223eedd18e716678ce62e35873a2ac57bb2695022312bce91a50544d5167",
+      "original190Matches": 189,
+      "full238Outcomes": {
+        "false-allow": 1,
+        "match": 237
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-tabled-path-v6",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "61b9f5d54cf382426adaa2d0076a4ac48f48acb5e7b06aae046d7bbfda07f57b",
+      "frozenProjectionSha256": "7896648591b7d208c52fcc8642d5b0d683626936431bdf1cc0daba2088ebb191",
+      "original190Matches": 176,
+      "full238Outcomes": {
+        "false-allow": 4,
+        "false-refusal": 10,
+        "match": 224
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-two-defenders-v8",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "e3ec5422a2427ce6d1286f12acb66a968e39b8ab626ae37b42a0d1c61f0c6d71",
+      "frozenProjectionSha256": "fbd4620da79329dff7580fbf51920b21103f3156fb638d2449d184475d05501b",
+      "original190Matches": 186,
+      "full238Outcomes": {
+        "false-allow": 2,
+        "false-refusal": 2,
+        "match": 234
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-unified-rays-v12-dense3-lean",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "62fefa41dc2fc41da36adb72c799f7ea56d707cbd8db3694c1cadf5431207bab",
+      "frozenProjectionSha256": "193d3955b3ad147b65479027d3dec8c6801bd959ee20d31aa9732a96d55c63aa",
+      "original190Matches": 182,
+      "full238Outcomes": {
+        "evaluation-error": 11,
+        "false-refusal": 23,
+        "match": 204
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "all-unified-rays-v12",
+      "sourceCommitRegraded": "5072f28d0b91b8b1448abe87b5fc9f912097c4c5",
+      "mode": "individual-clean-replay",
+      "rulesSha256": "5ba5838e5951d05e8051f07f9769905ae3ce6085c903405a4fa1ec6a1411e140",
+      "frozenProjectionSha256": "3de3283775ec7372183bbbf2498431df29658442b7d3ad10c72a299ddcadff36",
+      "original190Matches": 181,
+      "full238Outcomes": {
+        "evaluation-error": 9,
+        "false-allow": 1,
+        "false-refusal": 23,
+        "match": 205
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "bishop-cross-v3",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "e4d66e237f7ca86ba0db6cca264f4f712b1e64a07437b923ff8eb3d0a5407f45",
+      "frozenProjectionSha256": "e9490eeb8a8bf3880a824b0c5d0dbbbab58a8fa3ffb3f6f71c862592509fd98b",
+      "original190Matches": 174,
+      "full238Outcomes": {
+        "false-allow": 13,
+        "false-refusal": 14,
+        "match": 211
+      },
+      "verifiedFocusedWitnessesOf18": 8
+    },
+    {
+      "variant": "prior",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
+      "frozenProjectionSha256": "60a543346335f20598015b73d4987ac7d96948c4ff4e5dade49e077947d2f34f",
+      "original190Matches": 182,
+      "full238Outcomes": {
+        "false-allow": 22,
+        "false-refusal": 1,
+        "match": 215
+      },
+      "verifiedFocusedWitnessesOf18": 0
+    },
+    {
+      "variant": "queen-cross-v4",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "f5af4feb40899a9ed1b8e02a0022e805f636869f538c795b70406d9e94c250db",
+      "frozenProjectionSha256": "880cc3fd506e3e1361ee7e91d5cfed68dc85f6abe32390344fa4cf617cfa3c8f",
+      "original190Matches": 173,
+      "full238Outcomes": {
+        "evaluation-error": 1,
+        "false-allow": 4,
+        "false-refusal": 23,
+        "match": 210
+      },
+      "verifiedFocusedWitnessesOf18": 18
+    },
+    {
+      "variant": "rook-cross-v2",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "3069427933c11d350acbfc195290e478fd9ee78406bd567e9483f673c927c4e1",
+      "frozenProjectionSha256": "30ff550172eca80eb3f07515188bc6115df9529695d5e78d3c2b2267df4e9e96",
+      "original190Matches": 182,
+      "full238Outcomes": {
+        "false-allow": 20,
+        "false-refusal": 3,
+        "match": 215
+      },
+      "verifiedFocusedWitnessesOf18": 2
+    },
+    {
+      "variant": "rook-rays-v1",
+      "sourceCommitRegraded": "1e885cdebea2a393c19d7951ba44cc05beeddf5b",
+      "mode": "full-clean-history",
+      "rulesSha256": "e6fce1c7330a959d03ca0d1ae7830824b28d38bda35fa23605bce70ea4a27a90",
+      "frozenProjectionSha256": "81a78387039974372171fd38096b7e60985fb913ec45eb2c662fa18ddc536e40",
+      "original190Matches": 181,
+      "full238Outcomes": {
+        "false-allow": 20,
+        "false-refusal": 4,
+        "match": 214
+      },
+      "verifiedFocusedWitnessesOf18": 2
+    }
+  ]
+}

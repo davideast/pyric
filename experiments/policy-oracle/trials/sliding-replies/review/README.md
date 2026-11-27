@@ -62,3 +62,5 @@ bun --no-install review/witness.mjs "$PINNED_RULES_SDK" "$COMPLETE_RULES" --boar
 ```
 
 The signed auditor accepts `--first-window` to reproduce the 120-write checkpoint after the second window closes. The clean replay checks that the partial report reproduces from its own controller receipt and records the full-run result separately.
+
+Independent revision-history reports live under `review/history/`, keyed by the digest of the frozen revision manifests. The 30-revision report joins a full-history clean checkout with 18 additional clean per-revision regrades. It records the exact manifest hash, compiled Rules digest, 238-case local outcomes and focused witness score for every revision. With `--with-history`, the clean replayer checks these fields against the freshly rebuilt revisions.

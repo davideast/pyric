@@ -1,5 +1,6 @@
 """Regrade a committed oracle tree from a clean local Git archive using its pinned inputs."""
 import argparse
+from collections import Counter
 from datetime import datetime, timezone
 from hashlib import sha256
 import io
@@ -131,7 +132,21 @@ def run(args):
         snapshot['previousPrivateJournalsVerified']=before['distinctWrites']
         if args.with_history:
             history=main['revisionHistory']
-            assert {r['variant'] for r in history}=={p.stem for p in (trial/'revisions').glob('*.json')}
+            manifests={p.stem:digest(p.read_bytes()) for p in (trial/'revisions').glob('*.json')}
+            assert {r['variant'] for r in history}==set(manifests)
+            manifest_set=digest(json.dumps(manifests,sort_keys=True,separators=(',',':')).encode())
+            ledger=trial/'review/history'/(manifest_set+'.json')
+            if ledger.exists():
+                independent={r['variant']:r for r in read(ledger)['rows']}
+                assert set(independent)==set(manifests)
+                for current in history:
+                    name=current['variant'];saved=independent[name]
+                    assert current['compile']['rulesSha256']==saved['rulesSha256']
+                    assert manifests[name]==saved['frozenProjectionSha256'] and current['witnesses']==saved['verifiedFocusedWitnessesOf18']
+                    total=Counter()
+                    for group in ('original-190','bishop','queen'): total.update(current['local'][group]['outcomes'])
+                    assert dict(total)==saved['full238Outcomes']
+                snapshot['independentHistoryManifestsReproduced']=len(independent)
             snapshot['frozenHistory']=history
     snapshot['finishedUtc']=datetime.now(timezone.utc).isoformat()
     return snapshot
