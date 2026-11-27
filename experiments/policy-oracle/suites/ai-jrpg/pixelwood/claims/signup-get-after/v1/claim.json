@@ -1,0 +1,5 @@
+{
+  "description": "Compare the named profile's committed and post-commit invite ownership reads across an atomic signup and two sequential writes.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

@@ -1,0 +1,24 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "bac511c66da2a9f98eeca7d434ee5a58d9746cfe23a0ffda77f9f88a5aecef81",
+  "results": {
+    "stock-atomic-signup": "DENY",
+    "stock-sequential-claim": "ALLOW",
+    "stock-sequential-profile": "ALLOW",
+    "get-after-atomic-signup": "ALLOW",
+    "get-after-sequential-claim": "ALLOW",
+    "get-after-sequential-profile": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/98238e4a-6545-4d55-ab81-0124d2488add.json",
+    "sha256": "b5e2b6e74f71acbe6cdb8e0a3238af515ed561ad52ea38264caee944b2ba50d9",
+    "pointers": {
+      "stock-atomic-signup": "/rows/stock-atomic-signup/decision",
+      "stock-sequential-claim": "/rows/stock-sequential-claim/decision",
+      "stock-sequential-profile": "/rows/stock-sequential-profile/decision",
+      "get-after-atomic-signup": "/rows/get-after-atomic-signup/decision",
+      "get-after-sequential-claim": "/rows/get-after-sequential-claim/decision",
+      "get-after-sequential-profile": "/rows/get-after-sequential-profile/decision"
+    }
+  }
+}

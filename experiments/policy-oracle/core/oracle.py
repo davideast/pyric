@@ -23,6 +23,7 @@ WITNESSES = {
 ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
 PIXELWOOD = "suites/ai-jrpg/pixelwood/claims/"
 SDK_VERIFIERS = {
+    PIXELWOOD + "signup-get-after/v1/probes/paired-signup/v1": "@oracle/adapters/signup-get-after/v1/verify.mjs",
     PIXELWOOD + "atomic-signup/v1/probes/commit-order/v1": "@oracle/adapters/atomic-signup/v1/verify.mjs",
     PIXELWOOD + "world-role/v1/probes/app-and-mirror/v1": "@oracle/adapters/world-role/v1/verify.mjs",
     PIXELWOOD + "invite-profile/v1/probes/signup/v1": "@oracle/adapters/invite-profile/v1/verify.mjs",

@@ -1,4 +1,4 @@
-// Usage: bun sandbox-replay.mjs <installed project package.json> <live receipt>
+// Usage: bun sandbox-replay.mjs <installed project package.json> <live receipt> [stock|get-after]
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -6,14 +6,16 @@ import {pathToFileURL} from 'node:url';
 import {signup} from './fixture.mjs';
 import {materialize, sourcePath, seedTime} from '../../invite-profile/v1/fixture.mjs';
 
-const [packageJson, receiptFile] = process.argv.slice(2);
+const [packageJson, receiptFile, mode] = process.argv.slice(2);
 const base = pathToFileURL(resolve(packageJson)).href;
 const load = name => import(import.meta.resolve(name, base));
 const {initializeSandbox, getClock} = await load('pyric/sandbox');
 const {getFirestore, getAdminFirestore, doc, updateDoc, setDoc, getDoc, writeBatch, serverTimestamp, Timestamp} =
   await load('pyric/firestore');
 const {setRules} = await load('pyric/sandbox/firestore');
-const rules = readFileSync(new URL('../../../' + sourcePath, import.meta.url), 'utf8');
+const rules = mode === undefined ? readFileSync(new URL('../../../' + sourcePath, import.meta.url),'utf8')
+  : (await import('../../signup-get-after/v1/sources.mjs')).sources[mode];
+assert.equal(typeof rules,'string','unknown signup ruleset');
 const live = JSON.parse(readFileSync(receiptFile));
 const caller = live.identities.claimant.uid, reader = live.identities.reader.uid;
 const {paths, attempts} = signup(caller, live.runId);
@@ -77,7 +79,9 @@ const inviteAfterClaim = results['sequential-claim'].readbacks.invite;
 const inviteAfterProfile = results['sequential-profile'].readbacks.invite;
 assert.deepEqual(JSON.parse(JSON.stringify(inviteAfterProfile)),JSON.parse(JSON.stringify(inviteAfterClaim)));
 for (const [id,result] of Object.entries(results)) {
-  assert.equal(result.decision,live.rows[id].decision,id);
-  for (const [key,data] of Object.entries(result.readbacks)) compareRead(data,live.rows[id].after[key].data,key);
+  const caseId = mode === undefined ? id : mode + '-' + id;
+  const row = live.rows[caseId];
+  assert.equal(result.decision,row.decision,caseId);
+  for (const [key,data] of Object.entries(result.readbacks)) compareRead(data,row.after[key].data,key);
 }
 console.log(JSON.stringify(Object.fromEntries(Object.entries(results).map(([id,row]) => [id,row.decision]))));
