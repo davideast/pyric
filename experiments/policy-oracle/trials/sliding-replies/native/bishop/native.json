@@ -1,0 +1,493 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "bishop-e5-clear-playing",
+      "fen": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/8/K7/4b3/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "e5b8"
+      ]
+    },
+    {
+      "id": "bishop-e5-clear-draw",
+      "fen": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K7/4b3/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "e5b8"
+      ]
+    },
+    {
+      "id": "bishop-e5-clear-won",
+      "fen": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K7/4b3/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "e5b8"
+      ]
+    },
+    {
+      "id": "bishop-e5-d6-blocker-playing",
+      "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K2p4/4b3/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-e5-d6-blocker-draw",
+      "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K2p4/4b3/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-e5-d6-blocker-won",
+      "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/8/K2p4/4b3/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-b6-clear-playing",
+      "fen": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/8/Kb6/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b6d8"
+      ]
+    },
+    {
+      "id": "bishop-b6-clear-draw",
+      "fen": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/Kb6/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "b6d8"
+      ]
+    },
+    {
+      "id": "bishop-b6-clear-won",
+      "fen": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/Kb6/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "b6d8"
+      ]
+    },
+    {
+      "id": "bishop-b6-c7-blocker-playing",
+      "fen": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/2p5/Kb6/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-b6-c7-blocker-draw",
+      "fen": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/2p5/Kb6/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-b6-c7-blocker-won",
+      "fen": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/2p5/Kb6/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-b7-free-playing",
+      "fen": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/1b6/1K6/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b7c8"
+      ]
+    },
+    {
+      "id": "bishop-b7-free-draw",
+      "fen": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/1b6/1K6/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "b7c8"
+      ]
+    },
+    {
+      "id": "bishop-b7-free-won",
+      "fen": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/1b6/1K6/8/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "b7c8"
+      ]
+    },
+    {
+      "id": "bishop-b7-pinned-playing",
+      "fen": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/1b6/1KB5/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-b7-pinned-draw",
+      "fen": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/1b6/1KB5/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "bishop-b7-pinned-won",
+      "fen": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/1b6/1KB5/8/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    }
+  ]
+}

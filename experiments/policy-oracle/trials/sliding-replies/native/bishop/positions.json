@@ -1,0 +1,164 @@
+[
+  {
+    "id": "bishop-e5-clear-playing",
+    "fen": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-e5-clear-draw",
+    "fen": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-e5-clear-won",
+    "fen": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bishop-e5-d6-blocker-playing",
+    "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-e5-d6-blocker-draw",
+    "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-e5-d6-blocker-won",
+    "fen": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bishop-b6-clear-playing",
+    "fen": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b6-clear-draw",
+    "fen": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b6-clear-won",
+    "fen": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bishop-b6-c7-blocker-playing",
+    "fen": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b6-c7-blocker-draw",
+    "fen": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b6-c7-blocker-won",
+    "fen": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bishop-b7-free-playing",
+    "fen": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b7-free-draw",
+    "fen": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b7-free-won",
+    "fen": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "bishop-b7-pinned-playing",
+    "fen": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b7-pinned-draw",
+    "fen": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "bishop-b7-pinned-won",
+    "fen": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  }
+]
