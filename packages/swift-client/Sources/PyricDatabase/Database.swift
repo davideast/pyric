@@ -358,6 +358,13 @@ public final class Database: NSObject, @unchecked Sendable {
     public func switchLens(_ lens: AuthLens?) {
         stateLock.lock()
         _impersonatedLens = lens
+        if let lens {
+            for cont in lensContinuations.values {
+                cont.yield(lens)
+            }
+            stateLock.unlock()
+            return
+        }
         stateLock.unlock()
         yieldCurrentLens()
     }
@@ -381,11 +388,12 @@ public final class Database: NSObject, @unchecked Sendable {
         }
         return AsyncStream { continuation in
             let id = UUID()
-            let initialLens = resolveEffectiveAuthLens()
+            let resolvedOutsideLock = resolveEffectiveAuthLens()
             stateLock.lock()
             lensContinuations[id] = continuation
-            stateLock.unlock()
+            let initialLens = _impersonatedLens ?? resolvedOutsideLock
             continuation.yield(initialLens)
+            stateLock.unlock()
 
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }

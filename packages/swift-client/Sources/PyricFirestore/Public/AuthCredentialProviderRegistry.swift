@@ -95,4 +95,28 @@ public final class AuthCredentialProviderRegistry: @unchecked Sendable {
         instances.removeAll()
         factory = nil
     }
+
+    package static func clearFactoryPreservingInstances() -> (@Sendable (FirebaseApp) -> (any AuthCredentialProvider)?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        let previous = factory
+        factory = nil
+        return previous
+    }
+
+    package static func restoreFactoryIfAbsent(
+        _ previous: (@Sendable (FirebaseApp) -> (any AuthCredentialProvider)?)?
+    ) {
+        lock.lock()
+        if factory == nil {
+            factory = previous
+        }
+        lock.unlock()
+    }
+
+    package static func removeInstance(forAppName name: String) {
+        lock.lock()
+        instances.removeValue(forKey: name)
+        lock.unlock()
+    }
 }

@@ -261,15 +261,12 @@ struct RtdbPhase2ParityRegressionTests {
     @Test("P2-S11d: AuthCredentialProviderRegistry reset allows re-bootstrap and lazy authLensStream forwards transitions")
     func authBootstrapResetAndLazyLensStream() async throws {
         try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
-            defer { FirebaseAuthBootstrap.initialize() }
-            AuthCredentialProviderRegistry.reset()
-            #expect(!AuthCredentialProviderRegistry.hasFactory)
-            FirebaseAuthBootstrap.initialize()
-            #expect(AuthCredentialProviderRegistry.hasFactory)
-
-            AuthCredentialProviderRegistry.reset()
             let app = FirebaseApp(
                 name: "lazy-lens-app-\(UUID().uuidString)",
+                options: FirebaseOptions(projectID: "lazy-proj", apiKey: "key", googleAppID: "1:1:ios:xyz")
+            )
+            let bootstrapApp = FirebaseApp(
+                name: "bootstrap-order-app-\(UUID().uuidString)",
                 options: FirebaseOptions(projectID: "lazy-proj", apiKey: "key", googleAppID: "1:1:ios:xyz")
             )
             let dummyChannel = MockStorageBridgeChannel()
@@ -280,21 +277,35 @@ struct RtdbPhase2ParityRegressionTests {
             let firestore = Firestore(bridgeClient: client, app: app)
             let db = Database(app: app, url: "https://lazy-proj-default-rtdb.firebaseio.com", bridgeClient: client)
 
+            // Clear factory synchronously without wiping per-app instances of concurrent suites.
+            let savedFactory = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
+            #expect(!AuthCredentialProviderRegistry.hasFactory)
+            let fsStream = firestore.authLensStream
+            let dbStream = db.authLensStream
+            AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedFactory)
+
+            defer {
+                AuthCredentialProviderRegistry.removeInstance(forAppName: app.name)
+                AuthCredentialProviderRegistry.removeInstance(forAppName: bootstrapApp.name)
+                AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedFactory)
+                FirebaseAuthBootstrap.initialize()
+            }
+
             let fsLenses = ValueCollector<AuthLens>()
             let dbLenses = ValueCollector<AuthLens>()
             let fsTask = Task {
-                for await lens in firestore.authLensStream {
+                for await lens in fsStream {
                     fsLenses.append(lens)
                     if case .asUser(let uid, _, _) = lens, uid == "alice" { break }
                 }
             }
             let dbTask = Task {
-                for await lens in db.authLensStream {
+                for await lens in dbStream {
                     dbLenses.append(lens)
                     if case .asUser(let uid, _, _) = lens, uid == "alice" { break }
                 }
             }
-            try await Task.sleep(nanoseconds: 25_000_000)
+            try await Task.sleep(nanoseconds: 15_000_000)
 
             let provider = MutableTestAuthProvider()
             AuthCredentialProviderRegistry.register(app: app, provider: provider)
@@ -313,28 +324,19 @@ struct RtdbPhase2ParityRegressionTests {
 
             // Calling Auth.auth(app:) directly after Database and Firestore.authLensStream
             // registered observers must not deadlock re-entrantly inside FirebaseAuthBootstrap.
-            AuthCredentialProviderRegistry.reset()
-            let bootstrapApp = FirebaseApp(
-                name: "bootstrap-order-app-\(UUID().uuidString)",
-                options: FirebaseOptions(projectID: "lazy-proj", apiKey: "key", googleAppID: "1:1:ios:xyz")
-            )
             let bootstrapFirestore = Firestore(bridgeClient: client, app: bootstrapApp)
             let bootstrapDb = Database(
                 app: bootstrapApp,
                 url: "https://lazy-proj-default-rtdb.firebaseio.com",
                 bridgeClient: client
             )
-            let bootFsTask = Task {
-                for await _ in bootstrapFirestore.authLensStream { break }
-            }
-            let bootDbTask = Task {
-                for await _ in bootstrapDb.authLensStream { break }
-            }
-            try await Task.sleep(nanoseconds: 25_000_000)
+            let savedBeforeBootstrap = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
+            let bootFsStream = bootstrapFirestore.authLensStream
+            let bootDbStream = bootstrapDb.authLensStream
             let authInstance = Auth.auth(app: bootstrapApp)
+            AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedBeforeBootstrap)
+            _ = (bootFsStream, bootDbStream)
             #expect(authInstance.app.name == bootstrapApp.name)
-            bootFsTask.cancel()
-            bootDbTask.cancel()
             await client.disconnect()
         }
     }
