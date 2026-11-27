@@ -27,8 +27,8 @@ private let defaultLivenessTimeout: TimeInterval = 45
 /// attached, or whose frame never left the device, are held for up to 10
 /// seconds and sent once after the next attach's restore.
 public actor PyricBridgeClient {
-    public let endpoint: URL
-    public let headers: [String: String]
+    public nonisolated let endpoint: URL
+    public nonisolated let headers: [String: String]
     public let defaultOpTimeout: TimeInterval
     /// Retry the first connection on the reconnect schedule instead of failing.
     public let retryInitialConnection: Bool

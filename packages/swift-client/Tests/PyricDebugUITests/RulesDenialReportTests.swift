@@ -142,4 +142,49 @@ struct RulesDenialReportTests {
         #expect(record?.customClaims["admin"]?.boolValue == true)
         #expect(record?.customClaims["role"]?.stringValue == "lead")
     }
+
+    @Test("Exposes PyricBridgeClient endpoint and headers as nonisolated lets")
+    func testBridgeClientEndpointAndHeadersNonisolated() {
+        let url = URL(string: "ws://127.0.0.1:3530/__pyric/sandbox")!
+        let client = PyricBridgeClient(endpoint: url, headers: ["X-Custom": "value"])
+        #expect(client.endpoint == url)
+        #expect(client.headers["X-Custom"] == "value")
+    }
+
+    @Test("Synthesizes fallback report for rules denials without denialContext")
+    func testFallbackReportWithoutDenialContext() {
+        let diagnostics = PyricDebugDiagnostics()
+
+        let storageDenied = PyricBridgeError.fromCode(
+            code: "storage/unauthorized",
+            message: "User is not authorized to perform the desired action."
+        )
+        diagnostics.record(error: storageDenied)
+        #expect(diagnostics.history.count == 1)
+        #expect(diagnostics.history.first?.engine == "storage")
+        #expect(diagnostics.history.first?.file == "storage.rules")
+        #expect(diagnostics.history.first?.citation == "storage.rules")
+        #expect(diagnostics.history.first?.errorCode == "storage/unauthorized")
+
+        let firestoreDenied = PyricBridgeError.fromCode(
+            code: "permission-denied",
+            message: "Missing or insufficient permissions."
+        )
+        diagnostics.record(error: firestoreDenied)
+        #expect(diagnostics.history.count == 2)
+        #expect(diagnostics.history.first?.engine == "firestore")
+        #expect(diagnostics.history.first?.file == "firestore.rules")
+
+        let notFound = PyricBridgeError.fromCode(
+            code: "storage/object-not-found",
+            message: "Object does not exist."
+        )
+        let authErr = PyricBridgeError.fromCode(
+            code: "auth/internal-error",
+            message: "Blocked by auth function."
+        )
+        diagnostics.record(error: notFound)
+        diagnostics.record(error: authErr)
+        #expect(diagnostics.history.count == 2)
+    }
 }

@@ -137,6 +137,7 @@ func until(
     throw PyricBridgeError.deadlineExceeded("condition not reached")
 }
 
+#if canImport(SwiftUI)
 /// `Auth` subscribes to the bridge's remote-lens stream from a task, and the
 /// bridge drops a remote-lens frame that arrives before that subscription
 /// registers. Pushes an app-session lens until `auth` applies one, then pushes
@@ -158,3 +159,4 @@ func awaitRemoteLensSubscription(
     try channel.simulateServerMessage(["type": "worker-event", "event": "remote-lens", "lens": ["mode": "anon"]])
     try await until { await manager.activeLens == .anon }
 }
+#endif
