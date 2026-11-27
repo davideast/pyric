@@ -6,14 +6,15 @@ import {extendedSources} from './family.mjs';
 // is covered. A second friendly rook remains an occupied square on every
 // candidate for the first rook, and vice versa. A single friendly knight
 // can defend independently of a slider and can also pin or obstruct it.
-export function mixedSources() {
+export function mixedSources(variant) {
   const sources=extendedSources('rbq');
   for(const color of ['w','b']) {
     const enemy = color==='w'?'b':'w';
     const other = '(?:[,#]|'+enemy+'[prnbqk],|'+color+'k,)*';
     const rook=color+'r,', slider=color+'[rbq],', knight=color+'n,';
+    const singleKnight=variant==='all-minors-v9' ? '|'+other+knight+other : '';
     const pair=other+'(?:'+rook+other+rook+'|'+slider+other+knight+'|'+knight+other+slider+')'+other;
-    sources['sliderMaterial'+color]=sources['sliderMaterial'+color].replace("'); }",'|'+pair+"'); }");
+    sources['sliderMaterial'+color]=sources['sliderMaterial'+color].replace("'); }",'|'+pair+singleKnight+"'); }");
     sources['sliderEncode'+color]=sources['sliderEncode'+color].replace(".replace('"+enemy+"?",".replace('"+color+"n,','N').replace('"+enemy+"?");
     const attempts=[];
     for(const offset of [8,12,19,21]){
@@ -27,7 +28,7 @@ export function mixedSources() {
   return sources;
 }
 
-export function mixedBinding() {
+export function mixedBinding(variant) {
   const functions=[];
   for(const color of ['w','b']) {
     for (const kind of 'rbq') {
@@ -39,10 +40,11 @@ export function mixedBinding() {
       let first = ${one('r')}(board.replace('S([^S]*)$','O$1'),direction);
       return first>=0 ? first : ${one('r')}(board.replace('^([^S]*)S','$1O'),direction);
     }`);
+    const last=variant==='all-minors-v9' ? "board.matches('.*S.*') ? "+one('r')+'(board,direction) : -1' : one('r')+'(board,direction)';
     functions.push(`function ${typed}(text,board,direction) {
       return text.matches('.*${color}q,.*') ? ${one('q')}(board,direction)
         : text.matches('.*${color}b,.*') ? ${one('b')}(board,direction)
-        : board.matches('.*S.*S.*') ? slideRooks${color}(board,direction) : ${one('r')}(board,direction);
+        : board.matches('.*S.*S.*') ? slideRooks${color}(board,direction) : ${last};
     }`);
     const all=Array.from({length:4},(_,i)=>'allRefused'+color+i+'(records)').join(' && ');
     functions.push(`function slideKing${color}(board) {
