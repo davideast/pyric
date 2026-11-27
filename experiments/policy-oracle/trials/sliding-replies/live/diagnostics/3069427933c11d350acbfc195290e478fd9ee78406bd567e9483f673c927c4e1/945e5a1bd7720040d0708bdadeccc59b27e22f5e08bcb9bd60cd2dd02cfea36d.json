@@ -1,0 +1,30 @@
+{
+  "authority": "Google Rules Test API",
+  "rulesSha256": "3069427933c11d350acbfc195290e478fd9ee78406bd567e9483f673c927c4e1",
+  "requestSha256": "7f85c87ec34c736baa14cb1c3a8f82bdac18e588c364d05773508aff75333656",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [
+    {
+      "severity": "WARNING",
+      "line": 257,
+      "column": 12,
+      "message": "Unused function: knightWitness."
+    },
+    {
+      "severity": "WARNING",
+      "line": 583,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 595,
+      "column": 12,
+      "message": "Unused function: nextEp."
+    }
+  ],
+  "caseWrites": 0,
+  "releasesActivated": 0,
+  "receipt": "945e5a1bd7720040d0708bdadeccc59b27e22f5e08bcb9bd60cd2dd02cfea36d"
+}
