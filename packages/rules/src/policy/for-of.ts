@@ -153,10 +153,70 @@ function maxUnits(expr: Expression): number {
   return units;
 }
 
+// Unroll a small runtime list into immutable accumulator versions. Keep the
+// invalid-bound branch an evaluation error, even when a caller compares to null.
+function emitShortFold(fn: FunctionDef, loop: CheckedLoop, expressionLimit: number): string {
+  const step = loop.step;
+  if (step.kind !== 'update' || loop.limit > 2 || loop.collection.type !== 'functionCall' ||
+      loop.input.type !== 'identifier' || !fn.parameters.includes(loop.input.name) ||
+      fn.lets.length !== 1 || fn.body.type !== 'identifier' || fn.body.name !== step.target) {
+    throw new Error(fn.name + ': standalone only: ordered accumulator requires a bounded list parameter of at most two items and a single returned accumulator');
+  }
+  // A Rules let can hold a recoverable error. A subsequent assignment must
+  // observe that error just as the standalone loop would at the first bad step.
+  function observesPrior(expr: Expression, target: string): boolean {
+    if (expr.type === 'identifier') return expr.name === target;
+    if (expr.type === 'ternary') return observesPrior(expr.condition, target);
+    if (expr.type === 'isExpr') return observesPrior(expr.value, target);
+    return expr.type === 'binaryOp' && expr.op !== '&&' && expr.op !== '||' &&
+      (observesPrior(expr.left, target) || observesPrior(expr.right, target));
+  }
+  if (!observesPrior(step.value, step.target)) {
+    throw new Error(fn.name + ': standalone only: cannot prove each update observes the previous accumulator');
+  }
+  const id = (name: string): Expression => ({ type: 'identifier', name });
+  const number = (value: number): Expression => ({ type: 'literal', value, raw: String(value) });
+  const choose = (condition: Expression, consequent: Expression, alternate: Expression): Expression =>
+    ({ type: 'ternary', condition, consequent, alternate });
+  const names = new Set([...fn.parameters, fn.name, step.target, loop.item]);
+  function fresh(base: string) {
+    let name = base;
+    while (names.has(name)) name += '_';
+    names.add(name);
+    return name;
+  }
+  const bindings = [...fn.lets];
+  const size = fresh('foldSize');
+  const input = loop.input;
+  bindings.push({ name: size, value: choose({ type: 'isExpr', value: input, typeName: 'list' },
+    { type: 'methodCall', object: input, method: 'size', args: [] }, number(-1)) });
+  const valid = fresh('foldInBounds');
+  bindings.push({ name: valid, value: { type: 'binaryOp', op: '&&',
+    left: { type: 'binaryOp', op: '>=', left: id(size), right: number(0) },
+    right: { type: 'binaryOp', op: '<=', left: id(size), right: number(loop.limit) } } });
+  let previous = step.target;
+  for (let i = 0; i < loop.limit; i++) {
+    const item: Expression = { type: 'bracketAccess', object: input, index: number(i) };
+    const update = substituteLets(step.value, new Map([[step.target, id(previous)], [loop.item, item]]), true);
+    const present: Expression = { type: 'binaryOp', op: '&&', left: id(valid),
+      right: { type: 'binaryOp', op: '>', left: id(size), right: number(i) } };
+    const name = fresh('foldStep' + (i + 1));
+    bindings.push({ name, value: choose(present, update, id(previous)) });
+    previous = name;
+  }
+  // Indexing an empty list fails at runtime for every index.
+  const invalid: Expression = { type: 'bracketAccess', object: { type: 'listLiteral', elements: [] }, index: id(size) };
+  const body = choose(id(valid), id(previous), invalid);
+  const sourceUnits = maxUnits(fn.lets[0].value) + maxUnits(input) + loop.limit * (1 + maxUnits(step.value)) + maxUnits(fn.body);
+  const targetUnits = 1 + fn.parameters.length + bindings.length + bindings.reduce((sum, b) => sum + maxUnits(b.value), 0) + maxUnits(body);
+  if (sourceUnits > expressionLimit || targetUnits > EXPRESSION_LIMIT)
+    throw new Error(fn.name + ': standalone only: ordered accumulator exceeds expression budget');
+  return emitPureFunctionModule({ ...fn, lets: bindings, body });
+}
+
 export function emitLoopModule(fn: FunctionDef, loop: CheckedLoop, expressionLimit: number): string {
   if (loop.step.kind === 'update') {
-    throw new Error(fn.name + ': standalone only: ordered accumulator over up to ' + loop.limit +
-      ' items requires carrying each prior value; no Firestore accumulator lowering');
+    return emitShortFold(fn, loop, expressionLimit);
   }
   if (loop.collection.type !== 'listLiteral') {
     throw new Error(fn.name + ': standalone only: checked input requires type and length enforcement before early return');

@@ -245,3 +245,32 @@ test('an expanded helper is checked against the Firestore UTF-8 byte limit befor
   expect(fn()).toBe(true);
   expect(() => fn.firestoreModule()).toThrow('Total size of sources must be smaller than 262144');
 });
+
+test('a short checked fold preserves order, length and the previous accumulator', () => {
+  const source = `use extension loops; function calc(foldSize, items) {
+    let foldStep1 = foldSize;
+    for (const foldInBounds of bounded(items, 2)) { foldStep1 = foldStep1 * 10 + foldInBounds; }
+    return foldStep1;
+  }`;
+  const fold = compileFunction(source);
+  const fn = fold.firestoreModule().split('export function')[1];
+  const rules = firestoreRules(`rules_version = '2'; service cloud.firestore {
+    match /databases/{db}/documents { function${fn}
+      match /items/{id} { allow create: if calc(0, request.resource.data.list) == request.resource.data.claim; }
+    }
+  }`);
+  const inputs = [
+    {list:[], claim:0}, {list:[7], claim:7}, {list:[1,2], claim:12},
+    {list:[2,1], claim:12}, {list:[1,2,0], claim:12}, {list:[1,2,0], claim:null},
+    {list:'', claim:null},
+  ];
+  expect(inputs.map(({list,claim}) => {
+    try { return Number(fold(0,list)) === claim; } catch { return false; }
+  })).toEqual([true,true,true,false,false,false,false]);
+  expect(rules.simulate(inputs.map(data => ({description:JSON.stringify(data), method:'create' as const,
+    path:'items/test', data, expectation:'ALLOW' as const}))).cases.map(c => c.decision))
+    .toEqual(['ALLOW','ALLOW','ALLOW','DENY','DENY','DENY','DENY']);
+  expect(() => compileFunction(source,{expressionLimit:1}).firestoreModule()).toThrow('budget');
+  expect(() => compileFunction(source.replace('foldStep1 * 10 + foldInBounds', 'foldInBounds')).firestoreModule())
+    .toThrow('observes the previous accumulator');
+});
