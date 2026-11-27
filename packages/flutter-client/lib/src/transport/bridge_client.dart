@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../auth/auth_lens.dart';
+import 'bridge_app_check_attachment.dart';
 import 'bridge_frame_codec.dart';
 import 'bridge_heartbeat.dart';
 import 'bridge_operation_queue.dart';
@@ -12,6 +13,7 @@ import 'bridge_reconnect_policy.dart';
 import 'bridge_subscription_registry.dart';
 import 'exceptions.dart';
 
+export 'bridge_app_check_attachment.dart';
 export 'bridge_operations.dart';
 export 'bridge_reconnect_policy.dart';
 export 'exceptions.dart';
@@ -63,6 +65,9 @@ class PyricBridgeClient {
 
   /// Runs on a re-attach to a replaced host, before listens are re-sent.
   BridgeAuthRestorer? restoreAuth;
+
+  /// Resolves an App Check token attached to non-internal ops and subscriptions.
+  BridgeAppCheckTokenProvider? appCheckTokenProvider;
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _channelSubscription;
@@ -145,6 +150,7 @@ class PyricBridgeClient {
       trySendMessage: _trySendMessage,
       ensureInitialAttempt: () => connect().ignore(),
       onDenial: _emitDenial,
+      appCheckTokenProvider: () => appCheckTokenProvider,
     );
   }
 
@@ -203,14 +209,16 @@ class PyricBridgeClient {
     Map<String, dynamic> params, {
     Map<String, dynamic>? actAs,
     Duration? timeout,
-  }) async {
+  }) {
     _ensureUsable();
-    return _ops.enqueueOrDispatch(
-      method,
-      params,
-      actAs: actAs,
-      timeout: timeout,
-    );
+    final provider = appCheckTokenProvider;
+    if (provider == null) {
+      return _ops.enqueueOrDispatch(method, params, actAs: actAs, timeout: timeout);
+    }
+    return attachAppCheckTokenToOpParams(method, params, provider).then((resolved) {
+      _ensureUsable();
+      return _ops.enqueueOrDispatch(method, resolved, actAs: actAs, timeout: timeout);
+    });
   }
 
   /// Lists all sandbox users via the auth.listUsers RPC.
@@ -506,6 +514,7 @@ class PyricBridgeClient {
   Future<void> _shutdown(PyricBridgeException error) {
     if (_shutdownComplete != null) return _shutdownComplete!;
     _isDisposed = true;
+    appCheckTokenProvider = null;
     _connectionGeneration++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;

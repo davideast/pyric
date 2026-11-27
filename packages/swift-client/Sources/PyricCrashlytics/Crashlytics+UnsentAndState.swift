@@ -152,9 +152,12 @@ extension Crashlytics {
     }
 
     package func applyCollectionEnabled(_ enabled: Bool?) {
-        stateLock.withLock {
+        let shouldEnqueue: Bool = stateLock.withLock {
+            if _isDisposed { return false }
             _collectionOverride = enabled
+            return true
         }
+        guard shouldEnqueue else { return }
         var params = baseParams()
         if let enabled {
             params["enabled"] = .bool(enabled)
@@ -181,9 +184,7 @@ extension Crashlytics {
     }
 
     package func syncDidCrashFlag(_ remoteDidCrash: Bool) {
-        if remoteDidCrash {
-            stateLock.withLock { _didPreviouslyCrash = true }
-        }
+        stateLock.withLock { _didPreviouslyCrash = remoteDidCrash }
     }
 
     package func baseParams() -> [String: AnySendable] {

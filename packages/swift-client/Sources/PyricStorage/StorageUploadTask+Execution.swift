@@ -207,9 +207,13 @@ extension StorageUploadTask {
                 }
 
                 if useHTTPByteRoute, gate.consumeResyncFlag(), let targetURL = byteRouteURL {
+                    let offsetHeaders = await BridgeAppCheckAttachment.attachHeader(
+                        to: clientBaseHeaders,
+                        tokenProvider: client.appCheckTokenProvider
+                    )
                     if let confirmed = try? await queryByteRouteOffset(
                         targetURL: targetURL,
-                        headers: clientBaseHeaders,
+                        headers: offsetHeaders,
                         totalBytes: totalBytes,
                         timeout: timeout
                     ) {
@@ -234,6 +238,10 @@ extension StorageUploadTask {
                             var headers = clientBaseHeaders
                             headers["Content-Range"] = "bytes \(sliceOffset)-\(endExclusive - 1)/\(totalBytes)"
                             headers["Content-Length"] = "\(chunkData.count)"
+                            headers = await BridgeAppCheckAttachment.attachHeader(
+                                to: headers,
+                                tokenProvider: client.appCheckTokenProvider
+                            )
                             let outcome = try await BridgeStorageTransport.performHTTPRequest(
                                 url: targetURL,
                                 method: "PUT",

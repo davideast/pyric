@@ -236,8 +236,22 @@ extension PyricBridgeClient {
         }
         sub.sentInGeneration = generation
         activeSubs[subId] = sub
+        let wirePayload = await BridgeAppCheckAttachment.attachToSubPayload(
+            sub.payload,
+            tokenProvider: localStreams.appCheckTokenProvider
+        )
+        guard isCurrent(generation), isConnected, !restoringSubscriptions, !socketRefusing else {
+            if activeSubs[subId]?.sentInGeneration == generation {
+                activeSubs[subId]?.sentInGeneration = nil
+            }
+            return
+        }
+        if pendingSubs.isCancelled(id: subId) {
+            activeSubs.removeValue(forKey: subId)
+            return
+        }
         do {
-            try await sendRaw(WorkerSubFrame(subId: subId, sub: sub.payload))
+            try await sendRaw(WorkerSubFrame(subId: subId, sub: wirePayload))
         } catch is WebSocketSendRefusedError where canReopen {
             if activeSubs[subId]?.sentInGeneration == generation {
                 activeSubs[subId]?.sentInGeneration = nil

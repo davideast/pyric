@@ -22,10 +22,15 @@ class PyricFirebaseAppCheckPlatform extends FirebaseAppCheckPlatform {
   bool _isTokenAutoRefreshEnabled;
   bool _isDisposed = false;
 
+  static const String _placeholderToken = 'eyJlcnJvciI6IlVOS05PV05fRVJST1IifQ==';
+  static const int _minAutoRefreshDelayMillis = 50;
+
   DecodedAppCheckToken? _cachedToken;
   String? _lastEmittedToken;
   Future<DecodedAppCheckToken>? _inFlightStandardFetch;
+  int _mintGeneration = 0;
   Timer? _autoRefreshTimer;
+  BridgeAppCheckTokenProvider? _registeredBridgeProvider;
 
   final StreamController<String?> _onTokenChangeController =
       StreamController<String?>.broadcast();
@@ -118,9 +123,16 @@ class PyricFirebaseAppCheckPlatform extends FirebaseAppCheckPlatform {
     );
     final previousClient = _bridgeClient;
     final ownedPrevious = _ownsBridgeClient;
+    _unbindFromBridgeClient(previousClient);
     _bridgeClient = nextClient;
     _ownsBridgeClient = true;
+    _mintGeneration++;
     _cachedToken = null;
+    _inFlightStandardFetch = null;
+    _cancelAutoRefreshTimer();
+    if (_isActivated) {
+      _bindToBridgeClient(nextClient);
+    }
     if (ownedPrevious) {
       await previousClient.disconnect();
     }
@@ -153,14 +165,20 @@ class PyricFirebaseAppCheckPlatform extends FirebaseAppCheckPlatform {
       providerApple: providerApple,
       providerWindows: providerWindows,
     );
-    if (_isActivated && _providerKind != resolved.provider) {
+    final configChanged = _providerKind != resolved.provider ||
+        _debugToken != resolved.debugToken ||
+        _siteKey != resolved.siteKey;
+    if (_isActivated && configChanged) {
+      _mintGeneration++;
       _cachedToken = null;
+      _inFlightStandardFetch = null;
       _cancelAutoRefreshTimer();
     }
     _providerKind = resolved.provider;
     _debugToken = resolved.debugToken;
     _siteKey = resolved.siteKey;
     _isActivated = true;
+    _bindToBridgeClient(_bridgeClient);
     _scheduleAutoRefreshIfNeeded();
   }
 
@@ -240,6 +258,9 @@ class PyricFirebaseAppCheckPlatform extends FirebaseAppCheckPlatform {
       return;
     }
     _isDisposed = true;
+    _mintGeneration++;
+    _inFlightStandardFetch = null;
+    _unbindFromBridgeClient(_bridgeClient);
     _cancelAutoRefreshTimer();
     final boundApp = appInstance;
     if (boundApp != null && identical(_delegatesByAppName[boundApp.name], this)) {
@@ -278,20 +299,42 @@ class PyricFirebaseAppCheckPlatform extends FirebaseAppCheckPlatform {
   Future<DecodedAppCheckToken> _fetchStandardTokenFromBridge({
     required bool forceRefresh,
   }) async {
+    final capturedGeneration = ++_mintGeneration;
     try {
       await _ensureBridgeConnected();
       final params = _baseWireParams()..['forceRefresh'] = forceRefresh;
       final raw = await _bridgeClient.op('appCheck.getToken', params);
       final decoded = decodeWireAppCheckToken(raw, nowMillis: _clockMillis());
-      _cachedToken = decoded;
-      if (!_isDisposed && decoded.token != _lastEmittedToken) {
-        _lastEmittedToken = decoded.token;
-        _onTokenChangeController.add(decoded.token);
+      if (!_isDisposed && capturedGeneration == _mintGeneration) {
+        _cachedToken = decoded;
+        if (decoded.token != _lastEmittedToken) {
+          _lastEmittedToken = decoded.token;
+          _onTokenChangeController.add(decoded.token);
+        }
+        _scheduleAutoRefreshIfNeeded();
       }
-      _scheduleAutoRefreshIfNeeded();
       return decoded;
     } catch (error, stackTrace) {
       throw mapToAppCheckFirebaseException(error, stackTrace);
+    }
+  }
+
+  void _bindToBridgeClient(PyricBridgeClient client) {
+    final provider = _registeredBridgeProvider ??= () async {
+      if (_isDisposed || !_isActivated) return null;
+      try {
+        return await getToken(false);
+      } catch (_) {
+        return _placeholderToken;
+      }
+    };
+    client.appCheckTokenProvider = provider;
+  }
+
+  void _unbindFromBridgeClient(PyricBridgeClient client) {
+    final registered = _registeredBridgeProvider;
+    if (registered != null && identical(client.appCheckTokenProvider, registered)) {
+      client.appCheckTokenProvider = null;
     }
   }
 
@@ -340,8 +383,19 @@ class PyricFirebaseAppCheckPlatform extends FirebaseAppCheckPlatform {
       return;
     }
     final nowMillis = _clockMillis();
-    final refreshAtMillis = cached.expireTimeMillis - appCheckRefreshBufferMillis;
-    final delayMillis = refreshAtMillis > nowMillis ? refreshAtMillis - nowMillis : 0;
+    final remainingMillis = cached.expireTimeMillis - nowMillis;
+    if (remainingMillis <= 0) {
+      return;
+    }
+    final int delayMillis;
+    if (remainingMillis > appCheckRefreshBufferMillis) {
+      delayMillis = remainingMillis - appCheckRefreshBufferMillis;
+    } else {
+      final rawDelay = remainingMillis - (remainingMillis ~/ 2);
+      delayMillis = rawDelay > _minAutoRefreshDelayMillis
+          ? rawDelay
+          : _minAutoRefreshDelayMillis;
+    }
     _autoRefreshTimer = Timer(Duration(milliseconds: delayMillis), () {
       if (_isDisposed || !_isTokenAutoRefreshEnabled) {
         return;

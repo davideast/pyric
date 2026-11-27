@@ -133,8 +133,15 @@ class FirebaseMessaging {
     _registeredBridgeClient = bridgeClient;
     _registeredRegistrationId = registrationId;
     _registeredRecipientId = recipientId;
+    final stale = <FirebaseMessaging>{
+      if (_defaultInstance != null) _defaultInstance!,
+      ..._instancesByKey.values,
+    };
     _defaultInstance = null;
     _instancesByKey.clear();
+    for (final inst in stale) {
+      unawaited(inst.dispose());
+    }
   }
 
   /// Disposes all cached instances, clears static handlers, and resets test state.
@@ -227,6 +234,7 @@ class FirebaseMessaging {
   String? _apnsToken;
   String? _activeToken;
   String? _lastEmittedToken;
+  int _tokenGeneration = 0;
   RemoteMessage? _pendingInitialMessage;
 
   NotificationSettings _notificationSettings =
@@ -436,6 +444,7 @@ class FirebaseMessaging {
       );
     }
 
+    final gen = _tokenGeneration;
     final regId = _session.registrationId;
     final recId = _session.recipientId;
     final response = await _session.runOp('messaging.getToken', <String, dynamic>{
@@ -445,11 +454,13 @@ class FirebaseMessaging {
     final token = response is Map
         ? response['token'] as String?
         : response as String?;
-    _activeToken = token;
-    if (token != null && token.isNotEmpty && token != _lastEmittedToken) {
-      _lastEmittedToken = token;
-      if (!_tokenRefreshController.isClosed) {
-        _tokenRefreshController.add(token);
+    if (!_isDisposed && gen == _tokenGeneration) {
+      _activeToken = token;
+      if (token != null && token.isNotEmpty && token != _lastEmittedToken) {
+        _lastEmittedToken = token;
+        if (!_tokenRefreshController.isClosed) {
+          _tokenRefreshController.add(token);
+        }
       }
     }
     return token;
@@ -459,10 +470,14 @@ class FirebaseMessaging {
   Future<void> deleteToken() async {
     _ensureNotDisposed();
     final regId = _session.registrationId;
+    final recId = _session.recipientId;
     await _session.runOp('messaging.deleteToken', <String, dynamic>{
       if (regId != null) 'registrationId': regId,
+      if (recId != null) 'recipientId': recId,
     });
+    _tokenGeneration++;
     _activeToken = null;
+    _lastEmittedToken = null;
   }
 
   /// Subscribes this instance's registration token to [topic].
@@ -561,6 +576,7 @@ class FirebaseMessaging {
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
+    _tokenGeneration++;
     _liveInstances.remove(this);
     if (identical(_defaultInstance, this)) {
       _defaultInstance = null;

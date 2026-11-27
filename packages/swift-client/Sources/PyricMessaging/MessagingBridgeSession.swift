@@ -23,6 +23,8 @@ package actor MessagingBridgeSession {
     private var activeHeaders: [String: String] = [:]
     private var transport: (any WebSocketTransport)?
     private var receiveTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var reconnectAttempt = 0
     private var attachTask: Task<Void, any Error>?
     private var attachContinuation: CheckedContinuation<Void, any Error>?
     private var isAttached = false
@@ -132,6 +134,8 @@ package actor MessagingBridgeSession {
             }
         }
         isDisposed = true
+        reconnectTask?.cancel()
+        reconnectTask = nil
         let closing = tearDownCurrentSocket(
             error: MessagingError(code: .network, message: "Messaging bridge session disconnected.")
         )
@@ -325,6 +329,7 @@ package actor MessagingBridgeSession {
                 clientSessionId = sid
             }
             isAttached = true
+            reconnectAttempt = 0
             attachCont.resume()
 
         case "ping":
@@ -362,6 +367,11 @@ package actor MessagingBridgeSession {
                 return
             }
             if let errObj = value["__error"] ?? json["error"] ?? json["err"] {
+                if subId == foregroundSubID {
+                    foregroundSubID = nil
+                } else if subId == backgroundSubID {
+                    backgroundSubID = nil
+                }
                 onSubscriptionError(MessagingError.fromWireError(errObj))
                 return
             }
@@ -407,9 +417,40 @@ package actor MessagingBridgeSession {
 
     private func handleSocketLoss(generation: Int, error: MessagingError) {
         guard generation == connectionGeneration else { return }
+        let endpointToReconnect = activeEndpoint
+        let headersToReconnect = activeHeaders
         let closing = tearDownCurrentSocket(error: error)
         if fixedTransport == nil, let closing {
             Task { await closing.close(closeCode: 1000, reason: "Socket lost") }
+        }
+        guard fixedTransport == nil, !isDisposed, !isDisconnecting,
+              let endpoint = endpointToReconnect else {
+            return
+        }
+        let intent = observerState()
+        guard intent.wantsForeground || intent.wantsBackground else { return }
+        let attempt = reconnectAttempt
+        reconnectAttempt += 1
+        let delaySeconds = min(0.05 * pow(2.0, Double(min(attempt, 10))), 5.0)
+        let nanos = UInt64((delaySeconds * 1_000_000_000.0).rounded())
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !Task.isCancelled, let self else { return }
+            await self.attemptReconnect(endpoint: endpoint, headers: headersToReconnect)
+        }
+    }
+
+    private func attemptReconnect(endpoint: URL, headers: [String: String]) async {
+        reconnectTask = nil
+        guard !isDisposed, !isDisconnecting, !isAttached else { return }
+        let intent = observerState()
+        guard intent.wantsForeground || intent.wantsBackground else { return }
+        do {
+            try await ensureAttached(endpoint: endpoint, headers: headers)
+            try await flushSubscriptionIntent()
+        } catch {
+            // handleSocketLoss triggered during ensureAttached schedules the next retry.
         }
     }
 

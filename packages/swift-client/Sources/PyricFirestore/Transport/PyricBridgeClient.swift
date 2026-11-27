@@ -191,6 +191,14 @@ public actor PyricBridgeClient {
         localStreams.authRestorer = restorer
     }
 
+    package nonisolated var appCheckTokenProvider: BridgeAppCheckTokenProvider? {
+        get { localStreams.appCheckTokenProvider }
+    }
+
+    package nonisolated func setAppCheckTokenProvider(_ provider: BridgeAppCheckTokenProvider?) {
+        localStreams.appCheckTokenProvider = provider
+    }
+
     /// Synchronous snapshot of the latest connection state.
     package nonisolated var currentConnectionState: BridgeConnectionState {
         localStreams.currentState
@@ -427,8 +435,13 @@ public actor PyricBridgeClient {
                 guard var current = activeSubs[subId], current.sentInGeneration != generation else { continue }
                 current.sentInGeneration = generation
                 activeSubs[subId] = current
+                let wirePayload = await BridgeAppCheckAttachment.attachToSubPayload(
+                    sub.payload,
+                    tokenProvider: localStreams.appCheckTokenProvider
+                )
+                guard isCurrent(generation), isConnected, !socketRefusing, !pendingSubs.isCancelled(id: subId) else { break }
                 do {
-                    try await sendRaw(WorkerSubFrame(subId: subId, sub: sub.payload))
+                    try await sendRaw(WorkerSubFrame(subId: subId, sub: wirePayload))
                 } catch is WebSocketSendRefusedError where canReopen {
                     if activeSubs[subId]?.sentInGeneration == generation {
                         activeSubs[subId]?.sentInGeneration = nil

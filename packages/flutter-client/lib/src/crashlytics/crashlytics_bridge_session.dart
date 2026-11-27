@@ -121,7 +121,8 @@ class CrashlyticsBridgeSession {
           return delegate;
         }
       }
-      if (root.isActivated) {
+      if ((app == null || app.name == defaultFirebaseAppName) &&
+          root.isActivated) {
         return root;
       }
     } catch (_) {

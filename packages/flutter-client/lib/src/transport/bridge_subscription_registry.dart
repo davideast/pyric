@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:collection/collection.dart';
 
+import 'bridge_app_check_attachment.dart';
 import 'bridge_frame_codec.dart';
 import 'bridge_reconnect_policy.dart';
 import 'exceptions.dart';
@@ -29,6 +30,7 @@ class BridgeSubscriptionRegistry {
   final bool Function(Map<String, dynamic> frame) trySendMessage;
   final void Function() ensureInitialAttempt;
   final void Function(PyricBridgeException exception) onDenial;
+  final BridgeAppCheckTokenProvider? Function()? appCheckTokenProvider;
 
   int _subCounter = 0;
   final Map<String, _ActiveSub> _activeSubs = {};
@@ -41,6 +43,7 @@ class BridgeSubscriptionRegistry {
     required this.trySendMessage,
     required this.ensureInitialAttempt,
     required this.onDenial,
+    this.appCheckTokenProvider,
   });
 
   Stream<dynamic> subscribeRaw(Map<String, dynamic> subPayload) {
@@ -172,12 +175,43 @@ class BridgeSubscriptionRegistry {
   }
 
   void _sendSub(String subId, _ActiveSub sub) {
+    final provider = appCheckTokenProvider?.call();
+    final existing = sub.payload['appCheckToken'];
+    final needsAppCheck = provider != null &&
+        (existing is! String || existing.isEmpty) &&
+        !isInternalAppCheckSubscriptionTarget(sub.payload['target']);
+    if (!needsAppCheck) {
+      _dispatchSubFrame(subId, sub.payload);
+      return;
+    }
+    unawaited(_sendSubWithAppCheck(subId, sub, provider));
+  }
+
+  Future<void> _sendSubWithAppCheck(
+    String subId,
+    _ActiveSub sub,
+    BridgeAppCheckTokenProvider provider,
+  ) async {
+    final token = await resolveAppCheckTokenForSubscription(
+      sub.payload['target'],
+      provider,
+    );
+    if (isDisposed() || !isConnected() || !identical(_activeSubs[subId], sub)) {
+      return;
+    }
+    final payload = (token != null && token.isNotEmpty)
+        ? <String, dynamic>{...sub.payload, 'appCheckToken': token}
+        : sub.payload;
+    _dispatchSubFrame(subId, payload);
+  }
+
+  void _dispatchSubFrame(String subId, Map<String, dynamic> payload) {
     final sessionId = clientSessionId();
     trySendMessage({
       'type': 'worker-sub',
       'subId': subId,
       if (sessionId != null) 'clientSessionId': sessionId,
-      'sub': sub.payload,
+      'sub': payload,
     });
   }
 }

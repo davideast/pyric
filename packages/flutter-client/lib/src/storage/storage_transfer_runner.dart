@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:firebase_storage_platform_interface/firebase_storage_platform_interface.dart';
 
+import '../transport/bridge_app_check_attachment.dart';
 import '../transport/exceptions.dart';
 import 'pyric_firebase_storage_platform.dart';
 import 'pyric_task_platform.dart';
@@ -173,6 +174,7 @@ Future<CompletedTaskPayload> runResumableUploadTask({
                 'content-length': '${chunkBytes.length}',
               },
               body: chunkBytes,
+              appCheckTokenProvider: storage.bridgeClient.appCheckTokenProvider,
               onHandleCreated: (handle) => activeHttpHandle = handle,
               onHandleClosed: () => activeHttpHandle = null,
             );
@@ -190,6 +192,7 @@ Future<CompletedTaskPayload> runResumableUploadTask({
           wirePath: wirePath,
           headers: const <String, String>{'content-length': '0'},
           body: Uint8List(0),
+          appCheckTokenProvider: storage.bridgeClient.appCheckTokenProvider,
           onHandleCreated: (handle) => activeHttpHandle = handle,
           onHandleClosed: () => activeHttpHandle = null,
         );
@@ -359,6 +362,7 @@ Future<CompletedTaskPayload> runWriteToFileTask({
           uri: objectUri,
           wirePath: wirePath,
           headers: headers,
+          appCheckTokenProvider: storage.bridgeClient.appCheckTokenProvider,
           onHandleCreated: (handle) => activeHttpHandle = handle,
           onHandleClosed: () => activeHttpHandle = null,
         );
@@ -412,13 +416,18 @@ Future<void> _sendHttpSlice({
   required String wirePath,
   required Map<String, String> headers,
   required Uint8List body,
+  BridgeAppCheckTokenProvider? appCheckTokenProvider,
   required void Function(StorageCancelableHttpHandle handle) onHandleCreated,
   required void Function() onHandleClosed,
 }) async {
+  final resolvedHeaders = await attachAppCheckHeaderToHttpHeaders(
+    headers,
+    appCheckTokenProvider,
+  );
   final response = await performStorageHttpRequest(
     method: 'PUT',
     uri: uri,
-    headers: headers,
+    headers: resolvedHeaders,
     body: body,
     onHandleCreated: onHandleCreated,
     onHandleClosed: onHandleClosed,
@@ -437,13 +446,18 @@ Future<StorageRawHttpResponse> _fetchHttpSlice({
   required Uri uri,
   required String wirePath,
   required Map<String, String> headers,
+  BridgeAppCheckTokenProvider? appCheckTokenProvider,
   required void Function(StorageCancelableHttpHandle handle) onHandleCreated,
   required void Function() onHandleClosed,
 }) async {
+  final resolvedHeaders = await attachAppCheckHeaderToHttpHeaders(
+    headers,
+    appCheckTokenProvider,
+  );
   final response = await performStorageHttpRequest(
     method: 'GET',
     uri: uri,
-    headers: headers,
+    headers: resolvedHeaders,
     onHandleCreated: onHandleCreated,
     onHandleClosed: onHandleClosed,
   );

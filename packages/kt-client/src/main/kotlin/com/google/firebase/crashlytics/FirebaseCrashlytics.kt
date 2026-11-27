@@ -2,8 +2,10 @@ package com.google.firebase.crashlytics
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import dev.pyric.bridge.PyricBridgeClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +18,7 @@ import java.io.StringWriter
 import java.util.ArrayDeque
 import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FirebaseCrashlytics internal constructor(
     val app: FirebaseApp,
@@ -34,6 +37,7 @@ class FirebaseCrashlytics internal constructor(
 
     @Volatile
     private var previousExecutionCrashed: Boolean = false
+    private val closed = AtomicBoolean(false)
 
     val bridgeClient: PyricBridgeClient
         get() = explicitBridgeClient ?: app.getOrCreateBridgeClient()
@@ -217,6 +221,9 @@ class FirebaseCrashlytics internal constructor(
     }
 
     fun checkForUnsentReports(): Task<Boolean> {
+        if (closed.get()) {
+            return Tasks.forException(IllegalStateException(CLOSED_MESSAGE))
+        }
         val tcs = TaskCompletionSource<Boolean>()
         scope.launch {
             try {
@@ -224,6 +231,8 @@ class FirebaseCrashlytics internal constructor(
                 val hasUnsent = (raw?.get("hasUnsentReports") as? Boolean)
                     ?: (((raw?.get("count") as? Number)?.toInt() ?: 0) > 0)
                 tcs.setResult(hasUnsent)
+            } catch (e: CancellationException) {
+                tcs.setException(IllegalStateException(CLOSED_MESSAGE, e))
             } catch (e: Exception) {
                 tcs.setException(e)
             }
@@ -254,11 +263,16 @@ class FirebaseCrashlytics internal constructor(
     }
 
     fun flush(): Task<Void?> {
+        if (closed.get()) {
+            return Tasks.forException(IllegalStateException(CLOSED_MESSAGE))
+        }
         val tcs = TaskCompletionSource<Void?>()
         scope.launch {
             try {
                 bridgeClient.op("crashlytics.flush", baseParams())
                 tcs.setResult(null)
+            } catch (e: CancellationException) {
+                tcs.setException(IllegalStateException(CLOSED_MESSAGE, e))
             } catch (e: Exception) {
                 tcs.setException(e)
             }
@@ -267,6 +281,9 @@ class FirebaseCrashlytics internal constructor(
     }
 
     fun getState(): Task<Map<String, Any?>> {
+        if (closed.get()) {
+            return Tasks.forException(IllegalStateException(CLOSED_MESSAGE))
+        }
         val tcs = TaskCompletionSource<Map<String, Any?>>()
         scope.launch {
             try {
@@ -274,10 +291,12 @@ class FirebaseCrashlytics internal constructor(
                 val raw = (bridgeClient.op("crashlytics.getState", baseParams()) as? Map<String, Any?>)
                     ?: emptyMap()
                 val remoteDidCrash = raw["didCrashOnPreviousExecution"] as? Boolean
-                if (remoteDidCrash == true) {
-                    previousExecutionCrashed = true
+                if (remoteDidCrash != null) {
+                    previousExecutionCrashed = remoteDidCrash
                 }
                 tcs.setResult(raw)
+            } catch (e: CancellationException) {
+                tcs.setException(IllegalStateException(CLOSED_MESSAGE, e))
             } catch (e: Exception) {
                 tcs.setException(e)
             }
@@ -295,10 +314,12 @@ class FirebaseCrashlytics internal constructor(
     }
 
     fun close() {
+        closed.set(true)
         scope.cancel()
     }
 
     companion object {
+        private const val CLOSED_MESSAGE: String = "FirebaseCrashlytics instance has been closed."
         internal const val SDK_PLATFORM_ANDROID: String = "android"
         internal const val MAX_BREADCRUMBS: Int = 64
         private const val MAX_CAUSE_DEPTH: Int = 16
