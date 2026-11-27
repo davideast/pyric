@@ -15,6 +15,9 @@ RULES = OLD/'artefacts/knight-endgame-paired-pawn-combined-bare-fixed-comma-pack
 FAMILIES = ('rook','bishop','queen')
 
 
+COHORTS = (*FAMILIES, 'queen-bishop')
+
+
 def sha(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -60,7 +63,7 @@ def load(through):
             answers[key]=original[key]
     assert len(requests)==190 and sum(answers.values())==92
     groups['original-190']=list(requests)
-    for family in FAMILIES[:FAMILIES.index(through)+1]:
+    for family in COHORTS[:COHORTS.index(through)+1]:
         d=HERE/'native'/family
         inputs=read(d/'positions.json')
         truth=run('bun','--no-install',OLD/'reference/native.mjs',d/'positions.json')

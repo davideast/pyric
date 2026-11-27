@@ -8,7 +8,10 @@ import {position} from '../../chess/reference/score.mjs';
 import {squareName} from '../../chess/reference/arcade-reference.ts';
 import {sample} from '../../chess-safety/reference/fixtures.mjs';
 
-const [sdk,bundle,option,...boardIds]=process.argv.slice(2);
+const args=process.argv.slice(2);
+const cohorts=['rook','bishop','queen'];
+if(args.includes('--include-queen-bishop')) cohorts.push('queen-bishop');
+const [sdk,bundle,option,...boardIds]=args.filter(arg=>arg!=='--include-queen-bishop');
 if (!sdk || !bundle || (option && !['--focused','--roster','--boards'].includes(option)) ||
     (option==='--boards')!==(boardIds.length>0)) throw Error('Usage: bun witness.mjs PINNED_SDK COMPLETE_RULES [--focused|--roster|--boards ID ...]');
 const {firestoreRules}=await import(pathToFileURL(resolve(sdk,'dist/index.js')));
@@ -85,8 +88,8 @@ function inspected(row) {
 }
 function routes(handle=original,groups=null) {
   const all=[];
-  const cohorts=groups??['rook','bishop','queen'].map(piece=>read('../native/'+piece+'/native.json').cases);
-  for(const cases of cohorts){
+  const batches=groups??cohorts.map(piece=>read('../native/'+piece+'/native.json').cases);
+  for(const cases of batches){
     for(const row of cases){
       const {before,proposal}=sample(row,'writer','other');
       const req={description:row.id,path:'chess/oracle',method:'update',auth:{uid:'writer'},
@@ -128,15 +131,17 @@ function materialPromises(fen) {
   const optionalPawn=material.length===1 || (material.length===2 && material.includes('p') && !opponent.includes('p'));
   const twoDefenders=(single && optionalPawn) ||
     (material.length===2 && (material.every(p=>p==='r') || single && material.includes('n')));
+  const knightOrPair=twoDefenders || (material.length===1 && material[0]==='n');
   return {rook:single && material.length===1 && sliders[0]==='r',
     bishop:single && optionalPawn && 'rb'.includes(sliders[0]),
     queen:single && optionalPawn,
     'queen-with-knight-or-rooks':twoDefenders,
-    'including-sole-knight':twoDefenders || (material.length===1 && material[0]==='n')};
+    'including-sole-knight':knightOrPair,
+    'including-queen-bishop':knightOrPair || (material.length===2 && material.includes('b') && material.includes('q'))};
 }
 
 function auditMaterial(rows,scores) {
-  const promises={rook:{},bishop:{},queen:{},'queen-with-knight-or-rooks':{},'including-sole-knight':{}};
+  const promises={rook:{},bishop:{},queen:{},'queen-with-knight-or-rooks':{},'including-sole-knight':{},'including-queen-bishop':{}};
   const firstMismatch={};
   const qualification=Object.fromEntries(Object.keys(promises).map(profile=>[profile,{
     boards:rows.length,eligible:0,verifiedWitnesses:0,guardDisagreements:0}]));
@@ -237,7 +242,7 @@ function tally(rows,scores) {
   return result;
 }
 const focused=[];
-for(const group of ['rook','bishop','queen']) {
+for(const group of cohorts) {
   const rows=read('../native/'+group+'/independent.json').boards;
   for(const r of rows) focused.push({id:r.id,fen:r.source,uci:r.move,successor:r.successor,replies:r.replies,sliderReplies:r.replies});
 }

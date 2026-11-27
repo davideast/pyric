@@ -1,6 +1,6 @@
 # Sliding-reply production observations
 
-The two capture windows contain 238 distinct submitted match updates. Six rook inputs reuse their original IDs and signed operands among the 190 historical cases. The 18 bishop and 30 queen inputs come from the versioned native fixture directories. The capture reads their positions and proposed claims. Native answers and candidate predictions are separate. The first window contains all 54 focus cases. [Frozen positions](../native/)
+The original v16 capture windows contain 238 distinct submitted match updates. Six rook inputs reuse their original IDs and signed operands among the 190 historical cases. The 18 bishop and 30 queen inputs come from the versioned native fixture directories. The capture reads their positions and proposed claims. Native answers and candidate predictions are separate. The first window contains all 54 focus cases. [Frozen positions](../native/)
 
 From the sliding-replies trial directory, look up the exact SHA-256 of a complete ruleset.
 
@@ -8,7 +8,7 @@ From the sliding-replies trial directory, look up the exact SHA-256 of a complet
 bun --no-install live/run.mjs lookup "$RULES_SHA"
 ```
 
-Lookup returns the expected and measured counts, qualified receipt hashes and one decision per case, including the server version on either side of the write. The public compressed receipts include both complete signed reads, server versions, and submitted fields. An unknown digest yields `unmeasured`. A digest with a completed subset yields `partial`. A digest becomes `measured` after all 238 distinct IDs have qualifying observations. Use `--archive /absolute/path/to/captures` to authenticate the original controller journal offline. The previous `5365dc51…` release has 190 measured cases in this corpus before any new deployment. Each of its 190 normalized signed inputs is compared with the complete operands of the new run.
+Lookup returns the expected and measured counts, qualified receipt hashes and one decision per case, including the server version on either side of the write. The public compressed receipts include both complete signed reads, server versions, and submitted fields. An unknown digest yields `unmeasured`. A digest with a completed subset yields `partial`. A digest becomes `measured` after every ID in its versioned capture plan has a qualifying observation. The v16 plan contains 238 IDs. The v17 plan adds the four queen-and-bishop writes. Use `--archive /absolute/path/to/captures` to authenticate the original controller journal offline. The previous `5365dc51…` release has 190 measured cases in this corpus before any new deployment. Each of its 190 normalized signed inputs is compared with the complete operands of the new run.
 
 ## Controller
 
@@ -17,13 +17,15 @@ Use the SDK installed from Arcade’s live package lock. `node live/preflight.mj
 ```sh
 node live/run.mjs prepare "$RULES_SHA" /absolute/path/to/complete.rules
 node live/upload.mjs "$RULES_SHA" "$PRIVATE_ARCHIVE"
+node live/run.mjs capture "$RULES_SHA" sliding-queen-bishop "$PRIVATE_ARCHIVE"
+node live/run.mjs retain "$RULES_SHA" sliding-queen-bishop "$PRIVATE_ARCHIVE" "$PAIR_RECEIPT"
 node live/run.mjs capture "$RULES_SHA" sliding-part-1 "$PRIVATE_ARCHIVE"
 node live/run.mjs retain "$RULES_SHA" sliding-part-1 "$PRIVATE_ARCHIVE" "$PART_1_RECEIPT"
 node live/run.mjs capture "$RULES_SHA" sliding-part-2 "$PRIVATE_ARCHIVE"
 node live/run.mjs retain "$RULES_SHA" sliding-part-2 "$PRIVATE_ARCHIVE" "$PART_2_RECEIPT"
 ```
 
-The first window has 120 proposals and the second has 118. Each opens with at least 44 minutes of valid management credentials. The controller requests graceful termination twelve minutes before expiry to leave time for restoration. The later window reuses the immutable first ruleset after verifying its remote source, target attachment and prior closure. Both windows check the open/closed controls via authenticated clients, read back each complete match, restore the exact original deny-all release and release only their own versioned lease. A failed or interrupted window contributes zero rows. [Underlying journal qualification](../../for-of/live/evidence.mjs)
+The v17 capture starts with the four queen-and-bishop proposals. The two historical batches contain 120 and 118 proposals. Each opens with at least 44 minutes of valid management credentials. The controller requests graceful termination twelve minutes before expiry to leave time for restoration. The later window reuses the immutable first ruleset after verifying its remote source, target attachment and prior closure. All windows check the open/closed controls via authenticated clients, read back each complete match, restore the exact original deny-all release and release only their own versioned lease. A failed or interrupted window contributes zero rows. [Underlying journal qualification](../../for-of/live/evidence.mjs)
 
 The upload command creates an immutable ruleset before the first signed window and reads back its exact source. It checks the deny-all release version and lease before and after the upload. The archive records the create intent before transmission to prevent a second POST after an ambiguous response. A receipt records the Google HTTP status independently of any later activation or signed observation. [Google Rules creation API](https://firebase.google.com/docs/reference/rules/rest/v1/projects.rulesets/create)
 

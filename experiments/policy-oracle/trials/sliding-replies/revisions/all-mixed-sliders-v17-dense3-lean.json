@@ -1,0 +1,119 @@
+{
+  "variant": "all-mixed-sliders-v17-dense3-lean",
+  "through": "queen-bishop",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "requestSha256": "ab7f71137ba2334fca7cfb5daec7d328d47d17897d9f87525181f73bb2b5942a",
+  "nativeSha256": "89a314a66e24eac1e93507cf4997309d9ad9667efee3ea2a518372d5c886e87f",
+  "compile": {
+    "status": "emitted",
+    "rulesSha256": "833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8",
+    "bytes": 113567
+  },
+  "standalone": {
+    "positions": 106,
+    "proposals": 202,
+    "outcomes": {
+      "match": 106
+    },
+    "replyRowsSha256": "c56c0b7862bb185371450d44e19d70801b1f8590b3f474b3cddb9d9fb6e4d8ba"
+  },
+  "local": {
+    "groups": {
+      "original-190": {
+        "cases": 190,
+        "outcomes": {
+          "match": 190
+        },
+        "diagnostics": {}
+      },
+      "rook": {
+        "cases": 6,
+        "outcomes": {
+          "match": 6
+        },
+        "diagnostics": {}
+      },
+      "bishop": {
+        "cases": 18,
+        "outcomes": {
+          "match": 18
+        },
+        "diagnostics": {}
+      },
+      "queen": {
+        "cases": 30,
+        "outcomes": {
+          "match": 30
+        },
+        "diagnostics": {}
+      },
+      "queen-bishop": {
+        "cases": 4,
+        "outcomes": {
+          "match": 4
+        },
+        "diagnostics": {}
+      }
+    },
+    "changes": {
+      "original-190": {
+        "repaired": [
+          "holdout-interior-v1-b-mate-playing",
+          "holdout-interior-v1-w-nonking-checked-won",
+          "holdout-replies-v1-stalemate-pinned-defender-playing",
+          "holdout-replies-v1-only-b-move-in-check-won",
+          "actual-fourth-ply-playing",
+          "promote-capturing-rook-right-held",
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "rook": {
+        "repaired": [
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "bishop": {
+        "repaired": [
+          "bishop-e5-clear-won",
+          "bishop-e5-d6-blocker-playing",
+          "bishop-b6-clear-won",
+          "bishop-b6-c7-blocker-playing",
+          "bishop-b7-free-won",
+          "bishop-b7-pinned-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "queen": {
+        "repaired": [
+          "queen-rank-clear-won",
+          "queen-rank-c4-blocker-playing",
+          "queen-file-clear-won",
+          "queen-file-d3-blocker-playing",
+          "queen-diagonal-clear-won",
+          "queen-diagonal-e6-blocker-playing",
+          "queen-capture-g3-blocker-playing",
+          "queen-captures-only-checker-won",
+          "queen-capture-leaves-rook-check-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "queen-bishop": {
+        "repaired": [
+          "qb-pawn-won"
+        ],
+        "regressed": [],
+        "remaining": []
+      }
+    },
+    "verdictAndCostsSha256": "fcbc8b9b79b723a2a736e85c5c97ab4a06ac39353d73cd344fd964ac9378c3ea",
+    "disagreements": {}
+  }
+}

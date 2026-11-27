@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 sys.dont_write_bytecode=True
-from campaign_corpus import HERE, OLD, ROOT, FAMILIES, PRIOR, RULES, digest, load, read, run, sha
+from campaign_corpus import HERE, OLD, ROOT, COHORTS, PRIOR, RULES, digest, load, read, run, sha
 
 sys.path.insert(0,str(ROOT/'core'))
 from candidate import MAX_PACKAGE
@@ -126,6 +126,7 @@ def difference(before,after,ids):
 
 def material_profile(variant):
     if variant=='prior': return None
+    if variant.startswith('all-mixed-sliders-v17'): return 'including-queen-bishop'
     if variant.startswith('rook-'): return 'rook'
     if variant.startswith('bishop-'): return 'bishop'
     if variant.startswith('all-two-defenders-'): return 'queen-with-knight-or-rooks'
@@ -233,10 +234,11 @@ def replay(args,scratch,suite):
                      'changes':{g:difference(original,local,ids) for g,ids in groups.items()}}
     result['live']['localDisagreements']=[k for k in joined if observed[k]!=local[k]['decision']]
     witness=run('bun','--no-install',HERE/'review/witness.mjs',reference,path,
-                *([] if args.witness_panel else ['--focused']))
+                *([] if args.witness_panel else ['--focused']),
+                *(['--include-queen-bishop'] if 'queen-bishop' in groups else []))
     assert witness['rulesSha256']==rules_sha
-    selected={read(HERE/'native'/group/'independent.json')['boards'][i]['id']
-              for group in groups if group in FAMILIES for i in range(len(groups[group])//3)}
+    selected={board['id'] for group in groups if group in COHORTS
+              for board in read(HERE/'native'/group/'independent.json')['boards']}
     scored=[r for r in witness['focused'] if r['id'] in selected]
     assert len(scored)==len(selected)
     witness['verifiedFocused']=sum(r['supported'] is True and r['outcome'] in ('legal-witness','correct-absence') for r in scored)
@@ -293,7 +295,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--candidate-package',type=Path)
     p.add_argument('--variant')
-    p.add_argument('--through',choices=FAMILIES,default='queen')
+    p.add_argument('--through',choices=COHORTS)
     p.add_argument('--python-chess-archive',type=Path,help='re-adjudicate frozen native answers with the pinned chess sdist')
     p.add_argument('--archive',type=Path,help='verify private production journals in addition to portable receipts')
     p.add_argument('--emit',type=Path,help='retain complete emitted Arcade Rules')
@@ -306,6 +308,7 @@ def main():
     p.add_argument('--witness-panel',action='store_true',help='add 2,796 independent reply positions to the focused witness audit')
     args=p.parse_args()
     if args.variant is None: args.variant=(HERE/'selected-variant.txt').read_text().strip()
+    if args.through is None: args.through='queen-bishop' if args.variant.startswith('all-mixed-sliders-v17') else 'queen'
     if args.candidate_package:
         if args.variant=='prior': p.error('prior replays archived Rules. Select a compiler variant to score a package')
         args.candidate_package=args.candidate_package.resolve(strict=True)
@@ -315,7 +318,8 @@ def main():
         suite=reference_suite(args,scratch)
         r=replay(args,scratch,suite)
         if args.with_history:
-            if args.through!='queen': p.error('--with-history requires the full corpus')
+            if args.through not in ('queen','queen-bishop'): p.error('--with-history requires the full corpus')
+            suites={args.through:suite}
             entries=[]
             def order(path):
                 version=re.search(r'-v(\d+)(?:-|$)',path.stem)
@@ -323,7 +327,7 @@ def main():
             revisions=sorted((HERE/'revisions').glob('*.json'),key=order)
             for index,file in enumerate(revisions,start=1):
                 frozen=read(file)
-                if file.stem==args.variant:
+                if file.stem==args.variant and frozen['through']==args.through:
                     scored=r
                 else:
                     old=copy.copy(args)
@@ -334,7 +338,12 @@ def main():
                     if file.stem=='prior': old.candidate_package=None
                     directory=scratch/file.stem
                     directory.mkdir()
-                    scored=replay(old,directory,suite)
+                    old.through=frozen['through']
+                    if old.through not in suites:
+                        base=scratch/('reference-'+old.through)
+                        base.mkdir()
+                        suites[old.through]=reference_suite(old,base)
+                    scored=replay(old,directory,suites[old.through])
                 if (not args.candidate_package or file.stem=='prior') and projection(scored)!=frozen:
                     raise ValueError(f'Archived local revision changed: {file.stem}')
                 entries.append({'variant':file.stem,'compile':scored['compile'],

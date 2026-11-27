@@ -34,6 +34,7 @@ The guarded solver accepts these defending rosters, each with its king.
 
 - One rook, bishop or queen.
 - One such slider and one knight, or two rooks.
+- In v17, one queen and one bishop. Both retain their own movement geometry when either is the first defender in board order.
 - One such slider and one pawn when there is no opposing pawn.
 - A lone knight.
 

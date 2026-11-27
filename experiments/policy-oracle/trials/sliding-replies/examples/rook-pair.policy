@@ -1,4 +1,4 @@
-function sliderMaterialb(text) { return text.matches('(?:[,#]|w[prnbqk],|bk,)*b[rbq],(?:[,#]|w[prnbqk],|bk,)*|(?:[,#]|w[rnbqk],|bk,)*(?:bp,(?:[,#]|w[rnbqk],|bk,)*b[rbq],|b[rbq],(?:[,#]|w[rnbqk],|bk,)*bp,)(?:[,#]|w[rnbqk],|bk,)*|(?:[,#]|w[prnbqk],|bk,)*(?:br,(?:[,#]|w[prnbqk],|bk,)*br,|b[rbq],(?:[,#]|w[prnbqk],|bk,)*bn,|bn,(?:[,#]|w[prnbqk],|bk,)*b[rbq],)(?:[,#]|w[prnbqk],|bk,)*|(?:[,#]|w[prnbqk],|bk,)*bn,(?:[,#]|w[prnbqk],|bk,)*'); }
+function sliderMaterialb(text) { return text.matches('(?:[,#]|w[prnbqk],|bk,)*b[rbq],(?:[,#]|w[prnbqk],|bk,)*|(?:[,#]|w[rnbqk],|bk,)*(?:bp,(?:[,#]|w[rnbqk],|bk,)*b[rbq],|b[rbq],(?:[,#]|w[rnbqk],|bk,)*bp,)(?:[,#]|w[rnbqk],|bk,)*|(?:[,#]|w[prnbqk],|bk,)*(?:br,(?:[,#]|w[prnbqk],|bk,)*br,|b[rbq],(?:[,#]|w[prnbqk],|bk,)*bn,|bn,(?:[,#]|w[prnbqk],|bk,)*b[rbq],|bq,(?:[,#]|w[prnbqk],|bk,)*bb,|bb,(?:[,#]|w[prnbqk],|bk,)*bq,)(?:[,#]|w[prnbqk],|bk,)*|(?:[,#]|w[prnbqk],|bk,)*bn,(?:[,#]|w[prnbqk],|bk,)*'); }
 
 function sliderEncodeb(text) { return text.replace('bk,','K').replace('b[rbq],','S').replace('bp,','P').replace('bn,','N').replace('w?([prnbqk#]),','$1'); }
 

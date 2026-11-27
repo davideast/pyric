@@ -35,7 +35,7 @@ function recipe(kind, axis=null, distance=0) {
 }
 
 export function recordSources(variant) {
-  const out={...mixedSources('all-minors-v9'),...protocolSources(variant)};
+  const out={...mixedSources('all-minors-v9',variant==='all-mixed-sliders-v17'),...protocolSources(variant)};
   const checks=crossSources('rook-cross-v2');
   for(const color of ['w','b']) {
     out['slideCheck'+color]=checks['slideCheck'+color];
@@ -97,7 +97,13 @@ export function recordBinding(variant) {
       || (board.matches('.*[PN].*') && (board.matches('.*P.*') ? (white ? slidePawnw(board) : slidePawnb(board))
         : (white ? slideKnightw(board) : slideKnightb(board)))));
   }`;
-  if(variant!=='all-paired-records-v16')return earlier;
+  if(variant==='all-marked-records-v15')return earlier;
+  // Both the packed text and its projection visit squares in the same order.
+  // Keep the other slider occupied while applying a reply by the selected one.
+  const mixed=variant==='all-mixed-sliders-v17';
+  const firstKind=mixed ? "text.replace('^.*?'+defender+'([rbq]),.*$','$1')" :
+    "two ? 'r' : text.matches('.*'+defender+'q,.*') ? 'q' : text.matches('.*'+defender+'b,.*') ? 'b' : 'r'";
+  const secondKind=mixed ? "text.replace('^.*'+defender+'([rbq]),.*$','$1')" : 'kind';
   const geometry=`function slideOne(board,kind,direction,rejected,king) {
     let origin=board.replace('S.*','').size();
     let recipe=direction==1 ? slideRecipeRank(king / 10 - origin / 10)
@@ -109,11 +115,11 @@ export function recordBinding(variant) {
   }
   function slideTyped(text,board,direction,defender) {
     let two=board.matches('.*S.*S.*');
-    let kind=two ? 'r' : text.matches('.*'+defender+'q,.*') ? 'q' : text.matches('.*'+defender+'b,.*') ? 'b' : 'r';
+    let kind=${firstKind};
     let king=board.replace('K.*','').size();
     let rejected=slideFailurePattern(defender=='w');
     let first=(two || board.matches('.*S.*')) ? slideOne(two ? board.replace('S([^S]*)S','S$1O') : board,kind,direction,rejected,king) : -1;
-    return first>=0 || !two ? first : slideOne(board.replace('^([^S]*)S','$1O'),kind,direction,rejected,king);
+    return first>=0 || !two ? first : slideOne(board.replace('^([^S]*)S','$1O'),${secondKind},direction,rejected,king);
   }
   `;
   return geometry+earlier.slice(earlier.indexOf('function sliderMove'));

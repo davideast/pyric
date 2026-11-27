@@ -21,11 +21,19 @@ export async function api(url, method = 'GET', body) {
       nextManagementRead = time + 1700;
       await delay(Math.max(0,time-Date.now()));
     }
-    const response = await fetch(url, {
-      method, headers: { Authorization: 'Bearer ' + accessToken, 'x-goog-user-project': project, 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(30000),
-    });
-    const data = await response.json();
+    let response, data;
+    try {
+      response = await fetch(url, {
+        method, headers: { Authorization: 'Bearer ' + accessToken, 'x-goog-user-project': project, 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(30000),
+      });
+      data = await response.json();
+    } catch (error) {
+      const transportFailure = error instanceof TypeError || error.name === 'TimeoutError';
+      if (method !== 'GET' || !transportFailure || attempt >= 2) throw error;
+      await delay(1000 * (attempt + 1));
+      continue;
+    }
     if (readRules && [429, 503].includes(response.status) && attempt < 8) {
       const quota = data.error?.details?.find(d => d.metadata?.quota_limit)?.metadata?.quota_limit;
       const retry = Number(response.headers.get('retry-after')) || Math.min(90, 15*(attempt+1));

@@ -177,12 +177,15 @@ def release(rules,private,release_root=None,first_window=False):
         if not (release/'plan.json').exists(): return {},[]
         plan=read(release/'plan.json')
         assert digest((release/'firestore.rules').read_bytes())==rules==plan['rulesSha256']
-        assert plan['expectedCases']==238 and plan['previousRulesSha256']==PREVIOUS
+        assert plan['version'] in (1,2) and plan['previousRulesSha256']==PREVIOUS
+        names=(('sliding-queen-bishop',)+NEW_PLANS) if plan['version']==2 else NEW_PLANS
+        sizes=([4,120,118] if plan['version']==2 else [120,118])
         planned={c['name']:c['ids'] for c in plan['chunks']}
-        assert list(planned)==list(NEW_PLANS) and list(map(len,planned.values()))==[120,118]
+        assert list(planned)==list(names) and list(map(len,planned.values()))==sizes
+        assert len({key for ids in planned.values() for key in ids})==sum(sizes)==plan['expectedCases']
         assert len(set(planned[NEW_PLANS[0]]+planned[NEW_PLANS[1]]))==238
         folder=release/'receipts'
-        expected_names=NEW_PLANS[:1] if first_window else NEW_PLANS
+        expected_names=names[:1] if first_window else names
         names=tuple(name for name in expected_names if (folder/(name+'.pin.json')).exists())
     rows={}
     sources=[]
@@ -202,6 +205,29 @@ def input_shape(row):
             [{'path':old['path'],'data':old['data']} for old in row['before']],row['submitted']]
 
 
+def compare_pawn_pair_baseline(current, native, private):
+    folder=TRIAL/'supplemental/qd2-b2'
+    summary=read(folder/'result.json')
+    previous,_=release(summary['rulesSha256'],private)
+    raw=(folder/summary['receipt']).read_bytes()
+    assert digest(raw)==summary['receiptSha256']
+    pair=json.loads(gzip.decompress(raw))
+    assert pair['rulesSha256']==summary['rulesSha256']
+    for row in pair['rows']:
+        assert row['id'] not in previous
+        previous[row['id']]=row
+    assert set(previous)==set(native)
+    changes={'repaired':[],'regressed':[],'stillDisagree':[]}
+    for key,row in current.items():
+        old=previous[key]
+        assert same_json(input_shape(old),input_shape(row)),key
+        want='ALLOW' if native[key] else 'DENY'
+        before,after=old['observed']==want,row['observed']==want
+        if before!=after: changes['repaired' if after else 'regressed'].append(key)
+        elif not after: changes['stillDisagree'].append(key)
+    return {'previousRulesSha256':summary['rulesSha256'],'identicalWrites':len(current),**changes}
+
+
 def compare(rules,private,archive,release_root=None,first_window=False):
     prior,old_sources=release(PREVIOUS,private)
     assert len(prior)==190
@@ -212,6 +238,13 @@ def compare(rules,private,archive,release_root=None,first_window=False):
              for row in read(TRIAL/'native'/group/'native.json')['cases']}
     native.update({key:row['nativeAdmission'] for key,row in focused.items()})
     assert len(native)==238 and len(focused)==54 and len(set(prior)&set(focused))==6
+    plan=(release_root or TRIAL/'live/releases')/rules/'plan.json'
+    expanded=plan.exists() and read(plan)['version']==2
+    if expanded:
+        for row in read(TRIAL/'native/queen-bishop/native.json')['cases']:
+            assert row['id'] not in native
+            native[row['id']]=row['nativeAdmission']
+            focused[row['id']]=row
     assert set(current)<=native.keys()
     changes={'repaired':[],'regressed':[],'stillDisagree':[]}
     adjudications={}
@@ -255,12 +288,13 @@ def compare(rules,private,archive,release_root=None,first_window=False):
                 if before_matches!=agree: changes['repaired' if agree else 'regressed'].append(key)
                 elif not agree: changes['stillDisagree'].append(key)
     return {'rulesSha256':rules,'source':'private authenticated controller journals; independent chess rules on exact signed operands',
-            'status':'unmeasured' if not current else 'historical' if rules==PREVIOUS else 'measured' if len(current)==238 else 'partial',
+            'status':'unmeasured' if not current else 'historical' if rules==PREVIOUS else 'measured' if len(current)==len(native) else 'partial',
             'distinctWrites':len(current),'nativeRefereeSha256':REF['PIN'],'nativeComparedOnActualDocuments':len(adjudications),
             'priorIdenticalSignedOperands':len(set(prior)&set(current)),'focusCasesWithExactSuccessorAndCompleteReplies':len(set(focused)&set(current)),
             'nativeDecisions':dict(Counter(row['native'] for row in adjudications.values())),
             'firestoreDecisions':dict(Counter(row['observed'] for row in current.values())),
             'nativeVersusFirestore':dict(checked),'captures':sources,'mismatches':mismatches,'oldCorpusChanges':changes,
+            **({'queenBishopBaseline':compare_pawn_pair_baseline(current,native,private)} if expanded else {}),
             'shapeSensitivityControl':{'source':'rook-safe','addedField':'unexpectedNullField','value':None,
                                        'originalNative':'ALLOW','amendedNative':'DENY'},
             'invalidSourcePositions':invalid,'perCaseAdjudicationsSha256':SIGNED['hash_json'](adjudications)}

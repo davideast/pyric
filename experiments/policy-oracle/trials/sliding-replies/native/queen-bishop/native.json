@@ -1,0 +1,123 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "qb-pawn-playing",
+      "fen": "8/8/1p6/8/8/1kB5/3q4/KQ6 b - -",
+      "uci": "d2b2",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/1p6/8/8/1kB5/1q6/KQ6 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b1b2",
+        "c3b2"
+      ]
+    },
+    {
+      "id": "qb-pawn-won",
+      "fen": "8/8/1p6/8/8/1kB5/3q4/KQ6 b - -",
+      "uci": "d2b2",
+      "claim": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "8/8/1p6/8/8/1kB5/1q6/KQ6 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "replies": [
+        "b1b2",
+        "c3b2"
+      ]
+    },
+    {
+      "id": "qb-no-pawn-playing",
+      "fen": "8/8/8/8/8/1kB5/3q4/KQ6 b - -",
+      "uci": "d2b2",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "8/8/8/8/8/1kB5/1q6/KQ6 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "b1b2",
+        "c3b2"
+      ]
+    },
+    {
+      "id": "qb-no-pawn-won",
+      "fen": "8/8/8/8/8/1kB5/3q4/KQ6 b - -",
+      "uci": "d2b2",
+      "claim": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "beforeCheck": true,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "8/8/8/8/8/1kB5/1q6/KQ6 w - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "guest"
+      },
+      "replies": [
+        "b1b2",
+        "c3b2"
+      ]
+    }
+  ]
+}

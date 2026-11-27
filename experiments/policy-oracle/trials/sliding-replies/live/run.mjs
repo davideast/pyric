@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdirSync,readFileSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {sha} from '../../../arcade/corpus.mjs';
 import {withMonotonicEvidenceClock} from '../../../arcade/live/controller/archive.mjs';
@@ -15,7 +15,8 @@ const json=x=>JSON.stringify(x,null,2)+'\n';
 export function prepare(file,digest) {
   const source=readFileSync(file,'utf8');
   verifySource(source,digest);
-  const dir=versionDirectory(digest),plan=buildPlan(inputs(),digest);
+  const dir=versionDirectory(digest);
+  const plan=existsSync(new URL('plan.json',dir))?verifiedPlan(digest).plan:buildPlan(inputs(true),digest);
   mkdirSync(dir,{recursive:true});writeOnce(new URL('firestore.rules',dir),source);
   writeOnce(new URL('plan.json',dir),json(plan));
   return plan;

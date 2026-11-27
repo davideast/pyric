@@ -1,0 +1,108 @@
+{
+  "authority": "independent pinned local full Rules evaluator",
+  "cases": 15905,
+  "outcomes": {
+    "match": 15830,
+    "false-refusal/resource-limit": 4,
+    "false-allow": 71
+  },
+  "rulesSha256": "833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8",
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "outcomes": {
+        "match": 2467,
+        "false-refusal/resource-limit": 2,
+        "false-allow": 12
+      },
+      "decisionsSha256": "92c6094a83560e932195bdc69d4254909c3e99809e62a0ba70cc5b69bd5babc5"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "outcomes": {
+        "match": 375,
+        "false-allow": 3
+      },
+      "decisionsSha256": "d44a062b511563ec9e3e304f5fff907b1e08fc62c6ec89b6e398a73856b52955"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "outcomes": {
+        "match": 1736
+      },
+      "decisionsSha256": "2ccad5bb116557c612996f01270ec87c86287df5a7461b1afb5bc03cf50ec28f"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "outcomes": {
+        "match": 904
+      },
+      "decisionsSha256": "5faf99c2e05fb7ed8082f36882ccea0fdc2ea1e3017345b87f88f1d5f8bb0b42"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "outcomes": {
+        "match": 374,
+        "false-refusal/resource-limit": 2,
+        "false-allow": 8
+      },
+      "decisionsSha256": "062a180a929e76be6e64b4e10a0ba1e64fcd03a2b1d342c62007fad7ca6dcebc"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "outcomes": {
+        "match": 2048
+      },
+      "decisionsSha256": "8143d0de4d97c9147353f32f575454f38ac8dd46776f0175bea7ff71e5f925d0"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "outcomes": {
+        "match": 4440
+      },
+      "decisionsSha256": "1a9a92f303ce1c78fce00ad3f8aed5737a2ab4e5015ff5779b968b8b622360dc"
+    },
+    "king-last-v1": {
+      "cases": 288,
+      "outcomes": {
+        "match": 288
+      },
+      "decisionsSha256": "3f1adf8d294b2f2e5975ae0062bf7c1ecbfc18236304f0e2ce1a1613c53d8c2b"
+    },
+    "successor-claims-v1": {
+      "cases": 762,
+      "outcomes": {
+        "match": 738,
+        "false-allow": 24
+      },
+      "decisionsSha256": "db31c2fa7821228cbb511e23722bceb66c8a676e83628ebda44260b25a648338"
+    },
+    "bare-defender-v1": {
+      "cases": 1992,
+      "outcomes": {
+        "match": 1992
+      },
+      "decisionsSha256": "c1d870732e56dbd3f138c04fcd75bbc15cf04b133e3cb9db9727a0b7640475fa"
+    },
+    "knight-replies-v1": {
+      "cases": 492,
+      "outcomes": {
+        "match": 468,
+        "false-allow": 24
+      },
+      "decisionsSha256": "ab24f37fbe7a5ac78912866d7d031eaa6d798b402429600ce2c80ba995288810"
+    }
+  },
+  "repaired": [
+    [
+      "bare-defender-v1",
+      "bare-1690"
+    ],
+    [
+      "v1",
+      "mate-correct-0-1-3"
+    ]
+  ],
+  "regressed": [],
+  "stillDisagree": 75
+}

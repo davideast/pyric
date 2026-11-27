@@ -60,15 +60,16 @@ def run(args):
         referee=args.chess_source.resolve(strict=True)
         rules=root/'candidate.rules'
         report=root/'replay.json'
-        check(sys.executable,'-B','replay.py','--variant',variant,'--through','queen','--archive',live,
+        check(sys.executable,'-B','replay.py','--variant',variant,'--archive',live,
               '--python-chess-archive',referee,'--witness-panel','--emit',rules,'--report',report,'--summary',
               *(['--with-history'] if args.with_history else []))
         main=read(report)
         w=main['compiledWitness']
         sha=main['compile']['rulesSha256']
         assert sha==digest(rules.read_bytes())==w['rulesSha256']
-        assert len(main['local']['rows'])==238 and main['local']['groups']['original-190']['cases']==190
-        assert len(w['focused'])==18 and len(w['routes'])==54
+        pair='queen-bishop' in main['groups']
+        assert len(main['local']['rows'])==(242 if pair else 238) and main['local']['groups']['original-190']['cases']==190
+        assert len(w['focused'])==(20 if pair else 18) and len(w['routes'])==(58 if pair else 54)
         snapshot.update(variant=variant,rulesSha256=sha,packageSha256=main['packageSha256'],requestSha256=main['requestSha256'],
                         nativeSha256=main['nativeSha256'],standalone=main['standalone']['outcomes'],requestCount=len(main['local']['rows']),
                         localGroups=main['local']['groups'],localConforms=main['localConforms'],overallConforms=main['passes'],

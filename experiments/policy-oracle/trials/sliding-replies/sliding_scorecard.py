@@ -41,6 +41,7 @@ def render(result):
              sum(i['severity']=='WARNING' for i in item['issues']),item['caseWrites']) for item in diagnostics]))
     if 'revisionHistory' in result:
         history=[]
+        has_pair=any('queen-bishop' in (entry.get('local') or {}) for entry in result['revisionHistory'])
         for row in result['revisionHistory']:
             scores=row.get('local') or {}
             def batch(key):
@@ -51,10 +52,11 @@ def render(result):
             limits=overall.get('diagnostics',{}).get('resource-limit',0)
             history.append([row['variant'],row['compile']['status'],', '.join(row.get('officialSource',[])) or 'unmeasured',
                             *(batch(g) for g in ('original-190',*FAMILIES)),
+                            *([batch('queen-bishop')] if has_pair else []),
                             *(counts.get(k,0) if overall else '—' for k in ('false-allow','false-refusal','evaluation-error')),
                             limits if overall else '—',row.get('witnesses','—'),row['live']['distinctCases']])
         output.extend(['## Every saved revision',
-                       table(['Policy','Local compile','Google source test','Original','Rook','Bishop','Queen',
+                       table(['Policy','Local compile','Google source test','Original','Rook','Bishop','Queen',*(['Queen and bishop'] if has_pair else []),
                               'False approvals','False refusals','Evaluation errors','Limit hits¹','Verified witness boards','Live measured'],history)])
     if compiled['status']!='emitted':
         output.append(f"Compilation failed. `{compiled['status']}`")
@@ -85,6 +87,17 @@ def render(result):
                          ', '.join(pred['sliding']) or '∅' if isinstance(pred,dict) and isinstance(pred.get('sliding'),list) else 'unavailable',helper,*cells))
     output.extend([table(['Piece','Board','Move','Native legal replies','Standalone Pyric sliders','Emitted helper (local trace)','Native P/D/W','Local P/D/W','Live P/D/W'],rows),
                    'Claims are ordered playing, draw, won. A means allow, D means deny, and — means unmeasured.'])
+    if 'queen-bishop' in groups:
+        rows=[]
+        for key in groups['queen-bishop']:
+            position=standalone['positions'][standalone['positionByRequest'][key]]
+            prediction=position['pyric']
+            rows.append((key,', '.join(position['native']['all']),
+                         ', '.join(prediction['all']) if isinstance(prediction,dict) and isinstance(prediction.get('all'),list) else 'unavailable',
+                         native_verdicts[key],local.get(key,{}).get('decision','unmeasured'),
+                         observed.get(key,{}).get('verdict','unmeasured')))
+        output.extend(['## Qd2–b2 with and without the b6 pawn',
+                       table(['Claim','Native replies','Pyric replies','Native','Local Rules','Live Firestore'],rows)])
     output.append('## Changes from the historical release on the original 190')
     changes = result.get('local',{}).get('changes',{}).get('original-190')
     if changes:

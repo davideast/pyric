@@ -10,9 +10,10 @@ import {uploadObservation} from './upload.mjs';
 import {previousDigest,previousPlans,roles,readJSON,inputs,versionDirectory,
   buildPlan,verifySource,chunkFixtures,signedOperands} from './fixtures.mjs';
 
-export function verifiedPlan(digest,data=inputs()) {
+export function verifiedPlan(digest) {
   const dir=versionDirectory(digest);
   const bundle=new URL('firestore.rules',dir),plan=readJSON(new URL('plan.json',dir));
+  const data=inputs(plan.version===2);
   assert.deepEqual(plan,buildPlan(data,digest),'capture plan or frozen operands changed');
   verifySource(readFileSync(bundle,'utf8'),digest);
   return {dir,bundle,plan,data};
@@ -55,7 +56,9 @@ function verifyCapture(digest,name,folder,bundle,fixtures,data,archive) {
 }
 
 export function lookup(digest,archive) {
-  const data=inputs(),dir=versionDirectory(digest),captures=[],distinct=new Map();
+  const dir=versionDirectory(digest),captures=[],distinct=new Map();
+  const stored=existsSync(new URL('plan.json',dir))?verifiedPlan(digest):null;
+  const data=stored?.data??inputs(digest!==previousDigest);
   function add(entry) {
     captures.push(entry.meta);
     for(const row of entry.rows) {
@@ -63,8 +66,8 @@ export function lookup(digest,archive) {
       else distinct.set(row.id,row);
     }
   }
-  if(existsSync(new URL('plan.json',dir))) {
-    const {plan,bundle}=verifiedPlan(digest,data);
+  if(stored) {
+    const {plan,bundle}=stored;
     for(const chunk of plan.chunks) {
       const name=chunk.name,folder=new URL('receipts/',dir);
       if(existsSync(new URL(name+'.pin.json',folder))) {

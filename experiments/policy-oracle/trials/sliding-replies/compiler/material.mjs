@@ -6,14 +6,15 @@ import {extendedSources} from './family.mjs';
 // is covered. A second friendly rook remains an occupied square on every
 // candidate for the first rook, and vice versa. A single friendly knight
 // can defend independently of a slider and can also pin or obstruct it.
-export function mixedSources(variant) {
+export function mixedSources(variant, queenBishop=false) {
   const sources=extendedSources('rbq');
   for(const color of ['w','b']) {
     const enemy = color==='w'?'b':'w';
     const other = '(?:[,#]|'+enemy+'[prnbqk],|'+color+'k,)*';
     const rook=color+'r,', slider=color+'[rbq],', knight=color+'n,';
     const singleKnight=variant==='all-minors-v9' ? '|'+other+knight+other : '';
-    const pair=other+'(?:'+rook+other+rook+'|'+slider+other+knight+'|'+knight+other+slider+')'+other;
+    const mixed=queenBishop ? '|'+color+'q,'+other+color+'b,|'+color+'b,'+other+color+'q,' : '';
+    const pair=other+'(?:'+rook+other+rook+'|'+slider+other+knight+'|'+knight+other+slider+mixed+')'+other;
     sources['sliderMaterial'+color]=sources['sliderMaterial'+color].replace("'); }",'|'+pair+singleKnight+"'); }");
     sources['sliderEncode'+color]=sources['sliderEncode'+color].replace(".replace('"+enemy+"?",".replace('"+color+"n,','N').replace('"+enemy+"?");
     const attempts=[];

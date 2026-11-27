@@ -11,7 +11,7 @@ import tempfile
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 TRIALS = HERE.parent.parent
-COHORTS = ('rook', 'bishop', 'queen')
+COHORTS = ('rook', 'bishop', 'queen', 'queen-bishop')
 EXTERNAL = runpy.run_path(str(TRIALS / 'chess/reference/generate.py'))
 
 
@@ -23,15 +23,14 @@ def file_hash(path):
     return sha256(path.read_bytes()).hexdigest()
 
 
-def independent(chess, positions, native):
+def independent(chess, positions, native, claims):
     cases = native['cases']
-    assert len(positions) == len(cases) and len(positions) % 3 == 0
+    assert len(positions) == len(cases) and len(positions) % len(claims) == 0
     boards = []
-    for start in range(0, len(positions), 3):
-        trio = positions[start:start+3]
-        claims = [row['claim']['status'] for row in trio]
-        assert claims == ['playing', 'draw', 'won']
-        sample = trio[0]
+    for start in range(0, len(positions), len(claims)):
+        group = positions[start:start+len(claims)]
+        assert [row['claim']['status'] for row in group] == claims
+        sample = group[0]
         game = chess.Board(sample['fen'] + ' 0 1')
         move = chess.Move.from_uci(sample['uci'])
         assert game.is_valid() and game.is_legal(move), sample['id']
@@ -44,7 +43,7 @@ def independent(chess, positions, native):
         winner = ('host' if mover else 'guest') if accepted == 'won' else ''
         replies = sorted(reply.uci() for reply in game.legal_moves)
         successor = EXTERNAL['fen'](game)
-        for offset, proposal in enumerate(trio):
+        for offset, proposal in enumerate(group):
             row = cases[start+offset]
             assert all(row[k] == proposal[k] for k in ('id', 'fen', 'uci', 'claim'))
             assert (row['fen'], row['uci']) == (sample['fen'], sample['uci'])
@@ -79,8 +78,9 @@ def verify(archive=None, record=False):
             rebuilt = json.loads(subprocess.check_output(
                 ['bun', '--no-install', TRIALS/'chess-safety/reference/native.mjs', positions]))
             assert rebuilt == read(native), f'Arcade native output changed: {cohort}'
+            claims = ['playing', 'won'] if cohort=='queen-bishop' else ['playing', 'draw', 'won']
             if chess:
-                result = independent(chess, read(positions), rebuilt)
+                result = independent(chess, read(positions), rebuilt, claims)
                 if record:
                     with independent_file.open('x') as target:
                         target.write(json.dumps(result, indent=2)+'\n')
@@ -91,7 +91,7 @@ def verify(archive=None, record=False):
                     target.write(json.dumps(hashes, indent=2)+'\n')
             assert hashes == read(freeze), f'Frozen cohort hashes changed: {cohort}'
             rows = rebuilt['cases']
-            results[cohort] = {'boards': len(rows)//3, 'claims': len(rows),
+            results[cohort] = {'boards': len(rows)//len(claims), 'claims': len(rows),
                                'admitted': sum(row['nativeAdmission'] for row in rows), 'files': hashes}
     mutants = json.loads(subprocess.check_output(['bun', '--no-install', HERE/'mutations.mjs']))
     assert mutants == read(HERE/'mutations.json'), 'Faulty implementation evidence changed'

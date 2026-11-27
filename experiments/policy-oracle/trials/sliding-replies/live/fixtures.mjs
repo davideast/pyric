@@ -23,7 +23,7 @@ export function signedOperands(row) {
     before:row.before.map(({path,data})=>({path,data})),submitted:row.submitted};
 }
 
-export function inputs() {
+export function inputs(includeQueenBishop=false) {
   const all=new Map(),prior=new Map(),origins={};
   for (const name of previousPlans) {
     const profile=reviewedPlan(name);
@@ -44,7 +44,8 @@ export function inputs() {
   }
   assert.equal(prior.size,190);
   const added=[],focused=[];
-  for(const piece of ['rook','bishop','queen']) {
+  const families=includeQueenBishop?['rook','bishop','queen','queen-bishop']:['rook','bishop','queen'];
+  for(const piece of families) {
     const path=new URL('../native/'+piece+'/positions.json',root), bytes=readFileSync(path);
     origins[piece]=sha(bytes);
     for(const c of JSON.parse(bytes)) {
@@ -86,10 +87,15 @@ export function verifySource(source,digest) {
 export function buildPlan(data,digest) {
   assert.match(digest,digestPattern);
   const chunks=[];
-  for(let i=0; i<data.order.length; i+=120) {
-    chunks.push({name:'sliding-part-'+(chunks.length+1),ids:data.order.slice(i,i+120)});
+  const pair=data.order.filter(id=>data.all.get(id).batch==='queen-bishop');
+  const original=data.order.filter(id=>data.all.get(id).batch!=='queen-bishop');
+  assert.equal(original.length,238,'historical release corpus changed');
+  assert.equal(pair.length,data.origins['queen-bishop']?4:0,'queen-and-bishop corpus changed');
+  if(pair.length) chunks.push({name:'sliding-queen-bishop',ids:pair});
+  for(let i=0; i<original.length; i+=120) {
+    chunks.push({name:'sliding-part-'+(i/120+1),ids:original.slice(i,i+120)});
   }
-  return {version:1,rulesSha256:digest,previousRulesSha256:previousDigest,
+  return {version:pair.length?2:1,rulesSha256:digest,previousRulesSha256:previousDigest,
     originalCases:data.prior.size,expectedCases:data.order.length,inputDigests:data.origins,chunks};
 }
 
