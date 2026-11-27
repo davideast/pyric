@@ -1,0 +1,20 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "884dd46a0941c8b24280ee622303a49d2b6ae9a2b0ee308564120485f3ddea14",
+  "results": {
+    "stock-serve-32": "ALLOW",
+    "stock-serve-96": "ALLOW",
+    "generated-serve-32": "DENY",
+    "generated-serve-96": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/5b23c313-a0f0-4ce9-a866-db874d0bbaf3.json",
+    "sha256": "98416e546781cbc0cd2db658d1e42fcdd20a01afe4181c043d99336c8ee59cfc",
+    "pointers": {
+      "stock-serve-32": "/rows/stock-serve-32/decision",
+      "stock-serve-96": "/rows/stock-serve-96/decision",
+      "generated-serve-32": "/rows/generated-serve-32/decision",
+      "generated-serve-96": "/rows/generated-serve-96/decision"
+    }
+  }
+}

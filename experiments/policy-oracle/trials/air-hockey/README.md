@@ -85,3 +85,14 @@ The [native guest fixture](../../adapters/air-hockey-guest-win/v1/native.mjs) st
 | Guest win omitting the frame | Allow · 6–7, over, guest wins, original puck at tick 0 | Deny · 6–6, playing, no winner, identical full match and ETag |
 
 The [four signed readbacks](../../suites/arcade/air-hockey/claims/guest-winning-goal/v1/probes/host-writes/v1/evidence/9ead19fb-9893-4eaf-bf91-c7eab6064cc3.json) used the same stock and generated rules digests as the host-win capture. To repeat from the oracle directory, run `node arcade/live/controller/air-hockey.mjs "$trusted_archive" guest-win`, then `node adapters/air-hockey-guest-win/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
+
+## Serve side after a guest win
+
+The [paired inputs](../../adapters/air-hockey-serve-side/v1/fixture.mjs) differ only in the final puck’s y-coordinate. Both are complete atomic guest wins from 6–6, with a stationary puck at x=48 on tick 3. Arcade serves to the host at y=96 after the guest scores.
+
+| Submitted serve | Stock verdict and full match readback | Generated verdict and full match readback |
+|---|---|---|
+| (48,32), wrong side | Allow · 6–7, over, guest wins, puck at (48,32) on tick 3 | Deny · 6–6, playing, no winner, original puck at (38,121) on tick 0 and identical ETag |
+| (48,96), native side | Allow · 6–7, over, guest wins, puck at (48,96) on tick 3 | Allow · identical final match |
+
+The [production receipt](../../suites/arcade/air-hockey/claims/guest-winner-serve-side/v1/probes/host-writes/v1/evidence/5b23c313-a0f0-4ce9-a866-db874d0bbaf3.json) records the full readback for each signed host write. Both deployed rules digests match the earlier guest-winning-goal capture. Recapture from the oracle directory with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" serve-side`, then import with `node adapters/air-hockey-serve-side/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
