@@ -12,9 +12,16 @@ import {startJournal} from './archive.mjs';
 import {fixtures as frameFixtures,seed,stock} from '../../../adapters/air-hockey/v1/fixture.mjs';
 
 const scenario = process.argv[3] ?? 'frame';
-assert.ok(['frame','winning-goal'].includes(scenario));
-const fixtures = scenario === 'frame' ? frameFixtures : JSON.parse(readFileSync(
-  new URL('../../../adapters/air-hockey-winning/v1/frames.json',import.meta.url)));
+function scenarioFixtures() {
+  switch (scenario) {
+    case 'frame': return frameFixtures;
+    case 'winning-goal': return JSON.parse(readFileSync(
+      new URL('../../../adapters/air-hockey-winning/v1/frames.json',import.meta.url)));
+    case 'missing-frame': return import('../../../adapters/air-hockey-missing-frame/v1/fixture.mjs').then(module => module.fixtures);
+    default: throw new Error('Unknown Air Hockey capture scenario');
+  }
+}
+const fixtures = await scenarioFixtures();
 const project = 'digame-mas', number = '803835021738';
 const runId = randomUUID(), name = 'pyric-frame-'+runId.slice(0,8);
 const journal = startJournal(process.argv[2],runId);

@@ -1,0 +1,16 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "edb6a8289d65cac19023d46ca769b30b5500babdd51a1d83cb3263e165111759",
+  "results": {
+    "stock-missing-frame": "ALLOW",
+    "generated-missing-frame": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/55edaa28-8c46-4682-9ad5-877a7833941a.json",
+    "sha256": "cbe0df2229f5d875808757f0633615cb8c7322b7c804501fe4b718437833073d",
+    "pointers": {
+      "stock-missing-frame": "/rows/stock-missing-frame/decision",
+      "generated-missing-frame": "/rows/generated-missing-frame/decision"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "description": "Observe the complete match when the host submits the native winning score, status and winner from 6\u20136 while omitting only the frame.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

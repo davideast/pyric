@@ -49,6 +49,15 @@ The [winning-goal receipt](../../suites/arcade/air-hockey/claims/winning-goal/v1
 | Frame, score, `meta/status`, `meta/winner` | Allow | Allow | 7–6, over, host wins. Stationary puck at (48,32), tick 3. Guest identity, both mallets and presence preserved. |
 | Score only | Deny | Deny | Identical 6–6 playing match and ETag. Puck at (38,7), tick 0, no winner. |
 
-The generated release retains Arcade’s score validator, which requires the merged match status to be `over` when a side reaches seven. The generated frame predicate participates when the frame is written. These two writes establish that the real winning patch works and that a score alone cannot close the match. A terminal patch containing score and metadata but omitting the frame is a separate case.
+The generated release retains Arcade’s score validator, which requires the merged match status to be `over` when a side reaches seven. The generated frame predicate participates when the frame is written. These two writes establish that the real winning patch works and that a score alone cannot close the match. The missing-frame capture below tests whether match closure requires a fresh frame.
 
 Recapture with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" winning-goal` from the oracle directory, then admit the completed run with `node adapters/air-hockey-winning/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
+
+
+## Winning goal with the frame omitted
+
+The [live receipt](../../suites/arcade/air-hockey/claims/winning-goal-missing-frame/v1/probes/host-writes/v1/evidence/55edaa28-8c46-4682-9ad5-877a7833941a.json) records the stock and generated results from identical 6–6 matches. Each host submitted the score, status and winner from the native winning patch. Both releases returned HTTP 200. Each full match readback showed 7–6, status `over`, and winner `host`. The stored frame still held the puck at (38,7) with velocity (0,−170) on tick 0. Both mallets, both presence fields and the guest identity also matched the initial match.
+
+Together the three write shapes distinguish the terminal score check from the frame check. A score alone was denied. The full native write closed the match and stored the tick-3 serve. Omitting only the frame closed the match with the tick-0 puck still stored. Pyric places its generated predicate on the frame, so it runs when that branch is written.
+
+Recapture from the oracle directory with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" missing-frame`, then import the completed run with `node adapters/air-hockey-missing-frame/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
