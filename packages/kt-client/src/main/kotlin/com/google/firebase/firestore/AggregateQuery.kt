@@ -2,6 +2,7 @@ package com.google.firebase.firestore
 
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import com.google.android.gms.tasks.Tasks
 import dev.pyric.codecs.ValueCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -14,6 +15,14 @@ class AggregateQuery internal constructor(
 ) {
     fun get(source: AggregateSource = AggregateSource.SERVER): Task<AggregateQuerySnapshot> {
         query.firestore.ensureClientActive()
+        if (!query.firestore.offlineCoordinator.isNetworkEnabled) {
+            return Tasks.forException(
+                FirebaseFirestoreException(
+                    "Failed to get aggregate query result because the client is offline.",
+                    FirebaseFirestoreException.Code.UNAVAILABLE
+                )
+            )
+        }
         val tcs = TaskCompletionSource<AggregateQuerySnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
 

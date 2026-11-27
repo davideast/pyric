@@ -46,6 +46,12 @@ class Transaction internal constructor(
     }
 
     private fun readSnapshotForTransaction(documentRef: DocumentReference): DocumentSnapshot {
+        if (!firestore.offlineCoordinator.isNetworkEnabled) {
+            throw FirebaseFirestoreException(
+                "Failed to get document because the client is offline.",
+                FirebaseFirestoreException.Code.UNAVAILABLE
+            )
+        }
         val tcs = TaskCompletionSource<DocumentSnapshot>()
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch(start = CoroutineStart.UNDISPATCHED) {

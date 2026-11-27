@@ -183,6 +183,14 @@ class FirebaseFirestore(
         updateFunction: Transaction.Function<TResult>
     ): Task<TResult> {
         ensureClientActive()
+        if (!offlineCoordinator.isNetworkEnabled) {
+            return Tasks.forException(
+                FirebaseFirestoreException(
+                    "Failed to get document because the client is offline.",
+                    FirebaseFirestoreException.Code.UNAVAILABLE
+                )
+            )
+        }
         val tcs = TaskCompletionSource<TResult>()
         val scope = CoroutineScope(Dispatchers.IO)
 
@@ -192,8 +200,20 @@ class FirebaseFirestore(
             for (attempt in 1..options.maxAttempts) {
                 var inCommit = false
                 try {
+                    if (!offlineCoordinator.isNetworkEnabled) {
+                        throw FirebaseFirestoreException(
+                            "Failed to get document because the client is offline.",
+                            FirebaseFirestoreException.Code.UNAVAILABLE
+                        )
+                    }
                     val txn = Transaction(this@FirebaseFirestore)
                     val result = updateFunction.apply(txn)
+                    if (!offlineCoordinator.isNetworkEnabled) {
+                        throw FirebaseFirestoreException(
+                            "Failed to commit transaction because the client is offline.",
+                            FirebaseFirestoreException.Code.UNAVAILABLE
+                        )
+                    }
                     inCommit = true
                     bridgeClient.op(
                         method = "txnCommit",

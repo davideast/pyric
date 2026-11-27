@@ -1,15 +1,10 @@
 package com.google.firebase.firestore
 
-import dev.pyric.codecs.PojoCodec
 import com.google.android.gms.tasks.Task
-import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
+import dev.pyric.codecs.PojoCodec
 import dev.pyric.codecs.SentinelValidator
 import dev.pyric.codecs.ValueCodec
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class WriteBatch internal constructor(private val firestore: FirebaseFirestore) {
 
@@ -102,7 +97,19 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
             return Tasks.forResult(null)
         }
 
-        val tcs = TaskCompletionSource<Void?>()
+        val offlineMutations = operations.map { op ->
+            when (op) {
+                is Mutation.Set -> if (op.options.isMerge) {
+                    OfflineDocMutation.SetMerge(op.ref.path, op.data, op.options.mergeFields)
+                } else {
+                    OfflineDocMutation.SetOverwrite(op.ref.path, op.data)
+                }
+                is Mutation.Update -> OfflineDocMutation.UpdateMap(op.ref.path, op.data)
+                is Mutation.UpdateFields -> OfflineDocMutation.UpdateFields(op.ref.path, op.fields)
+                is Mutation.Delete -> OfflineDocMutation.Delete(op.ref.path)
+            }
+        }
+
         val writes = operations.map { op ->
             when (op) {
                 is Mutation.Set -> {
@@ -139,23 +146,16 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
             }
         }
 
-        val scope = CoroutineScope(Dispatchers.IO)
-        // Undispatched, so the frame is sent or held on the caller's thread and
-        // back-to-back writes reach the host in call order (#1032).
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            try {
-                firestore.bridgeClient.op(
-                    method = "batchCommit",
-                    params = mapOf("writes" to writes),
-                    actAs = firestore.getEffectiveAuthLens().toMap()
-                )
-                tcs.setResult(null)
-            } catch (e: Exception) {
-                tcs.setException(e)
-            }
+        return firestore.offlineCoordinator.submitBatchWrite(
+            mutations = offlineMutations,
+            stageWhenOnline = false
+        ) {
+            firestore.bridgeClient.op(
+                method = "batchCommit",
+                params = mapOf("writes" to writes),
+                actAs = firestore.getEffectiveAuthLens().toMap()
+            )
         }
-
-        return tcs.task
     }
 
     private fun checkNotCommitted() {
