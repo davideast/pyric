@@ -1,0 +1,36 @@
+use extension bounded;
+use extension derive;
+
+transition heatShield {
+  derive {
+    let pickup = bounded.fold(input.gems, null, (found, gem) =>
+      !gem.broken && !(gem.id in before.taken) &&
+      input.x >= gem.x - 23.5 && input.x <= gem.x + 23.5 &&
+      input.y + 30 >= gem.y - 9 && input.y <= gem.y + 9
+        ? gem.id : found, 128);
+    let armed = before.shield || pickup != null;
+    let contact = input.active && input.y <= input.lava + 2;
+    let rescue = contact && armed;
+    let goalY = input.lava + 115;
+    let target = bounded.fold(rescue && !input.steering ? input.platforms : [], null, (best, stone) =>
+      !stone.broken && stone.y >= input.lava + 42 && stone.y <= input.lava + 185 &&
+      (best == null || (stone.y - goalY) * (stone.y - goalY) < (best.y - goalY) * (best.y - goalY))
+        ? stone : best, 128);
+    let dx = target == null ? 0 : target.x - input.x;
+    let kick = dx / 0.48;
+    let cap = 244 * 0.92;
+    let vx = contact && !armed ? 0 : dx < -6 || dx > 6 ? (kick < -cap ? -cap : kick > cap ? cap : kick) : input.vx;
+    return {
+      'picked': pickup == null ? [] : [pickup], 'shield': input.restart || contact ? false : armed,
+      'outcome': rescue ? 'rescue' : contact ? 'defeat' : 'none',
+      'target': target == null ? null : target.id,
+      'vx': vx, 'vy': rescue ? 768 : contact ? 0 : input.vy
+    };
+  }
+  require shieldType { return after.shield is bool; }
+  require rescuePickup { return after.picked == derived.picked; }
+  require shieldAfterContact { return after.shield == derived.shield; }
+  require lavaOutcome { return after.outcome == derived.outcome; }
+  require rescueVelocityX { return after.vx == derived.vx; }
+  require rescueVelocityY { return after.vy == derived.vy; }
+}

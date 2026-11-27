@@ -1,0 +1,4 @@
+{
+  "description": "Floor is Lava carries its collected heat shield between steps, spends it on lava contact and rescues the player. Omitting the pickup changes the inventory immediately and the outcome at contact.",
+  "authority": "native-model"
+}
