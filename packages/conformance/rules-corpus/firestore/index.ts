@@ -1,9 +1,9 @@
 /**
- * Firestore rules conformance corpus — public entry point.
+ * Firestore rules conformance corpus -- public entry point.
  *
  * `./` (this directory) is the index: one authored `ScenarioRecord` per file,
  * named `<scenario-id>.ts` (see `./load.ts`). There is no hand-maintained
- * aggregate — `ALL_RULES_FIRESTORE_SCENARIOS`, `STRESS_SCENARIOS`, and
+ * aggregate -- `ALL_RULES_FIRESTORE_SCENARIOS`, `STRESS_SCENARIOS`, and
  * `FIX_CLASS_SCENARIOS` are all computed from the loaded directory. Adding a
  * scenario is adding a file. Consumers:
  *   - packages/pyric/test/rules/parity/parity-stress.test.ts     (STRESS_SCENARIOS, live Rules-Test-API parity)
@@ -12,7 +12,7 @@
  *   - packages/pyric/test/rules/oracle-conformance.test.ts       (ALL_RULES_FIRESTORE_SCENARIOS, in-process replay)
  *
  * The observation filename for a scenario is `rules-firestore-<scenario.id>.json`
- * (see `observationName`). Keep scenario ids stable — they are the join key
+ * (see `observationName`). Keep scenario ids stable -- they are the join key
  * between the corpus, the captured observations, and the replay suite.
  */
 import { loadedFirestoreScenarios } from './load.ts';
@@ -29,17 +29,19 @@ export const RULES_FIRESTORE_OBSERVATION_PREFIX = 'rules-firestore-';
 export const ALL_RULES_FIRESTORE_SCENARIOS: Scenario[] = loadedFirestoreScenarios.map(({ group: _group, ...scenario }) => scenario);
 
 /** The resurrected pre-cutover stress scenarios (formerly stress-scenarios.ts),
- *  for the live parity suite (parity-stress.test.ts). Staged pendingRowLink and
- *  compile-error probes stay out until captured and linked. */
+ *  for the live parity suite (parity-stress.test.ts). Staged pendingRowLink,
+ *  compile-error probes, and real-database-only scenarios (getAfter/existsAfter)
+ *  stay out of the hosted Rules Test API pack. */
 export const STRESS_SCENARIOS: Scenario[] = loadedFirestoreScenarios
-  .filter((p) => p.group === 'stress' && !p.pendingRowLink && !p.allowCompileError)
+  .filter((p) => p.group === 'stress' && !p.pendingRowLink && !p.allowCompileError && !p.realDatabaseOnly)
   .map(({ group: _group, ...scenario }) => scenario);
 
 /** The round-1/2 fix-class scenarios (formerly fix-class-scenarios.ts), for the
- *  live parity suite (round-fix-classes.test.ts). Staged pendingRowLink and
- *  compile-error probes stay out until captured and linked. */
+ *  live parity suite (round-fix-classes.test.ts). Staged pendingRowLink,
+ *  compile-error probes, and real-database-only scenarios (getAfter/existsAfter)
+ *  stay out of the hosted Rules Test API pack. */
 export const FIX_CLASS_SCENARIOS: Scenario[] = loadedFirestoreScenarios
-  .filter((p) => p.group === 'fix-class' && !p.pendingRowLink && !p.allowCompileError)
+  .filter((p) => p.group === 'fix-class' && !p.pendingRowLink && !p.allowCompileError && !p.realDatabaseOnly)
   .map(({ group: _group, ...scenario }) => scenario);
 
 /** The observation stem (no extension) a given scenario captures into. */

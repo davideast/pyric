@@ -1,5 +1,5 @@
 /**
- * ─── Scenario: root-documents-own-allow ──────────────────────────────────────
+ * --- Scenario: root-documents-own-allow --------------------------------------
  * A root `match /databases/{database}/documents` does not match a
  * document's full resource name, so an `allow` written on the root block
  * itself grants no document. Only its children can.
@@ -26,7 +26,7 @@ export const scenario: ScenarioRecord = {
   cases: [
     {
       description: 'allow on the root block itself grants get c/1',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'get',
       path: 'c/1',
     },

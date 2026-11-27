@@ -1,5 +1,5 @@
 /**
- * ─── Scenario: two-services-storage-first ────────────────────────────────────
+ * --- Scenario: two-services-storage-first ------------------------------------
  * A rules file with a `service firebase.storage` block before its
  * `service cloud.firestore` block. Production compiles the file and
  * evaluates the Firestore block, so its `allow get: if false` denies get
@@ -19,7 +19,7 @@ export const scenario: ScenarioRecord = {
   cases: [
     {
       description: 'two services: firestore block denies c/1',
-      expectation: 'ALLOW',
+      expectation: 'DENY',
       method: 'get',
       path: 'c/1',
     },

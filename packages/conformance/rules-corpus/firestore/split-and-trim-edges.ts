@@ -1,5 +1,5 @@
 /**
- * ─── Scenario: split-and-trim-edges ─────────────────────────────────────────
+ * --- Scenario: split-and-trim-edges -----------------------------------------
  * `'a,b,'.split(',')` has two pieces: trailing empty strings are dropped,
  * leading ones kept. `trim()` strips C0 controls and space and keeps NBSP,
  * ideographic space and the byte-order mark.
@@ -35,7 +35,7 @@ export const scenario: ScenarioRecord = {
   },
   {
     "description": "split on dot of a.b.c is empty",
-    "expectation": "ALLOW",
+    "expectation": "DENY",
     "method": "get",
     "path": "split3/1",
     "requestTime": "2026-01-01T00:00:00Z"
