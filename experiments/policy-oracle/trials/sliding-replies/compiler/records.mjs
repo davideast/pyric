@@ -64,8 +64,8 @@ export function recordSources(variant) {
   return out;
 }
 
-export function recordBinding() {
-  return `function slideOne(board,kind,direction,rejected) {
+export function recordBinding(variant) {
+  const earlier=`function slideOne(board,kind,direction,rejected) {
     let origin=board.replace('S.*','').size();
     let king=board.replace('K.*','').size();
     let dx=king%10-origin%10;
@@ -97,4 +97,24 @@ export function recordBinding() {
       || (board.matches('.*[PN].*') && (board.matches('.*P.*') ? (white ? slidePawnw(board) : slidePawnb(board))
         : (white ? slideKnightw(board) : slideKnightb(board)))));
   }`;
+  if(variant!=='all-paired-records-v16')return earlier;
+  const geometry=`function slideOne(board,kind,direction,rejected,king) {
+    let origin=board.replace('S.*','').size();
+    let recipe=direction==1 ? slideRecipeRank(king / 10 - origin / 10)
+      : direction==2 ? slideRecipeFile(king%10-origin%10)
+      : direction==3 ? slideRecipeRise((king / 10 - origin / 10)-(king%10-origin%10))
+      : direction==4 ? slideRecipeFall((king / 10 - origin / 10)+(king%10-origin%10))
+      : direction==0 ? slideRecipeStep() : slideRecipeCapture();
+    return slideProject(board,kind,recipe,rejected,origin);
+  }
+  function slideTyped(text,board,direction,defender) {
+    let two=board.matches('.*S.*S.*');
+    let kind=two ? 'r' : text.matches('.*'+defender+'q,.*') ? 'q' : text.matches('.*'+defender+'b,.*') ? 'b' : 'r';
+    let king=board.replace('K.*','').size();
+    let rejected=slideFailurePattern(defender=='w');
+    let first=(two || board.matches('.*S.*')) ? slideOne(two ? board.replace('S([^S]*)S','S$1O') : board,kind,direction,rejected,king) : -1;
+    return first>=0 || !two ? first : slideOne(board.replace('^([^S]*)S','$1O'),kind,direction,rejected,king);
+  }
+  `;
+  return geometry+earlier.slice(earlier.indexOf('function sliderMove'));
 }

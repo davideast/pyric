@@ -48,12 +48,12 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq','all-two-defenders-v8':'rbq','all-minors-v9':'rbq','all-shared-rays-v10':'rbq','all-projected-king-v11':'rbq','all-unified-rays-v12':'rbq','all-shared-axes-v13':'rbq','all-mode-table-v14':'rbq','all-marked-records-v15':'rbq'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq','all-two-defenders-v8':'rbq','all-minors-v9':'rbq','all-shared-rays-v10':'rbq','all-projected-king-v11':'rbq','all-unified-rays-v12':'rbq','all-shared-axes-v13':'rbq','all-mode-table-v14':'rbq','all-marked-records-v15':'rbq','all-paired-records-v16':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
   if (!kinds) throw Error('Unknown slider policy variant: ' + variant);
-  if(variant==='all-marked-records-v15') return recordSources(variant);
+  if(['all-marked-records-v15','all-paired-records-v16'].includes(variant)) return recordSources(variant);
   if(variant==='all-mode-table-v14') return modeSources(variant);
   if(variant==='all-shared-axes-v13') return axialSources(variant);
   if(variant==='all-unified-rays-v12') return solverSources(variant);
@@ -96,7 +96,7 @@ export function sources(variant) {
 }
 
 export function binding(variant) {
-  if(variant==='all-marked-records-v15') return recordBinding()+'\n  '+protocolBinding(variant);
+  if(['all-marked-records-v15','all-paired-records-v16'].includes(variant)) return recordBinding(variant)+'\n  '+protocolBinding(variant);
   if(variant==='all-mode-table-v14') return modeBinding()+'\n  '+protocolBinding(variant);
   if(variant==='all-shared-axes-v13') return axialBinding()+'\n  '+protocolBinding(variant);
   if(variant==='all-unified-rays-v12') return solverBinding()+'\n  '+protocolBinding(variant);
