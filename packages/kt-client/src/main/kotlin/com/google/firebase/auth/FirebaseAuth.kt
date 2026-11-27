@@ -435,6 +435,9 @@ class FirebaseAuth internal constructor(
     companion object {
         private val instances = ConcurrentHashMap<String, FirebaseAuth>()
 
+        internal fun existingInstanceOrNull(app: FirebaseApp): FirebaseAuth? =
+            instances[app.name]
+
         @JvmStatic
         fun getInstance(): FirebaseAuth = getInstance(FirebaseApp.getInstance())
 

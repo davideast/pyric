@@ -6,14 +6,17 @@ import com.google.android.gms.tasks.await
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.auth.FirebaseAuth
+import dev.pyric.auth.AuthLens
 import dev.pyric.codecs.JsonCodec
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
@@ -25,8 +28,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.URL
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class FirebaseFunctions internal constructor(
     val app: FirebaseApp,
@@ -35,6 +40,9 @@ class FirebaseFunctions internal constructor(
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val disposed = AtomicBoolean(false)
+    private val activeStreamClosers: MutableSet<() -> Unit> =
+        Collections.newSetFromMap(ConcurrentHashMap())
     internal val serializer = FunctionsSerializer()
 
     val region: String
@@ -88,7 +96,9 @@ class FirebaseFunctions internal constructor(
     }
 
     private fun currentGatewayOrigin(): String? =
-        emulatorOrigin ?: FunctionsUrlResolver.resolveDefaultGatewayOrigin()
+        emulatorOrigin
+            ?: FunctionsUrlResolver.bridgeUrlToHttpOrigin(app.sharedBridgeClientUrlOrNull())
+            ?: FunctionsUrlResolver.resolveDefaultGatewayOrigin()
 
     private fun resolveNamedTarget(name: String): ResolvedCallableTarget {
         val projectId = app.options.projectId.orEmpty()
@@ -128,8 +138,17 @@ class FirebaseFunctions internal constructor(
     }
 
     private suspend fun resolveAuthIdToken(): String? {
-        val activeUser = runCatching { FirebaseAuth.getInstance(app).currentUser }.getOrNull()
-            ?: return null
+        val auth = FirebaseAuth.existingInstanceOrNull(app) ?: return null
+        val activeUser = when (val lens = auth.getEffectiveLens()) {
+            is AuthLens.Anon, is AuthLens.Admin -> return null
+            is AuthLens.AsUser -> {
+                val user = auth.currentUser ?: return null
+                if (user.uid != lens.uid) return null
+                if (lens.tenant != null && user.tenantId != lens.tenant) return null
+                user
+            }
+            is AuthLens.AppSession -> auth.currentUser ?: return null
+        }
         return try {
             activeUser.getIdToken(false).await().token.takeIf { it.isNotEmpty() }
         } catch (_: Throwable) {
@@ -285,6 +304,16 @@ class FirebaseFunctions internal constructor(
         data: Any?,
         options: HttpsCallOptions
     ): Flow<StreamResponse> = callbackFlow {
+        if (disposed.get()) {
+            close(
+                FirebaseFunctionsException(
+                    "Firebase Functions instance was deleted.",
+                    FirebaseFunctionsException.Code.CANCELLED,
+                    null
+                )
+            )
+            return@callbackFlow
+        }
         val encodedData = serializer.encode(data)
         val target = resolveTarget()
         val payloadJson = JsonCodec.encodeToString(mapOf("data" to encodedData))
@@ -356,11 +385,11 @@ class FirebaseFunctions internal constructor(
                             }
                             if (parsed.containsKey("message")) {
                                 val decodedChunk = serializer.decode(parsed["message"])
-                                trySend(StreamResponse.Message(HttpsCallableResult(decodedChunk)))
+                                send(StreamResponse.Message(HttpsCallableResult(decodedChunk)))
                             }
                             if (parsed.containsKey("result")) {
                                 val decodedFinal = serializer.decode(parsed["result"])
-                                trySend(StreamResponse.Result(HttpsCallableResult(decodedFinal)))
+                                send(StreamResponse.Result(HttpsCallableResult(decodedFinal)))
                             }
                         }
                     }
@@ -399,13 +428,36 @@ class FirebaseFunctions internal constructor(
             }
         }
 
-        awaitClose {
+        val disposeCloser: () -> Unit = {
+            close(
+                FirebaseFunctionsException(
+                    "Firebase Functions instance was deleted.",
+                    FirebaseFunctionsException.Code.CANCELLED,
+                    null
+                )
+            )
             httpCall.cancel()
             workerJob.cancel()
         }
-    }.flowOn(dispatcher)
+        activeStreamClosers.add(disposeCloser)
+        if (disposed.get()) {
+            disposeCloser()
+        }
+
+        awaitClose {
+            activeStreamClosers.remove(disposeCloser)
+            httpCall.cancel()
+            workerJob.cancel()
+        }
+    }.buffer(Channel.UNLIMITED).flowOn(dispatcher)
 
     internal fun dispose() {
+        disposed.set(true)
+        val snapshot = activeStreamClosers.toList()
+        activeStreamClosers.clear()
+        for (closer in snapshot) {
+            runCatching { closer() }
+        }
         scope.cancel()
     }
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'functions_http_transport.dart';
 
@@ -19,12 +20,32 @@ class DartIoFunctionsHttpTransport implements FunctionsHttpTransport {
     required Uri uri,
     required Map<String, String> headers,
     required String body,
+    Future<void>? abortSignal,
   }) async {
     if (_closed) {
       return const FunctionsHttpResponse(statusCode: 0, body: '');
     }
+    HttpClientRequest? activeRequest;
+    var aborted = false;
+    if (abortSignal != null) {
+      unawaited(
+        abortSignal.then((_) {
+          aborted = true;
+          try {
+            activeRequest?.abort();
+          } catch (_) {}
+        }),
+      );
+    }
     try {
       final request = await _client.postUrl(uri);
+      activeRequest = request;
+      if (aborted || _closed) {
+        try {
+          request.abort();
+        } catch (_) {}
+        return const FunctionsHttpResponse(statusCode: 0, body: '');
+      }
       headers.forEach((name, value) {
         request.headers.set(name, value, preserveHeaderCase: true);
       });
@@ -32,7 +53,11 @@ class DartIoFunctionsHttpTransport implements FunctionsHttpTransport {
       request.contentLength = payloadBytes.length;
       request.add(payloadBytes);
       final response = await request.close();
-      final text = await response.transform(utf8.decoder).join();
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in response) {
+        builder.add(chunk);
+      }
+      final text = utf8.decode(builder.takeBytes(), allowMalformed: true);
       return FunctionsHttpResponse(
         statusCode: response.statusCode,
         body: text,

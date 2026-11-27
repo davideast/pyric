@@ -201,8 +201,10 @@ public struct FunctionsError: Error, LocalizedError, CustomNSError, CustomString
                         url: url
                     )
                 }
-                resolvedCode = mapped
-                resolvedMessage = mapped.defaultDescription
+                if mapped != .OK || defaultCode == .OK {
+                    resolvedCode = mapped
+                    resolvedMessage = mapped.defaultDescription
+                }
             }
 
             if let customMessage = errorObject["message"] as? String {

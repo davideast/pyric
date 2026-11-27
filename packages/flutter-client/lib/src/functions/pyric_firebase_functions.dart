@@ -5,6 +5,7 @@ import 'package:firebase_auth_platform_interface/firebase_auth_platform_interfac
 import 'package:firebase_core/firebase_core.dart';
 
 import '../app_check/pyric_firebase_app_check_platform.dart';
+import '../auth/pyric_auth_credentials_provider.dart';
 import '../platform/platform_env.dart';
 import '../transport/bridge_client.dart';
 import 'functions_http_transport.dart';
@@ -335,6 +336,28 @@ class FirebaseFunctions {
     return headers;
   }
 
+  Future<String?> _tokenFromAuthPlatform(FirebaseAuthPlatform auth) async {
+    final user = auth.currentUser;
+    if (user == null) {
+      return null;
+    }
+    if (auth is PyricAuthCredentialsProvider) {
+      final lens = (auth as PyricAuthCredentialsProvider).currentAuthLens;
+      if (lens.mode == 'anon' || lens.mode == 'admin') {
+        return null;
+      }
+      if (lens.mode == 'as') {
+        if (lens.uid != user.uid) {
+          return null;
+        }
+        if (lens.tenant != null && user.tenantId != lens.tenant) {
+          return null;
+        }
+      }
+    }
+    return user.getIdToken(false);
+  }
+
   Future<String?> _resolveAuthIdToken() async {
     final customProvider = _authTokenProvider;
     if (customProvider != null) {
@@ -343,11 +366,7 @@ class FirebaseFunctions {
 
     final explicitAuth = _authPlatform;
     if (explicitAuth != null) {
-      final user = explicitAuth.currentUser;
-      if (user == null) {
-        return null;
-      }
-      return user.getIdToken(false);
+      return _tokenFromAuthPlatform(explicitAuth);
     }
 
     try {
@@ -356,10 +375,7 @@ class FirebaseFunctions {
       final authAppName = globalAuth.app.name;
       if (authAppName == targetAppName ||
           targetAppName == defaultFirebaseAppName) {
-        final user = globalAuth.currentUser;
-        if (user != null) {
-          return await user.getIdToken(false);
-        }
+        return await _tokenFromAuthPlatform(globalAuth);
       }
     } catch (_) {
       return null;

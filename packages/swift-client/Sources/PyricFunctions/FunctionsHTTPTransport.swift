@@ -203,7 +203,7 @@ package final class URLSessionFunctionsHTTPTransport: FunctionsHTTPTransport, Se
         return AsyncThrowingStream { continuation in
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
-            request.timeoutInterval = max(effectiveTimeout, 300.0)
+            request.timeoutInterval = effectiveTimeout
             for (key, value) in headers {
                 request.setValue(value, forHTTPHeaderField: key)
             }
@@ -216,7 +216,7 @@ package final class URLSessionFunctionsHTTPTransport: FunctionsHTTPTransport, Se
                 serializer: serializer
             )
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = max(effectiveTimeout, 300.0)
+            config.timeoutIntervalForRequest = effectiveTimeout
             config.timeoutIntervalForResource = 0
             let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
             let dataTask = session.dataTask(with: request)
@@ -243,7 +243,7 @@ package final class URLSessionFunctionsHTTPTransport: FunctionsHTTPTransport, Se
         let effectiveTimeout = timeout > 0 ? timeout : HTTPSCallable.defaultTimeoutInterval
         return AsyncThrowingStream { continuation in
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = max(effectiveTimeout, 300.0)
+            config.timeoutIntervalForRequest = effectiveTimeout
             config.timeoutIntervalForResource = 0
             let session = URLSession(configuration: config)
 
@@ -253,7 +253,7 @@ package final class URLSessionFunctionsHTTPTransport: FunctionsHTTPTransport, Se
                 }
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
-                request.timeoutInterval = max(effectiveTimeout, 300.0)
+                request.timeoutInterval = effectiveTimeout
                 for (key, value) in headers {
                     request.setValue(value, forHTTPHeaderField: key)
                 }

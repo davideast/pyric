@@ -139,7 +139,15 @@ class HttpsCallable {
         ? options.timeout
         : defaultCallableTimeout;
     final completer = Completer<FunctionsHttpResponse>();
+    final abortCompleter = Completer<void>();
+    void triggerAbort() {
+      if (!abortCompleter.isCompleted) {
+        abortCompleter.complete();
+      }
+    }
+
     final timer = Timer(effectiveTimeout, () {
+      triggerAbort();
       if (!completer.isCompleted) {
         completer.completeError(
           FirebaseFunctionsException(
@@ -152,6 +160,7 @@ class HttpsCallable {
 
     unawaited(
       _context.cancelSignal().then((_) {
+        triggerAbort();
         if (!completer.isCompleted) {
           completer.completeError(
             FirebaseFunctionsException(
@@ -163,15 +172,35 @@ class HttpsCallable {
       }),
     );
 
+    final transport = _context.getTransport();
+    Future<FunctionsHttpResponse> postFuture;
+    try {
+      postFuture = transport is DartIoFunctionsHttpTransport
+          ? transport.postJson(
+              uri: target.uri,
+              headers: requestHeaders,
+              body: requestBody,
+              abortSignal: abortCompleter.future,
+            )
+          : transport.postJson(
+              uri: target.uri,
+              headers: requestHeaders,
+              body: requestBody,
+            );
+    } on UnsupportedError catch (error) {
+      timer.cancel();
+      throw FirebaseFunctionsException(
+        code: 'unimplemented',
+        message: error.message ?? error.toString(),
+      );
+    } catch (_) {
+      postFuture = Future<FunctionsHttpResponse>.value(
+        const FunctionsHttpResponse(statusCode: 0, body: ''),
+      );
+    }
+
     unawaited(
-      _context
-          .getTransport()
-          .postJson(
-            uri: target.uri,
-            headers: requestHeaders,
-            body: requestBody,
-          )
-          .then(
+      postFuture.then(
         (res) {
           if (!completer.isCompleted) {
             completer.complete(res);
@@ -179,6 +208,15 @@ class HttpsCallable {
         },
         onError: (Object error, StackTrace stackTrace) {
           if (!completer.isCompleted) {
+            if (error is UnsupportedError) {
+              completer.completeError(
+                FirebaseFunctionsException(
+                  code: 'unimplemented',
+                  message: error.message ?? error.toString(),
+                ),
+              );
+              return;
+            }
             completer.complete(
               const FunctionsHttpResponse(statusCode: 0, body: ''),
             );
@@ -372,20 +410,51 @@ class HttpsCallable {
         'Accept': 'text/event-stream',
       };
       final requestBody = jsonEncode(<String, Object?>{'data': encodedData});
-      final response = await _context.getTransport().postSse(
-            uri: target.uri,
-            headers: headers,
-            body: requestBody,
-          );
+      final FunctionsSseStreamResponse response;
+      try {
+        response = await _context.getTransport().postSse(
+              uri: target.uri,
+              headers: headers,
+              body: requestBody,
+            );
+      } on UnsupportedError catch (error) {
+        emitErrorAndClose(
+          FirebaseFunctionsException(
+            code: 'unimplemented',
+            message: error.message ?? error.toString(),
+          ),
+        );
+        return;
+      } on FirebaseFunctionsException catch (error) {
+        emitErrorAndClose(error);
+        return;
+      } catch (error) {
+        emitErrorAndClose(
+          FirebaseFunctionsException(
+            code: 'internal',
+            message: error.toString(),
+          ),
+        );
+        return;
+      }
 
       if (cancelled || controller.isClosed) {
+        unawaited(
+          response.byteStream
+              .listen((_) {}, onError: (Object _, StackTrace __) {})
+              .cancel(),
+        );
         return;
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
         String errorText = '';
         try {
-          errorText = await response.byteStream.transform(utf8.decoder).join();
+          final rawBytes = <int>[];
+          await for (final chunk in response.byteStream) {
+            rawBytes.addAll(chunk);
+          }
+          errorText = utf8.decode(rawBytes, allowMalformed: true);
         } catch (_) {
           errorText = '';
         }
@@ -454,6 +523,18 @@ class HttpsCallable {
     controller = StreamController<StreamResponse<T, R>>(
       sync: true,
       onListen: () {
+        unawaited(
+          _context.cancelSignal().then((_) {
+            if (cancelled || controller.isClosed) return;
+            unawaited(sseSub?.cancel());
+            emitErrorAndClose(
+              FirebaseFunctionsException(
+                code: 'cancelled',
+                message: 'Firebase Functions instance was deleted.',
+              ),
+            );
+          }),
+        );
         unawaited(start());
       },
       onCancel: () async {

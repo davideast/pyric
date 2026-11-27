@@ -6,6 +6,10 @@ const String uint64TypeUrl = 'type.googleapis.com/google.protobuf.UInt64Value';
 
 const int _maxJsSafeInteger = 9007199254740991;
 const int _minJsSafeInteger = -9007199254740991;
+final BigInt _minInt64 = BigInt.parse('-9223372036854775808');
+final BigInt _maxInt64 = BigInt.parse('9223372036854775807');
+final BigInt _maxUint64 = BigInt.parse('18446744073709551615');
+final RegExp _decimalIntegerPattern = RegExp(r'^-?[0-9]+$');
 
 /// Encodes a Dart value into a JSON-encodable callable wire representation.
 ///
@@ -34,8 +38,11 @@ Object? encodeCallableData(Object? data) {
     return data;
   }
   if (data is BigInt) {
+    if (data < _minInt64 || data > _maxUint64) {
+      throw ArgumentError('BigInt value out of 64-bit integer range: $data');
+    }
     return <String, Object?>{
-      '@type': int64TypeUrl,
+      '@type': data > _maxInt64 ? uint64TypeUrl : int64TypeUrl,
       'value': data.toString(),
     };
   }
@@ -83,19 +90,27 @@ Object? decodeCallableData(Object? json) {
             'Expected string value for $rawType, got ${rawValue.runtimeType}',
           );
         }
-        final asInt = int.tryParse(rawValue);
-        if (asInt != null) {
-          return asInt;
+        if (!_decimalIntegerPattern.hasMatch(rawValue)) {
+          throw FormatException('Invalid integer value for $rawType: $rawValue');
         }
         final asBigInt = BigInt.tryParse(rawValue);
-        if (asBigInt != null) {
-          return asBigInt;
+        if (asBigInt == null) {
+          throw FormatException('Invalid integer value for $rawType: $rawValue');
         }
-        final asDouble = double.tryParse(rawValue);
-        if (asDouble != null && asDouble.isFinite) {
-          return asDouble;
+        if (rawType == int64TypeUrl) {
+          if (asBigInt < _minInt64 || asBigInt > _maxInt64) {
+            throw FormatException(
+              'Int64Value out of signed 64-bit range: $rawValue',
+            );
+          }
+          return asBigInt.toInt();
         }
-        throw FormatException('Invalid integer value for $rawType: $rawValue');
+        if (asBigInt < BigInt.zero || asBigInt > _maxUint64) {
+          throw FormatException(
+            'UInt64Value out of unsigned 64-bit range: $rawValue',
+          );
+        }
+        return asBigInt <= _maxInt64 ? asBigInt.toInt() : asBigInt;
       }
       throw FormatException('Unsupported @type in callable payload: $rawType');
     }
