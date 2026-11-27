@@ -132,9 +132,46 @@ fun PyricDebugBottomSheet(
     }
 }
 
+private val STANDARD_JWT_CLAIM_KEYS = setOf(
+    "firebase",
+    "uid",
+    "user_id",
+    "sub",
+    "iss",
+    "aud",
+    "iat",
+    "exp",
+    "auth_time",
+    "email",
+    "email_verified",
+    "phone_number",
+    "name",
+    "picture",
+    "nonce",
+    "provider_id"
+)
+
+internal fun formatLensDescription(activeLens: AuthLens, isImpersonating: Boolean): String =
+    when (activeLens) {
+        is AuthLens.Admin -> "Admin Bypass (Full permissions)"
+        is AuthLens.Anon -> "Anonymous (Unauthenticated)"
+        is AuthLens.AppSession -> "App Session (Default client identity)"
+        is AuthLens.AsUser -> if (isImpersonating) {
+            "Impersonating UID: ${activeLens.uid}"
+        } else {
+            "App Session UID: ${activeLens.uid}"
+        }
+    }
+
+internal fun filterCustomClaims(token: Map<String, Any?>?): Map<String, Any?> {
+    if (token.isNullOrEmpty()) return emptyMap()
+    return token.filterKeys { it !in STANDARD_JWT_CLAIM_KEYS }
+}
+
 @Composable
 private fun IdentityTabContent(controller: PyricDebugController) {
     val activeLens by controller.activeLens.collectAsState()
+    val lensOverride by controller.auth.lensOverrideFlow.collectAsState()
     val isAdminBypass by controller.isAdminBypassActive.collectAsState()
     val users by controller.filteredUsers.collectAsState()
     val searchQuery by controller.userSearchQuery.collectAsState()
@@ -221,15 +258,10 @@ private fun IdentityTabContent(controller: PyricDebugController) {
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    val lensDescription = when (activeLens) {
-                        is AuthLens.Admin -> "Admin Bypass (Full permissions)"
-                        is AuthLens.Anon -> "Anonymous (Unauthenticated)"
-                        is AuthLens.AppSession -> "App Session (Default client identity)"
-                        is AuthLens.AsUser -> {
-                            val userLens = activeLens as AuthLens.AsUser
-                            "Impersonating UID: ${userLens.uid}"
-                        }
-                    }
+                    val lensDescription = formatLensDescription(
+                        activeLens = activeLens,
+                        isImpersonating = lensOverride != null
+                    )
 
                     Text(
                         text = lensDescription,
@@ -247,9 +279,10 @@ private fun IdentityTabContent(controller: PyricDebugController) {
                                 color = PyricDebugColors.UserTealLight
                             )
                         }
-                        userLens.token?.let {
+                        val customClaims = filterCustomClaims(userLens.token)
+                        if (customClaims.isNotEmpty()) {
                             Text(
-                                text = "Custom Claims: $it",
+                                text = "Custom Claims: $customClaims",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
