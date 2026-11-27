@@ -21,6 +21,9 @@ class PyricDatabase {
   late final ConnectionInfo _connectionInfo = ConnectionInfo(_bridgeClient);
   late final RtdbViewCoordinator viewCoordinator = RtdbViewCoordinator(this);
   PyricAuthCredentialsProvider? _credentialsProvider;
+  StreamController<AuthLens>? _dynamicLensController;
+  StreamSubscription<AuthLens>? _providerLensSub;
+  PyricAuthCredentialsProvider? _boundProvider;
   final FirebaseApp? app;
   final String? databaseURL;
 
@@ -94,6 +97,33 @@ class PyricDatabase {
 
   set credentialsProvider(PyricAuthCredentialsProvider? provider) {
     _credentialsProvider = provider;
+    _rebindDynamicLensProvider(emitCurrent: true);
+  }
+
+  void _rebindDynamicLensProvider({bool emitCurrent = false}) {
+    final controller = _dynamicLensController;
+    if (controller == null || controller.isClosed || !controller.hasListener) {
+      return;
+    }
+    final provider = credentialsProvider;
+    if (!identical(provider, _boundProvider)) {
+      _providerLensSub?.cancel();
+      _providerLensSub = null;
+      _boundProvider = provider;
+      if (provider != null) {
+        _providerLensSub = provider.authLensChanges.listen(
+          (lens) {
+            if (!controller.isClosed) {
+              controller.add(lens);
+            }
+          },
+          onError: (Object _, StackTrace __) {},
+        );
+      }
+    }
+    if (emitCurrent && !controller.isClosed) {
+      controller.add(effectiveLens);
+    }
   }
 
   /// Resolves the active [AuthLens] for stamping on operations and listeners.
@@ -108,13 +138,18 @@ class PyricDatabase {
   /// Resolves the active [AuthLens] map for stamping on operations.
   Map<String, dynamic> get effectiveAuthLens => effectiveLens.toMap();
 
-  /// Emits whenever the active [AuthLens] transitions.
+  /// Emits whenever the active [AuthLens] transitions, including providers attached lazily.
   Stream<AuthLens> get authLensChanges {
-    final provider = credentialsProvider;
-    if (provider != null) {
-      return provider.authLensChanges;
-    }
-    return const Stream.empty();
+    final controller = _dynamicLensController ??= StreamController<AuthLens>.broadcast(
+      sync: true,
+      onListen: () => _rebindDynamicLensProvider(),
+      onCancel: () {
+        _providerLensSub?.cancel();
+        _providerLensSub = null;
+        _boundProvider = null;
+      },
+    );
+    return controller.stream;
   }
 
   /// Returns a [PyricDatabaseReference] pointing to the specified [path], or root if omitted.
@@ -154,9 +189,23 @@ class PyricDatabase {
     );
   }
 
+  static bool _isRecoverableRtdbDenial(Object err) {
+    if (err is! PyricBridgeException) return false;
+    if (err.denialContext != null) return true;
+    final code = err.code.trim().toLowerCase().replaceAll('_', '-');
+    return code == 'permission-denied' ||
+        code == 'database/permission-denied' ||
+        code == 'unauthenticated' ||
+        code == 'database/unauthenticated';
+  }
+
   /// Dispatches an RTDB worker operation stamped with the active [AuthLens]
-  /// and optional non-default wire `instance`.
-  Future<dynamic> op(String method, Map<String, dynamic> params) {
+  /// (or an explicit pinned [actAs] map) and optional non-default wire `instance`.
+  Future<dynamic> op(
+    String method,
+    Map<String, dynamic> params, {
+    Map<String, dynamic>? actAs,
+  }) {
     final instance = wireInstance;
     final payload = instance == null
         ? params
@@ -164,7 +213,7 @@ class PyricDatabase {
     return _bridgeClient.op(
       method,
       payload,
-      actAs: effectiveAuthLens,
+      actAs: actAs ?? effectiveAuthLens,
     );
   }
 
@@ -174,11 +223,13 @@ class PyricDatabase {
   Stream<dynamic> subscribeRtdb(
     String path, {
     Map<String, dynamic>? querySpec,
+    void Function(AuthLens nextLens)? onLensChange,
   }) {
     if (isInfoPath(path)) return _connectionInfo.watch(path);
     late StreamController<dynamic> controller;
     StreamSubscription<dynamic>? bridgeSub;
     StreamSubscription<AuthLens>? authLensSub;
+    StreamSubscription<BridgeConnectionState>? bridgeStateSub;
     var listenGeneration = 0;
     AuthLens? activeLens;
 
@@ -189,9 +240,12 @@ class PyricDatabase {
       bridgeSub = null;
       final prevAuthLensSub = authLensSub;
       authLensSub = null;
+      final prevStateSub = bridgeStateSub;
+      bridgeStateSub = null;
       activeLens = null;
       prevBridgeSub?.cancel();
       prevAuthLensSub?.cancel();
+      prevStateSub?.cancel();
       controller.close();
     }
 
@@ -222,6 +276,7 @@ class PyricDatabase {
         return;
       }
 
+      var sawRecoverableDenial = false;
       late final StreamSubscription<dynamic> currentSub;
       currentSub = subStream.listen(
         (event) {
@@ -236,6 +291,9 @@ class PyricDatabase {
           if (generation != listenGeneration || !identical(bridgeSub, currentSub)) {
             return;
           }
+          if (_isRecoverableRtdbDenial(err)) {
+            sawRecoverableDenial = true;
+          }
           if (!controller.isClosed) {
             controller.addError(err, st);
           }
@@ -245,6 +303,9 @@ class PyricDatabase {
             return;
           }
           bridgeSub = null;
+          if (!_bridgeClient.isDisposed && sawRecoverableDenial) {
+            return;
+          }
           closeFromBridge();
         },
       );
@@ -267,11 +328,22 @@ class PyricDatabase {
           return;
         }
         final initialLens = effectiveLens;
+        onLensChange?.call(initialLens);
         startListening(initialLens, generation);
+        bridgeStateSub = _bridgeClient.connectionStates.listen(
+          (state) {
+            if (generation != listenGeneration) return;
+            if (state == BridgeConnectionState.closed && bridgeSub == null) {
+              closeFromBridge();
+            }
+          },
+          onError: (Object _, StackTrace __) {},
+        );
         authLensSub = authLensChanges.listen(
           (newLens) {
             if (generation != listenGeneration) return;
             if (newLens == activeLens) return;
+            onLensChange?.call(newLens);
             startListening(newLens, generation);
           },
           onError: (Object _, StackTrace __) {},
@@ -283,9 +355,12 @@ class PyricDatabase {
         bridgeSub = null;
         final prevAuthLensSub = authLensSub;
         authLensSub = null;
+        final prevStateSub = bridgeStateSub;
+        bridgeStateSub = null;
         activeLens = null;
         if (prevBridgeSub != null) unawaited(prevBridgeSub.cancel());
         if (prevAuthLensSub != null) unawaited(prevAuthLensSub.cancel());
+        if (prevStateSub != null) unawaited(prevStateSub.cancel());
       },
     );
 

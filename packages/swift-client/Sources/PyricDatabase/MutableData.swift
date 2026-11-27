@@ -4,35 +4,55 @@ import PyricFirestore
 /// A mutable snapshot of data at a Realtime Database location used in transactions.
 public final class MutableData: NSObject, @unchecked Sendable {
     private var _value: Any?
+    private var _priority: Any?
+    private var nestedPriorities: [[String]: Any] = [:]
     private let onValueMutated: (@Sendable (Any?) -> Void)?
+    private let onPriorityMutated: (@Sendable ([String], Any?) -> Void)?
 
     public var value: Any? {
         get { _value }
         set {
             let normalized: Any? = (newValue is NSNull) ? nil : newValue
             _value = normalized
+            if normalized == nil {
+                nestedPriorities.removeAll()
+            }
             onValueMutated?(normalized)
         }
     }
 
-    public var priority: Any?
+    public var priority: Any? {
+        get { _priority }
+        set {
+            let normalized: Any? = (newValue is NSNull) ? nil : newValue
+            _priority = normalized
+            onPriorityMutated?([], normalized)
+        }
+    }
     public let key: String?
 
     internal init(
         key: String? = nil,
         value: Any? = nil,
         priority: Any? = nil,
-        onValueMutated: (@Sendable (Any?) -> Void)?
+        onValueMutated: (@Sendable (Any?) -> Void)?,
+        onPriorityMutated: (@Sendable ([String], Any?) -> Void)? = nil
     ) {
         self.key = key
         self._value = (value is NSNull) ? nil : value
-        self.priority = (priority is NSNull) ? nil : priority
+        self._priority = (priority is NSNull) ? nil : priority
         self.onValueMutated = onValueMutated
+        self.onPriorityMutated = onPriorityMutated
         super.init()
     }
 
     public convenience init(key: String? = nil, value: Any? = nil, priority: Any? = nil) {
-        self.init(key: key, value: value, priority: priority, onValueMutated: nil)
+        self.init(key: key, value: value, priority: priority, onValueMutated: nil, onPriorityMutated: nil)
+    }
+
+    private func storedPriority(for segments: [String]) -> Any? {
+        guard let raw = nestedPriorities[segments] else { return nil }
+        return (raw is NSNull) ? nil : raw
     }
 
     public var childrenCount: UInt {
@@ -70,9 +90,17 @@ public final class MutableData: NSObject, @unchecked Sendable {
                 curVal = nil
             }
         }
-        return MutableData(key: segments.last, value: curVal, priority: nil) { [weak self] updated in
-            self?.updateNestedChild(segments: segments, updated: updated)
-        }
+        return MutableData(
+            key: segments.last,
+            value: curVal,
+            priority: storedPriority(for: segments),
+            onValueMutated: { [weak self] updated in
+                self?.updateNestedChild(segments: segments, updated: updated)
+            },
+            onPriorityMutated: { [weak self] sub, prio in
+                self?.recordNestedPriority(segments: segments + sub, priority: prio)
+            }
+        )
     }
 
     public var children: NSEnumerator {
@@ -81,9 +109,18 @@ public final class MutableData: NSObject, @unchecked Sendable {
             var items: [MutableData] = []
             for k in sortedKeys {
                 guard let childVal = dict[k], !(childVal is NSNull) else { continue }
-                let child = MutableData(key: k, value: childVal, priority: nil) { [weak self] updated in
-                    self?.updateNestedChild(segments: [k], updated: updated)
-                }
+                let segs = [k]
+                let child = MutableData(
+                    key: k,
+                    value: childVal,
+                    priority: storedPriority(for: segs),
+                    onValueMutated: { [weak self] updated in
+                        self?.updateNestedChild(segments: segs, updated: updated)
+                    },
+                    onPriorityMutated: { [weak self] sub, prio in
+                        self?.recordNestedPriority(segments: segs + sub, priority: prio)
+                    }
+                )
                 items.append(child)
             }
             return NSArray(array: items).objectEnumerator()
@@ -92,9 +129,18 @@ public final class MutableData: NSObject, @unchecked Sendable {
             var items: [MutableData] = []
             for (idx, elem) in arr.enumerated() where !(elem is NSNull) {
                 let k = String(idx)
-                let child = MutableData(key: k, value: elem, priority: nil) { [weak self] updated in
-                    self?.updateNestedChild(segments: [k], updated: updated)
-                }
+                let segs = [k]
+                let child = MutableData(
+                    key: k,
+                    value: elem,
+                    priority: storedPriority(for: segs),
+                    onValueMutated: { [weak self] updated in
+                        self?.updateNestedChild(segments: segs, updated: updated)
+                    },
+                    onPriorityMutated: { [weak self] sub, prio in
+                        self?.recordNestedPriority(segments: segs + sub, priority: prio)
+                    }
+                )
                 items.append(child)
             }
             return NSArray(array: items).objectEnumerator()
@@ -102,12 +148,93 @@ public final class MutableData: NSObject, @unchecked Sendable {
         return NSArray().objectEnumerator()
     }
 
+    private func recordNestedPriority(segments: [String], priority: Any?) {
+        if segments.isEmpty {
+            self.priority = priority
+            return
+        }
+        nestedPriorities[segments] = priority ?? NSNull()
+        onPriorityMutated?(segments, priority)
+    }
+
+    private func clearPrioritiesUnder(prefix: [String]) {
+        nestedPriorities = nestedPriorities.filter { key, _ in
+            !(key.count >= prefix.count && Array(key.prefix(prefix.count)) == prefix)
+        }
+    }
+
     private func updateNestedChild(segments: [String], updated: Any?) {
         if segments.isEmpty {
             self.value = updated
             return
         }
+        if updated == nil || updated is NSNull {
+            clearPrioritiesUnder(prefix: segments)
+        }
         self.value = Self.writeNested(current: _value, segments: segments, index: 0, leaf: updated)
+    }
+
+    internal func encodeWireValue(priorRootPriority: Any?) -> AnySendable {
+        var base = RtdbValueCodec.toAnySendable(_value)
+        if case .null = base {
+            return .null
+        }
+        if !nestedPriorities.isEmpty {
+            let sorted = nestedPriorities.sorted { $0.key.count > $1.key.count }
+            for (segs, rawPrio) in sorted {
+                let encodedPrio = (rawPrio is NSNull) ? AnySendable.null : RtdbValueCodec.toAnySendable(rawPrio)
+                base = Self.applyPriority(to: base, segments: segs, index: 0, priority: encodedPrio)
+            }
+        }
+        let encodedRootPrio = RtdbValueCodec.toAnySendable(_priority)
+        let encodedPriorPrio = RtdbValueCodec.toAnySendable(priorRootPriority)
+        if case .null = encodedRootPrio {
+            if encodedRootPrio != encodedPriorPrio {
+                return Self.wrapNode(base, priority: .null)
+            }
+            return base
+        }
+        return Self.wrapNode(base, priority: encodedRootPrio)
+    }
+
+    private static func applyPriority(
+        to node: AnySendable,
+        segments: [String],
+        index: Int,
+        priority: AnySendable
+    ) -> AnySendable {
+        let seg = segments[index]
+        var dict: [String: AnySendable] = [:]
+        switch node {
+        case .dictionary(let existing):
+            dict = existing
+        case .array(let arr):
+            for (idx, elem) in arr.enumerated() where elem != .null {
+                dict[String(idx)] = elem
+            }
+        default:
+            return node
+        }
+        guard let child = dict[seg], child != .null else {
+            return .dictionary(dict)
+        }
+        if index == segments.count - 1 {
+            dict[seg] = wrapNode(child, priority: priority)
+        } else {
+            dict[seg] = applyPriority(to: child, segments: segments, index: index + 1, priority: priority)
+        }
+        return .dictionary(dict)
+    }
+
+    private static func wrapNode(_ node: AnySendable, priority: AnySendable) -> AnySendable {
+        if case .dictionary(var dict) = node, dict[".value"] == nil {
+            dict[".priority"] = priority
+            return .dictionary(dict)
+        }
+        return .dictionary([
+            ".value": node,
+            ".priority": priority,
+        ])
     }
 
     private static func writeNested(

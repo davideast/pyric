@@ -92,6 +92,7 @@ public final class Database: NSObject, @unchecked Sendable {
     private var _credentialProvider: (any AuthCredentialProvider)?
     private var lensContinuations: [UUID: AsyncStream<AuthLens>.Continuation] = [:]
     private var authSyncTask: Task<Void, Never>?
+    private var authRegistryObserverID: UUID?
     private var _networkOnline = true
     private var networkContinuations: [UUID: AsyncStream<Bool>.Continuation] = [:]
 
@@ -252,15 +253,20 @@ public final class Database: NSObject, @unchecked Sendable {
     internal func detachBridgeObserver() {
         viewCoordinator.shutdown()
         connectionInfoHub.detach()
-        let idToRemove: UUID? = {
+        let (idToRemove, authObsToRemove): (UUID?, UUID?) = {
             stateLock.lock()
             defer { stateLock.unlock() }
             let id = bridgeObserverID
             bridgeObserverID = nil
-            return id
+            let authId = authRegistryObserverID
+            authRegistryObserverID = nil
+            return (id, authId)
         }()
         if let idToRemove {
             app.removeBridgeObserver(idToRemove)
+        }
+        if let authObsToRemove {
+            AuthCredentialProviderRegistry.removeRegistrationObserver(authObsToRemove)
         }
     }
 
@@ -270,8 +276,37 @@ public final class Database: NSObject, @unchecked Sendable {
         detachBridgeObserver()
     }
 
+    private func ensureAuthRegistryObserver() {
+        let targetAppName = app.name
+        stateLock.lock()
+        let alreadyObserving = authRegistryObserverID != nil
+        stateLock.unlock()
+        if alreadyObserving { return }
+        let obsID = AuthCredentialProviderRegistry.addRegistrationObserver { [weak self] appName in
+            guard appName == nil || appName == targetAppName else { return }
+            guard let self else { return }
+            self.startAuthLensSync()
+            self.notifyLensChanged()
+        }
+        var duplicateToRemove: UUID?
+        stateLock.lock()
+        if authRegistryObserverID == nil {
+            authRegistryObserverID = obsID
+        } else {
+            duplicateToRemove = obsID
+        }
+        stateLock.unlock()
+        if let duplicateToRemove {
+            AuthCredentialProviderRegistry.removeRegistrationObserver(duplicateToRemove)
+        }
+    }
+
     private func startAuthLensSync() {
-        let provider = credentialProvider
+        var provider = credentialProvider
+        if provider == nil {
+            ensureAuthRegistryObserver()
+            provider = credentialProvider
+        }
         let nextStream = provider?.authLensStream
         let nextTask: Task<Void, Never>? = nextStream.map { stream in
             Task { [weak self] in
@@ -281,26 +316,41 @@ public final class Database: NSObject, @unchecked Sendable {
                 }
             }
         }
+        var obsToRemove: UUID?
         stateLock.lock()
         let prev = authSyncTask
         authSyncTask = nextTask
+        if nextTask != nil {
+            obsToRemove = authRegistryObserverID
+            authRegistryObserverID = nil
+        }
         stateLock.unlock()
         prev?.cancel()
+        if let obsToRemove {
+            AuthCredentialProviderRegistry.removeRegistrationObserver(obsToRemove)
+        }
     }
 
-    private func currentAuthLensLocked() -> AuthLens {
-        if let overrideLens = _impersonatedLens {
+    private func resolveEffectiveAuthLens() -> AuthLens {
+        stateLock.lock()
+        let overrideLens = _impersonatedLens
+        let explicitProvider = _credentialProvider
+        stateLock.unlock()
+        if let overrideLens {
             return overrideLens
         }
-        if let provider = _credentialProvider ?? AuthCredentialProviderRegistry.resolve(app: app) {
+        if let provider = explicitProvider ?? AuthCredentialProviderRegistry.resolve(app: app) {
             return provider.currentAuthLens()
         }
         return .anon
     }
 
-    private func yieldCurrentLensLocked() {
-        let current = currentAuthLensLocked()
-        for cont in lensContinuations.values {
+    private func yieldCurrentLens() {
+        let current = resolveEffectiveAuthLens()
+        stateLock.lock()
+        let continuations = Array(lensContinuations.values)
+        stateLock.unlock()
+        for cont in continuations {
             cont.yield(current)
         }
     }
@@ -308,20 +358,23 @@ public final class Database: NSObject, @unchecked Sendable {
     public func switchLens(_ lens: AuthLens?) {
         stateLock.lock()
         _impersonatedLens = lens
-        yieldCurrentLensLocked()
+        if let lens {
+            for cont in lensContinuations.values {
+                cont.yield(lens)
+            }
+            stateLock.unlock()
+            return
+        }
         stateLock.unlock()
+        yieldCurrentLens()
     }
 
     private func notifyLensChanged() {
-        stateLock.lock()
-        yieldCurrentLensLocked()
-        stateLock.unlock()
+        yieldCurrentLens()
     }
 
     public func currentAuthLens() -> AuthLens {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return currentAuthLensLocked()
+        return resolveEffectiveAuthLens()
     }
 
     public var authLensStream: AsyncStream<AuthLens> {
@@ -335,9 +388,11 @@ public final class Database: NSObject, @unchecked Sendable {
         }
         return AsyncStream { continuation in
             let id = UUID()
+            let resolvedOutsideLock = resolveEffectiveAuthLens()
             stateLock.lock()
             lensContinuations[id] = continuation
-            continuation.yield(currentAuthLensLocked())
+            let initialLens = _impersonatedLens ?? resolvedOutsideLock
+            continuation.yield(initialLens)
             stateLock.unlock()
 
             continuation.onTermination = { [weak self] _ in
@@ -406,11 +461,15 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     private func setNetworkOnline(_ online: Bool) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard _networkOnline != online else { return }
-        _networkOnline = online
-        for continuation in networkContinuations.values { continuation.yield(online) }
+        let continuations: [AsyncStream<Bool>.Continuation]? = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard _networkOnline != online else { return nil }
+            _networkOnline = online
+            return Array(networkContinuations.values)
+        }()
+        guard let continuations else { return }
+        for continuation in continuations { continuation.yield(online) }
         connectionInfoHub.updateNetworkOnline(online)
     }
 

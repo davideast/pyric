@@ -8,7 +8,6 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentHashMap
 
 data class RtdbQuerySpec(
     val orderBy: Map<String, Any?>? = null,
@@ -42,8 +41,25 @@ open class Query(
     internal val querySpec: RtdbQuerySpec = RtdbQuerySpec()
 ) {
     private val queryScope = CoroutineScope(Dispatchers.IO)
-    private val valueListeners = ConcurrentHashMap<ValueEventListener, RtdbSnapshotRegistration>()
-    private val childListeners = ConcurrentHashMap<ChildEventListener, RtdbSnapshotRegistration>()
+
+    private fun validateBoundValue(value: Any?) {
+        when (value) {
+            null, is Boolean, is String -> return
+            is Double -> require(value.isFinite()) { "Query bound value must be a finite number!" }
+            is Float -> require(value.isFinite()) { "Query bound value must be a finite number!" }
+            is Number -> return
+            else -> throw IllegalArgumentException(
+                "Query bound value must be null, Boolean, String, or a finite Number!"
+            )
+        }
+    }
+
+    private fun validateOrderByKeyBound(value: Any?, key: String?, method: String) {
+        require(key == null) { "Can't pass a key cursor to $method() on an orderByKey() query!" }
+        require(value is String) {
+            "Query cursor value passed to $method() on an orderByKey() query must be a String!"
+        }
+    }
 
     val ref: DatabaseReference
         get() = DatabaseReference(database, path)
@@ -61,6 +77,10 @@ open class Query(
 
     fun orderByKey(): Query {
         require(querySpec.orderBy == null) { "You can't combine multiple orderBy calls!" }
+        for (bound in querySpec.bounds) {
+            val method = (bound["kind"] as? String) ?: "bound"
+            validateOrderByKeyBound(bound["value"], bound["key"] as? String, method)
+        }
         return Query(
             database = database,
             path = path,
@@ -91,8 +111,9 @@ open class Query(
         require(!querySpec.hasStartBound() && !querySpec.hasEndBound()) {
             "Can't call equalTo() after startAt(), startAfter(), endAt(), endBefore(), or equalTo()!"
         }
+        validateBoundValue(value)
         if (querySpec.orderBy?.get("kind") == "key") {
-            require(key == null) { "Can't pass a key cursor to equalTo() on an orderByKey() query!" }
+            validateOrderByKeyBound(value, key, "equalTo")
         }
         val bound = mutableMapOf<String, Any?>("kind" to "equalTo", "value" to value)
         if (key != null) bound["key"] = key
@@ -108,8 +129,9 @@ open class Query(
         require(!querySpec.hasStartBound()) {
             "Can't call startAt() after startAt(), startAfter(), or equalTo()!"
         }
+        validateBoundValue(value)
         if (querySpec.orderBy?.get("kind") == "key") {
-            require(key == null) { "Can't pass a key cursor to startAt() on an orderByKey() query!" }
+            validateOrderByKeyBound(value, key, "startAt")
         }
         val bound = mutableMapOf<String, Any?>("kind" to "startAt", "value" to value)
         if (key != null) bound["key"] = key
@@ -125,8 +147,9 @@ open class Query(
         require(!querySpec.hasStartBound()) {
             "Can't call startAfter() after startAt(), startAfter(), or equalTo()!"
         }
+        validateBoundValue(value)
         if (querySpec.orderBy?.get("kind") == "key") {
-            require(key == null) { "Can't pass a key cursor to startAfter() on an orderByKey() query!" }
+            validateOrderByKeyBound(value, key, "startAfter")
         }
         val bound = mutableMapOf<String, Any?>("kind" to "startAfter", "value" to value)
         if (key != null) bound["key"] = key
@@ -142,8 +165,9 @@ open class Query(
         require(!querySpec.hasEndBound()) {
             "Can't call endAt() after endAt(), endBefore(), or equalTo()!"
         }
+        validateBoundValue(value)
         if (querySpec.orderBy?.get("kind") == "key") {
-            require(key == null) { "Can't pass a key cursor to endAt() on an orderByKey() query!" }
+            validateOrderByKeyBound(value, key, "endAt")
         }
         val bound = mutableMapOf<String, Any?>("kind" to "endAt", "value" to value)
         if (key != null) bound["key"] = key
@@ -159,8 +183,9 @@ open class Query(
         require(!querySpec.hasEndBound()) {
             "Can't call endBefore() after endAt(), endBefore(), or equalTo()!"
         }
+        validateBoundValue(value)
         if (querySpec.orderBy?.get("kind") == "key") {
-            require(key == null) { "Can't pass a key cursor to endBefore() on an orderByKey() query!" }
+            validateOrderByKeyBound(value, key, "endBefore")
         }
         val bound = mutableMapOf<String, Any?>("kind" to "endBefore", "value" to value)
         if (key != null) bound["key"] = key
@@ -236,7 +261,8 @@ open class Query(
             onSnapshot = { snap -> listener.onDataChange(snap) },
             onError = { err -> listener.onCancelled(DatabaseError.fromException(err)) }
         )
-        valueListeners.put(listener, registration)?.cancel()
+        val registryKey = FirebaseDatabase.ListenerRegistryKey(path, querySpec, listener)
+        database.valueListeners.put(registryKey, registration)?.cancel()
         return listener
     }
 
@@ -252,16 +278,19 @@ open class Query(
 
     fun addChildEventListener(listener: ChildEventListener): ChildEventListener {
         val registration = RtdbSnapshotRegistration.registerChildListener(this, queryScope, listener)
-        childListeners.put(listener, registration)?.cancel()
+        val registryKey = FirebaseDatabase.ListenerRegistryKey(path, querySpec, listener)
+        database.childListeners.put(registryKey, registration)?.cancel()
         return listener
     }
 
     fun removeEventListener(listener: ValueEventListener) {
-        valueListeners.remove(listener)?.cancel()
+        val registryKey = FirebaseDatabase.ListenerRegistryKey(path, querySpec, listener)
+        database.valueListeners.remove(registryKey)?.cancel()
     }
 
     fun removeEventListener(listener: ChildEventListener) {
-        childListeners.remove(listener)?.cancel()
+        val registryKey = FirebaseDatabase.ListenerRegistryKey(path, querySpec, listener)
+        database.childListeners.remove(registryKey)?.cancel()
     }
 
     internal fun diffChildEvents(

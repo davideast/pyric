@@ -1,0 +1,437 @@
+import Foundation
+import Testing
+import FirebaseAuth
+import PyricDatabase
+import PyricFirestore
+
+private final class MutableTestAuthProvider: AuthCredentialProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var lens: AuthLens = .anon
+    private var continuations: [UUID: AsyncStream<AuthLens>.Continuation] = [:]
+
+    func currentAuthLens() -> AuthLens {
+        lock.lock()
+        defer { lock.unlock() }
+        return lens
+    }
+
+    var authLensStream: AsyncStream<AuthLens> {
+        AsyncStream { continuation in
+            let id = UUID()
+            lock.lock()
+            continuations[id] = continuation
+            continuation.yield(lens)
+            lock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                self?.lock.lock()
+                self?.continuations.removeValue(forKey: id)
+                self?.lock.unlock()
+            }
+        }
+    }
+
+    func getIDToken(forcingRefresh: Bool) async throws -> String? { nil }
+
+    func setLens(_ next: AuthLens) {
+        lock.lock()
+        lens = next
+        let snapshot = Array(continuations.values)
+        lock.unlock()
+        for c in snapshot { c.yield(next) }
+    }
+}
+
+private final class ValueCollector<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [T] = []
+    func append(_ v: T) {
+        lock.lock()
+        items.append(v)
+        lock.unlock()
+    }
+    var values: [T] {
+        lock.lock()
+        defer { lock.unlock() }
+        return items
+    }
+}
+
+@Suite("RTDB Phase 2 Parity Regression Suite", .serialized)
+struct RtdbPhase2ParityRegressionTests {
+    private func makeConnectedDatabase(
+        name: String,
+        handler: @escaping @Sendable ([String: AnySendable], MockStorageBridgeChannel) -> Void
+    ) async throws -> (FirebaseApp, PyricBridgeClient, Database, MockStorageBridgeChannel) {
+        let app = FirebaseApp(
+            name: name,
+            options: FirebaseOptions(projectID: "rtdb-p2-swift", apiKey: "key", googleAppID: "1:1:ios:abc")
+        )
+        let channel = MockStorageBridgeChannel { frame, ch in
+            if frame["type"]?.stringValue == "attach" {
+                ch.sendFromServer([
+                    "type": "attach-ack",
+                    "protocol": 1,
+                    "peerConnected": true,
+                    "sandboxConnected": true,
+                    "clientSessionId": "sess-\(name)",
+                ])
+                return
+            }
+            handler(frame, ch)
+        }
+        let client = PyricBridgeClient(
+            endpoint: URL(string: "ws://127.0.0.1:5174/__pyric/sandbox")!,
+            transportFactory: { _ in channel }
+        )
+        let db = Database(app: app, url: "https://rtdb-p2-swift-default-rtdb.firebaseio.com", bridgeClient: client)
+        try await client.connect()
+        return (app, client, db, channel)
+    }
+
+    @Test("P2-S11a & P2-F12: clears latestSnapshot across lens switch and recovers after permission-denied")
+    func clearsLatestSnapshotAndRecoversFromDenial() async throws {
+        let subIDs = ValueCollector<String>()
+        let (_, client, db, channel) = try await makeConnectedDatabase(name: "rtdb-s11a") { frame, _ in
+            if frame["type"]?.stringValue == "worker-sub",
+               let subId = frame["subId"]?.stringValue {
+                subIDs.append(subId)
+            }
+        }
+
+        db.switchLens(.asUser(uid: "alice"))
+        let aliceVals = ValueCollector<String>()
+        let cancelCount = ValueCollector<Int>()
+        let ref = db.reference(withPath: "secrets/item")
+        let hA = ref.observe(.value, with: { snap in
+            if let s = snap.value as? String { aliceVals.append(s) }
+        }, withCancel: { _ in
+            cancelCount.append(1)
+        })
+
+        for _ in 0..<40 where subIDs.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let firstSub = try #require(subIDs.values.first)
+        channel.sendFromServer([
+            "type": "worker-snap",
+            "subId": firstSub,
+            "value": ["key": "item", "exists": true, "value": "ALICE_SECRET"],
+        ])
+        for _ in 0..<40 where aliceVals.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(aliceVals.values == ["ALICE_SECRET"])
+
+        db.switchLens(.asUser(uid: "bob"))
+        let bobVals = ValueCollector<String>()
+        let hB = ref.observe(.value) { snap in
+            if let s = snap.value as? String { bobVals.append(s) }
+        }
+        try await Task.sleep(nanoseconds: 40_000_000)
+        #expect(bobVals.values.isEmpty)
+
+        for _ in 0..<40 where subIDs.values.count < 2 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let secondSub = subIDs.values[1]
+        channel.sendFromServer([
+            "type": "worker-snap",
+            "subId": secondSub,
+            "value": ["__error": ["code": "PERMISSION_DENIED", "message": "denied"]],
+        ])
+        for _ in 0..<40 where cancelCount.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(cancelCount.values.count == 1)
+
+        db.switchLens(.asUser(uid: "alice"))
+        for _ in 0..<40 where subIDs.values.count < 3 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let thirdSub = subIDs.values[2]
+        channel.sendFromServer([
+            "type": "worker-snap",
+            "subId": thirdSub,
+            "value": ["key": "item", "exists": true, "value": "RECOVERED"],
+        ])
+        for _ in 0..<40 where !aliceVals.values.contains("RECOVERED") {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(aliceVals.values.contains("RECOVERED"))
+
+        ref.removeObserver(withHandle: hA)
+        ref.removeObserver(withHandle: hB)
+        await client.disconnect()
+    }
+
+    @Test("P2-S11b: observeSingleEvent waits for childAdded and childChanged then detaches")
+    func observeSingleEventChildTypes() async throws {
+        let subIDs = ValueCollector<String>()
+        let unsubIDs = ValueCollector<String>()
+        let (_, client, db, channel) = try await makeConnectedDatabase(name: "rtdb-s11b") { frame, _ in
+            if frame["type"]?.stringValue == "worker-sub",
+               let subId = frame["subId"]?.stringValue {
+                subIDs.append(subId)
+            } else if frame["type"]?.stringValue == "worker-unsub",
+                      let subId = frame["subId"]?.stringValue {
+                unsubIDs.append(subId)
+            }
+        }
+
+        let ref = db.reference(withPath: "rooms/chat")
+        let task = Task { try await ref.observeSingleEvent(of: .childChanged) }
+        for _ in 0..<40 where subIDs.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let subId = try #require(subIDs.values.first)
+        channel.sendFromServer([
+            "type": "worker-snap",
+            "subId": subId,
+            "value": ["key": "chat", "exists": true, "value": ["m1": "hello"]],
+        ])
+        try await Task.sleep(nanoseconds: 25_000_000)
+        channel.sendFromServer([
+            "type": "worker-snap",
+            "subId": subId,
+            "value": ["key": "chat", "exists": true, "value": ["m1": "edited"]],
+        ])
+        let changed = try await task.value
+        #expect(changed.key == "m1")
+        #expect(changed.value as? String == "edited")
+        for _ in 0..<40 where unsubIDs.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(unsubIDs.values.contains(subId))
+        await client.disconnect()
+    }
+
+    @Test("P2-S11c & txLens pinning: MutableData persists child priority and transaction pins lens")
+    func mutableDataChildPriorityAndPinnedTransaction() async throws {
+        let md = MutableData(key: "root", value: ["a": 1])
+        md.childData(byAppendingPath: "a").priority = 5.0
+        #expect(md.childData(byAppendingPath: "a").priority as? Double == 5.0)
+        #expect(md.childData(byAppendingPath: "a").value as? Int == 1)
+
+        let actAsUids = ValueCollector<String>()
+        let commitPayloads = ValueCollector<AnySendable>()
+        let (_, client, db, _) = try await makeConnectedDatabase(name: "rtdb-s11c") { frame, ch in
+            guard frame["type"]?.stringValue == "worker-op",
+                  let id = frame["id"]?.stringValue,
+                  let op = frame["op"]?.dictionaryValue,
+                  let method = op["method"]?.stringValue else { return }
+            if let uid = op["actAs"]?["uid"]?.stringValue {
+                actAsUids.append(uid)
+            }
+            if method == "rtdb.get" {
+                ch.sendFromServer([
+                    "type": "worker-res",
+                    "id": id,
+                    "ok": true,
+                    "value": ["key": "node", "exists": true, "value": ["a": 1]],
+                ])
+            } else if method == "rtdb.transactionCommit" {
+                if let v = op["params"]?["value"] ?? op["value"] {
+                    commitPayloads.append(v)
+                }
+                ch.sendFromServer([
+                    "type": "worker-res",
+                    "id": id,
+                    "ok": true,
+                    "value": ["committed": false, "retry": false],
+                ])
+            }
+        }
+
+        db.switchLens(.asUser(uid: "alice"))
+        let res = try await db.reference(withPath: "tx/node").runTransactionBlock { current in
+            db.switchLens(.asUser(uid: "bob"))
+            current.childData(byAppendingPath: "a").value = 2
+            current.childData(byAppendingPath: "a").priority = 7.0
+            return .success(withValue: current)
+        }
+        #expect(res.committed == false)
+        let snapDict = res.snapshot.value as? [String: Any]
+        #expect((snapDict?["a"] as? Int64) == 1 || (snapDict?["a"] as? Int) == 1)
+        #expect(actAsUids.values == ["alice", "alice"])
+        let sent = try #require(commitPayloads.values.first)
+        #expect(sent["a"]?[".priority"]?.doubleValue == 7.0)
+        await client.disconnect()
+    }
+
+    @Test("P2-S11d: AuthCredentialProviderRegistry reset allows re-bootstrap and lazy authLensStream forwards transitions")
+    func authBootstrapResetAndLazyLensStream() async throws {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let app = FirebaseApp(
+                name: "lazy-lens-app-\(UUID().uuidString)",
+                options: FirebaseOptions(projectID: "lazy-proj", apiKey: "key", googleAppID: "1:1:ios:xyz")
+            )
+            let bootstrapApp = FirebaseApp(
+                name: "bootstrap-order-app-\(UUID().uuidString)",
+                options: FirebaseOptions(projectID: "lazy-proj", apiKey: "key", googleAppID: "1:1:ios:xyz")
+            )
+            let dummyChannel = MockStorageBridgeChannel()
+            let client = PyricBridgeClient(
+                endpoint: URL(string: "ws://127.0.0.1:5174/__pyric/sandbox")!,
+                transportFactory: { _ in dummyChannel }
+            )
+            // Clear factory synchronously BEFORE constructing Database so init()
+            // does not pre-resolve Auth.auth(app:) when factory is already registered.
+            let savedFactory = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
+            #expect(!AuthCredentialProviderRegistry.hasFactory)
+            let firestore = Firestore(bridgeClient: client, app: app)
+            let db = Database(app: app, url: "https://lazy-proj-default-rtdb.firebaseio.com", bridgeClient: client)
+            let fsStream = firestore.authLensStream
+            let dbStream = db.authLensStream
+            AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedFactory)
+
+            defer {
+                AuthCredentialProviderRegistry.removeInstance(forAppName: app.name)
+                AuthCredentialProviderRegistry.removeInstance(forAppName: bootstrapApp.name)
+                AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedFactory)
+                FirebaseAuthBootstrap.initialize()
+            }
+
+            let fsLenses = ValueCollector<AuthLens>()
+            let dbLenses = ValueCollector<AuthLens>()
+            let fsTask = Task {
+                for await lens in fsStream {
+                    fsLenses.append(lens)
+                    if case .asUser(let uid, _, _) = lens, uid == "alice" { break }
+                }
+            }
+            let dbTask = Task {
+                for await lens in dbStream {
+                    dbLenses.append(lens)
+                    if case .asUser(let uid, _, _) = lens, uid == "alice" { break }
+                }
+            }
+            try await Task.sleep(nanoseconds: 15_000_000)
+
+            let provider = MutableTestAuthProvider()
+            AuthCredentialProviderRegistry.register(app: app, provider: provider)
+            provider.setLens(.asUser(uid: "alice"))
+
+            for _ in 0..<50 {
+                let fsDone = fsLenses.values.contains(.asUser(uid: "alice"))
+                let dbDone = dbLenses.values.contains(.asUser(uid: "alice"))
+                if fsDone && dbDone { break }
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            fsTask.cancel()
+            dbTask.cancel()
+            #expect(fsLenses.values.contains(.asUser(uid: "alice")))
+            #expect(dbLenses.values.contains(.asUser(uid: "alice")))
+
+            // Calling Auth.auth(app:) directly after Database and Firestore.authLensStream
+            // registered observers must not deadlock re-entrantly inside FirebaseAuthBootstrap.
+            let savedBeforeBootstrap = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
+            let bootstrapFirestore = Firestore(bridgeClient: client, app: bootstrapApp)
+            let bootstrapDb = Database(
+                app: bootstrapApp,
+                url: "https://lazy-proj-default-rtdb.firebaseio.com",
+                bridgeClient: client
+            )
+            let bootFsStream = bootstrapFirestore.authLensStream
+            let bootDbStream = bootstrapDb.authLensStream
+            let authInstance = Auth.auth(app: bootstrapApp)
+            AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedBeforeBootstrap)
+            _ = (bootFsStream, bootDbStream)
+            #expect(authInstance.app.name == bootstrapApp.name)
+            await client.disconnect()
+        }
+    }
+
+    @Test("P2-F12: second observer joining a parked denied ActiveView receives cached denial and recovers on lens switch")
+    func parkedDeniedViewReplaysCancelToSecondObserver() async throws {
+        let subIDs = ValueCollector<String>()
+        let (_, client, db, _) = try await makeConnectedDatabase(name: "parked-denial-\(UUID().uuidString)") { frame, ch in
+            if frame["type"]?.stringValue == "worker-sub",
+               let subId = frame["subId"]?.stringValue {
+                subIDs.append(subId)
+                let mode = frame["sub"]?["actAs"]?["mode"]?.stringValue
+                if mode == "anon" {
+                    ch.sendFromServer([
+                        "type": "worker-snap",
+                        "subId": subId,
+                        "value": [
+                            "__error": ["code": "PERMISSION_DENIED", "message": "denied"]
+                        ],
+                    ])
+                } else {
+                    ch.sendFromServer([
+                        "type": "worker-snap",
+                        "subId": subId,
+                        "value": ["key": "doc", "exists": true, "value": "unlocked"],
+                    ])
+                }
+            }
+        }
+        let provider = MutableTestAuthProvider()
+        db.credentialProvider = provider
+        let ref = db.reference(withPath: "private/doc")
+        let cancels1 = ValueCollector<String>()
+        let vals1 = ValueCollector<String>()
+        let h1 = ref.observe(.value, with: { snap in
+            if let s = snap.value as? String { vals1.append(s) }
+        }, withCancel: { err in
+            cancels1.append(err.localizedDescription)
+        })
+        for _ in 0..<50 where cancels1.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(cancels1.values.count == 1)
+
+        // Second observer joining under the same denied lens receives cached cancel immediately.
+        let cancels2 = ValueCollector<String>()
+        let vals2 = ValueCollector<String>()
+        let h2 = ref.observe(.value, with: { snap in
+            if let s = snap.value as? String { vals2.append(s) }
+        }, withCancel: { err in
+            cancels2.append(err.localizedDescription)
+        })
+        for _ in 0..<50 where cancels2.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(cancels2.values.count == 1)
+        #expect(vals2.values.isEmpty)
+
+        // Switching to alice recovers both observers.
+        provider.setLens(.asUser(uid: "alice"))
+        for _ in 0..<50 where vals1.values.isEmpty || vals2.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(vals1.values == ["unlocked"])
+        #expect(vals2.values == ["unlocked"])
+
+        ref.removeObserver(withHandle: h2)
+        ref.removeObserver(withHandle: h1)
+        await client.disconnect()
+    }
+
+    @Test("goOffline and goOnline with active .info/connected observer do not deadlock on stateLock")
+    func infoConnectedGoOfflineOnlineNoDeadlock() async throws {
+        let (_, client, db, _) = try await makeConnectedDatabase(name: "info-deadlock-\(UUID().uuidString)") { _, _ in }
+        let states = ValueCollector<Bool>()
+        let handle = db.reference(withPath: ".info/connected").observe(.value) { snap in
+            if let connected = snap.value as? Bool { states.append(connected) }
+        }
+        for _ in 0..<40 where states.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(states.values.last == true)
+        let syncOffline: () -> Void = { db.goOffline() }
+        let syncOnline: () -> Void = { db.goOnline() }
+        syncOffline()
+        for _ in 0..<40 where states.values.last != false {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(states.values.last == false)
+        syncOnline()
+        for _ in 0..<40 where states.values.last != true {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(states.values.last == true)
+        db.reference(withPath: ".info/connected").removeObserver(withHandle: handle)
+        await client.disconnect()
+    }
+}

@@ -202,6 +202,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
         firstReadTurn: OperationTurn,
         localEvents: Bool
     ) async throws -> (committed: Bool, snapshot: DataSnapshot) {
+        let txLens = database.currentAuthLens()
         var attempts = 0
         let maxRetries = 25
 
@@ -210,7 +211,8 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             let isFirstAttempt = attempts == 1
             let currentSnap = try await getData(
                 turn: isFirstAttempt ? firstReadTurn : database.takeTurn(),
-                forTransaction: true
+                forTransaction: true,
+                actAs: txLens
             )
             let mutable = MutableData(
                 key: currentSnap.key,
@@ -223,10 +225,9 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
                 return (committed: false, snapshot: currentSnap)
             }
 
-            let newValue = Self.encodeTransactionPayload(
-                value: txResult.mutableData?.value,
-                priority: txResult.mutableData?.priority
-            )
+            let newValue = txResult.mutableData?.encodeWireValue(
+                priorRootPriority: currentSnap.priority
+            ) ?? .null
             let params: [String: AnySendable] = [
                 "path": .string(path),
                 "expected": RtdbValueCodec.toAnySendable(currentSnap.value),
@@ -237,7 +238,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             let res = try await database.bridgeClient.op(
                 method: "rtdb.transactionCommit",
                 params: database.withInstance(params),
-                actAs: database.currentAuthLens()
+                actAs: txLens
             )
 
             let retry = res["retry"]?.boolValue ?? false
@@ -246,39 +247,18 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
             }
 
             let committed = res["committed"]?.boolValue ?? true
-            if let snapWire = res["snapshot"] {
+            if let snapWire = res["snapshot"], snapWire != .null {
                 let finalSnap = DataSnapshot(wire: snapWire, ref: self)
                 return (committed: committed, snapshot: finalSnap)
+            } else if !committed {
+                return (committed: false, snapshot: currentSnap)
             } else {
-                let finalSnap = try await getData()
+                let finalSnap = try await getData(turn: database.takeTurn(), actAs: txLens)
                 return (committed: committed, snapshot: finalSnap)
             }
         }
 
         throw PyricBridgeError.unavailable("Transaction failed after maximum retries (\(maxRetries)).")
-    }
-
-    private static func encodeTransactionPayload(value: Any?, priority: Any?) -> AnySendable {
-        let base = RtdbValueCodec.toAnySendable(value)
-        guard case .null = base else {
-            guard let priority, !(priority is NSNull) else {
-                return base
-            }
-            let encodedPrio = RtdbValueCodec.toAnySendable(priority)
-            if case .null = encodedPrio {
-                return base
-            }
-            if case .dictionary(var dict) = base,
-               dict[".value"] == nil {
-                dict[".priority"] = encodedPrio
-                return .dictionary(dict)
-            }
-            return .dictionary([
-                ".value": base,
-                ".priority": encodedPrio
-            ])
-        }
-        return .null
     }
 
     public func runTransactionBlock(
