@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import dev.pyric.debug.model.FieldDiff
 import dev.pyric.debug.model.FieldDiffKind
 import dev.pyric.debug.model.RulesDenialRecord
+import kotlinx.coroutines.delay
 
 @Composable
 fun DenialDetailCard(
@@ -52,6 +54,13 @@ fun DenialDetailCard(
     val path = ctx.request?.path ?: "unknown/path"
     val citation = ctx.rule?.formattedCitation ?: "unknown"
     val expression = ctx.rule?.expression
+    var citationCopied by remember(citation) { mutableStateOf(false) }
+    LaunchedEffect(citationCopied) {
+        if (citationCopied) {
+            delay(2_000L)
+            citationCopied = false
+        }
+    }
 
     val potentialOwnerUid = ctx.resource?.data?.let {
         (it["ownerId"] ?: it["ownerUid"] ?: it["userId"] ?: it["authorId"] ?: it["uid"]) as? String
@@ -144,6 +153,7 @@ fun DenialDetailCard(
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = PyricDebugColors.MonospaceBackground,
+                        contentColor = PyricDebugColors.MonospaceForeground,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(8.dp)) {
@@ -151,7 +161,7 @@ fun DenialDetailCard(
                                 text = "uid: ${ctx.auth?.uid ?: "<null (anonymous / unauthenticated)>"}",
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = PyricDebugColors.MonospaceForeground
                             )
                             ctx.auth?.tenant?.let {
                                 Text(
@@ -166,7 +176,7 @@ fun DenialDetailCard(
                                     text = "claims: $it",
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = PyricDebugColors.MonospaceForegroundMuted
                                 )
                             }
                         }
@@ -184,7 +194,7 @@ fun DenialDetailCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         for (reason in ctx.reasons) {
                             Text(
-                                text = "• $reason",
+                                text = "- $reason",
                                 fontSize = 11.sp,
                                 color = PyricDebugColors.ErrorRed,
                                 modifier = Modifier.padding(vertical = 1.dp)
@@ -192,8 +202,87 @@ fun DenialDetailCard(
                         }
                     }
 
-                    // Data Diff
+                    // Static Query Proof
+                    ctx.queryProof?.let { proof ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Query Proof:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = PyricDebugColors.MonospaceBackground,
+                            contentColor = PyricDebugColors.MonospaceForeground,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                val summary = listOfNotNull(
+                                    proof.verdict?.let { "verdict: $it" },
+                                    proof.kind?.let { "kind: $it" }
+                                ).joinToString(" | ")
+                                if (summary.isNotEmpty()) {
+                                    Text(
+                                        text = summary,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = PyricDebugColors.WarningAmber
+                                    )
+                                }
+                                proof.reason?.let {
+                                    Text(
+                                        text = it,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = PyricDebugColors.MonospaceForeground
+                                    )
+                                }
+                                for (failure in proof.failures) {
+                                    val loc = failure.rule?.formattedCitation ?: failure.predicate?.formattedCitation
+                                    val prefix = if (loc != null) "[$loc] " else ""
+                                    val line = failure.reason ?: failure.kind ?: continue
+                                    Text(
+                                        text = "- $prefix$line",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = PyricDebugColors.MonospaceForegroundMuted
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Repro command
+                    ctx.repro?.command?.takeIf { it.isNotBlank() }?.let { command ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Repro Command:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = PyricDebugColors.MonospaceBackground,
+                            contentColor = PyricDebugColors.MonospaceForeground,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = command,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = PyricDebugColors.MonospaceForeground,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    }
+
+                    // Data Diff (writes) or Existing Resource snapshot (reads / deletes)
                     val diffs = ctx.computeDataDiff()
+                    val existingData = ctx.resource?.data
                     if (diffs.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
@@ -205,6 +294,32 @@ fun DenialDetailCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         for (diff in diffs) {
                             DiffRow(diff = diff)
+                        }
+                    } else if (!existingData.isNullOrEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Existing Resource:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = PyricDebugColors.MonospaceBackground,
+                            contentColor = PyricDebugColors.MonospaceForeground,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                for (key in existingData.keys.toSortedSet()) {
+                                    Text(
+                                        text = "$key: ${existingData[key] ?: "null"}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = PyricDebugColors.MonospaceForegroundMuted
+                                    )
+                                }
+                            }
                         }
                     }
 
@@ -238,10 +353,16 @@ fun DenialDetailCard(
                         }
 
                         OutlinedButton(
-                            onClick = { onCopyCitation(citation) },
+                            onClick = {
+                                onCopyCitation(citation)
+                                citationCopied = true
+                            },
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Copy Citation", fontSize = 11.sp)
+                            Text(
+                                text = if (citationCopied) "Copied" else "Copy Citation",
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }
@@ -253,10 +374,10 @@ fun DenialDetailCard(
 @Composable
 private fun MethodBadge(method: String) {
     val color = when (method) {
-        "GET", "QUERY" -> PyricDebugColors.UserTeal
+        "GET", "QUERY", "LIST", "READ", "STORAGE" -> PyricDebugColors.UserTeal
         "SET", "CREATE" -> PyricDebugColors.SuccessGreen
-        "UPDATE" -> PyricDebugColors.WarningAmber
-        "DELETE" -> PyricDebugColors.ErrorRed
+        "UPDATE", "WRITE", "UPLOAD" -> PyricDebugColors.WarningAmber
+        "DELETE", "REMOVE" -> PyricDebugColors.ErrorRed
         else -> MaterialTheme.colorScheme.primary
     }
     Text(

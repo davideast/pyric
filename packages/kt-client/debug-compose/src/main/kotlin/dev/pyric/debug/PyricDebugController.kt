@@ -3,6 +3,7 @@ package dev.pyric.debug
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
 import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
 import dev.pyric.bridge.PyricBridgeClient
@@ -85,6 +86,8 @@ class PyricDebugController(
     private val _selectedTab = MutableStateFlow(DebugTab.IDENTITY)
     val selectedTab: StateFlow<DebugTab> = _selectedTab.asStateFlow()
 
+    private val denialListenerRegistration: ListenerRegistration?
+
     init {
         controllerScope.launch {
             auth.authLensFlow.collect { lens ->
@@ -93,8 +96,19 @@ class PyricDebugController(
             }
         }
 
-        firestore?.addRulesDenialListener { exception, contextMap ->
-            recordDenial(exception, contextMap)
+        if (firestore != null) {
+            denialListenerRegistration = firestore.addRulesDenialListener { exception, contextMap ->
+                recordDenial(exception, contextMap)
+            }
+        } else {
+            denialListenerRegistration = null
+            controllerScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                bridgeClient.denialEvents.collect { exception ->
+                    @Suppress("UNCHECKED_CAST")
+                    val contextMap = (exception.denialContext as? Map<String, Any?>) ?: emptyMap()
+                    recordDenial(exception, contextMap)
+                }
+            }
         }
 
         refreshUsers()
@@ -124,6 +138,7 @@ class PyricDebugController(
     }
 
     fun close() {
+        denialListenerRegistration?.remove()
         controllerJob.cancel()
     }
 
@@ -131,18 +146,42 @@ class PyricDebugController(
         _userSearchQuery.value = query
     }
 
+    private fun buildHydratedToken(
+        user: SandboxUser?,
+        explicitClaims: Map<String, Any?> = emptyMap()
+    ): Map<String, Any?>? {
+        val merged = LinkedHashMap<String, Any?>()
+        if (user != null) {
+            merged.putAll(user.customClaims)
+            val email = user.email?.takeIf { it.isNotBlank() }
+            if (email != null) {
+                merged.putIfAbsent("email", email)
+                merged.putIfAbsent("email_verified", user.emailVerified)
+            }
+            val displayName = user.displayName?.takeIf { it.isNotBlank() }
+            if (displayName != null) {
+                merged.putIfAbsent("name", displayName)
+            }
+        }
+        merged.putAll(explicitClaims)
+        return merged.takeIf { it.isNotEmpty() }
+    }
+
     fun impersonateUser(user: SandboxUser) {
-        val claims = user.customClaims.takeIf { it.isNotEmpty() }
+        val claims = buildHydratedToken(user)
         val tenant = user.tenantId ?: auth.tenantId
         auth.setAuthLens(AuthLens.AsUser(uid = user.uid, token = claims, tenant = tenant))
     }
 
     fun impersonateUid(uid: String, claims: Map<String, Any?> = emptyMap(), tenant: String? = null) {
+        val knownUser = _users.value.firstOrNull { it.uid == uid }
+        val resolvedClaims = buildHydratedToken(knownUser, claims)
+        val resolvedTenant = tenant ?: knownUser?.tenantId ?: auth.tenantId
         auth.setAuthLens(
             AuthLens.AsUser(
                 uid = uid,
-                token = claims.takeIf { it.isNotEmpty() },
-                tenant = tenant ?: auth.tenantId
+                token = resolvedClaims,
+                tenant = resolvedTenant
             )
         )
     }
@@ -164,7 +203,11 @@ class PyricDebugController(
     }
 
     fun recordDenial(exception: FirebaseFirestoreException, contextMap: Map<String, Any?>) {
-        val parsedContext = RulesDenialContext.fromMap(contextMap)
+        val parsedContext = RulesDenialContext.fromException(
+            exception = exception,
+            contextMap = contextMap,
+            activeLens = _activeLens.value
+        )
         val record = RulesDenialRecord(
             exception = exception,
             context = parsedContext,

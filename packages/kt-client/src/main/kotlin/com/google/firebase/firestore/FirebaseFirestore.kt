@@ -107,8 +107,16 @@ class FirebaseFirestore(
         }
     }
 
+    private fun isRulesDenial(exception: FirebaseFirestoreException): Boolean {
+        if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) return true
+        if (exception.denialContext != null) return true
+        val wire = exception.wireCode
+        return wire.equals("storage/unauthorized", ignoreCase = true) ||
+            wire.equals("unauthorized", ignoreCase = true)
+    }
+
     fun notifyRulesDenial(exception: FirebaseFirestoreException) {
-        if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+        if (isRulesDenial(exception)) {
             @Suppress("UNCHECKED_CAST")
             val contextMap = (exception.denialContext as? Map<String, Any?>) ?: emptyMap()
             for (entry in rulesDenialListeners) {

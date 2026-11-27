@@ -27,6 +27,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -362,5 +363,63 @@ class PyricDebugControllerTest {
             delayedClient.bridgeClient.terminate()
             delayedClient.close()
         }
+    }
+
+    @Test
+    fun testImpersonateUidHydratesKnownUserEmailClaimsAndTenant() = runTest(testDispatcher) {
+        controller.refreshUsers().join()
+        advanceUntilIdle()
+
+        controller.impersonateUid("alice-1")
+        advanceUntilIdle()
+
+        val aliceLens = controller.activeLens.value as AuthLens.AsUser
+        assertEquals("alice-1", aliceLens.uid)
+        assertEquals("corp", aliceLens.tenant)
+        assertEquals("alice@example.com", aliceLens.token?.get("email"))
+        assertEquals(false, aliceLens.token?.get("email_verified"))
+        assertEquals("Alice Admin", aliceLens.token?.get("name"))
+        assertEquals("admin", aliceLens.token?.get("role"))
+
+        // Explicit claims override hydrated claims while keeping email.
+        controller.impersonateUid("bob-2", claims = mapOf("role" to "owner"))
+        advanceUntilIdle()
+
+        val bobLens = controller.activeLens.value as AuthLens.AsUser
+        assertEquals("bob-2", bobLens.uid)
+        assertEquals("bob@example.com", bobLens.token?.get("email"))
+        assertEquals("owner", bobLens.token?.get("role"))
+
+        // Unknown UID without explicit claims keeps token null.
+        controller.impersonateUid("unknown-999")
+        advanceUntilIdle()
+
+        val unknownLens = controller.activeLens.value as AuthLens.AsUser
+        assertEquals("unknown-999", unknownLens.uid)
+        assertNull(unknownLens.token)
+    }
+
+    @Test
+    fun testStorageUnauthorizedDenialReachesControllerEndToEnd() = runTest(testDispatcher) {
+        bridgeClient.connect()
+        advanceUntilIdle()
+
+        val storageEx = FirebaseFirestoreException(
+            "storage/unauthorized: Get \"audio/alice/narr-1.wav\" denied by rules.",
+            FirebaseFirestoreException.Code.UNKNOWN,
+            denialContext = null,
+            wireCode = "storage/unauthorized"
+        )
+        firestore.notifyRulesDenial(storageEx)
+        advanceUntilIdle()
+
+        assertEquals(1, controller.denials.value.size)
+        assertEquals(1, controller.unviewedDenialsCount.value)
+        val record = controller.denials.value[0]
+        assertTrue(record.context.isStorage)
+        assertEquals("storage.rules", record.context.rule?.formattedCitation)
+        assertEquals("get", record.context.request?.method)
+        assertEquals("audio/alice/narr-1.wav", record.context.request?.path)
+        assertEquals("storage/unauthorized", record.context.errorCode)
     }
 }

@@ -1,5 +1,8 @@
 package dev.pyric.debug.model
 
+import com.google.firebase.firestore.FirebaseFirestoreException
+import dev.pyric.auth.AuthLens
+
 data class RuleCitation(
     val file: String? = null,
     val line: Int? = null,
@@ -140,6 +143,84 @@ data class DeniedQuery(
     }
 }
 
+data class QueryProofFailure(
+    val kind: String? = null,
+    val reason: String? = null,
+    val residual: Map<String, Any?>? = null,
+    val predicate: RuleCitation? = null,
+    val rule: RuleCitation? = null,
+    val raw: Map<String, Any?> = emptyMap()
+) {
+    companion object {
+        fun fromMap(map: Map<String, Any?>?): QueryProofFailure? {
+            if (map == null) return null
+            @Suppress("UNCHECKED_CAST")
+            val residual = map["residual"] as? Map<String, Any?>
+            return QueryProofFailure(
+                kind = map["kind"] as? String,
+                reason = map["reason"] as? String,
+                residual = residual,
+                predicate = RuleCitation.parse(map["predicate"]),
+                rule = RuleCitation.parse(map["rule"]),
+                raw = map
+            )
+        }
+    }
+}
+
+data class QueryProof(
+    val kind: String? = null,
+    val verdict: String? = null,
+    val provable: Boolean? = null,
+    val reason: String? = null,
+    val remediation: String? = null,
+    val rule: RuleCitation? = null,
+    val failures: List<QueryProofFailure> = emptyList(),
+    val query: Any? = null,
+    val raw: Map<String, Any?> = emptyMap()
+) {
+    companion object {
+        fun fromMap(map: Map<String, Any?>?): QueryProof? {
+            if (map == null) return null
+            val rawFailures = map["failures"] as? List<*>
+            val failures = rawFailures?.mapNotNull { entry ->
+                @Suppress("UNCHECKED_CAST")
+                QueryProofFailure.fromMap(entry as? Map<String, Any?>)
+            } ?: emptyList()
+            return QueryProof(
+                kind = map["kind"] as? String,
+                verdict = map["verdict"] as? String,
+                provable = map["provable"] as? Boolean,
+                reason = map["reason"] as? String,
+                remediation = map["remediation"] as? String,
+                rule = RuleCitation.parse(map["rule"]),
+                failures = failures,
+                query = map["query"],
+                raw = map
+            )
+        }
+    }
+}
+
+data class QueryRepro(
+    val command: String? = null,
+    val testCase: Map<String, Any?>? = null,
+    val raw: Map<String, Any?> = emptyMap()
+) {
+    companion object {
+        fun fromMap(map: Map<String, Any?>?): QueryRepro? {
+            if (map == null) return null
+            @Suppress("UNCHECKED_CAST")
+            val testCase = map["testCase"] as? Map<String, Any?>
+            return QueryRepro(
+                command = map["command"] as? String,
+                testCase = testCase,
+                raw = map
+            )
+        }
+    }
+}
+
 enum class FieldDiffKind {
     ADDED,
     MODIFIED,
@@ -155,9 +236,10 @@ data class FieldDiff(
 
 /**
  * A Security Rules denial frame. [engine] names the rules engine: "firestore"
- * (the default when a frame names none) or "rtdb". An RTDB frame carries the
- * deciding rules node ([matchedPath]), its expression ([matchedRule]) and the
- * `$` wildcard bindings in place of a line citation; [rule] is derived from them.
+ * (the default when a frame names none), "rtdb", or "storage". An RTDB frame
+ * carries the deciding rules node ([matchedPath]), its expression
+ * ([matchedRule]) and the `$` wildcard bindings in place of a line citation;
+ * [rule] is derived from them.
  */
 data class RulesDenialContext(
     val rule: RuleCitation? = null,
@@ -172,14 +254,22 @@ data class RulesDenialContext(
     val matchedRule: String? = null,
     val pathVariableBindings: Map<String, String>? = null,
     val reason: String? = null,
-    val errorCode: String? = null
+    val errorCode: String? = null,
+    val queryProof: QueryProof? = null,
+    val repro: QueryRepro? = null,
+    val remediation: String? = null
 ) {
     val isRtdb: Boolean
         get() = engine == "rtdb"
 
+    val isStorage: Boolean
+        get() = engine == "storage"
+
     fun computeDataDiff(): List<FieldDiff> {
+        val method = request?.method?.lowercase()
+        if (method in NON_WRITE_DIFF_METHODS) return emptyList()
+        val newData = request?.resourceData ?: return emptyList()
         val oldData = resource?.data ?: emptyMap()
-        val newData = request?.resourceData ?: emptyMap()
         val diffs = mutableListOf<FieldDiff>()
 
         val allKeys = (oldData.keys + newData.keys).toSortedSet()
@@ -202,6 +292,12 @@ data class RulesDenialContext(
 
     companion object {
         private const val RTDB_RULES_FILE = "database.rules.json"
+        private const val STORAGE_RULES_FILE = "storage.rules"
+        private val NON_WRITE_DIFF_METHODS = setOf("get", "list", "listen", "query", "delete", "remove")
+        private val STORAGE_MSG_PATTERN = Regex(
+            """^(?:storage/unauthorized:\s*)?([A-Za-z]+)\s+"([^"]+)"(?:\s+in\s+bucket\s+"([^"]+)")?""",
+            RegexOption.IGNORE_CASE
+        )
 
         fun fromMap(map: Map<String, Any?>): RulesDenialContext {
             val engine = map["engine"] as? String ?: "firestore"
@@ -231,6 +327,10 @@ data class RulesDenialContext(
             val resource = DeniedResource.fromMap(map["resource"] as? Map<String, Any?>)
             @Suppress("UNCHECKED_CAST")
             val query = DeniedQuery.fromMap(map["query"] as? Map<String, Any?>)
+            @Suppress("UNCHECKED_CAST")
+            val queryProof = QueryProof.fromMap(map["queryProof"] as? Map<String, Any?>)
+            @Suppress("UNCHECKED_CAST")
+            val repro = QueryRepro.fromMap(map["repro"] as? Map<String, Any?>)
 
             return RulesDenialContext(
                 rule = rule,
@@ -245,7 +345,59 @@ data class RulesDenialContext(
                 matchedRule = matchedRule,
                 pathVariableBindings = pathVariableBindings,
                 reason = map["reason"] as? String,
-                errorCode = map["errorCode"] as? String
+                errorCode = map["errorCode"] as? String,
+                queryProof = queryProof,
+                repro = repro,
+                remediation = map["remediation"] as? String
+            )
+        }
+
+        fun fromException(
+            exception: FirebaseFirestoreException,
+            contextMap: Map<String, Any?> = emptyMap(),
+            activeLens: AuthLens? = null
+        ): RulesDenialContext {
+            if (contextMap.isNotEmpty()) {
+                return fromMap(contextMap)
+            }
+            val rawMessage = exception.message?.trim().orEmpty()
+            val wireCode = exception.wireCode
+            val isStorageDenial =
+                wireCode.equals("storage/unauthorized", ignoreCase = true) ||
+                    wireCode.equals("unauthorized", ignoreCase = true) ||
+                    rawMessage.startsWith("storage/unauthorized", ignoreCase = true)
+            val fallbackAuth = when (activeLens) {
+                is AuthLens.AsUser -> EvaluatedAuth(
+                    uid = activeLens.uid,
+                    token = activeLens.token,
+                    tenant = activeLens.tenant
+                )
+                is AuthLens.Anon -> EvaluatedAuth(uid = null)
+                else -> null
+            }
+            if (!isStorageDenial) {
+                return RulesDenialContext(
+                    auth = fallbackAuth,
+                    reasons = if (rawMessage.isNotEmpty()) listOf(rawMessage) else emptyList(),
+                    errorCode = wireCode
+                )
+            }
+            val match = STORAGE_MSG_PATTERN.find(rawMessage)
+            val method = match?.groupValues?.get(1)?.lowercase() ?: "storage"
+            val path = match?.groupValues?.get(2)?.takeIf { it.isNotBlank() }
+            val cleanReason = rawMessage
+                .removePrefix("storage/unauthorized:")
+                .removePrefix("STORAGE/UNAUTHORIZED:")
+                .trim()
+                .ifEmpty { "Storage operation denied by security rules." }
+            return RulesDenialContext(
+                rule = RuleCitation(file = STORAGE_RULES_FILE, citation = STORAGE_RULES_FILE),
+                auth = fallbackAuth,
+                reasons = listOf(cleanReason),
+                request = DeniedRequest(method = method, path = path),
+                engine = "storage",
+                reason = cleanReason,
+                errorCode = wireCode ?: "storage/unauthorized"
             )
         }
     }

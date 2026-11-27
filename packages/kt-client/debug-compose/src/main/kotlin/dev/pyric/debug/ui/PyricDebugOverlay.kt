@@ -38,7 +38,8 @@ import kotlin.math.roundToInt
 @Composable
 fun PyricDebugOverlay(
     controller: PyricDebugController,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCopyCitation: ((String) -> Unit)? = null
 ) {
     val activeLens by controller.activeLens.collectAsState()
     val unviewedCount by controller.unviewedDenialsCount.collectAsState()
@@ -126,7 +127,8 @@ fun PyricDebugOverlay(
             if (isSheetVisible) {
                 PyricDebugBottomSheet(
                     controller = controller,
-                    onDismissRequest = { controller.setSheetVisible(false) }
+                    onDismissRequest = { controller.setSheetVisible(false) },
+                    onCopyCitation = onCopyCitation
                 )
             }
         }

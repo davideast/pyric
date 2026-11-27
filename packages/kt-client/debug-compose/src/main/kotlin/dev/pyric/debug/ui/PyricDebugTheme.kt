@@ -21,6 +21,8 @@ object PyricDebugColors {
     val DarkCard = Color(0xFF242832)
     val DarkBackground = Color(0xFF121418)
     val MonospaceBackground = Color(0xFF0E1014)
+    val MonospaceForeground = Color(0xFFF3F4F6)
+    val MonospaceForegroundMuted = Color(0xFFD1D5DB)
 }
 
 private val DarkColorScheme = darkColorScheme(
