@@ -377,6 +377,9 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     );
   }
 
+  /// Whether an explicit debug impersonation lens override is currently active.
+  bool get isImpersonating => _impersonatedLens != null;
+
   /// Switches active auth lens, or clears impersonation if null.
   void switchAuthLens(AuthLens? lens) {
     _impersonatedLens = lens;
@@ -535,6 +538,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       if (_reconciler.tryClaimMutation(seq)) {
         final prevUid = _currentUser?.uid;
         _currentUser = null;
+        _impersonatedLens = null;
         _reconciler.recordLocalTransition(
           prevUid: prevUid,
           nextUid: null,

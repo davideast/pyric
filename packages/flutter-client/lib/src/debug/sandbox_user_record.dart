@@ -20,6 +20,7 @@ class SandboxUserRecord {
   final String? displayName;
   final String? photoURL;
   final String? tenantId;
+  final bool emailVerified;
   final Map<String, dynamic> customClaims;
 
   const SandboxUserRecord({
@@ -28,6 +29,7 @@ class SandboxUserRecord {
     this.displayName,
     this.photoURL,
     this.tenantId,
+    this.emailVerified = false,
     this.customClaims = const {},
   });
 
@@ -38,6 +40,8 @@ class SandboxUserRecord {
     final displayName = _asString(map['displayName']);
     final photoURL = _asString(map['photoURL']);
     final tenantId = _asString(map['tenantId']) ?? _asString(map['tenant']);
+    final emailVerified =
+        (map['emailVerified'] ?? map['email_verified']) == true;
     final claims = _asStringMap(map['customClaims']) ??
         _asStringMap(map['claims']) ??
         <String, dynamic>{};
@@ -48,6 +52,7 @@ class SandboxUserRecord {
       displayName: displayName,
       photoURL: photoURL,
       tenantId: tenantId,
+      emailVerified: emailVerified,
       customClaims: claims,
     );
   }
@@ -59,7 +64,9 @@ class SandboxUserRecord {
         other.uid == uid &&
         other.email == email &&
         other.displayName == displayName &&
+        other.photoURL == photoURL &&
         other.tenantId == tenantId &&
+        other.emailVerified == emailVerified &&
         const MapEquality().equals(other.customClaims, customClaims);
   }
 
@@ -68,7 +75,9 @@ class SandboxUserRecord {
         uid,
         email,
         displayName,
+        photoURL,
         tenantId,
+        emailVerified,
         const MapEquality().hash(customClaims),
       );
 }

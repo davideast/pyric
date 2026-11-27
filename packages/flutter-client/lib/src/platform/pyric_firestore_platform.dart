@@ -34,6 +34,8 @@ class PyricFirestorePlatform extends FirebaseFirestorePlatform {
     lifecycle = PyricFirestoreLifecycle(
       resolveAppName: () => this.app.name,
       resolveDatabaseId: () => this.databaseId,
+      resolveAuthScope: () =>
+          PyricFirestoreLifecycle.authScopeForLens(effectiveLens),
     );
   }
 

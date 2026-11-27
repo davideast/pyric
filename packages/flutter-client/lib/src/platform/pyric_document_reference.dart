@@ -8,6 +8,7 @@ import '../transport/query_compiler.dart';
 import 'mutation_serialization.dart';
 import 'pyric_collection_reference.dart';
 import 'pyric_document_snapshot.dart';
+import 'pyric_firestore_lifecycle.dart';
 import 'pyric_firestore_platform.dart';
 import 'pyric_offline_projection.dart';
 import 'pyric_query_snapshot.dart';
@@ -81,8 +82,10 @@ class PyricDocumentReference extends DocumentReferencePlatform {
       );
     }
 
-    final res = await _client.getDoc(path, actAs: f.effectiveAuthLens);
-    f.lifecycle.recordOnlineDoc(path, res);
+    final lens = f.effectiveLens;
+    final scope = PyricFirestoreLifecycle.authScopeForLens(lens);
+    final res = await _client.getDoc(path, actAs: lens.toMap());
+    f.lifecycle.recordOnlineDoc(path, res, authScope: scope);
     return PyricDocumentSnapshot.fromWire(firestore, path, res);
   }
 

@@ -107,6 +107,9 @@ class PyricDebugController extends ChangeNotifier {
   /// Whether Admin Bypass mode is currently enabled.
   bool get isAdminBypass => _currentLens == AuthLens.admin;
 
+  /// Whether an explicit debug impersonation lens override is currently active.
+  bool get isImpersonating => _authPlatform.isImpersonating;
+
   /// Recorded Security Rules evaluation rejections.
   List<RulesDenialReport> get denials => List.unmodifiable(_denials);
 
@@ -196,9 +199,13 @@ class PyricDebugController extends ChangeNotifier {
     final hydrated = <String, dynamic>{...user.customClaims};
     if (user.email != null && user.email!.isNotEmpty) {
       hydrated.putIfAbsent('email', () => user.email);
+      hydrated.putIfAbsent('email_verified', () => user.emailVerified);
     }
     if (user.displayName != null && user.displayName!.isNotEmpty) {
       hydrated.putIfAbsent('name', () => user.displayName);
+    }
+    if (user.photoURL != null && user.photoURL!.isNotEmpty) {
+      hydrated.putIfAbsent('picture', () => user.photoURL);
     }
     _authPlatform.switchAuthLens(
       AuthLens.asUser(
@@ -207,6 +214,11 @@ class PyricDebugController extends ChangeNotifier {
         token: hydrated.isNotEmpty ? hydrated : null,
       ),
     );
+  }
+
+  /// Clears any active debug impersonation override, returning to app auth state.
+  void resetToAppAuth() {
+    _authPlatform.switchAuthLens(null);
   }
 
   /// Toggles Admin Bypass mode.

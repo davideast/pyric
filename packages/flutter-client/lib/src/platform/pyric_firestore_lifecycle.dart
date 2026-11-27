@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../auth/auth_lens.dart';
 import '../transport/exceptions.dart';
 import 'pyric_offline_projection.dart';
 import 'pyric_offline_query_evaluator.dart';
@@ -29,6 +30,7 @@ class ManagedFirestoreListener {
 class _StagedOfflineWrite {
   final int stageId;
   final int writeId;
+  final String authScope;
   final List<OfflineFirestoreMutation> mutations;
   final Future<dynamic> Function() sendOnline;
   final Completer<void> writeCompletion;
@@ -36,23 +38,38 @@ class _StagedOfflineWrite {
   const _StagedOfflineWrite({
     required this.stageId,
     required this.writeId,
+    required this.authScope,
     required this.mutations,
     required this.sendOnline,
     required this.writeCompletion,
   });
 }
 
+class _StagedBatchEntry {
+  final String authScope;
+  final List<OfflineFirestoreMutation> mutations;
+
+  const _StagedBatchEntry({
+    required this.authScope,
+    required this.mutations,
+  });
+}
+
 class _FirestorePersistenceStore {
   static final Map<String, Map<String, CachedFirestoreDoc>> _byNamespace = {};
 
-  static String _key(String appName, String databaseId) =>
-      '$appName::$databaseId';
+  static String _prefix(String appName, String databaseId) =>
+      '$appName::$databaseId::';
+
+  static String _key(String appName, String databaseId, String authScope) =>
+      '${_prefix(appName, databaseId)}$authScope';
 
   static Map<String, CachedFirestoreDoc> snapshot(
     String appName,
     String databaseId,
+    String authScope,
   ) {
-    final map = _byNamespace[_key(appName, databaseId)];
+    final map = _byNamespace[_key(appName, databaseId, authScope)];
     if (map == null) return <String, CachedFirestoreDoc>{};
     return Map<String, CachedFirestoreDoc>.from(map);
   }
@@ -60,12 +77,13 @@ class _FirestorePersistenceStore {
   static void recordDoc(
     String appName,
     String databaseId,
+    String authScope,
     String path, {
     required bool exists,
     required Map<String, dynamic>? encodedFields,
   }) {
     final store = _byNamespace.putIfAbsent(
-      _key(appName, databaseId),
+      _key(appName, databaseId, authScope),
       () => <String, CachedFirestoreDoc>{},
     );
     store[path] = CachedFirestoreDoc(
@@ -74,22 +92,29 @@ class _FirestorePersistenceStore {
     );
   }
 
-  static void removeDoc(String appName, String databaseId, String path) {
+  static void removeDoc(
+    String appName,
+    String databaseId,
+    String authScope,
+    String path,
+  ) {
     final store = _byNamespace.putIfAbsent(
-      _key(appName, databaseId),
+      _key(appName, databaseId, authScope),
       () => <String, CachedFirestoreDoc>{},
     );
     store[path] = const CachedFirestoreDoc(exists: false, encodedFields: null);
   }
 
   static void clear(String appName, String databaseId) {
-    _byNamespace.remove(_key(appName, databaseId));
+    final prefix = _prefix(appName, databaseId);
+    _byNamespace.removeWhere((key, _) => key.startsWith(prefix));
   }
 }
 
 class PyricFirestoreLifecycle {
   final String Function() _resolveAppName;
   final String Function() _resolveDatabaseId;
+  final String Function() _resolveAuthScope;
 
   bool _started = false;
   bool _terminated = false;
@@ -98,7 +123,7 @@ class PyricFirestoreLifecycle {
 
   final Map<int, Completer<void>> _pendingWriteSettlements = {};
   final List<_StagedOfflineWrite> _queuedOfflineWrites = [];
-  final Map<int, List<OfflineFirestoreMutation>> _stagedBatches = {};
+  final Map<int, _StagedBatchEntry> _stagedBatches = {};
   final Map<int, ManagedFirestoreListener> _managedListeners = {};
   final Set<StreamController<void>> _syncControllers = {};
 
@@ -108,8 +133,25 @@ class PyricFirestoreLifecycle {
   PyricFirestoreLifecycle({
     required String Function() resolveAppName,
     required String Function() resolveDatabaseId,
+    String Function()? resolveAuthScope,
   })  : _resolveAppName = resolveAppName,
-        _resolveDatabaseId = resolveDatabaseId;
+        _resolveDatabaseId = resolveDatabaseId,
+        _resolveAuthScope = resolveAuthScope ?? (() => 'anon');
+
+  /// Canonical persistence partition key for [lens] so cached documents never
+  /// leak across signed-in users, tenants, or debug lenses.
+  static String authScopeForLens(AuthLens lens) {
+    switch (lens.mode) {
+      case 'as':
+        return 'as:${lens.uid ?? ''}:${lens.tenant ?? ''}';
+      case 'admin':
+        return 'admin';
+      case 'app-session':
+        return 'app-session';
+      default:
+        return 'anon';
+    }
+  }
 
   String get _appName {
     try {
@@ -120,6 +162,17 @@ class PyricFirestoreLifecycle {
   }
 
   String get _databaseId => _resolveDatabaseId();
+
+  String get _authScope => _resolveAuthScope();
+
+  List<List<OfflineFirestoreMutation>> _stagedMutationsForScope(
+    String authScope,
+  ) {
+    return _stagedBatches.values
+        .where((entry) => entry.authScope == authScope)
+        .map((entry) => entry.mutations)
+        .toList();
+  }
 
   bool get isNetworkEnabled => _networkEnabled;
   bool get isTerminated => _terminated;
@@ -140,8 +193,10 @@ class PyricFirestoreLifecycle {
   Future<void> executeWrite({
     required List<OfflineFirestoreMutation> mutations,
     required Future<dynamic> Function() sendOnline,
+    String? authScope,
   }) {
     ensureActiveAndMarkStarted();
+    final scope = authScope ?? _authScope;
     final writeId = _nextId++;
     final settlement = Completer<void>();
     _pendingWriteSettlements[writeId] = settlement;
@@ -150,7 +205,7 @@ class PyricFirestoreLifecycle {
       final onlineFuture = sendOnline();
       return onlineFuture.then<void>(
         (_) {
-          applyCommittedMutations(mutations);
+          applyCommittedMutations(mutations, authScope: scope);
           _settleWrite(writeId);
         },
         onError: (Object err, StackTrace st) {
@@ -162,11 +217,15 @@ class PyricFirestoreLifecycle {
 
     final stageId = _nextId++;
     final writeCompletion = Completer<void>();
-    _stagedBatches[stageId] = mutations;
+    _stagedBatches[stageId] = _StagedBatchEntry(
+      authScope: scope,
+      mutations: mutations,
+    );
     _queuedOfflineWrites.add(
       _StagedOfflineWrite(
         stageId: stageId,
         writeId: writeId,
+        authScope: scope,
         mutations: mutations,
         sendOnline: sendOnline,
         writeCompletion: writeCompletion,
@@ -246,7 +305,7 @@ class PyricFirestoreLifecycle {
     for (final entry in pending) {
       try {
         await entry.sendOnline();
-        applyCommittedMutations(entry.mutations);
+        applyCommittedMutations(entry.mutations, authScope: entry.authScope);
         _stagedBatches.remove(entry.stageId);
         if (!entry.writeCompletion.isCompleted) {
           entry.writeCompletion.complete();
@@ -385,11 +444,13 @@ class PyricFirestoreLifecycle {
     }
   }
 
-  void recordOnlineDoc(String path, dynamic wire) {
+  void recordOnlineDoc(String path, dynamic wire, {String? authScope}) {
+    final scope = authScope ?? _authScope;
     if (wire is Map && wire.containsKey('exists') && wire['exists'] != true) {
       _FirestorePersistenceStore.recordDoc(
         _appName,
         _databaseId,
+        scope,
         path,
         exists: false,
         encodedFields: null,
@@ -401,6 +462,7 @@ class PyricFirestoreLifecycle {
       _FirestorePersistenceStore.recordDoc(
         _appName,
         _databaseId,
+        scope,
         path,
         exists: false,
         encodedFields: null,
@@ -410,27 +472,31 @@ class PyricFirestoreLifecycle {
     _FirestorePersistenceStore.recordDoc(
       _appName,
       _databaseId,
+      scope,
       path,
       exists: true,
       encodedFields: fields,
     );
   }
 
-  void recordOnlineQuery(dynamic wire) {
+  void recordOnlineQuery(dynamic wire, {String? authScope}) {
+    final scope = authScope ?? _authScope;
     if (wire is! Map || wire['docs'] is! List) return;
     for (final item in wire['docs'] as List) {
       if (item is Map && item['path'] is String) {
-        recordOnlineDoc(item['path'] as String, item);
+        recordOnlineDoc(item['path'] as String, item, authScope: scope);
       }
     }
   }
 
-  ProjectedFirestoreDoc readCachedDocument(String path) {
-    final baseDocs = _FirestorePersistenceStore.snapshot(_appName, _databaseId);
+  ProjectedFirestoreDoc readCachedDocument(String path, {String? authScope}) {
+    final scope = authScope ?? _authScope;
+    final baseDocs =
+        _FirestorePersistenceStore.snapshot(_appName, _databaseId, scope);
     final projected = FirestoreOfflineProjection.projectDocument(
       path: path,
       baseRecord: baseDocs[path],
-      stagedBatches: _stagedBatches.values.toList(),
+      stagedBatches: _stagedMutationsForScope(scope),
     );
     if (!projected.known) {
       throw const PyricBridgeException(
@@ -441,36 +507,51 @@ class PyricFirestoreLifecycle {
     return projected;
   }
 
-  ProjectedFirestoreDoc projectOfflineDocument(String path) {
-    final baseDocs = _FirestorePersistenceStore.snapshot(_appName, _databaseId);
+  ProjectedFirestoreDoc projectOfflineDocument(
+    String path, {
+    String? authScope,
+  }) {
+    final scope = authScope ?? _authScope;
+    final baseDocs =
+        _FirestorePersistenceStore.snapshot(_appName, _databaseId, scope);
     return FirestoreOfflineProjection.projectDocument(
       path: path,
       baseRecord: baseDocs[path],
-      stagedBatches: _stagedBatches.values.toList(),
+      stagedBatches: _stagedMutationsForScope(scope),
     );
   }
 
-  Map<String, dynamic> projectOfflineQuery(Map<String, dynamic> target) {
-    final baseDocs = _FirestorePersistenceStore.snapshot(_appName, _databaseId);
+  Map<String, dynamic> projectOfflineQuery(
+    Map<String, dynamic> target, {
+    String? authScope,
+  }) {
+    final scope = authScope ?? _authScope;
+    final baseDocs =
+        _FirestorePersistenceStore.snapshot(_appName, _databaseId, scope);
     return FirestoreOfflineQueryEvaluator.projectQuery(
       target: target,
       baseDocs: baseDocs,
-      stagedBatches: _stagedBatches.values.toList(),
+      stagedBatches: _stagedMutationsForScope(scope),
     );
   }
 
-  void applyCommittedMutations(List<OfflineFirestoreMutation> mutations) {
+  void applyCommittedMutations(
+    List<OfflineFirestoreMutation> mutations, {
+    String? authScope,
+  }) {
+    final scope = authScope ?? _authScope;
     for (final mutation in mutations) {
       if (mutation.kind == OfflineMutationKind.delete) {
         _FirestorePersistenceStore.removeDoc(
           _appName,
           _databaseId,
+          scope,
           mutation.path,
         );
         continue;
       }
       final baseDocs =
-          _FirestorePersistenceStore.snapshot(_appName, _databaseId);
+          _FirestorePersistenceStore.snapshot(_appName, _databaseId, scope);
       final projected = FirestoreOfflineProjection.projectDocument(
         path: mutation.path,
         baseRecord: baseDocs[mutation.path],
@@ -482,6 +563,7 @@ class PyricFirestoreLifecycle {
         _FirestorePersistenceStore.recordDoc(
           _appName,
           _databaseId,
+          scope,
           mutation.path,
           exists: true,
           encodedFields: projected.encodedFields,

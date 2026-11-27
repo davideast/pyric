@@ -8,6 +8,7 @@ import '../transport/bridge_client.dart';
 import '../transport/query_compiler.dart';
 import 'pyric_aggregate_query.dart';
 import 'pyric_field_value_factory.dart';
+import 'pyric_firestore_lifecycle.dart';
 import 'pyric_firestore_platform.dart';
 import 'pyric_query_snapshot.dart';
 import 'pyric_resubscribing_stream.dart';
@@ -397,11 +398,13 @@ class PyricQuery extends QueryPlatform {
       );
     }
 
+    final lens = f.effectiveLens;
+    final scope = PyricFirestoreLifecycle.authScopeForLens(lens);
     final res = await _client.getDocs(
       target,
-      actAs: f.effectiveAuthLens,
+      actAs: lens.toMap(),
     );
-    f.lifecycle.recordOnlineQuery(res);
+    f.lifecycle.recordOnlineQuery(res, authScope: scope);
     return PyricQuerySnapshot.fromWire(firestore, path, res);
   }
 
