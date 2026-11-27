@@ -58,9 +58,9 @@ await update(ref(db), {
 ```
 Either both paths change or neither does. Queries take one `orderBy`, so multi-field filters want a precomputed composite key (`"lang_level": "en_5"`) rather than a clever query.
 
-## Run your onValueCreated functions locally
+## Run your RTDB triggers locally
 
-Both `pyric sandbox` and the Vite plugin read the `functions` block in `firebase.json` and run your `onValueCreated` triggers in an isolated Node process against the same sandbox your app writes to. The same process serves your HTTP `onRequest` functions, v1 and v2, as [Call your HTTP functions](#call-your-http-functions) describes. No option is required. The block is enough. Other trigger kinds such as callable, scheduled, and Firestore log a warning and are skipped for now.
+Both `pyric sandbox` and the Vite plugin read the `functions` block in `firebase.json` and run your v2 RTDB value triggers (`onValueCreated`, `onValueUpdated`, `onValueDeleted`, and `onValueWritten`) in an isolated Node process against the same sandbox your app writes to. The same process serves HTTP `onRequest`, callable `onCall`, Firestore, Storage, Identity, Pub/Sub, Scheduler, and Tasks triggers. See [Run Cloud Functions locally](./cloud-functions.md) for the full trigger inventory, `.env` loading, and MCP tools. No option is required. The `functions` block is enough.
 
 The plugin's `functions` option tunes or disables this:
 ```ts
@@ -95,7 +95,7 @@ A function that sets an invoker other than `'public'`, such as `invoker: 'privat
 
 Under `pyric sandbox`, functions start once a browser tab connects to the sandbox. With `--hosted` they start with no tab open, as a deployed function does.
 
-Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy: `↻ [pyric] functions reloaded`. In-flight executions in the old process can drop. Writes that land during the swap are treated as existing data by the new process and do not fire. A save that fails to load takes functions down until the next good save. Unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric sandbox`, where editing a function needs a server restart.
+Under the plugin, saving a file in the functions source directory restarts the process, like a redeploy (`[pyric] functions reloaded`). In-flight executions in the old process can drop. Writes that land during the swap are treated as existing data by the new process and do not fire. A save that fails to load takes functions down until the next good save. Unlike rules, there is no last-good process to keep serving. `functions: { watch: false }` turns the reload off, matching `pyric sandbox`, where editing a function needs a server restart.
 
 Running functions also mounts the agent bridge the process uses to reach the sandbox. That changes nothing about how your app runs: the page stays on the multi-tab SharedWorker path, and the bridge relays through it.
 

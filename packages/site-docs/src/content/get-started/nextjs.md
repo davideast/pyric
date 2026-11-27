@@ -38,7 +38,7 @@ export default withPyric(nextConfig);
 
 Each alias names a module `@pyric/cli` exports, such as `firebase/firestore` to `@pyric/cli/next/internal/firestore`, so both bundlers resolve it from your project's dependencies. The aliased specifiers are `firebase/ai`, `firebase/analytics`, `firebase/app`, `firebase/app-check`, `firebase/auth`, `firebase/database`, `firebase/firestore`, `firebase/firestore/lite`, `firebase/functions`, `firebase/messaging`, `firebase/messaging/sw`, `firebase/performance`, `firebase/remote-config` and `firebase/storage`. `@firebase/*` packages are never aliased, so internal SDK plumbing stays untouched.
 
-Unmodeled client subpaths (`firebase/analytics`, `firebase/firestore/lite`, `firebase/functions`, `firebase/performance` and `firebase/remote-config`) go to Pyric's deferred entries. Imports resolve so module graphs load, and calling an export throws `PyricDeferredApiError` naming that subpath instead of crashing inside an uninitialized Firebase container or reaching production services.
+Unmodeled client subpaths (`firebase/analytics`, `firebase/firestore/lite`, `firebase/performance` and `firebase/remote-config`) go to Pyric's deferred entries. Imports resolve so module graphs load, and calling an export throws `PyricDeferredApiError` naming that subpath instead of crashing inside an uninitialized Firebase container or reaching production services. `firebase/functions` routes `httpsCallable` and `httpsCallableFromURL` calls to the local Pyric Functions gateway.
 
 Server components and route handlers keep `firebase` and `firebase-admin` external, so the `@pyric/cli/register` hook that `pyric sandbox` preloads routes them to the sandbox at runtime. `withPyric` also keeps every installed `@firebase/*` package and every npm alias of a Firebase SDK (such as `"admin": "npm:firebase-admin@13"`) external, so the register stops those imports instead of letting the real SDK run. It finds them in the `node_modules` folders above the directory `next dev` runs in, so run `next dev` from your project directory. A package on that list can't also be in `transpilePackages`; `withPyric` names it and refuses to start. Because the Next.js Edge runtime has no Node `module.registerHooks` loader, `withPyric` also refuses to start when routes export `runtime = 'edge'` or middleware omits `runtime: 'nodejs'` (`PYRIC_EDGE_RUNTIME_UNSUPPORTED`); switch those files to the Node.js runtime (`export const runtime = 'nodejs'`, or `export const config = { runtime: 'nodejs' }` in middleware), or set `PYRIC_ALLOW_UNSWAPPED_EDGE=1` if an Edge file never imports Firebase. Under `pyric sandbox --hosted`, `firebase/database`, `firebase/firestore`, `firebase/auth` and `firebase/storage` in server code reach the Node host as the server process's own signed-in user. Against the browser-hosted sandbox they fail with `failed-precondition`; use `firebase-admin` in server code there.
 
@@ -64,15 +64,17 @@ Start the supervised server with `npm run dev`. Pyric boots its sandbox host in 
 
 Why does Next.js run two server processes while Vite runs one? Next.js doesn't expose Express or Connect custom middleware hooks. To preserve native compiling speed without requiring a custom server script, Pyric coordinates two processes:
 
-```
+```text
 Browser (http://localhost:3000)
-  ├── Next.js App & UI     ──> Next Dev Server (Port 3000)
-  ├── Pyric Studio (/ui)   ──> HTTP Rewrite Proxy  ──> Pyric Dev Host (Port 3473)
-  └── SharedWorker Sandbox ──> Direct WebSocket    ──> Pyric Dev Host (Port 3473)
+  +-- Next.js App & UI       --> Next Dev Server (Port 3000)
+  +-- Pyric Studio (/ui)     --> HTTP Rewrite Proxy  --> Pyric Dev Host (Port 3473)
+  +-- Functions & Hosting    --> HTTP Rewrite Proxy  --> Pyric Dev Host (Port 3473)
+  \-- SharedWorker Sandbox   --> Direct WebSocket    --> Pyric Dev Host (Port 3473)
 ```
 
 1. **Single-Origin Browser Access**: Your app and Studio both load from your Next.js application port (`http://localhost:3000`). Next.js HTTP rewrites proxy Pyric (`/__pyric/*`) and Studio (`/__pyric/ui/studio`) through that single port. Because your app and Studio share this exact origin, they share the single browser `SharedWorker` that holds your active Firestore data and IndexedDB persistence.
 2. **Direct WebSocket Synchrony**: Next.js development rewrites proxy standard HTTP traffic but cannot forward WebSockets (`Upgrade: websocket`). To synchronize real-time edits between your open browser tab and server-side Route Handlers, the browser runtime bypasses the rewrite proxy to connect its WebSocket bridge directly to port 3473.
+3. **Local Cloud Functions Gateway & Hosting Rewrites**: When your project declares a built Functions source in `firebase.json` (or sets `functions: true` / `PYRIC_FUNCTIONS_GATEWAY_URL`), `withPyric` proxies `/__pyric/functions/*`, callable emulator paths (`/<projectId>/<region>/<name>`), and `firebase.json` `hosting.rewrites` function targets to the local Pyric Functions HTTP gateway. Specific Hosting rewrites run in `afterFiles` (behind your static files, Next.js routes, and user `afterFiles`), catch-all function rewrites run in `fallback`, and non-loopback public gateway origins are refused. When no Functions gateway is active, `withPyric` falls back safely to `/__pyric/*` rewrites only. See [Run Cloud Functions locally](../build/cloud-functions.md).
 
 ## Server-side Admin SDK queries
 
