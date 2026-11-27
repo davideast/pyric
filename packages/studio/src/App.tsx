@@ -21,6 +21,7 @@ import { AuthSurface } from './features/auth/index.js';
 import { TrafficSurface, resetTrafficSubrouteQuery } from './features/traffic/index.js';
 import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
+import { FunctionsSurface } from './features/functions/index.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 import { AssuranceSurface } from './features/assurance/index.js';
 import { currentListenersDeepLink, type ListenersDeepLink } from './features/listeners/index.js';
@@ -31,7 +32,7 @@ function siteHomeHref(): string {
 
 /**
  * The docs site is static pages composed alongside Studio under the same
- * base (`<base>/docs`), not a Studio surface — so its "tab" is a plain
+ * base (`<base>/docs`), not a Studio surface -- so its "tab" is a plain
  * full-page link. The docs pages render the same site bar, so navigation
  * round-trips.
  */
@@ -65,7 +66,7 @@ function useDocsAvailable(): boolean {
         if (on && res.ok && type.includes('json')) setAvailable(true);
       })
       .catch(() => {
-        // unreachable → no docs; the tab stays hidden
+        // unreachable -> no docs; the tab stays hidden
       });
     return () => {
       on = false;
@@ -86,7 +87,7 @@ function RoutePlaceholder({ id }: { id: string }) {
     meta.push(`events: ${seed.events.length}`);
     meta.push('dev-seed: ready');
   } else if (seed.status === 'pending') {
-    meta.push('dev-seed: seeding…');
+    meta.push('dev-seed: seeding...');
   } else if (seed.status === 'error') {
     meta.push('dev-seed: error');
   } else {
@@ -126,6 +127,8 @@ function Surface({ id }: { id: string }) {
       return <StoragePane />;
     case 'rtdb':
       return <RtdbSurface />;
+    case 'functions':
+      return <FunctionsSurface />;
     case 'traffic':
       return <TrafficSurface />;
     case 'assurance':
@@ -159,9 +162,9 @@ function Shell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;
+  // Global Cmd+K (Ctrl+K non-mac): on Home it focuses the inline command input;
   // elsewhere it toggles the overlay below the bar. preventDefault ONLY when
-  // we actually handled the chord — never fight the browser otherwise.
+  // we actually handled the chord -- never fight the browser otherwise.
   const onHome = active === 'home';
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -182,7 +185,7 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onHome, commandOpen]);
 
-  // Navigating away (any path — a selection, a tab click) retires the overlay.
+  // Navigating away (any path -- a selection, a tab click) retires the overlay.
   useEffect(() => {
     if (onHome) setCommandOpen(false);
   }, [onHome]);

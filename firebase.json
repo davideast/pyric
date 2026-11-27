@@ -29,6 +29,10 @@
         "destination": "/storage/index.html"
       },
       {
+        "regex": "^/functions(/[^.\\\\]*)?/?$",
+        "destination": "/functions/index.html"
+      },
+      {
         "regex": "^/traffic(/[^.\\\\]*)?/?$",
         "destination": "/traffic/index.html"
       },
@@ -85,6 +89,15 @@
       },
       {
         "source": "/storage/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/functions/**",
         "headers": [
           {
             "key": "Cache-Control",
