@@ -137,14 +137,14 @@ def read_capture(folder,name,rules,private):
                      'restoredAndReleased':True}
 
 
-def release(rules,private):
+def release(rules,private,release_root=None):
     if rules==PREVIOUS:
         folder=OLD/'live/receipts'/rules
         assert digest(OLD_RULES.read_bytes())==rules
         names=OLD_PLANS
         planned=None
     else:
-        release=TRIAL/'live/releases'/rules
+        release=(release_root or TRIAL/'live/releases')/rules
         if not (release/'plan.json').exists(): return {},[]
         plan=read(release/'plan.json')
         assert digest((release/'firestore.rules').read_bytes())==rules==plan['rulesSha256']
@@ -172,10 +172,10 @@ def input_shape(row):
             [{'path':old['path'],'data':old['data']} for old in row['before']],row['submitted']]
 
 
-def compare(rules,private,archive):
+def compare(rules,private,archive,release_root=None):
     prior,old_sources=release(PREVIOUS,private)
     assert len(prior)==190
-    current,sources=(prior,old_sources) if rules==PREVIOUS else release(rules,private)
+    current,sources=(prior,old_sources) if rules==PREVIOUS else release(rules,private,release_root)
     old_native,_=SIGNED['native_replay']()
     native={key:old_native[key] for key in prior}
     focused={row['id']:row for group in ('rook','bishop','queen')
@@ -239,6 +239,7 @@ if __name__=='__main__':
     parser.add_argument('rules_digest')
     parser.add_argument('private_archive',type=Path)
     parser.add_argument('python_chess_archive',type=Path)
+    parser.add_argument('--release-root',type=Path,help='qualified public release tree to audit during a parallel capture')
     args=parser.parse_args()
     if not re.fullmatch(r'[0-9a-f]{64}',args.rules_digest): parser.error('Expected a full SHA-256 digest')
-    print(json.dumps(compare(args.rules_digest,args.private_archive,args.python_chess_archive),indent=2))
+    print(json.dumps(compare(args.rules_digest,args.private_archive,args.python_chess_archive,args.release_root),indent=2))
