@@ -25,6 +25,7 @@ export const scenario: StorageScenarioRecord = {
   fm: 'STORAGE-H1-LOOKUP-FLOAT',
   rationale:
     'Whether $(expr) inside a Storage firestore.get() or firestore.exists() path accepts or refuses a float custom auth claim and a float Firestore document field (#1815).',
+  pendingRowLink: true,
   rules: `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
