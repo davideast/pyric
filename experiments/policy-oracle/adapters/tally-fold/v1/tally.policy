@@ -1,0 +1,11 @@
+use extension loops;
+function tally(start, moves) {
+  let count = start;
+  for (const move of bounded(moves, 2)) {
+    count = count == null ? null :
+      move.kind == 'strike' ? (count < 90 ? count + 1 : 90) :
+      move.kind == 'erase' ? (('all' in move && move.all) ? 0 : (count > 0 ? count - 1 : 0)) :
+      null;
+  }
+  return count;
+}

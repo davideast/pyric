@@ -1,0 +1,4 @@
+{
+  "description": "Score the standalone fold against the native Tally model and parser, applying an explicit two-action domain.",
+  "authority": "native-model"
+}

@@ -1,0 +1,22 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "a79ad2cff630434d70e790802d2b6a6ea5154b3faed02405b3b7fde7e5213418",
+  "results": {
+    "strike-erase-89": "ALLOW",
+    "strike-erase-90": "DENY",
+    "erase-strike-89": "DENY",
+    "erase-strike-90": "ALLOW",
+    "erase-strike-strike-90": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/6050e864-969c-4490-900b-dad59127ea5c.json",
+    "sha256": "65140f98350c35243a6af660b8433d64beccb24422ae1891e7cd6075f7d6c436",
+    "pointers": {
+      "strike-erase-89": "/rows/strike-erase-89/decision",
+      "strike-erase-90": "/rows/strike-erase-90/decision",
+      "erase-strike-89": "/rows/erase-strike-89/decision",
+      "erase-strike-90": "/rows/erase-strike-90/decision",
+      "erase-strike-strike-90": "/rows/erase-strike-strike-90/decision"
+    }
+  }
+}

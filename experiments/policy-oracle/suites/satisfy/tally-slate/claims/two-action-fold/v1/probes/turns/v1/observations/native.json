@@ -1,0 +1,36 @@
+{
+  "authority": "native-model",
+  "inputDigest": "926484663f95a4317c7af68d9c7cb542af6ed7b7b3a0f035d447b2bcd18a4aa7",
+  "results": {
+    "strike-erase-89": {
+      "total": 89,
+      "accepted": true
+    },
+    "strike-erase-90": {
+      "total": 89,
+      "accepted": false
+    },
+    "erase-strike-89": {
+      "total": 90,
+      "accepted": false
+    },
+    "erase-strike-90": {
+      "total": 90,
+      "accepted": true
+    },
+    "erase-strike-strike-90": {
+      "error": "bound-exceeded"
+    }
+  },
+  "evidence": {
+    "path": "evidence/native.json",
+    "sha256": "8580b99967947d0eb2c6284ce12d10bf11de22d3c72b3dc74659e6b4175aea39",
+    "pointers": {
+      "strike-erase-89": "/rows/strike-erase-89/boundedResult",
+      "strike-erase-90": "/rows/strike-erase-90/boundedResult",
+      "erase-strike-89": "/rows/erase-strike-89/boundedResult",
+      "erase-strike-90": "/rows/erase-strike-90/boundedResult",
+      "erase-strike-strike-90": "/rows/erase-strike-strike-90/boundedResult"
+    }
+  }
+}

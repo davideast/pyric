@@ -1,0 +1,7 @@
+[
+  {"id":"strike-erase-89","actions":["strike","erase"],"claim":89},
+  {"id":"strike-erase-90","actions":["strike","erase"],"claim":90},
+  {"id":"erase-strike-89","actions":["erase","strike"],"claim":89},
+  {"id":"erase-strike-90","actions":["erase","strike"],"claim":90},
+  {"id":"erase-strike-strike-90","actions":["erase","strike","strike"],"claim":90}
+]

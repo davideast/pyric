@@ -106,6 +106,7 @@ def classify(row, reference, candidate, error):
                     "regression": canonical(reference[name]) == canonical(expected)}
     # A malformed decision or an evaluator abstention cannot agree with a denial.
     if (error or name not in candidate or
+        (candidate.get(name) == "UNSUPPORTED" and expected != "UNSUPPORTED") or
         (type(expected) is bool and type(candidate[name]) is not bool) or
         (expected in ("ALLOW", "DENY") and candidate[name] not in ("ALLOW", "DENY"))):
         return {**row, "outcome": "unsupported"}

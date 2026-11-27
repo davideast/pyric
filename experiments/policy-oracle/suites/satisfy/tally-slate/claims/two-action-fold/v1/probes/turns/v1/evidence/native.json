@@ -1,0 +1,64 @@
+{
+  "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+  "rows": {
+    "strike-erase-89": {
+      "model": 89,
+      "turnParser": {
+        "total": 89,
+        "accepted": true
+      },
+      "claimMatchesNative": true,
+      "boundedResult": {
+        "total": 89,
+        "accepted": true
+      }
+    },
+    "strike-erase-90": {
+      "model": 89,
+      "turnParser": {
+        "total": 89,
+        "accepted": true
+      },
+      "claimMatchesNative": false,
+      "boundedResult": {
+        "total": 89,
+        "accepted": false
+      }
+    },
+    "erase-strike-89": {
+      "model": 90,
+      "turnParser": {
+        "total": 90,
+        "accepted": true
+      },
+      "claimMatchesNative": false,
+      "boundedResult": {
+        "total": 90,
+        "accepted": false
+      }
+    },
+    "erase-strike-90": {
+      "model": 90,
+      "turnParser": {
+        "total": 90,
+        "accepted": true
+      },
+      "claimMatchesNative": true,
+      "boundedResult": {
+        "total": 90,
+        "accepted": true
+      }
+    },
+    "erase-strike-strike-90": {
+      "model": 90,
+      "turnParser": {
+        "total": 90,
+        "accepted": true
+      },
+      "claimMatchesNative": true,
+      "boundedResult": {
+        "error": "bound-exceeded"
+      }
+    }
+  }
+}

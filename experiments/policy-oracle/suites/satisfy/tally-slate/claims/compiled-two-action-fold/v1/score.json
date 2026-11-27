@@ -1,0 +1,87 @@
+{
+  "counts": {
+    "native": 5,
+    "standalone": 5,
+    "generatedRules": 5
+  },
+  "casesPerScore": 5,
+  "results": [
+    {
+      "case": "strike-erase-89",
+      "nativeTotal": 89,
+      "nativeTurnAccepted": true,
+      "nativeClaimMatches": true,
+      "standalone": {
+        "accepted": true,
+        "total": 89
+      },
+      "generatedRulesReplay": "ALLOW",
+      "liveFirestore": "ALLOW"
+    },
+    {
+      "case": "strike-erase-90",
+      "nativeTotal": 89,
+      "nativeTurnAccepted": true,
+      "nativeClaimMatches": false,
+      "standalone": {
+        "accepted": false,
+        "total": 89
+      },
+      "generatedRulesReplay": "DENY",
+      "liveFirestore": "DENY"
+    },
+    {
+      "case": "erase-strike-89",
+      "nativeTotal": 90,
+      "nativeTurnAccepted": true,
+      "nativeClaimMatches": false,
+      "standalone": {
+        "accepted": false,
+        "total": 90
+      },
+      "generatedRulesReplay": "DENY",
+      "liveFirestore": "DENY"
+    },
+    {
+      "case": "erase-strike-90",
+      "nativeTotal": 90,
+      "nativeTurnAccepted": true,
+      "nativeClaimMatches": true,
+      "standalone": {
+        "accepted": true,
+        "total": 90
+      },
+      "generatedRulesReplay": "ALLOW",
+      "liveFirestore": "ALLOW"
+    },
+    {
+      "case": "erase-strike-strike-90",
+      "nativeTotal": 90,
+      "nativeTurnAccepted": true,
+      "nativeClaimMatches": true,
+      "standalone": {
+        "error": "bound-exceeded"
+      },
+      "generatedRulesReplay": "DENY",
+      "liveFirestore": "DENY"
+    }
+  ],
+  "liveDigest": "9ff95ed2886ae1c49166cd8a35ce5c7c3d9e3adee202a012969bf79492eecc0b",
+  "candidateEmittedLiveBytes": true,
+  "candidateSha256": "a303d987768f19f1aadd9ab824610aac8a4f109b56d646e2e2759fb0aa670eec",
+  "evidenceSha256": "92bc4e7f8427f328c676ba8368ee7dc4b016202a579b86705659c3e917cd07b2",
+  "summary": {
+    "disputed": 0,
+    "falseAllows": 0,
+    "falseDenials": 0,
+    "firstFalseAllow": null,
+    "firstFalseDenial": null,
+    "firstRegression": null,
+    "matches": 1520,
+    "otherMismatches": 0,
+    "pending": 0,
+    "regressions": 0,
+    "scored": 1520,
+    "unsupported": 0
+  }
+}

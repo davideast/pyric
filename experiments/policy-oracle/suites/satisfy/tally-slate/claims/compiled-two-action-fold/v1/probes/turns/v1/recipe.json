@@ -1,0 +1,33 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+    "path": "playground/src/demos/tally-slate/moves.ts"
+  },
+  "cases": [
+    "strike-erase-89",
+    "strike-erase-90",
+    "erase-strike-89",
+    "erase-strike-90",
+    "erase-strike-strike-90"
+  ],
+  "pins": {
+    "replay.mjs": "47a015a274480985b1893ea48715433dbc3339020355bdaf37c49ea4ce5181ea",
+    "@oracle/adapters/tally-fold/v1/score.mjs": "377f6c4e72fe0f9a655224836fbf418a35062278342557648b04e7df56dfb141",
+    "@oracle/adapters/tally-fold/v1/fixture.mjs": "7beff5a60da1cf41b27d500ecfc65dc2b83bf3e12b4de0d0e40c919add3ac8aa",
+    "@oracle/adapters/tally-fold/v1/cases.json": "0115fd8bb852d0a5e80708b53274c7ad995b9043ed1030cb7a487408cb70e67d",
+    "@oracle/adapters/tally-fold/v1/tally.policy": "45ef67d6c48493e05f7aeb35a33ac479bb23f72b472d015a47d984c2bc6c2b75",
+    "@oracle/adapters/tally-fold/v1/binding.rules": "a7ec4b55d7c7ce1fe6e808b86189bc413a00c617fa36e2b03ca0a2b1cac1b17d",
+    "@oracle/adapters/tally-fold/v1/generated.rules": "9ff95ed2886ae1c49166cd8a35ce5c7c3d9e3adee202a012969bf79492eecc0b",
+    "@oracle/adapters/tally-fold/v1/verify.mjs": "2ffa2f9eabf042ad3d1c3d372b5e76175be51ce5eafef3785edf2c964af32d5b",
+    "@oracle/adapters/ai-jrpg-campaign/v1/values.mjs": "93ab0e979b3ea1cb93f267e57a7464117e69ee3f6c88b64449974764126c12aa",
+    "@oracle/adapters/arcade-sdk/v1/evidence.mjs": "d3a954cdd9406373a802757149e48bfb98283f2fe6af9b03c88e64e91bc49471",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/tally-fold/v1/verify.mjs"
+}

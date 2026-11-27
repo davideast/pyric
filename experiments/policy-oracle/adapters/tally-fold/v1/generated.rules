@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function tally(start, moves) {
+  let count = start;
+  let foldSize = moves is list ? moves.size() : -1;
+  let foldInBounds = foldSize >= 0 && foldSize <= 2;
+  let foldStep1 = foldInBounds && foldSize > 0 ? count == null ? null : moves[0].kind == 'strike' ? (count < 90 ? count + 1 : 90) : moves[0].kind == 'erase' ? (('all' in moves[0] && moves[0].all) ? 0 : (count > 0 ? count - 1 : 0)) : null : count;
+  let foldStep2 = foldInBounds && foldSize > 1 ? foldStep1 == null ? null : moves[1].kind == 'strike' ? (foldStep1 < 90 ? foldStep1 + 1 : 90) : moves[1].kind == 'erase' ? (('all' in moves[1] && moves[1].all) ? 0 : (foldStep1 > 0 ? foldStep1 - 1 : 0)) : null : foldStep1;
+  return foldInBounds ? foldStep2 : [][foldSize];
+}
+    match /tallyFoldControls/{owner} {
+      allow get, create, update: if request.auth != null && request.auth.uid == owner;
+    }
+    match /tallyFolds/{id} {
+      allow get: if request.auth != null && request.auth.uid == resource.data.reader;
+      allow update: if request.auth != null && request.auth.uid == resource.data.owner
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tally', 'moves'])
+        && request.resource.data.tally is int
+        && request.resource.data.tally == tally(resource.data.tally, request.resource.data.moves);
+    }
+  }
+}

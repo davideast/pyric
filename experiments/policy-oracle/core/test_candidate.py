@@ -60,7 +60,7 @@ def score(path, status):
     result = subprocess.run([sys.executable, CORE / "oracle.py", "--candidate-package", path], cwd=ROOT,
                             env={**os.environ, "ORACLE_TEST_CREDENTIAL": "must-not-reach-the-worker"},
                             text=True, capture_output=True)
-    if result.returncode != status:
+    if result.returncode != status or not result.stdout.strip():
         raise AssertionError(f"exit {result.returncode}: {result.stderr or result.stdout[-1800:]}")
     return json.loads(result.stdout)
 
@@ -88,9 +88,13 @@ class CandidateTest(unittest.TestCase):
         self.assertEqual(score_query(allowed, allowed), "match")
 
     def test_public_tarball_and_altered_tarball(self):
-        stock = score(STOCK, 0)
+        stock = score(STOCK, 1)
         self.assertEqual(stock["summary"]["matches"], stock["summary"]["scored"])
-        self.assertEqual(stock["summary"]["unsupported"], 0)
+        # Without the controller archive only the native Tally cases are admitted.
+        # The frozen compiler predates for-of. Its parser refusal is a measured gap.
+        unsupported = [(r["claim"], r["case"]) for r in stock["cases"] if r["outcome"] == "unsupported"]
+        self.assertEqual({claim for claim, _ in unsupported}, {"satisfy/tally-slate/two-action-fold/v1"})
+        self.assertEqual(len(unsupported), 5)
         self.assertTrue(stock["artifacts"]["arcade/tictactoe"]["sameBytes"])
         with tempfile.NamedTemporaryFile(suffix=".tgz") as altered:
             path = Path(altered.name)
@@ -107,7 +111,7 @@ class CandidateTest(unittest.TestCase):
         self.assertGreater(broken["summary"]["falseAllows"], 0)
         self.assertGreater(broken["summary"]["falseDenials"], 0)
         self.assertEqual(broken["summary"]["firstRegression"]["case"], frozen[0]["case"])
-        self.assertEqual(broken["summary"]["unsupported"], 0)
+        self.assertEqual([(r["claim"], r["case"]) for r in broken["cases"] if r["outcome"] == "unsupported"], unsupported)
         self.assertEqual(broken["summary"]["pending"], stock["summary"]["pending"])
         self.assertTrue(broken["artifacts"]["arcade/tictactoe"]["sameBytes"])
 
