@@ -1,0 +1,89 @@
+{
+  "rulesSha256": "833a0fe29435df2456f0a3636aeea03dc33405f1193f22c424428efe469fdae8",
+  "source": "private authenticated controller journals; independent chess rules on exact signed operands",
+  "status": "measured",
+  "distinctWrites": 242,
+  "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "nativeComparedOnActualDocuments": 242,
+  "priorIdenticalSignedOperands": 190,
+  "focusCasesWithExactSuccessorAndCompleteReplies": 58,
+  "nativeDecisions": {
+    "ALLOW": 110,
+    "DENY": 132
+  },
+  "firestoreDecisions": {
+    "ALLOW": 110,
+    "DENY": 132
+  },
+  "nativeVersusFirestore": {
+    "match": 242
+  },
+  "captures": [
+    {
+      "capture": "sliding-queen-bishop",
+      "caseCount": 4,
+      "controllerSha256": "96278f2750d4cbf077433f80b25a02313ccaa390616a593d3ca28d043367efa0",
+      "journalSha256": "92dff44ba44c34f555615dd5cc5072ae9a72ec5d4d00cac19f8548fb5471737d",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 4,
+      "openReleaseUpdateTime": "2026-11-27T04:14:33.777457Z"
+    },
+    {
+      "capture": "sliding-part-1",
+      "caseCount": 120,
+      "controllerSha256": "18e35c0dc019b9ad91dca40e611a1dbbf0509076d1fd057479518a1a721e307f",
+      "journalSha256": "2c65187d19dc675eaf662e9dcfa6d00d78a5a3955157489d60abfa80c8deada3",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 120,
+      "openReleaseUpdateTime": "2026-11-27T04:30:48.180418Z"
+    },
+    {
+      "capture": "sliding-part-2",
+      "caseCount": 118,
+      "controllerSha256": "bf822360f29ac57c7a40a856a6ed0524e0a3c67346475f16108ca42d7446724d",
+      "journalSha256": "712ac451cc0658b91979b0b8cec0240dfa39f7adce8893ae5610ad7a9dfe284c",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 118,
+      "openReleaseUpdateTime": "2026-11-27T04:46:05.345852Z"
+    }
+  ],
+  "mismatches": {},
+  "oldCorpusChanges": {
+    "repaired": [
+      "rook-c5-after-queen-won",
+      "rook-h5-after-queen-playing",
+      "holdout-interior-v1-b-mate-playing",
+      "holdout-interior-v1-w-nonking-checked-won",
+      "holdout-replies-v1-stalemate-pinned-defender-playing",
+      "holdout-replies-v1-only-b-move-in-check-won",
+      "actual-fourth-ply-playing",
+      "promote-capturing-rook-right-held"
+    ],
+    "regressed": [],
+    "stillDisagree": []
+  },
+  "queenBishopBaseline": {
+    "previousRulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+    "identicalWrites": 242,
+    "repaired": [
+      "qb-pawn-won"
+    ],
+    "regressed": [],
+    "stillDisagree": []
+  },
+  "shapeSensitivityControl": {
+    "source": "rook-safe",
+    "addedField": "unexpectedNullField",
+    "value": null,
+    "originalNative": "ALLOW",
+    "amendedNative": "DENY"
+  },
+  "invalidSourcePositions": [],
+  "perCaseAdjudicationsSha256": "3e81edcd83c01570e65710abb6d042023ecefd8149be3f687e0f3820a5f0c98d"
+}
