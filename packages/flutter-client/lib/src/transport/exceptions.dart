@@ -14,9 +14,8 @@ class PyricBridgeException implements Exception {
 
   @override
   String toString() {
-    if (denialContext != null) {
-      return 'PyricBridgeException($code): $message [denialContext: $denialContext]';
-    }
+    // Keep structured denialContext on the property rather than dumping the
+    // full expression trace into user-facing exception strings.
     return 'PyricBridgeException($code): $message';
   }
 }

@@ -9,6 +9,7 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
+import dev.pyric.codecs.JsonCodec
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -341,11 +342,44 @@ class FirebaseAuth internal constructor(
         }
     }
 
+    private fun parseStructuredBlockingError(raw: String): Pair<String?, String?> {
+        val start = raw.indexOf('{')
+        val end = raw.lastIndexOf('}')
+        if (start < 0 || end <= start) return null to null
+        val decoded = try {
+            JsonCodec.decode(raw.substring(start, end + 1))
+        } catch (_: Exception) {
+            return null to null
+        } as? Map<*, *> ?: return null to null
+        val inner = decoded["error"] as? Map<*, *> ?: return null to null
+        val innerMessage = (inner["message"] as? String)?.trim()?.takeIf { it.isNotEmpty() }
+        val innerStatus = (inner["status"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
+        return innerMessage to innerStatus
+    }
+
+    private fun mapBlockingStatusToErrorCode(status: String?): String? = when (status) {
+        "PERMISSION_DENIED" -> "ERROR_PERMISSION_DENIED"
+        "UNAUTHENTICATED" -> "ERROR_UNAUTHENTICATED"
+        "INVALID_ARGUMENT" -> "ERROR_INVALID_ARGUMENT"
+        "FAILED_PRECONDITION" -> "ERROR_FAILED_PRECONDITION"
+        "RESOURCE_EXHAUSTED" -> "ERROR_RESOURCE_EXHAUSTED"
+        "ALREADY_EXISTS" -> "ERROR_ALREADY_EXISTS"
+        "NOT_FOUND" -> "ERROR_NOT_FOUND"
+        "UNAVAILABLE" -> "ERROR_UNAVAILABLE"
+        "DEADLINE_EXCEEDED" -> "ERROR_DEADLINE_EXCEEDED"
+        "CANCELLED", "CANCELED" -> "ERROR_CANCELLED"
+        "ABORTED" -> "ERROR_ABORTED"
+        "INTERNAL" -> "ERROR_INTERNAL_ERROR"
+        else -> null
+    }
+
     internal fun wrapException(e: Exception): Exception {
         if (e is FirebaseAuthException) return e
         val rawWireCode = (e as? FirebaseFirestoreException)?.wireCode?.lowercase() ?: ""
-        val msg = e.message ?: "Authentication error"
-        val combined = if (rawWireCode.isNotEmpty()) "$rawWireCode $msg" else msg
+        val rawMsg = e.message ?: "Authentication error"
+        val (structuredMsg, structuredStatus) = parseStructuredBlockingError(rawMsg)
+        val msg = structuredMsg ?: rawMsg
+        val combined = if (rawWireCode.isNotEmpty()) "$rawWireCode $rawMsg" else rawMsg
         if (combined.contains("provider-already-linked", ignoreCase = true)) {
             return FirebaseException("User has already been linked to the given provider.", e)
         }
@@ -369,7 +403,8 @@ class FirebaseAuth internal constructor(
             combined.contains("no-such-provider", ignoreCase = true) -> "ERROR_NO_SUCH_PROVIDER"
             combined.contains("user-mismatch", ignoreCase = true) -> "ERROR_USER_MISMATCH"
             combined.contains("no-mock-configured", ignoreCase = true) -> "ERROR_INVALID_CREDENTIAL"
-            else -> "ERROR_UNKNOWN"
+            rawWireCode.contains("permission-denied") -> "ERROR_PERMISSION_DENIED"
+            else -> mapBlockingStatusToErrorCode(structuredStatus) ?: "ERROR_UNKNOWN"
         }
         // The same subclasses the Firebase Android SDK throws for these codes.
         return when (code) {
