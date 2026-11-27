@@ -25,5 +25,5 @@ export function importReviewed(probe, verifier, archiveArg, runId) {
     results, evidence: {path, sha256: completed.digest, pointers: Object.fromEntries(Object.keys(results).map(id => [id, '/rows/' + id + '/decision']))}};
   immutable(join(probe, path), raw, {identicalOk:true});
   immutable(join(probe,'observations',runId + '.json'), jsonBytes(receipt), {identicalOk:true});
-  console.log('Imported', Object.keys(results).length, 'authenticated writes from', runId);
+  console.log('Imported', Object.keys(results).length, 'authenticated cases from', runId);
 }

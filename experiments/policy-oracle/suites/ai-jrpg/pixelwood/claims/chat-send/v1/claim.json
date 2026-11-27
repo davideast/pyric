@@ -1,0 +1,5 @@
+{
+  "description": "A two-write Pixelwood chat send checks an owned rate ledger, then validates the message against the sender’s profile.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

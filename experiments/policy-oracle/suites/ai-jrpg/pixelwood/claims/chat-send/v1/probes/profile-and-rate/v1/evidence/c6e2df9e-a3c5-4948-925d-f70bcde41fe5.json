@@ -1,0 +1,956 @@
+{
+  "runId": "c6e2df9e-a3c5-4948-925d-f70bcde41fe5",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "sender": {
+      "uid": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "reader": {
+      "uid": "jDIRGpIiKWdV9JwoXKqdAgA7Ily1",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "c6e2df9e-a3c5-4948-925d-f70bcde41fe5",
+        "lockVersion": "2026-11-27T16:54:00.630494Z",
+        "releaseUpdateTime": "2026-11-27T16:11:54.517408Z",
+        "verifiedAt": "2026-11-27T16:54:03.325Z"
+      },
+      "reads": {
+        "sender": "DENY",
+        "reader": "DENY"
+      },
+      "write": "DENY",
+      "at": "2026-11-27T16:54:08.373Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/573e25be-1bb5-4c44-ad2f-a9ef1891cdbb",
+        "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+        "lockRunId": "c6e2df9e-a3c5-4948-925d-f70bcde41fe5",
+        "lockVersion": "2026-11-27T16:54:00.630494Z",
+        "releaseUpdateTime": "2026-11-27T16:54:12.535325Z",
+        "verifiedAt": "2026-11-27T16:54:17.470Z"
+      },
+      "reads": {
+        "sender": "ALLOW",
+        "reader": "ALLOW"
+      },
+      "write": "ALLOW",
+      "at": "2026-11-27T16:54:24.027Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "c6e2df9e-a3c5-4948-925d-f70bcde41fe5",
+        "lockVersion": "2026-11-27T16:54:00.630494Z",
+        "releaseUpdateTime": "2026-11-27T16:56:13.547484Z",
+        "verifiedAt": "2026-11-27T16:56:18.688Z"
+      },
+      "reads": {
+        "sender": "DENY",
+        "reader": "DENY"
+      },
+      "write": "DENY",
+      "at": "2026-11-27T16:56:40.646Z"
+    }
+  },
+  "rows": {
+    "no-profile": {
+      "id": "no-profile",
+      "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+      "profile": "none",
+      "decision": {
+        "ledger": "ALLOW",
+        "message": "ALLOW"
+      },
+      "attemptedAt": "2026-11-27T16:56:06.618Z",
+      "readAt": "2026-11-27T16:56:06.900Z",
+      "before": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.191157Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-no-profile",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.191157Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.191157Z"
+        }
+      },
+      "afterLedger": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798566,
+              "nanoseconds": 362000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:06.362Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:06.395593Z",
+            "updateTime": "2026-11-27T16:56:06.395593Z"
+          },
+          "readTime": "2026-11-27T16:56:06.442326Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-no-profile",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.442326Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.442326Z"
+        }
+      },
+      "after": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798566,
+              "nanoseconds": 362000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:06.362Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:06.395593Z",
+            "updateTime": "2026-11-27T16:56:06.395593Z"
+          },
+          "readTime": "2026-11-27T16:56:06.608282Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-no-profile",
+          "data": {
+            "uid": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "name": "wanderer-lqA3",
+            "zone": "village",
+            "scope": "global",
+            "tx": 2,
+            "ty": 3,
+            "text": "Hello from the village",
+            "t": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798566,
+              "nanoseconds": 511000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-no-profile",
+            "fields": {
+              "uid": {
+                "stringValue": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3"
+              },
+              "name": {
+                "stringValue": "wanderer-lqA3"
+              },
+              "zone": {
+                "stringValue": "village"
+              },
+              "scope": {
+                "stringValue": "global"
+              },
+              "tx": {
+                "integerValue": "2"
+              },
+              "ty": {
+                "integerValue": "3"
+              },
+              "text": {
+                "stringValue": "Hello from the village"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T16:56:06.511Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:06.556881Z",
+            "updateTime": "2026-11-27T16:56:06.556881Z"
+          },
+          "readTime": "2026-11-27T16:56:06.608282Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.608282Z"
+        }
+      }
+    },
+    "mechanics-only": {
+      "id": "mechanics-only",
+      "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+      "profile": "mechanics",
+      "decision": {
+        "ledger": "ALLOW",
+        "message": "DENY"
+      },
+      "attemptedAt": "2026-11-27T16:56:07.290Z",
+      "readAt": "2026-11-27T16:56:07.514Z",
+      "before": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.973377Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-mechanics-only",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:06.973377Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "skills": {
+              "lockpicking": 1
+            },
+            "rep": 0
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "skills": {
+                "mapValue": {
+                  "fields": {
+                    "lockpicking": {
+                      "integerValue": "1"
+                    }
+                  }
+                }
+              },
+              "rep": {
+                "integerValue": "0"
+              }
+            },
+            "createTime": "2026-11-27T16:56:06.906031Z",
+            "updateTime": "2026-11-27T16:56:06.906031Z"
+          },
+          "readTime": "2026-11-27T16:56:06.973377Z"
+        }
+      },
+      "afterLedger": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 30000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.030Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.050519Z",
+            "updateTime": "2026-11-27T16:56:07.050519Z"
+          },
+          "readTime": "2026-11-27T16:56:07.086457Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-mechanics-only",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.086457Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "skills": {
+              "lockpicking": 1
+            },
+            "rep": 0
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "skills": {
+                "mapValue": {
+                  "fields": {
+                    "lockpicking": {
+                      "integerValue": "1"
+                    }
+                  }
+                }
+              },
+              "rep": {
+                "integerValue": "0"
+              }
+            },
+            "createTime": "2026-11-27T16:56:06.906031Z",
+            "updateTime": "2026-11-27T16:56:06.906031Z"
+          },
+          "readTime": "2026-11-27T16:56:07.086457Z"
+        }
+      },
+      "after": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 30000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.030Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.050519Z",
+            "updateTime": "2026-11-27T16:56:07.050519Z"
+          },
+          "readTime": "2026-11-27T16:56:07.187946Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-mechanics-only",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.187946Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "skills": {
+              "lockpicking": 1
+            },
+            "rep": 0
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "skills": {
+                "mapValue": {
+                  "fields": {
+                    "lockpicking": {
+                      "integerValue": "1"
+                    }
+                  }
+                }
+              },
+              "rep": {
+                "integerValue": "0"
+              }
+            },
+            "createTime": "2026-11-27T16:56:06.906031Z",
+            "updateTime": "2026-11-27T16:56:06.906031Z"
+          },
+          "readTime": "2026-11-27T16:56:07.187946Z"
+        }
+      }
+    },
+    "named-profile": {
+      "id": "named-profile",
+      "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+      "profile": "named",
+      "decision": {
+        "ledger": "ALLOW",
+        "message": "ALLOW"
+      },
+      "attemptedAt": "2026-11-27T16:56:07.937Z",
+      "readAt": "2026-11-27T16:56:08.153Z",
+      "before": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.623456Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-named-profile",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.623456Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:07.623456Z"
+        }
+      },
+      "afterLedger": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 663000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.663Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:07.680642Z"
+          },
+          "readTime": "2026-11-27T16:56:07.713634Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-named-profile",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.713634Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:07.713634Z"
+        }
+      },
+      "after": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 663000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.663Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:07.680642Z"
+          },
+          "readTime": "2026-11-27T16:56:07.839924Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-named-profile",
+          "data": {
+            "uid": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "name": "Oracle player",
+            "zone": "village",
+            "scope": "global",
+            "tx": 2,
+            "ty": 3,
+            "text": "Hello from the village",
+            "t": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 776000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-named-profile",
+            "fields": {
+              "uid": {
+                "stringValue": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3"
+              },
+              "name": {
+                "stringValue": "Oracle player"
+              },
+              "zone": {
+                "stringValue": "village"
+              },
+              "scope": {
+                "stringValue": "global"
+              },
+              "tx": {
+                "integerValue": "2"
+              },
+              "ty": {
+                "integerValue": "3"
+              },
+              "text": {
+                "stringValue": "Hello from the village"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T16:56:07.776Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.790101Z",
+            "updateTime": "2026-11-27T16:56:07.790101Z"
+          },
+          "readTime": "2026-11-27T16:56:07.839924Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:07.839924Z"
+        }
+      }
+    },
+    "rapid-repeat": {
+      "id": "rapid-repeat",
+      "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+      "profile": "named",
+      "decision": {
+        "ledger": "DENY",
+        "message": "NOT_SUBMITTED"
+      },
+      "attemptedAt": "2026-11-27T16:56:08.205Z",
+      "readAt": "2026-11-27T16:56:08.304Z",
+      "before": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 663000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.663Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:07.680642Z"
+          },
+          "readTime": "2026-11-27T16:56:07.885834Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-rapid-repeat",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.885834Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:07.885834Z"
+        }
+      },
+      "afterLedger": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 663000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.663Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:07.680642Z"
+          },
+          "readTime": "2026-11-27T16:56:07.993831Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-rapid-repeat",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.993831Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:07.993831Z"
+        }
+      },
+      "after": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 663000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.663Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:07.680642Z"
+          },
+          "readTime": "2026-11-27T16:56:07.993831Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-rapid-repeat",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:07.993831Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:07.993831Z"
+        }
+      }
+    },
+    "after-cooldown": {
+      "id": "after-cooldown",
+      "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+      "profile": "named",
+      "decision": {
+        "ledger": "ALLOW",
+        "message": "ALLOW"
+      },
+      "attemptedAt": "2026-11-27T16:56:09.674Z",
+      "readAt": "2026-11-27T16:56:09.872Z",
+      "before": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798567,
+              "nanoseconds": 663000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:07.663Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:07.680642Z"
+          },
+          "readTime": "2026-11-27T16:56:09.339642Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-after-cooldown",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:09.339642Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:09.339642Z"
+        }
+      },
+      "afterLedger": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798569,
+              "nanoseconds": 379000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:09.379Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:09.388148Z"
+          },
+          "readTime": "2026-11-27T16:56:09.420708Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-after-cooldown",
+          "data": null,
+          "document": null,
+          "readTime": "2026-11-27T16:56:09.420708Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:09.420708Z"
+        }
+      },
+      "after": {
+        "ledger": {
+          "path": "chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "lastChatAt": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798569,
+              "nanoseconds": 379000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chatMeta/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "lastChatAt": {
+                "timestampValue": "2026-11-27T16:56:09.379Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.680642Z",
+            "updateTime": "2026-11-27T16:56:09.388148Z"
+          },
+          "readTime": "2026-11-27T16:56:09.517890Z"
+        },
+        "message": {
+          "path": "chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-after-cooldown",
+          "data": {
+            "uid": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "name": "Oracle player",
+            "zone": "village",
+            "scope": "global",
+            "tx": 2,
+            "ty": 3,
+            "text": "Hello from the village",
+            "t": {
+              "type": "firestore/timestamp/1.0",
+              "seconds": 1795798569,
+              "nanoseconds": 463000000
+            }
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chat/oracle-c6e2df9e-a3c5-4948-925d-f70bcde41fe5-after-cooldown",
+            "fields": {
+              "uid": {
+                "stringValue": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3"
+              },
+              "name": {
+                "stringValue": "Oracle player"
+              },
+              "zone": {
+                "stringValue": "village"
+              },
+              "scope": {
+                "stringValue": "global"
+              },
+              "tx": {
+                "integerValue": "2"
+              },
+              "ty": {
+                "integerValue": "3"
+              },
+              "text": {
+                "stringValue": "Hello from the village"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T16:56:09.463Z"
+              }
+            },
+            "createTime": "2026-11-27T16:56:09.481483Z",
+            "updateTime": "2026-11-27T16:56:09.481483Z"
+          },
+          "readTime": "2026-11-27T16:56:09.517890Z"
+        },
+        "profile": {
+          "path": "players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+          "data": {
+            "name": "Oracle player"
+          },
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/players/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+            "fields": {
+              "name": {
+                "stringValue": "Oracle player"
+              }
+            },
+            "createTime": "2026-11-27T16:56:07.544193Z",
+            "updateTime": "2026-11-27T16:56:07.544193Z"
+          },
+          "readTime": "2026-11-27T16:56:09.517890Z"
+        }
+      }
+    }
+  },
+  "deploymentBefore": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/573e25be-1bb5-4c44-ad2f-a9ef1891cdbb",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "c6e2df9e-a3c5-4948-925d-f70bcde41fe5",
+    "lockVersion": "2026-11-27T16:54:00.630494Z",
+    "releaseUpdateTime": "2026-11-27T16:54:12.535325Z",
+    "verifiedAt": "2026-11-27T16:56:06.184Z",
+    "propagationReceiptSha256": "0dafeec50a8a6e0caec83131585102e8cda0ab640ec41e39c5a8383cb53d3244"
+  },
+  "markerBefore": {
+    "id": "chat-before",
+    "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+    "path": "mapPins/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+    "decision": "ALLOW",
+    "at": "2026-11-27T16:56:06.319Z"
+  },
+  "markerAfter": {
+    "id": "chat-after",
+    "actor": "b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+    "path": "mapPins/b7k1DBDjMuh8Tb70hLMOvUx4lqA3",
+    "decision": "ALLOW",
+    "at": "2026-11-27T16:56:09.965Z"
+  },
+  "deploymentAfter": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/573e25be-1bb5-4c44-ad2f-a9ef1891cdbb",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "c6e2df9e-a3c5-4948-925d-f70bcde41fe5",
+    "lockVersion": "2026-11-27T16:54:00.630494Z",
+    "releaseUpdateTime": "2026-11-27T16:54:12.535325Z",
+    "verifiedAt": "2026-11-27T16:56:11.866Z",
+    "propagationReceiptSha256": "0dafeec50a8a6e0caec83131585102e8cda0ab640ec41e39c5a8383cb53d3244"
+  }
+}

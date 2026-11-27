@@ -1,0 +1,37 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "b5f6cbb6cb78e2b971f4c0a4767c0ff9ccab9574bcac26c0711213e000a6d980",
+  "results": {
+    "no-profile": {
+      "ledger": "ALLOW",
+      "message": "ALLOW"
+    },
+    "mechanics-only": {
+      "ledger": "ALLOW",
+      "message": "DENY"
+    },
+    "named-profile": {
+      "ledger": "ALLOW",
+      "message": "ALLOW"
+    },
+    "rapid-repeat": {
+      "ledger": "DENY",
+      "message": "NOT_SUBMITTED"
+    },
+    "after-cooldown": {
+      "ledger": "ALLOW",
+      "message": "ALLOW"
+    }
+  },
+  "evidence": {
+    "path": "evidence/c6e2df9e-a3c5-4948-925d-f70bcde41fe5.json",
+    "sha256": "5990278b7babea11cd3a3e3dedb298d1b21af42b70c920a69ea07b764aaf7cce",
+    "pointers": {
+      "no-profile": "/rows/no-profile/decision",
+      "mechanics-only": "/rows/mechanics-only/decision",
+      "named-profile": "/rows/named-profile/decision",
+      "rapid-repeat": "/rows/rapid-repeat/decision",
+      "after-cooldown": "/rows/after-cooldown/decision"
+    }
+  }
+}
