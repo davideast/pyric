@@ -126,7 +126,7 @@ package enum FunctionsContextProvider {
             return nil
         }
         switch auth.currentAuthLens() {
-        case .anon, .admin:
+        case .anon, .admin, .custom:
             return nil
         case .asUser(let uid, let tenant, _):
             guard let activeUser = auth.currentUser, activeUser.uid == uid else {
@@ -140,7 +140,7 @@ package enum FunctionsContextProvider {
                 return nil
             }
             return token
-        case .appSession, .custom:
+        case .appSession:
             guard let activeUser = auth.currentUser else {
                 return nil
             }
