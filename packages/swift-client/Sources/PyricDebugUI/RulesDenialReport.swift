@@ -30,6 +30,7 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
     public let matchedRule: String?
     public let pathVariableBindings: [String: String]?
     public let reason: String?
+    public let remediation: String?
     public let errorCode: String?
     public let proposedValue: AnySendable?
     public let errorMessage: String
@@ -59,6 +60,7 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         matchedRule: String? = nil,
         pathVariableBindings: [String: String]? = nil,
         reason: String? = nil,
+        remediation: String? = nil,
         errorCode: String? = nil,
         proposedValue: AnySendable? = nil,
         errorMessage: String = "Missing or insufficient permissions."
@@ -97,6 +99,7 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         self.matchedRule = matchedRule
         self.pathVariableBindings = pathVariableBindings
         self.reason = reason
+        self.remediation = remediation
         self.errorCode = errorCode
         self.proposedValue = proposedValue
         self.errorMessage = errorMessage
@@ -115,12 +118,17 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         let citation = ruleObj?["citation"]?.stringValue
         let expression = ruleObj?["expression"]?.stringValue ?? matchedRule
 
+        let singularReason = denialContext["reason"]?.stringValue
         var reasons: [String] = []
         if let reasonsArray = denialContext["reasons"]?.arrayValue {
             reasons = reasonsArray.compactMap { $0.stringValue }
         }
         if reasons.isEmpty {
-            reasons = [message]
+            if let singularReason, !singularReason.isEmpty {
+                reasons = [singularReason]
+            } else {
+                reasons = [message]
+            }
         }
 
         let authObj = denialContext["auth"]
@@ -169,7 +177,8 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
             matchedPath: denialContext["matchedPath"]?.stringValue,
             matchedRule: matchedRule,
             pathVariableBindings: bindings,
-            reason: denialContext["reason"]?.stringValue,
+            reason: singularReason,
+            remediation: denialContext["remediation"]?.stringValue,
             errorCode: denialContext["errorCode"]?.stringValue,
             proposedValue: proposedValue,
             errorMessage: message

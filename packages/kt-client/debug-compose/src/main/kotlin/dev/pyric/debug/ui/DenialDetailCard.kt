@@ -182,8 +182,13 @@ fun DenialDetailCard(
                         }
                     }
 
-                    // Reasons
-                    if (ctx.reasons.isNotEmpty()) {
+                    // Reasons (fall back to singular ctx.reason when reasons list is empty)
+                    val displayReasons = if (ctx.reasons.isNotEmpty()) {
+                        ctx.reasons
+                    } else {
+                        listOfNotNull(ctx.reason?.takeIf { it.isNotBlank() })
+                    }
+                    if (displayReasons.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Evaluator Reasons:",
@@ -192,7 +197,7 @@ fun DenialDetailCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        for (reason in ctx.reasons) {
+                        for (reason in displayReasons) {
                             Text(
                                 text = "- $reason",
                                 fontSize = 11.sp,
@@ -200,6 +205,42 @@ fun DenialDetailCard(
                                 modifier = Modifier.padding(vertical = 1.dp)
                             )
                         }
+                    }
+
+                    // RTDB Path Variable Bindings
+                    val bindings = ctx.pathVariableBindings
+                    if (!bindings.isNullOrEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Path Variable Bindings:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = bindings.entries.sortedBy { it.key }.joinToString(", ") { "${it.key}: ${it.value}" },
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Remediation hint
+                    ctx.remediation?.takeIf { it.isNotBlank() }?.let { remediation ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Remediation:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = remediation,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
                     // Static Query Proof
@@ -280,13 +321,18 @@ fun DenialDetailCard(
                         }
                     }
 
-                    // Data Diff (writes) or Existing Resource snapshot (reads / deletes)
+                    // Data Diff (writes), scalar/list Proposed Value, or Existing Resource snapshot
                     val diffs = ctx.computeDataDiff()
+                    val proposedValue = ctx.request?.proposedValue
                     val existingData = ctx.resource?.data
                     if (diffs.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Data Diff (Request vs Resource):",
+                            text = if (ctx.engine == "rtdb") {
+                                "Data Diff (newData vs data):"
+                            } else {
+                                "Data Diff (Request vs Resource):"
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -294,6 +340,29 @@ fun DenialDetailCard(
                         Spacer(modifier = Modifier.height(4.dp))
                         for (diff in diffs) {
                             DiffRow(diff = diff)
+                        }
+                    } else if (proposedValue != null && proposedValue !is Map<*, *>) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (ctx.engine == "rtdb") "Proposed Value (newData):" else "Proposed Value:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = PyricDebugColors.MonospaceBackground,
+                            contentColor = PyricDebugColors.MonospaceForeground,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = proposedValue.toString(),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = PyricDebugColors.MonospaceForeground,
+                                modifier = Modifier.padding(8.dp)
+                            )
                         }
                     } else if (!existingData.isNullOrEmpty()) {
                         Spacer(modifier = Modifier.height(8.dp))

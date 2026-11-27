@@ -303,7 +303,7 @@ data class RulesDenialContext(
             val engine = map["engine"] as? String ?: "firestore"
             val matchedPath = map["matchedPath"] as? String
             val matchedRule = map["matchedRule"] as? String
-            val rtdbRule = if (engine == "rtdb" && (matchedPath != null || matchedRule != null)) {
+            val rtdbRule = if (engine == "rtdb") {
                 RuleCitation(
                     file = RTDB_RULES_FILE,
                     citation = if (matchedPath != null) "$RTDB_RULES_FILE $matchedPath" else RTDB_RULES_FILE,

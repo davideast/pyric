@@ -62,7 +62,7 @@ public struct RulesDenialCardView: View {
 
                     ForEach(report.reasons, id: \.self) { reason in
                         HStack(alignment: .top, spacing: 6) {
-                            Text("•").foregroundColor(.red)
+                            Text("-").foregroundColor(.red)
                             Text(reason)
                                 .font(.caption)
                                 .foregroundColor(.primary)
@@ -86,15 +86,42 @@ public struct RulesDenialCardView: View {
                     if let tenant = report.authTenant {
                         detailRow(title: "Tenant", value: tenant)
                     }
+                    if let matchedPath = report.matchedPath, !matchedPath.isEmpty {
+                        detailRow(title: "Matched Path", value: matchedPath)
+                    }
+                    if let bindings = report.pathVariableBindings, !bindings.isEmpty {
+                        let rendered = bindings.keys.sorted().compactMap { key in
+                            bindings[key].map { "\(key): \($0)" }
+                        }.joined(separator: ", ")
+                        detailRow(title: "Bindings", value: rendered)
+                    }
+                    if let remediation = report.remediation, !remediation.isEmpty {
+                        detailRow(title: "Remediation", value: remediation)
+                    }
                     if !report.failedFields.isEmpty {
                         detailRow(title: "Failed Fields", value: report.failedFields.joined(separator: ", "))
                     }
 
                     if let proposed = report.proposedData, !proposed.isEmpty {
-                        dataBlock(title: "Proposed Data (request.resource.data)", dict: proposed)
+                        dataBlock(
+                            title: report.isRtdb
+                                ? "Proposed Value (newData)"
+                                : "Proposed Data (request.resource.data)",
+                            dict: proposed
+                        )
+                    } else if let proposedValue = report.proposedValue {
+                        valueBlock(
+                            title: report.isRtdb ? "Proposed Value (newData)" : "Proposed Value",
+                            value: proposedValue.description
+                        )
                     }
                     if let existing = report.existingData, !existing.isEmpty {
-                        dataBlock(title: "Existing Data (resource.data)", dict: existing)
+                        dataBlock(
+                            title: report.isRtdb
+                                ? "Existing Data (data)"
+                                : "Existing Data (resource.data)",
+                            dict: existing
+                        )
                     }
                 }
                 .padding(.top, 4)
@@ -158,12 +185,18 @@ public struct RulesDenialCardView: View {
     }
 
     private func dataBlock(title: String, dict: [String: AnySendable]) -> some View {
+        let formatted = dict.keys.sorted().compactMap { key in
+            dict[key].map { "\(key): \($0.description)" }
+        }.joined(separator: "\n")
+        return valueBlock(title: title, value: formatted)
+    }
+
+    private func valueBlock(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption2.bold())
                 .foregroundColor(.secondary)
-            let formatted = dict.map { "\($0.key): \($0.value.description)" }.joined(separator: "\n")
-            Text(formatted)
+            Text(value)
                 .font(.system(.caption2, design: .monospaced))
                 .padding(6)
                 .frame(maxWidth: .infinity, alignment: .leading)
