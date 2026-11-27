@@ -1,0 +1,148 @@
+{
+  "authority": "hash-pinned python-chess",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "boards": [
+    {
+      "id": "queen-rank-clear",
+      "source": "k7/8/K7/8/6Q1/8/8/2q5 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/8/8/8/8/2q5 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [
+        "c1c8"
+      ],
+      "afterReply": {
+        "c1c8": "k1q3Q1/8/K7/8/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "queen-rank-c4-blocker",
+      "source": "k7/8/K7/8/2p3Q1/8/8/2q5 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/8/2p5/8/8/2q5 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "queen-file-clear",
+      "source": "8/3Q4/8/8/8/q7/8/5K1k w - -",
+      "move": "d7h7",
+      "successor": "8/7Q/8/8/8/q7/8/5K1k b - -",
+      "checkers": [
+        "h7"
+      ],
+      "replies": [
+        "a3h3"
+      ],
+      "afterReply": {
+        "a3h3": "8/7Q/8/8/8/7q/8/5K1k w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "queen-file-d3-blocker",
+      "source": "8/3Q4/8/8/8/q2p4/8/5K1k w - -",
+      "move": "d7h7",
+      "successor": "8/7Q/8/8/8/q2p4/8/5K1k b - -",
+      "checkers": [
+        "h7"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "queen-diagonal-clear",
+      "source": "k7/2B2q2/1K6/8/8/8/8/4Q3 w - -",
+      "move": "e1e4",
+      "successor": "k7/2B2q2/1K6/8/4Q3/8/8/8 b - -",
+      "checkers": [
+        "e4"
+      ],
+      "replies": [
+        "f7d5"
+      ],
+      "afterReply": {
+        "f7d5": "k7/2B5/1K6/3q4/4Q3/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "queen-diagonal-e6-blocker",
+      "source": "k7/2B2q2/1K2p3/8/8/8/8/4Q3 w - -",
+      "move": "e1e4",
+      "successor": "k7/2B2q2/1K2p3/8/4Q3/8/8/8 b - -",
+      "checkers": [
+        "e4"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "queen-capture-clear",
+      "source": "k7/8/K7/8/6Q1/8/6q1/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/8/8/8/6q1/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [
+        "g2g8"
+      ],
+      "afterReply": {
+        "g2g8": "k5q1/8/K7/8/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "queen-capture-g3-blocker",
+      "source": "k7/8/K7/8/6Q1/6p1/6q1/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/8/8/6p1/6q1/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "queen-captures-only-checker",
+      "source": "k7/2B2q2/1K6/8/8/8/B7/8 w - -",
+      "move": "a2d5",
+      "successor": "k7/2B2q2/1K6/3B4/8/8/8/8 b - -",
+      "checkers": [
+        "d5"
+      ],
+      "replies": [
+        "f7d5"
+      ],
+      "afterReply": {
+        "f7d5": "k7/2B5/1K6/3q4/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "queen-capture-leaves-rook-check",
+      "source": "k7/2B2q2/1K6/8/8/8/B7/R7 w - -",
+      "move": "a2d5",
+      "successor": "k7/2B2q2/1K6/3B4/8/8/8/R7 b - -",
+      "checkers": [
+        "a1",
+        "d5"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    }
+  ],
+  "claims": 30
+}

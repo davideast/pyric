@@ -1,0 +1,35 @@
+{
+  "authority": "hash-pinned python-chess",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "boards": [
+    {
+      "id": "rook-c5-after-queen",
+      "source": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/2r5/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [
+        "c5c8"
+      ],
+      "afterReply": {
+        "c5c8": "k1r3Q1/8/K7/8/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "rook-h5-after-queen",
+      "source": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/7r/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    }
+  ],
+  "claims": 6
+}

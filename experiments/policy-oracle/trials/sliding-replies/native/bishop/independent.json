@@ -1,0 +1,91 @@
+{
+  "authority": "hash-pinned python-chess",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "boards": [
+    {
+      "id": "bishop-e5-clear",
+      "source": "k7/8/K7/4b3/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K7/4b3/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [
+        "e5b8"
+      ],
+      "afterReply": {
+        "e5b8": "kb4Q1/8/K7/8/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "bishop-e5-d6-blocker",
+      "source": "k7/8/K2p4/4b3/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/K2p4/4b3/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "bishop-b6-clear",
+      "source": "k7/8/Kb6/8/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/8/Kb6/8/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [
+        "b6d8"
+      ],
+      "afterReply": {
+        "b6d8": "k2b2Q1/8/K7/8/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "bishop-b6-c7-blocker",
+      "source": "k7/2p5/Kb6/8/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/2p5/Kb6/8/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    },
+    {
+      "id": "bishop-b7-free",
+      "source": "k7/1b6/1K6/8/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/1b6/1K6/8/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [
+        "b7c8"
+      ],
+      "afterReply": {
+        "b7c8": "k1b3Q1/8/1K6/8/8/8/8/8 w - -"
+      },
+      "acceptedClaim": "playing"
+    },
+    {
+      "id": "bishop-b7-pinned",
+      "source": "k7/1b6/1KB5/8/6Q1/8/8/8 w - -",
+      "move": "g4g8",
+      "successor": "k5Q1/1b6/1KB5/8/8/8/8/8 b - -",
+      "checkers": [
+        "g8"
+      ],
+      "replies": [],
+      "afterReply": {},
+      "acceptedClaim": "won"
+    }
+  ],
+  "claims": 18
+}

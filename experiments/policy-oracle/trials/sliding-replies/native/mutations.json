@@ -1,0 +1,190 @@
+{
+  "authority": "offline faulty slider-reply controls",
+  "boards": 18,
+  "claims": 54,
+  "observations": {
+    "ignore-blockers": {
+      "firstDivergence": {
+        "board": "bishop-e5-d6-blocker",
+        "native": [],
+        "mutated": [
+          "e5b8"
+        ]
+      },
+      "boards": [
+        {
+          "board": "bishop-e5-d6-blocker",
+          "native": [],
+          "mutated": [
+            "e5b8"
+          ]
+        },
+        {
+          "board": "bishop-b6-c7-blocker",
+          "native": [],
+          "mutated": [
+            "b6d8"
+          ]
+        },
+        {
+          "board": "queen-rank-c4-blocker",
+          "native": [],
+          "mutated": [
+            "c1c8"
+          ]
+        },
+        {
+          "board": "queen-file-d3-blocker",
+          "native": [],
+          "mutated": [
+            "a3h3"
+          ]
+        },
+        {
+          "board": "queen-diagonal-clear",
+          "native": [
+            "f7d5"
+          ],
+          "mutated": [
+            "f7b7",
+            "f7d5"
+          ]
+        },
+        {
+          "board": "queen-diagonal-e6-blocker",
+          "native": [],
+          "mutated": [
+            "f7b7",
+            "f7d5"
+          ]
+        },
+        {
+          "board": "queen-capture-g3-blocker",
+          "native": [],
+          "mutated": [
+            "g2g8"
+          ]
+        },
+        {
+          "board": "queen-captures-only-checker",
+          "native": [
+            "f7d5"
+          ],
+          "mutated": [
+            "f7b7",
+            "f7d5"
+          ]
+        }
+      ],
+      "claimErrors": [
+        {
+          "id": "bishop-e5-d6-blocker-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "bishop-e5-d6-blocker-won",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "bishop-b6-c7-blocker-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "bishop-b6-c7-blocker-won",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "queen-rank-c4-blocker-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "queen-rank-c4-blocker-won",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "queen-file-d3-blocker-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "queen-file-d3-blocker-won",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "queen-diagonal-e6-blocker-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "queen-diagonal-e6-blocker-won",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "queen-capture-g3-blocker-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "queen-capture-g3-blocker-won",
+          "native": true,
+          "mutant": false
+        }
+      ]
+    },
+    "skip-post-reply-king-safety": {
+      "firstDivergence": {
+        "board": "bishop-b7-pinned",
+        "native": [],
+        "mutated": [
+          "b7c8"
+        ]
+      },
+      "boards": [
+        {
+          "board": "bishop-b7-pinned",
+          "native": [],
+          "mutated": [
+            "b7c8"
+          ]
+        },
+        {
+          "board": "queen-capture-leaves-rook-check",
+          "native": [],
+          "mutated": [
+            "f7d5"
+          ]
+        }
+      ],
+      "claimErrors": [
+        {
+          "id": "bishop-b7-pinned-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "bishop-b7-pinned-won",
+          "native": true,
+          "mutant": false
+        },
+        {
+          "id": "queen-capture-leaves-rook-check-playing",
+          "native": false,
+          "mutant": true
+        },
+        {
+          "id": "queen-capture-leaves-rook-check-won",
+          "native": true,
+          "mutant": false
+        }
+      ]
+    }
+  }
+}
