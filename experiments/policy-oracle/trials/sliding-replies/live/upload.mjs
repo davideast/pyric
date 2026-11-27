@@ -69,21 +69,33 @@ async function create(digest,archivePath) {
   verifySource(source,digest);
   const existing=uploadObservation(digest,archive);
   if(existing) return existing;
-  const before=await inspectTarget();
+  let before=await inspectTarget();
   const {projectNumber}=await preflight();
   const request={source:{files:[{name:'firestore.rules',content:source}]},
     attachment_point:'firestore.googleapis.com/projects/'+projectNumber+'/databases/'+database};
-  const token=execFileSync('gcloud',['auth','print-access-token'],{encoding:'utf8'}).trim();
+  const intentPath=join(archive,'sliding-create-'+digest+'.intent.json');
+  const responsePath=join(archive,'sliding-create-'+digest+'.response.json');
   // A lost create response may still produce a new immutable Google ruleset.
   // Record intent before POST and refuse an automatic second create.
-  immutable(join(archive,'sliding-create-'+digest+'.intent.json'),jsonBytes({digest,endpoint,request,before}));
-  const result=await fetch(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(90000),
-    headers:{Authorization:'Bearer '+token,'x-goog-user-project':project,'content-type':'application/json'},
-    body:JSON.stringify(request)});
-  const response=await result.json(),status=result.status;
-  immutable(join(archive,'sliding-create-'+digest+'.response.json'),jsonBytes({status,response}));
+  let status,response;
+  if(existsSync(intentPath)) {
+    const intent=JSON.parse(readFileSync(intentPath));
+    assert.deepEqual(intent,{digest,endpoint,request,before:intent.before});
+    assert.equal(before.restoredReleaseVersion,intent.before.restoredReleaseVersion);
+    before=intent.before;
+    assert.ok(existsSync(responsePath),'Create outcome unknown. Use --locate to check before further action.');
+    ({status,response}=JSON.parse(readFileSync(responsePath)));
+  } else {
+    const token=execFileSync('gcloud',['auth','print-access-token'],{encoding:'utf8'}).trim();
+    immutable(intentPath,jsonBytes({digest,endpoint,request,before}));
+    const result=await fetch(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(90000),
+      headers:{Authorization:'Bearer '+token,'x-goog-user-project':project,'content-type':'application/json'},
+      body:JSON.stringify(request)});
+    response=await result.json();status=result.status;
+    immutable(responsePath,jsonBytes({status,response}));
+  }
   let verified=null;
-  if(result.ok) {
+  if(status>=200 && status<300) {
     assert.ok(typeof response.name==='string' && response.name.startsWith(prefix));
     verified=await api('https://firebaserules.googleapis.com/v1/'+response.name);
   }
