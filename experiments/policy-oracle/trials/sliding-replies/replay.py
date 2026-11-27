@@ -42,7 +42,7 @@ def candidate_outputs(package,variant,positions):
         manifest=read(HERE/'compiler/inputs.json')
         files.update(manifest)
         files.update(file.relative_to(ROOT).as_posix() for file in (HERE/'compiler').glob('*') if file.suffix in ('.mjs','.policy'))
-        files.update(REL+'/'+file for file in ('emit-worker.mjs','policy-variant.mjs','protocol/dense.mjs'))
+        files.update(REL+'/'+file for file in ('emit-worker.mjs','policy-variant.mjs','protocol/dense.mjs','protocol/shared-status.mjs','protocol/lean.mjs','protocol/target-rays.mjs','protocol/file-check.mjs'))
         jobs['emit']=task('emit-worker.mjs',[PKG,variant])
     with package.open('rb') as stream:
         data=stream.read(MAX_PACKAGE+1)
@@ -128,7 +128,8 @@ def material_profile(variant):
     if variant.startswith('rook-'): return 'rook'
     if variant.startswith('bishop-'): return 'bishop'
     if variant.startswith('all-two-defenders-'): return 'queen-with-knight-or-rooks'
-    if variant.startswith(('all-minors-','all-shared-')): return 'queen-with-knight-or-rooks-or-lone-knight'
+    generation=re.search(r'(?:^|-)v(\d+)(?:-|$)',variant)
+    if generation and int(generation[1])>=9: return 'including-sole-knight'
     return 'queen'
 
 
@@ -235,11 +236,28 @@ def replay(args,scratch):
                 if errors: witness['uncertainScope'][cohort]=errors
     witness['panelErrors']={}
     if args.witness_panel:
+        roster=witness.get('rosterControls',{})
+        if profile and roster:
+            qualification=roster['materialAudit']['qualification'][profile]
+            if not qualification['passes']: witness['uncertainScope']['roster']=qualification
+            included={row['id'] for row in roster['scores'] if row['supported']}
+            wrong=[row['id'] for row in roster['routes'] if row['id'].rsplit('-',1)[0] in included
+                   and (row['local']!=row['expected'] or row['error'])]
+            if wrong: witness['panelErrors']['rosterWrites']=wrong
         for cohort in ('panel','otherTurns'):
             statuses=witness.get(cohort,{}).get('scopes',{})
             errors={k:v for k,v in statuses.get('guard-true',{}).items() if k not in ('legal-witness','correct-absence') and v}
             if statuses.get('guard-error'): errors['guard-error']=sum(statuses['guard-error'].values())
             if errors: witness['panelErrors'][cohort]=errors
+    if args.witness_panel and ('-dense3' in args.variant or '-boxed' in args.variant):
+        measured=subprocess.run(['bun','--no-install',HERE/'protocol/dense-probe.mjs',reference,path],
+                                capture_output=True,text=True)
+        if measured.stdout:
+            details=json.loads(measured.stdout)
+            assert details['rulesSha256']==rules_sha
+            result['densePanel']=details
+        if measured.returncode:
+            witness['panelErrors']['dense']=measured.stderr[-1000:] or result.get('densePanel',{}).get('outcomes')
     result['compiledWitness']=witness
     result['localConforms']=(witness['verifiedFocused']==len(scored)
                              and witness['verifiedWritePaths']==witness['requiredWritePaths']
@@ -278,7 +296,7 @@ def main():
             if args.through!='queen': p.error('--with-history requires the full corpus')
             entries=[]
             def order(path):
-                version=re.search(r'-v(\d+)(?:-dense3)?$',path.stem)
+                version=re.search(r'-v(\d+)(?:-|$)',path.stem)
                 return (int(version[1]) if version else 0,path.stem.endswith('-dense3'),path.stem)
             for file in sorted((HERE/'revisions').glob('*.json'),key=order):
                 frozen=read(file)

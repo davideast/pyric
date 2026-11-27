@@ -7,7 +7,7 @@ const piecePattern=(piece,stride,target,continuous)=>{
   const span=gap+(continuous?'(?:[,t]'+gap+')*':'');
   return [piece+span+target,target+span+piece];
 };
-function proof(side) {
+function proof(side,boxed=false) {
   const enemy=side==='w'?'b':'w';
   // One cell per playable square, two walls per rank. Preserve all blockers.
   const conversions=[[enemy+'q,','Q'],[enemy+'b,','B'],[enemy+'[rpnk],','X'],
@@ -32,20 +32,30 @@ function proof(side) {
   // Counting a two-square pawn push even off its home rank is conservative.
   // Promoting does not change the set of reachable destination squares.
   reach.push(...(side==='w'?['p.{9}t','p.{9}[,t].{9}t']:['t.{9}p','t.{9}[,t].{9}p']));
-  const name='denseNoInterposition'+side;
+  if(boxed) {
+    // Every marked empty target stays attacked by the same checking slider
+    // after a king step onto it. Any other vacant or enemy neighbor is a
+    // possible escape, so defer to the ordinary policy even if it is attacked.
+    for(const stride of [1,9,10,11]) reach.push(...piecePattern('k',stride,'[,BQXC]',false));
+  }
+  const name=(boxed?'denseBoxedMate':'denseNoInterposition')+side;
   return [name,`function ${name}(text) {
   let compact=${compact};
   let marked=${marked};
   return marked!=compact && !marked.matches('.*(?:${reach.join('|')}).*');
 }`];
 }
-export function denseSources() { return Object.fromEntries(['w','b'].map(proof)); }
-export function denseLink(full,extra) {
+export function denseSources(boxed=false) { return Object.fromEntries(['w','b'].map(side=>proof(side,boxed))); }
+export function denseLink(full,extra,boxed=false) {
   const marker='  function admittedStatus(';
   assert.equal(full.split(marker).length,2);
-  const names=Object.keys(denseSources());
+  const names=Object.keys(denseSources(boxed));
   const functions=names.map(name=>extra[name].replace(/^rules_version\s*=\s*'2\+modules';\s*export /,'').trim());
-  const gate=`function denseSliderStatus(text,color,status) {
+  const gate=boxed?`function denseSliderStatus(text,color,status) {
+    return (color=='w' ? text.matches('.*bp,.*bp,.*') && denseBoxedMateb(text)
+                       : text.matches('.*wp,.*wp,.*') && denseBoxedMatew(text))
+        ? status=='won' : admittedStatus(text,color,status);
+  }`:`function denseSliderStatus(text,color,status) {
     let defender=color=='w'?'b':'w';
     return (color=='w'? text.matches('.*bp,.*bp,.*') && denseNoInterpositionb(text)
                       : text.matches('.*wp,.*wp,.*') && denseNoInterpositionw(text))

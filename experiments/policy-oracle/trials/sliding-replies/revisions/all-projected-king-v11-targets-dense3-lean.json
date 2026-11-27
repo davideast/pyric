@@ -1,0 +1,477 @@
+{
+  "variant": "all-projected-king-v11-targets-dense3-lean",
+  "through": "queen",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "requestSha256": "7697cc154bc03a3104650718c75d041bd1733f20ef96c0dbe7b7a06d64470815",
+  "nativeSha256": "8145289b0628d9ad47b38850670eb565cb04f645120c9f7899f29335f2db9a55",
+  "compile": {
+    "status": "emitted",
+    "rulesSha256": "90a7a1bdbe7d29e2e2b5acc3419bd8a586e92581fec455bb322362beb5f5630d",
+    "bytes": 122483
+  },
+  "standalone": {
+    "positions": 104,
+    "proposals": 198,
+    "outcomes": {
+      "match": 104
+    },
+    "replyRowsSha256": "68ac3b2fc2e848f75b52c4d34705f8a9bb31f88f1b54984df7042f48d40121a8"
+  },
+  "local": {
+    "groups": {
+      "original-190": {
+        "cases": 190,
+        "outcomes": {
+          "match": 176,
+          "false-refusal": 7,
+          "evaluation-error": 7
+        },
+        "diagnostics": {
+          "rule-error": 14
+        }
+      },
+      "rook": {
+        "cases": 6,
+        "outcomes": {
+          "false-refusal": 2,
+          "match": 2,
+          "evaluation-error": 2
+        },
+        "diagnostics": {
+          "rule-error": 4
+        }
+      },
+      "bishop": {
+        "cases": 18,
+        "outcomes": {
+          "false-refusal": 6,
+          "match": 6,
+          "evaluation-error": 6
+        },
+        "diagnostics": {
+          "rule-error": 12
+        }
+      },
+      "queen": {
+        "cases": 30,
+        "outcomes": {
+          "false-refusal": 10,
+          "match": 10,
+          "evaluation-error": 10
+        },
+        "diagnostics": {
+          "rule-error": 20
+        }
+      }
+    },
+    "changes": {
+      "original-190": {
+        "repaired": [
+          "holdout-replies-v1-stalemate-pinned-defender-playing",
+          "actual-fourth-ply-playing",
+          "promote-capturing-rook-right-held"
+        ],
+        "regressed": [
+          "one-rook-reply-correct",
+          "one-rook-reply-wrong-result",
+          "holdout-interior-v1-b-mate-won",
+          "holdout-interior-v1-w-nonking-checked-playing",
+          "holdout-replies-v1-only-b-move-in-check-playing",
+          "holdout-replies-v1-only-r-capture-in-check-playing",
+          "holdout-replies-v1-only-r-capture-in-check-won",
+          "rook-c5-after-queen-playing",
+          "rook-h5-after-queen-won"
+        ],
+        "remaining": [
+          "holdout-interior-v1-b-mate-playing",
+          "holdout-interior-v1-w-nonking-checked-won",
+          "holdout-replies-v1-only-b-move-in-check-won",
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ]
+      },
+      "rook": {
+        "repaired": [],
+        "regressed": [
+          "rook-c5-after-queen-playing",
+          "rook-h5-after-queen-won"
+        ],
+        "remaining": [
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ]
+      },
+      "bishop": {
+        "repaired": [],
+        "regressed": [
+          "bishop-e5-clear-playing",
+          "bishop-e5-d6-blocker-won",
+          "bishop-b6-clear-playing",
+          "bishop-b6-c7-blocker-won",
+          "bishop-b7-free-playing",
+          "bishop-b7-pinned-won"
+        ],
+        "remaining": [
+          "bishop-e5-clear-won",
+          "bishop-e5-d6-blocker-playing",
+          "bishop-b6-clear-won",
+          "bishop-b6-c7-blocker-playing",
+          "bishop-b7-free-won",
+          "bishop-b7-pinned-playing"
+        ]
+      },
+      "queen": {
+        "repaired": [],
+        "regressed": [
+          "queen-rank-clear-playing",
+          "queen-rank-c4-blocker-won",
+          "queen-file-clear-playing",
+          "queen-file-d3-blocker-won",
+          "queen-diagonal-clear-playing",
+          "queen-diagonal-e6-blocker-won",
+          "queen-capture-clear-playing",
+          "queen-capture-clear-won",
+          "queen-capture-g3-blocker-won",
+          "queen-captures-only-checker-playing",
+          "queen-capture-leaves-rook-check-won"
+        ],
+        "remaining": [
+          "queen-rank-clear-won",
+          "queen-rank-c4-blocker-playing",
+          "queen-file-clear-won",
+          "queen-file-d3-blocker-playing",
+          "queen-diagonal-clear-won",
+          "queen-diagonal-e6-blocker-playing",
+          "queen-capture-g3-blocker-playing",
+          "queen-captures-only-checker-won",
+          "queen-capture-leaves-rook-check-playing"
+        ]
+      }
+    },
+    "verdictAndCostsSha256": "0ad59ded9676d4be86fb91fe4c48151c92bf0f3041f27339f2bad77495bb92ab",
+    "disagreements": {
+      "one-rook-reply-correct": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 826,
+        "diagnostic": "rule-error"
+      },
+      "one-rook-reply-wrong-result": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 833,
+        "diagnostic": "rule-error"
+      },
+      "holdout-interior-v1-b-mate-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "holdout-interior-v1-b-mate-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 822,
+        "diagnostic": "rule-error"
+      },
+      "holdout-interior-v1-w-nonking-checked-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 877,
+        "diagnostic": "rule-error"
+      },
+      "holdout-interior-v1-w-nonking-checked-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 884,
+        "diagnostic": "rule-error"
+      },
+      "holdout-replies-v1-only-b-move-in-check-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 868,
+        "diagnostic": "rule-error"
+      },
+      "holdout-replies-v1-only-b-move-in-check-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 875,
+        "diagnostic": "rule-error"
+      },
+      "holdout-replies-v1-only-r-capture-in-check-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 842,
+        "diagnostic": "rule-error"
+      },
+      "holdout-replies-v1-only-r-capture-in-check-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 849,
+        "diagnostic": "rule-error"
+      },
+      "rook-c5-after-queen-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 817,
+        "diagnostic": "rule-error"
+      },
+      "rook-c5-after-queen-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 824,
+        "diagnostic": "rule-error"
+      },
+      "rook-h5-after-queen-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 817,
+        "diagnostic": "rule-error"
+      },
+      "rook-h5-after-queen-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 824,
+        "diagnostic": "rule-error"
+      },
+      "bishop-e5-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "bishop-e5-clear-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 822,
+        "diagnostic": "rule-error"
+      },
+      "bishop-e5-d6-blocker-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 849,
+        "diagnostic": "rule-error"
+      },
+      "bishop-e5-d6-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 856,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b6-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b6-clear-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 822,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b6-c7-blocker-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 849,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b6-c7-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 856,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b7-free-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b7-free-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 822,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b7-pinned-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "bishop-b7-pinned-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 822,
+        "diagnostic": "rule-error"
+      },
+      "queen-rank-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 808,
+        "diagnostic": "rule-error"
+      },
+      "queen-rank-clear-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "queen-rank-c4-blocker-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 842,
+        "diagnostic": "rule-error"
+      },
+      "queen-rank-c4-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 849,
+        "diagnostic": "rule-error"
+      },
+      "queen-file-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 810,
+        "diagnostic": "rule-error"
+      },
+      "queen-file-clear-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 817,
+        "diagnostic": "rule-error"
+      },
+      "queen-file-d3-blocker-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 844,
+        "diagnostic": "rule-error"
+      },
+      "queen-file-d3-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 851,
+        "diagnostic": "rule-error"
+      },
+      "queen-diagonal-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 829,
+        "diagnostic": "rule-error"
+      },
+      "queen-diagonal-clear-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 836,
+        "diagnostic": "rule-error"
+      },
+      "queen-diagonal-e6-blocker-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 863,
+        "diagnostic": "rule-error"
+      },
+      "queen-diagonal-e6-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 870,
+        "diagnostic": "rule-error"
+      },
+      "queen-capture-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 808,
+        "diagnostic": "rule-error"
+      },
+      "queen-capture-clear-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 815,
+        "diagnostic": "rule-error"
+      },
+      "queen-capture-g3-blocker-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 842,
+        "diagnostic": "rule-error"
+      },
+      "queen-capture-g3-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 849,
+        "diagnostic": "rule-error"
+      },
+      "queen-captures-only-checker-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 848,
+        "diagnostic": "rule-error"
+      },
+      "queen-captures-only-checker-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 855,
+        "diagnostic": "rule-error"
+      },
+      "queen-capture-leaves-rook-check-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 834,
+        "diagnostic": "rule-error"
+      },
+      "queen-capture-leaves-rook-check-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 841,
+        "diagnostic": "rule-error"
+      }
+    }
+  }
+}

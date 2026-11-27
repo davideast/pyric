@@ -1,0 +1,254 @@
+{
+  "variant": "all-mode-table-v14",
+  "through": "queen",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "requestSha256": "7697cc154bc03a3104650718c75d041bd1733f20ef96c0dbe7b7a06d64470815",
+  "nativeSha256": "8145289b0628d9ad47b38850670eb565cb04f645120c9f7899f29335f2db9a55",
+  "compile": {
+    "status": "emitted",
+    "rulesSha256": "618492b1277aded5d6322ccb609f06793b6d770ef88ad85547edcd8ac91c2e7c",
+    "bytes": 103687
+  },
+  "standalone": {
+    "positions": 104,
+    "proposals": 198,
+    "outcomes": {
+      "match": 104
+    },
+    "replyRowsSha256": "68ac3b2fc2e848f75b52c4d34705f8a9bb31f88f1b54984df7042f48d40121a8"
+  },
+  "local": {
+    "groups": {
+      "original-190": {
+        "cases": 190,
+        "outcomes": {
+          "match": 185,
+          "false-refusal": 3,
+          "evaluation-error": 1,
+          "false-allow": 1
+        },
+        "diagnostics": {
+          "resource-limit": 4
+        }
+      },
+      "rook": {
+        "cases": 6,
+        "outcomes": {
+          "match": 6
+        },
+        "diagnostics": {}
+      },
+      "bishop": {
+        "cases": 18,
+        "outcomes": {
+          "match": 16,
+          "false-refusal": 2
+        },
+        "diagnostics": {
+          "resource-limit": 2
+        }
+      },
+      "queen": {
+        "cases": 30,
+        "outcomes": {
+          "false-refusal": 10,
+          "match": 20
+        },
+        "diagnostics": {
+          "resource-limit": 10
+        }
+      }
+    },
+    "changes": {
+      "original-190": {
+        "repaired": [
+          "holdout-interior-v1-w-nonking-checked-won",
+          "holdout-replies-v1-stalemate-pinned-defender-playing",
+          "holdout-replies-v1-only-b-move-in-check-won",
+          "promote-capturing-rook-right-held",
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ],
+        "regressed": [
+          "one-rook-reply-correct",
+          "holdout-interior-v1-b-mate-won",
+          "holdout-replies-v1-only-b-move-in-check-playing"
+        ],
+        "remaining": [
+          "holdout-interior-v1-b-mate-playing",
+          "actual-fourth-ply-playing"
+        ]
+      },
+      "rook": {
+        "repaired": [
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "bishop": {
+        "repaired": [
+          "bishop-e5-clear-won",
+          "bishop-e5-d6-blocker-playing",
+          "bishop-b6-clear-won",
+          "bishop-b6-c7-blocker-playing",
+          "bishop-b7-free-won",
+          "bishop-b7-pinned-playing"
+        ],
+        "regressed": [
+          "bishop-e5-d6-blocker-won",
+          "bishop-b6-c7-blocker-won"
+        ],
+        "remaining": []
+      },
+      "queen": {
+        "repaired": [
+          "queen-rank-clear-won",
+          "queen-rank-c4-blocker-playing",
+          "queen-file-clear-won",
+          "queen-file-d3-blocker-playing",
+          "queen-diagonal-clear-won",
+          "queen-diagonal-e6-blocker-playing",
+          "queen-capture-g3-blocker-playing",
+          "queen-captures-only-checker-won",
+          "queen-capture-leaves-rook-check-playing"
+        ],
+        "regressed": [
+          "queen-rank-clear-playing",
+          "queen-rank-c4-blocker-won",
+          "queen-file-clear-playing",
+          "queen-file-d3-blocker-won",
+          "queen-diagonal-clear-playing",
+          "queen-diagonal-e6-blocker-won",
+          "queen-capture-clear-playing",
+          "queen-capture-g3-blocker-won",
+          "queen-captures-only-checker-playing",
+          "queen-capture-leaves-rook-check-won"
+        ],
+        "remaining": []
+      }
+    },
+    "verdictAndCostsSha256": "9678fd3906cd9b482b32888ed7ede03ff7359d56a8a0ed301b53a008dae24bdb",
+    "disagreements": {
+      "one-rook-reply-correct": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "holdout-interior-v1-b-mate-playing": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "evaluation-error",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "holdout-interior-v1-b-mate-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "holdout-replies-v1-only-b-move-in-check-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "actual-fourth-ply-playing": {
+        "native": "DENY",
+        "decision": "ALLOW",
+        "status": "false-allow",
+        "localExpressions": 737
+      },
+      "bishop-e5-d6-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "bishop-b6-c7-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-rank-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-rank-c4-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-file-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-file-d3-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-diagonal-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-diagonal-e6-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-capture-clear-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-capture-g3-blocker-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-captures-only-checker-playing": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      },
+      "queen-capture-leaves-rook-check-won": {
+        "native": "ALLOW",
+        "decision": "DENY",
+        "status": "false-refusal",
+        "localExpressions": 1000,
+        "diagnostic": "resource-limit"
+      }
+    }
+  }
+}

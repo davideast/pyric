@@ -13,7 +13,9 @@ const {firestoreRules}=await import(pathToFileURL(resolve(installed,'dist/index.
 const source=readFileSync(bundle,'utf8');
 const anchor='  match /databases/{database}/documents {';
 assert.equal(source.split(anchor).length,2);
-const rule="match /denseProof/{id} { allow update: if request.resource.data.white ? denseNoInterpositionw(request.resource.data.text) : denseNoInterpositionb(request.resource.data.text); }";
+const boxed=source.includes('function denseBoxedMatew(');
+const helper=boxed?'denseBoxedMate':'denseNoInterposition';
+const rule=`match /denseProof/{id} { allow update: if request.resource.data.white ? ${helper}w(request.resource.data.text) : ${helper}b(request.resource.data.text); }`;
 const probe=firestoreRules(source.replace(anchor,()=>anchor+'\n'+rule));
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const raw=gunzipSync(readFileSync(new URL('dense-boards.json.gz',import.meta.url)));
@@ -30,7 +32,9 @@ for(const row of JSON.parse(raw)) {
     auth:{uid:'host'},data:{white:p.turn==='w',text},expectation:'ALLOW'}]).cases;
   const error=out.resourceLimit?'resource-limit':out.unsupported?'unsupported':out.trace.some(t=>t.verdict==='ERROR')?'evaluation-error':null;
   const proven=out.decision==='ALLOW';
-  const outcome=error??(proven?(row.nonking.length?'unsound-proof':'proved-no-nonking-reply'):row.nonking.length?'legal-nonking-reply':'inconclusive');
+  const disproof=boxed?row.replies:row.nonking;
+  const outcome=error??(proven?(disproof.length?'unsound-proof':boxed?'proved-mate':'proved-no-nonking-reply'):
+    disproof.length?(boxed?'legal-reply':'legal-nonking-reply'):'inconclusive');
   frequencies[outcome]=(frequencies[outcome]??0)+1;
   perSide[p.turn][outcome]=(perSide[p.turn][outcome]??0)+1;
   for(const kind of new Set(row.nonking.map(m=>p.board[squareOf(m.slice(0,2))][1]))) replyKinds[kind]=(replyKinds[kind]??0)+1;
@@ -39,5 +43,6 @@ for(const row of JSON.parse(raw)) {
 }
 const report={rulesSha256:sha(source),boards:results.length,nativeInputsSha256:sha(raw),decisionSha256:sha(JSON.stringify(results)),outcomes:frequencies,perSide,replyKinds,examples};
 console.log(JSON.stringify(report,null,2));
-if(Object.keys(frequencies).some(k=>!['proved-no-nonking-reply','legal-nonking-reply','inconclusive'].includes(k)) ||
-  !perSide.w['proved-no-nonking-reply'] || !perSide.b['proved-no-nonking-reply']) process.exitCode=1;
+const success=boxed?'proved-mate':'proved-no-nonking-reply';
+if(Object.keys(frequencies).some(k=>![success,'legal-nonking-reply','legal-reply','inconclusive'].includes(k)) ||
+  !perSide.w[success] || !perSide.b[success]) process.exitCode=1;
