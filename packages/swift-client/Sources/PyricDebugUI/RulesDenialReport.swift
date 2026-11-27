@@ -176,9 +176,38 @@ public struct RulesDenialReport: Identifiable, Sendable, Equatable {
         )
     }
 
-    /// Extracts a `RulesDenialReport` from a `PyricBridgeError` if it carries a `denialContext`.
+    /// Extracts a `RulesDenialReport` from a `PyricBridgeError` carrying a `denialContext`,
+    /// or synthesizes a fallback report for rules-denial errors (such as `storage/unauthorized`
+    /// or `permission-denied`) when the wire envelope omits `denialContext`.
     public static func from(error: PyricBridgeError) -> RulesDenialReport? {
-        guard let denialContext = error.denialContext else { return nil }
-        return from(denialContext: denialContext, message: error.message)
+        if let denialContext = error.denialContext {
+            return from(denialContext: denialContext, message: error.message)
+        }
+        let normalizedRaw = error.rawCode.lowercased()
+        if normalizedRaw == "storage/unauthorized" || normalizedRaw == "unauthorized" {
+            return RulesDenialReport(
+                engine: "storage",
+                file: "storage.rules",
+                citation: "storage.rules",
+                reasons: [error.message],
+                errorCode: error.rawCode,
+                errorMessage: error.message
+            )
+        }
+        if error.code == .permissionDenied ||
+            normalizedRaw == "permission-denied" ||
+            normalizedRaw == "permission_denied" ||
+            normalizedRaw == "firestore/permission-denied"
+        {
+            return RulesDenialReport(
+                engine: "firestore",
+                file: "firestore.rules",
+                citation: "firestore.rules",
+                reasons: [error.message],
+                errorCode: error.rawCode,
+                errorMessage: error.message
+            )
+        }
+        return nil
     }
 }

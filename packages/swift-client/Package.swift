@@ -38,6 +38,10 @@ var products: [Product] = [
         name: "PyricCrashlytics",
         targets: ["PyricCrashlytics"]
     ),
+    .library(
+        name: "PyricDebugUI",
+        targets: ["PyricDebugUI"]
+    ),
 ]
 
 var targets: [Target] = [
@@ -121,19 +125,43 @@ var targets: [Target] = [
     ),
 ]
 
-#if !os(Linux)
-products.append(
-    .library(
-        name: "PyricDebugUI",
-        targets: ["PyricDebugUI"]
-    )
-)
+#if os(Linux)
+let debugUISourceExcludes: [String] = [
+    "PyricDebugManager.swift",
+    "PyricDebugOverlayModifier.swift",
+    "PyricDebugPillView.swift",
+    "PyricDebugSheetView.swift",
+    "RulesDenialCardView.swift",
+]
+let debugUITestExcludes: [String] = [
+    "Fixtures",
+    "ChallengerM4StressTests.swift",
+    "PyricDebugManagerTests.swift",
+    "RemoteLensSyncTests.swift",
+]
+#else
+let debugUISourceExcludes: [String] = []
+let debugUITestExcludes: [String] = ["Fixtures"]
+#endif
+
 targets.append(contentsOf: [
     .target(
         name: "PyricDebugUI",
         dependencies: ["PyricFirestore", "FirebaseAuth"],
-        path: "Sources/PyricDebugUI"
+        path: "Sources/PyricDebugUI",
+        exclude: debugUISourceExcludes
     ),
+    .testTarget(
+        name: "PyricDebugUITests",
+        dependencies: ["PyricDebugUI", "PyricFirestore", "FirebaseAuth"],
+        path: "Tests/PyricDebugUITests",
+        // Captured wire envelopes, read from disk by path.
+        exclude: debugUITestExcludes
+    ),
+])
+
+#if !os(Linux)
+targets.append(contentsOf: [
     .testTarget(
         name: "PyricFirestoreTests",
         // PyricDatabase lets the reconnect tests drive `.info/connected`
@@ -148,13 +176,6 @@ targets.append(contentsOf: [
         name: "PyricDatabaseTests",
         dependencies: ["PyricDatabase", "PyricFirestore", "FirebaseAuth"],
         path: "Tests/PyricDatabaseTests"
-    ),
-    .testTarget(
-        name: "PyricDebugUITests",
-        dependencies: ["PyricDebugUI", "PyricFirestore", "FirebaseAuth"],
-        path: "Tests/PyricDebugUITests",
-        // Captured wire envelopes, read from disk by path.
-        exclude: ["Fixtures"]
     ),
 ])
 #endif

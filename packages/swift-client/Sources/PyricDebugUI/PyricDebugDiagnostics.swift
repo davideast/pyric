@@ -93,7 +93,8 @@ public final class PyricDebugDiagnostics: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Records an intercepted `PyricBridgeError` if it carries a Security Rules denial context.
+    /// Records an intercepted `PyricBridgeError` carrying a Security Rules denial context
+    /// or matching a rules-denial error code (synthesizing a fallback report when needed).
     public func record(error: PyricBridgeError) {
         guard let report = RulesDenialReport.from(error: error) else { return }
         record(denial: report)
