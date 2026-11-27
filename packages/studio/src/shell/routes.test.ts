@@ -8,13 +8,14 @@ import {
 } from './routes.js';
 
 /** The tab set + order per specs/shell.md (Rules omitted: no approved
- *  surface exists yet — left out rather than shipping a placeholder). */
+ *  surface exists yet -- left out rather than shipping a placeholder). */
 const SHELL_ROUTES: readonly RouteId[] = [
   'home',
   'firestore',
   'auth',
   'rtdb',
   'storage',
+  'functions',
   'traffic',
   'settings',
 ];
@@ -28,6 +29,7 @@ describe('Studio route registry', () => {
       'Auth',
       'RTDB',
       'Storage',
+      'Functions',
       'Traffic',
       'Settings',
     ]);
@@ -41,6 +43,7 @@ describe('Studio route registry', () => {
       'auth',
       'rtdb',
       'storage',
+      'functions',
       'traffic',
       'assurance',
       'settings',

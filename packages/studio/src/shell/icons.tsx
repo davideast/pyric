@@ -114,3 +114,12 @@ export function IconCommand({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+// Cloud Functions bolt glyph.
+export function IconFunctions({ size = 16, className }: IconProps) {
+  return (
+    <svg {...svgProps(size, className)}>
+      <polygon points="13 2 4 14 11 14 10 22 20 10 13 10 13 2" />
+    </svg>
+  );
+}
