@@ -178,11 +178,13 @@ final class BridgeLocalStreams: @unchecked Sendable {
             return
         }
         _state = next
-        for continuation in stateContinuations.values {
-            continuation.yield(next)
-        }
+        // Notify synchronous observers before waking AsyncStream consumers so
+        // callers awaiting connectionStates never race ahead of internal hubs.
         for observer in stateObservers.values {
             observer(next)
+        }
+        for continuation in stateContinuations.values {
+            continuation.yield(next)
         }
         lock.unlock()
     }
@@ -197,12 +199,13 @@ final class BridgeLocalStreams: @unchecked Sendable {
 
     func yieldDenial(_ error: PyricBridgeError) {
         lock.lock()
-        for continuation in denialContinuations.values {
-            continuation.yield(error)
-        }
+        let continuations = Array(denialContinuations.values)
         let callback = _onDenial
         lock.unlock()
         callback?(error)
+        for continuation in continuations {
+            continuation.yield(error)
+        }
     }
 
     func closeAll(disposed: Bool) {
@@ -215,11 +218,11 @@ final class BridgeLocalStreams: @unchecked Sendable {
         }
         if _state != .closed {
             _state = .closed
-            for continuation in stateContinuations.values {
-                continuation.yield(.closed)
-            }
             for observer in stateObservers.values {
                 observer(.closed)
+            }
+            for continuation in stateContinuations.values {
+                continuation.yield(.closed)
             }
         }
         let states = Array(stateContinuations.values)

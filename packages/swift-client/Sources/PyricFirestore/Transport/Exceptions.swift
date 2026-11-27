@@ -149,10 +149,18 @@ public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, 
         if let exact = FirestoreErrorCode(rawValue: code), exact != .unknown {
             return exact
         }
-        let kebabCode = code
+        let lowerCode = code
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-            .replacingOccurrences(of: "_", with: "-")
+        let unprefixedCode: String
+        if lowerCode.hasPrefix("database/") {
+            unprefixedCode = String(lowerCode.dropFirst("database/".count))
+        } else if lowerCode.hasPrefix("firestore/") {
+            unprefixedCode = String(lowerCode.dropFirst("firestore/".count))
+        } else {
+            unprefixedCode = lowerCode
+        }
+        let kebabCode = unprefixedCode.replacingOccurrences(of: "_", with: "-")
         if let mapped = FirestoreErrorCode(rawValue: kebabCode), mapped != .unknown {
             return mapped
         }

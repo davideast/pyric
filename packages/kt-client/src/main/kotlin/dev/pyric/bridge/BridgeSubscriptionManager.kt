@@ -484,7 +484,7 @@ class BridgeSubscriptionManager internal constructor(
             val errorMap = value["__error"] as? Map<String, Any?> ?: emptyMap()
             val codeStr = errorMap["code"] as? String ?: "permission-denied"
             val messageStr = errorMap["message"] as? String ?: "Subscription error"
-            val denialContext = errorMap["denialContext"]
+            val denialContext = mergeBridgeDenialExtras(errorMap)
 
             val firestoreCode = FirebaseFirestoreException.Code.fromWireCode(codeStr)
             val exception = FirebaseFirestoreException(

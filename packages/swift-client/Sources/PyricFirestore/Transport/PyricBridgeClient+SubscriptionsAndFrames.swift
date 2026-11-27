@@ -377,7 +377,7 @@ extension PyricBridgeClient {
             let code = errorObj?["code"]?.stringValue ?? "unknown"
             let message = errorObj?["message"]?.stringValue ?? "unknown sandbox error"
             let denialContext = errorObj?["denialContext"]
-            let envelope = errorObj?["envelope"]
+            let envelope = errorObj?["aiEnvelope"] ?? errorObj?["envelope"]
 
             let error = PyricBridgeError.fromCode(
                 code: code,
@@ -435,11 +435,13 @@ extension PyricBridgeClient {
             let code = errObj["code"]?.stringValue ?? "permission-denied"
             let message = errObj["message"]?.stringValue ?? "Subscription error"
             let denialContext = errObj["denialContext"]
+            let envelope = errObj["aiEnvelope"] ?? errObj["envelope"]
 
             let error = PyricBridgeError.fromCode(
                 code: code,
                 message: message,
-                denialContext: denialContext
+                denialContext: denialContext,
+                envelope: envelope
             )
             emitDenialIfApplicable(wireCode: code, error: error, denialContext: denialContext)
             sub.finish(throwing: error)

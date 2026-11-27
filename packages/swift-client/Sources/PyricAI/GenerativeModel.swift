@@ -265,12 +265,14 @@ public final class GenerativeModel: Sendable {
                     timeout: requestOptions.timeout
                 )
             } catch let bridgeErr as PyricBridgeError {
-                let status = RPCStatus.fromWireStatus(bridgeErr.rawCode)
-                throw BackendError(
-                    httpResponseCode: status.defaultHTTPStatusCode,
-                    message: bridgeErr.message,
-                    status: status
-                )
+                var wireError: [String: AnySendable] = [
+                    "code": .string(bridgeErr.rawCode),
+                    "message": .string(bridgeErr.message),
+                ]
+                if let envelope = bridgeErr.envelope {
+                    wireError["aiEnvelope"] = envelope
+                }
+                throw AiBridgeSession.decodeWireError(.dictionary(wireError))
             }
         }
 

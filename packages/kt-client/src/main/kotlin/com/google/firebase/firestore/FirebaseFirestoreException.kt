@@ -10,7 +10,8 @@ open class FirebaseFirestoreException @JvmOverloads constructor(
     val code: Code,
     cause: Throwable? = null,
     val denialContext: Any? = null,
-    val wireCode: String? = null
+    val wireCode: String? = null,
+    val aiEnvelope: Map<String, Any?>? = null
 ) : FirebaseException(message, cause) {
 
     enum class Code(val value: Int) {
@@ -40,7 +41,13 @@ open class FirebaseFirestoreException @JvmOverloads constructor(
                 entries.firstOrNull { it.value == statusCode } ?: UNKNOWN
 
             fun fromWireCode(wireCode: String?): Code {
-                return when (wireCode?.lowercase()) {
+                val trimmed = wireCode?.trim()?.lowercase() ?: return UNKNOWN
+                val stripped = when {
+                    trimmed.startsWith("database/") -> trimmed.removePrefix("database/")
+                    trimmed.startsWith("firestore/") -> trimmed.removePrefix("firestore/")
+                    else -> trimmed
+                }
+                return when (stripped.replace('_', '-')) {
                     "cancelled", "canceled" -> CANCELLED
                     "invalid-argument" -> INVALID_ARGUMENT
                     "deadline-exceeded" -> DEADLINE_EXCEEDED
