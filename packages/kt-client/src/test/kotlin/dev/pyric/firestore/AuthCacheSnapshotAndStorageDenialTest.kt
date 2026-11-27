@@ -479,4 +479,41 @@ class AuthCacheSnapshotAndStorageDenialTest {
             reg.remove()
         }
     }
+
+    @Test
+    fun rapidDisableNetworkFollowedByWriteAlwaysMarksIsFromCacheTrue() {
+        auth.setAuthLens(AuthLens.AsUser(uid = "alice-uid"))
+        val docRef = firestore.document("users/alice-uid/items/item-1")
+
+        repeat(20) { round ->
+            val targetStep = (round + 2).toLong()
+            val initialReady = CountDownLatch(1)
+            val offlineReady = CountDownLatch(1)
+            val observed = CopyOnWriteArrayList<Pair<Long?, SnapshotMetadata>>()
+
+            val reg = docRef.addSnapshotListener(MetadataChanges.EXCLUDE) { snap, err ->
+                if (err == null && snap != null) {
+                    val step = snap.getLong("step")
+                    observed.add(step to snap.metadata)
+                    if (observed.size == 1) initialReady.countDown()
+                    if (step == targetStep && snap.metadata.hasPendingWrites) offlineReady.countDown()
+                }
+            }
+            try {
+                assertTrue(initialReady.await(3, TimeUnit.SECONDS), "round=$round initial")
+                Tasks.await(firestore.disableNetwork())
+                val writeTask = docRef.update("step", targetStep)
+                assertTrue(offlineReady.await(3, TimeUnit.SECONDS), "round=$round offline write")
+                val pending = observed.last { it.first == targetStep && it.second.hasPendingWrites }
+                assertTrue(
+                    pending.second.isFromCache,
+                    "round=$round expected isFromCache=true for offline pending write, got $pending"
+                )
+                Tasks.await(firestore.enableNetwork())
+                Tasks.await(writeTask)
+            } finally {
+                reg.remove()
+            }
+        }
+    }
 }
