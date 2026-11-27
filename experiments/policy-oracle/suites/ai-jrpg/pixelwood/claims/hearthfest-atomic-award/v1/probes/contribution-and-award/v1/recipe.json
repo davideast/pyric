@@ -1,0 +1,40 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/ai-jrpg",
+    "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+    "path": "app/firestore.rules"
+  },
+  "cases": [
+    "batch-10",
+    "batch-11"
+  ],
+  "pins": {
+    "@oracle/adapters/arcade-sdk/v1/evidence.mjs": "d3a954cdd9406373a802757149e48bfb98283f2fe6af9b03c88e64e91bc49471",
+    "@oracle/adapters/arcade-sdk/v1/fixture.mjs": "a2b6b852d48bcbea44fb0f2ee22fee9f8086b369b302daa54a2667d7283de5fe",
+    "@oracle/adapters/hearthfest-atomic/v1/fixture.mjs": "6a00e8851b7d5886e3a220d35f0fa0ae928458b95b66c619f421264b2b6c332b",
+    "@oracle/adapters/hearthfest-atomic/v1/verify.mjs": "cd3680f0ba002302fdd1657b4fdd1cf79f5dd92c4e36907407ef34b96b74607d",
+    "@oracle/adapters/hearthfest-award/v1/fixture.mjs": "9a0a48b72663c3901982e7888adf828e8738063e6366f4a0f31baa5c0a80dfd1",
+    "@oracle/adapters/hearthfest-compiled/v1/build.mjs": "19cdb3ee58891988cc2f293e88b64b36c629c1935c837409a4e043be71e5e3ea",
+    "@oracle/adapters/hearthfest-compiled/v1/compile.mjs": "77107762647c27da71efab71862fded9163e820ed03fc654d3393c152ec07d2a",
+    "@oracle/adapters/invite-profile/v1/fixture.mjs": "cea4983224646a57661c7865afbf7ead1468eff5ad86da46d0cb438a9bf2b590",
+    "@oracle/arcade/corpus.mjs": "0eaca020e28edefe3a3a7efaea1202ec8a4ffed6c0457c0ecc407834f7e39baf",
+    "@oracle/arcade/live/control.mjs": "bfb9240f9f1b7e57d57e6728232f4b9976e0c4b8f10640fb36f9a35e1d4957e6",
+    "@oracle/arcade/live/controller/archive.mjs": "26082c467061608d262ab2f163a99ec0ea203fbb11888340ebb1aa6859c08e4c",
+    "@oracle/arcade/live/controller/clients.mjs": "b4863fcf846222ee307e8b6969dde85f9e6e96b42c46c5b91843fcc6659d8eeb",
+    "@oracle/arcade/live/controller/hearthfest-atomic.mjs": "1e67014c6657105b1eaf4bfd1a325256ff5a38e0335f290a0c9f23aea0b9d304",
+    "@oracle/arcade/live/controller/release.mjs": "fee745555110a1e3a2c9b2c74e19a68c5b36ad241676088266ad9f68cc253ff7",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/v1/manifest.json": "6f1a1d54e86d67d6848bee3389c84a5d34cfd2ee367cb21dd209dc9f5ecba93a",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377",
+    "@oracle/suites/ai-jrpg/pixelwood/claims/hearthfest-compiled-award/v1/probes/award-lifecycle/v1/generated.rules": "6f05b42bf312f3bd55e3457a02e4e9b05521643a4ad3db451c8ed53e1d76dac5",
+    "@oracle/suites/ai-jrpg/pixelwood/claims/hearthfest-score/v1/probes/contributions/v1/award.policy": "d9d573d97e1a283fe652a73afc80c42d10e94c96eac4e249c70380884e0e1830",
+    "@oracle/suites/ai-jrpg/pixelwood/claims/hearthfest-score/v1/probes/contributions/v1/catalogs.json": "7f68a43713770c96707f5f7285527e4dfe6565cb9a7f47ddc95614982d99144a",
+    "@oracle/suites/ai-jrpg/pixelwood/claims/world-role/v1/probes/app-and-mirror/v1/app.rules": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "replay.mjs": "fb1ca2ce5c7adef7102fd673c5840a3025d0cc034c5d4a9e7279d5d3c4158e9b"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/hearthfest-atomic/v1/verify.mjs"
+}

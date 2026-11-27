@@ -1,0 +1,5 @@
+{
+  "description": "Score a contribution and award updated in one SDK batch against the compiled Hearthfest rule. Verify both document versions after refusal and the shared commit after acceptance.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

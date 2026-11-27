@@ -1,0 +1,16 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "101b6ff184452e6a4f67e6b99ed0ac2a0b125614aedabc14183382348ab14eaf",
+  "results": {
+    "batch-10": "DENY",
+    "batch-11": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/7cc3cc39-4919-4912-bec2-4a805b7d40c5.json",
+    "sha256": "fc380f040f3466af57d4314a2aaae8522d2615cbd2d20faa643b5b9a14d872c2",
+    "pointers": {
+      "batch-10": "/rows/batch-10/decision",
+      "batch-11": "/rows/batch-11/decision"
+    }
+  }
+}
