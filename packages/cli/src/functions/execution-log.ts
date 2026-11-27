@@ -10,6 +10,7 @@
  */
 import type { LocalSandbox, SandboxEvent } from 'pyric/sandbox';
 import { emitExecutionFinished, type FunctionExecutionOutcome } from './events.js';
+import { redactActiveSecretString, redactActiveSecretValue } from './secret-redaction.js';
 
 /** One run `fire` caused. */
 export interface FunctionExecutionRecord {
@@ -88,15 +89,17 @@ export function recordFunctionExecution(
     id,
     trigger: outcome.trigger,
     cause: {
-      ref: outcome.ref,
-      params: outcome.params,
+      ref: redactActiveSecretString(outcome.ref),
+      params: redactActiveSecretValue(outcome.params),
     },
     startedAt: outcome.startedAt,
     durationMs: outcome.durationMs,
     status: outcome.status,
   };
-  if (outcome.status === 'fulfilled') record.result = outcome.result;
-  if (outcome.status === 'rejected') record.error = outcome.error ?? 'Unknown error';
+  if (outcome.status === 'fulfilled') record.result = redactActiveSecretValue(outcome.result);
+  if (outcome.status === 'rejected') {
+    record.error = redactActiveSecretString(outcome.error ?? 'Unknown error');
+  }
   if (outcome.retryConfig !== undefined) record.retryConfig = outcome.retryConfig;
   return record;
 }

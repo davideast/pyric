@@ -7,16 +7,24 @@
  * trigger it serves and leaves the rest to `unsupported.ts`.
  */
 
+import {
+  isParamExpression,
+  resolveParamExpression,
+  type ParamsEnvMap,
+} from './params-resolver.js';
+
 /** The manifest the Firebase Functions SDK attaches to every endpoint. */
 export interface FirebaseEndpoint {
   omit?: unknown;
   region?: unknown;
   platform?: unknown;
   timeoutSeconds?: unknown;
+  secretEnvironmentVariables?: ReadonlyArray<{ key?: unknown }>;
   eventTrigger?: {
     eventType?: unknown;
     eventFilters?: Record<string, unknown>;
     eventFilterPathPatterns?: Record<string, unknown>;
+    retry?: unknown;
   };
   callableTrigger?: unknown;
   httpsTrigger?: { invoker?: unknown } | null;
@@ -88,12 +96,30 @@ type EndpointOmitClassification = 'active' | 'omitted' | 'dynamic';
  * Classify `__endpoint.omit` the way `firebase-tools` `build.js` and
  * `firebase-functions` `stackToWire` resolve it: `true` skips deployment and
  * emulation, `false` / `undefined` / `null` / `RESET_VALUE` keeps the endpoint
- * active, and any other value is a dynamic parameter expression.
+ * active, `firebase-functions/params` boolean expressions resolve against `env`,
+ * and unresolved or non-boolean expressions classify as `'dynamic'`.
  */
-export function classifyEndpointOmit(omit: unknown): EndpointOmitClassification {
+export function classifyEndpointOmit(
+  omit: unknown,
+  env: ParamsEnvMap = process.env,
+): EndpointOmitClassification {
   if (omit === true) return 'omitted';
   if (omit === undefined || omit === null || omit === false || isResetValueObject(omit)) {
     return 'active';
+  }
+  if (isParamExpression(omit)) {
+    const resolved = resolveParamExpression(omit, env);
+    if (!resolved.ok) return 'dynamic';
+    if (resolved.value === true) return 'omitted';
+    if (
+      resolved.value === undefined ||
+      resolved.value === null ||
+      resolved.value === false ||
+      isResetValueObject(resolved.value)
+    ) {
+      return 'active';
+    }
+    return 'dynamic';
   }
   return 'dynamic';
 }

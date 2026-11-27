@@ -11,6 +11,7 @@ import type {
   TasksChildResult,
   TasksHostRequest,
 } from './tasks/child-runtime.js';
+import { redactActiveSecretString } from './secret-redaction.js';
 import type { UnsupportedFunctionsTrigger } from './unsupported.js';
 
 export interface SerializedFunctionsError {
@@ -170,12 +171,12 @@ export const HEARTBEAT_INTERVAL_MS = 1_000;
 export function serializeError(error: unknown): SerializedFunctionsError {
   if (error instanceof Error) {
     return {
-      name: error.name,
-      message: error.message,
-      ...(error.stack === undefined ? {} : { stack: error.stack }),
+      name: redactActiveSecretString(error.name),
+      message: redactActiveSecretString(error.message),
+      ...(error.stack === undefined ? {} : { stack: redactActiveSecretString(error.stack) }),
     };
   }
-  return { name: 'Error', message: String(error) };
+  return { name: 'Error', message: redactActiveSecretString(String(error)) };
 }
 
 export function isChildMessage(value: unknown): value is FunctionsChildMessage {

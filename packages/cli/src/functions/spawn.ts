@@ -14,10 +14,12 @@ import {
 import {
   STRIPPED_FUNCTIONS_ENV_KEYS,
   applyFunctionsDotenv,
+  loadFunctionsSecrets,
   resolveFunctionsSourceDir,
 } from './dotenv.js';
 import { HEARTBEAT_FLOOR_MS, heartbeatLimitMs, watchHeartbeat, type HeartbeatWatch } from './heartbeat.js';
 import { CHILD_TOKEN_ENV, createChildToken } from './http/child-token.js';
+import { createSecretRedactor } from './secret-redaction.js';
 
 export interface SpawnFunctionsChildOptions {
   cwd: string;
@@ -170,6 +172,8 @@ export function spawnFunctionsChild(
     envOptions.storageBucket = options.storageBucket;
   }
   const childEnv = buildFunctionsChildEnv(envOptions);
+  const childSourceDir = resolveFunctionsSourceDir(resolve(options.entry), options.cwd);
+  const secretRedactor = createSecretRedactor(loadFunctionsSecrets({ sourceDir: childSourceDir }));
 
   // New per spawn: only this host's proxy can reach this child's HTTP listener.
   const httpToken = createChildToken();
@@ -189,7 +193,7 @@ export function spawnFunctionsChild(
   let stderr = '';
   child.stderr?.setEncoding('utf8');
   child.stderr?.on('data', (chunk: string) => {
-    stderr = `${stderr}${chunk}`.slice(-8_192);
+    stderr = `${stderr}${secretRedactor.redactString(chunk)}`.slice(-8_192);
   });
 
   const { promise: ready, resolve: resolveReady, reject: rejectReady } =
@@ -208,7 +212,7 @@ export function spawnFunctionsChild(
       });
       const readyPayload: FunctionsChildReady = {
         triggerCount: raw.triggerCount,
-        unsupportedTriggers: raw.unsupportedTriggers,
+        unsupportedTriggers: secretRedactor.redactValue(raw.unsupportedTriggers),
       };
       if (raw.http !== undefined) {
         readyPayload.http = { ...raw.http, token: httpToken };
@@ -217,12 +221,13 @@ export function spawnFunctionsChild(
     } else if (raw.type === 'fatal') {
       if (!readySettled) {
         readySettled = true;
+        const safeError = secretRedactor.redactError(raw.error);
         rejectReady(new Error(
-          `Functions RTDB child failed: ${raw.error.stack ?? raw.error.message}`,
+          `Functions RTDB child failed: ${safeError.stack ?? safeError.message}`,
         ));
       }
     } else if (raw.type === 'execution' || raw.type === 'delivery-error' || raw.type === 'uncaught-error') {
-      options.onEvent?.(raw);
+      options.onEvent?.(secretRedactor.redactChildEvent(raw));
     }
   });
 

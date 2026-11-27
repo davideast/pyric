@@ -18,8 +18,20 @@ import {
   type FunctionsChildMessage,
 } from './child-protocol.js';
 import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
-import { applyFunctionsDotenv, resolveFunctionsSourceDir } from './dotenv.js';
+import {
+  applyFunctionsDotenv,
+  isProtectedFunctionsEnvKey,
+  resolveFunctionsSourceDir,
+} from './dotenv.js';
+import { resolveTimeoutSecondsOption } from './endpoint-options.js';
 import { listFirebaseEndpoints } from './endpoints.js';
+import {
+  createSecretRedactor,
+  getActiveSecretRedactor,
+  installStreamSecretRedaction,
+  setActiveSecretRedactor,
+  type SecretRedactor,
+} from './secret-redaction.js';
 import { startFirestoreChildRuntime } from './firestore/child-runtime.js';
 import { firestoreTriggersFamily } from './firestore/discovery.js';
 import type { FirestoreTriggerExecutionHost } from './firestore/execution.js';
@@ -70,7 +82,10 @@ interface AdminAppModule {
   deleteApp(app: AdminAppInstance): Promise<void>;
 }
 
-const send = (message: FunctionsChildMessage): void => sendToHost(message);
+const send = (message: FunctionsChildMessage): void => {
+  const redactor = getActiveSecretRedactor();
+  sendToHost(redactor !== null ? redactor.redactChildMessage(message) : message);
+};
 
 /** With the host gone there is nothing to wait for: close quickly and exit. */
 const HOST_LOST_DEADLINE_MS = 1_500;
@@ -120,8 +135,9 @@ function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
       getGlobalOptions?: () => { timeoutSeconds?: unknown };
     };
     const rawTimeout = optionsModule.getGlobalOptions?.()?.timeoutSeconds;
-    if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
-      return rawTimeout;
+    const parsedTimeout = resolveTimeoutSecondsOption(rawTimeout, process.env);
+    if (parsedTimeout.ok && parsedTimeout.timeoutSeconds !== undefined) {
+      return parsedTimeout.timeoutSeconds;
     }
   } catch (error: unknown) {
     // Optional inspection fallback when `v2/options.js` layout differs.
@@ -145,8 +161,9 @@ function collectActiveEventTimeouts(
       continue;
     }
     const rawTimeout = endpoint.timeoutSeconds;
-    if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
-      timeouts.push(rawTimeout);
+    const parsedTimeout = resolveTimeoutSecondsOption(rawTimeout, process.env);
+    if (parsedTimeout.ok && parsedTimeout.timeoutSeconds !== undefined) {
+      timeouts.push(parsedTimeout.timeoutSeconds);
     } else if (rawTimeout === undefined && globalTimeoutSeconds !== undefined) {
       timeouts.push(globalTimeoutSeconds);
     } else {
@@ -154,6 +171,30 @@ function collectActiveEventTimeouts(
     }
   }
   return timeouts;
+}
+
+function registerDeclaredEndpointSecrets(
+  exported: Record<string, unknown>,
+  redactor: SecretRedactor,
+): void {
+  const values: string[] = [];
+  for (const { callable } of listFirebaseEndpoints(exported)) {
+    const entries = callable.__endpoint?.secretEnvironmentVariables;
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      const key = entry?.key;
+      if (typeof key !== 'string' || key.length === 0 || isProtectedFunctionsEnvKey(key)) {
+        continue;
+      }
+      const value = process.env[key];
+      if (typeof value === 'string' && value.length > 0) {
+        values.push(value);
+      }
+    }
+  }
+  if (values.length > 0) {
+    redactor.addValues(values);
+  }
 }
 
 async function runFunctionsChild(): Promise<void> {
@@ -174,7 +215,10 @@ async function runFunctionsChild(): Promise<void> {
     process.env.GCLOUD_PROJECT ??
     process.env.GOOGLE_CLOUD_PROJECT ??
     'demo-project';
-  applyFunctionsDotenv(process.env, { sourceDir, projectId });
+  const loadedSecrets = applyFunctionsDotenv(process.env, { sourceDir, projectId });
+  const secretRedactor = createSecretRedactor(loadedSecrets);
+  setActiveSecretRedactor(secretRedactor);
+  const restoreStreamRedaction = installStreamSecretRedaction(secretRedactor);
 
   // A handler stuck in a synchronous loop stops these beats, which is how the host
   // tells a wedged child from a busy one.
@@ -199,7 +243,7 @@ async function runFunctionsChild(): Promise<void> {
   let closing: Promise<void> | undefined;
   let stopRequested = false;
 
-  const close = (): Promise<void> => {
+  const close = (options: { keepSecretRedaction?: boolean } = {}): Promise<void> => {
     if (closing) return closing;
     closing = (async () => {
       process.off('message', onParentMessage);
@@ -226,6 +270,12 @@ async function runFunctionsChild(): Promise<void> {
         app.sandbox?.close?.();
       }
       await Promise.all(apps.map((app) => adminApp.deleteApp(app).catch(() => undefined)));
+      if (options.keepSecretRedaction !== true) {
+        restoreStreamRedaction();
+        if (getActiveSecretRedactor() === secretRedactor) {
+          setActiveSecretRedactor(null);
+        }
+      }
     })();
     return closing;
   };
@@ -379,6 +429,7 @@ async function runFunctionsChild(): Promise<void> {
 
   try {
     const exported = await loadFunctionsModuleExports(entry);
+    registerDeclaredEndpointSecrets(exported, secretRedactor);
     host = startRtdbChildRuntime({
       exported,
       sandbox: runtimeSandbox,
@@ -503,7 +554,7 @@ async function runFunctionsChild(): Promise<void> {
     }
     send(readyMessage);
   } catch (error) {
-    await close();
+    await close({ keepSecretRedaction: true });
     throw error;
   }
 }

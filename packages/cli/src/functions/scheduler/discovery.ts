@@ -3,12 +3,22 @@
  * (`onSchedule`) endpoints (`__endpoint.scheduleTrigger`).
  */
 import {
+  resolveEndpointRegionsOption,
+  resolveStringOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
   isResetValueObject,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
 import { DEFAULT_REGION } from '../http/discovery.js';
+import {
+  isParamExpression,
+  resolveParamExpression,
+  type ParamsEnvMap,
+} from '../params-resolver.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
   parseScheduleExpression,
@@ -53,6 +63,7 @@ export interface SchedulerTriggerInspection {
 export interface InspectSchedulerTriggersOptions {
   defaultRegion?: string;
   validateSchedule?: boolean;
+  env?: ParamsEnvMap;
 }
 
 interface RawScheduleTriggerManifest {
@@ -79,96 +90,77 @@ function isSupportedTimeZone(timeZone: string): boolean {
   }
 }
 
-function parseEndpointRegions(
-  region: unknown,
-  defaultRegion: string,
-): { ok: true; regions: string[]; location?: string } | { ok: false } {
-  if (region === undefined || region === null || isResetValueObject(region)) {
-    return { ok: true, regions: [defaultRegion] };
-  }
-  if (typeof region === 'string') {
-    if (region.length === 0) return { ok: false };
-    return { ok: true, regions: [region], location: region };
-  }
-  if (Array.isArray(region)) {
-    if (region.length === 0) {
-      return { ok: true, regions: [defaultRegion] };
-    }
-    const allStrings = region.every((item) => typeof item === 'string' && item.length > 0);
-    if (!allStrings) return { ok: false };
-    const regions = region as string[];
-    const first = regions[0];
-    if (typeof first === 'string') {
-      return { ok: true, regions, location: first };
-    }
-    return { ok: true, regions: [defaultRegion] };
-  }
-  return { ok: false };
-}
-
-function parseTimeoutSeconds(
-  rawTimeout: unknown,
-): { ok: true; timeoutSeconds?: number } | { ok: false; kind: 'dynamic' | 'invalid' } {
-  if (rawTimeout === undefined || rawTimeout === null || isResetValueObject(rawTimeout)) {
-    return { ok: true };
-  }
-  if (typeof rawTimeout === 'object') {
-    return { ok: false, kind: 'dynamic' };
-  }
-  if (typeof rawTimeout !== 'number' || !Number.isFinite(rawTimeout) || rawTimeout <= 0) {
-    return { ok: false, kind: 'invalid' };
-  }
-  return { ok: true, timeoutSeconds: rawTimeout };
-}
-
 function parseNonNegativeIntegerField(
   rawValue: unknown,
   fieldName: string,
+  env: ParamsEnvMap | undefined,
 ): { ok: true; value?: number } | { ok: false; kind: 'dynamic' | 'invalid'; reason: string } {
   if (rawValue === undefined || rawValue === null || isResetValueObject(rawValue)) {
     return { ok: true };
   }
-  if (typeof rawValue === 'object') {
+  let candidate: unknown = rawValue;
+  if (isParamExpression(rawValue)) {
+    const resolved = resolveParamExpression(rawValue, env);
+    if (!resolved.ok) {
+      return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
+    }
+    candidate = resolved.value;
+    if (candidate === undefined || candidate === null || isResetValueObject(candidate)) {
+      return { ok: true };
+    }
+  } else if (typeof rawValue === 'object') {
     return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
   }
-  if (typeof rawValue !== 'number' || !Number.isSafeInteger(rawValue) || rawValue < 0) {
+  if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < 0) {
     return {
       ok: false,
       kind: 'invalid',
       reason: `${fieldName} must be a non-negative integer`,
     };
   }
-  return { ok: true, value: rawValue };
+  return { ok: true, value: candidate };
 }
 
 function parseDurationSecondsField(
   rawValue: unknown,
   fieldName: string,
+  env: ParamsEnvMap | undefined,
 ): { ok: true; value?: number } | { ok: false; kind: 'dynamic' | 'invalid'; reason: string } {
   if (rawValue === undefined || rawValue === null || isResetValueObject(rawValue)) {
     return { ok: true };
   }
-  if (typeof rawValue === 'object') {
+  let candidate: unknown = rawValue;
+  let containsSecret = false;
+  if (isParamExpression(rawValue)) {
+    const resolved = resolveParamExpression(rawValue, env);
+    if (!resolved.ok) {
+      return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
+    }
+    candidate = resolved.value;
+    containsSecret = resolved.containsSecret;
+    if (candidate === undefined || candidate === null || isResetValueObject(candidate)) {
+      return { ok: true };
+    }
+  } else if (typeof rawValue === 'object') {
     return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
   }
-  if (typeof rawValue === 'number') {
-    if (!Number.isFinite(rawValue) || rawValue < 0) {
+  if (typeof candidate === 'number') {
+    if (!Number.isFinite(candidate) || candidate < 0) {
       return {
         ok: false,
         kind: 'invalid',
         reason: `${fieldName} must be a non-negative number`,
       };
     }
-    return { ok: true, value: rawValue };
+    return { ok: true, value: candidate };
   }
-  if (typeof rawValue === 'string') {
-    const match = /^(\d+(?:\.\d+)?)s$/.exec(rawValue.trim());
+  if (typeof candidate === 'string') {
+    const match = /^(\d+(?:\.\d+)?)s$/.exec(candidate.trim());
     if (!match) {
-      return {
-        ok: false,
-        kind: 'invalid',
-        reason: `${fieldName} duration string '${rawValue}' is invalid`,
-      };
+      const reason = containsSecret
+        ? `${fieldName} duration string is invalid`
+        : `${fieldName} duration string '${candidate}' is invalid`;
+      return { ok: false, kind: 'invalid', reason };
     }
     const parsed = Number(match[1]);
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -188,7 +180,10 @@ function parseDurationSecondsField(
 }
 
 /** Validate `scheduleTrigger.retryConfig` against `firebase-functions/v2/scheduler` shapes. */
-export function validateSchedulerRetryConfig(rawRetryConfig: unknown): RetryConfigValidationResult {
+export function validateSchedulerRetryConfig(
+  rawRetryConfig: unknown,
+  env?: ParamsEnvMap,
+): RetryConfigValidationResult {
   if (
     rawRetryConfig === undefined ||
     rawRetryConfig === null ||
@@ -205,24 +200,26 @@ export function validateSchedulerRetryConfig(rawRetryConfig: unknown): RetryConf
   }
 
   const record = rawRetryConfig as Record<string, unknown>;
-  const retryCount = parseNonNegativeIntegerField(record.retryCount, 'retryCount');
+  const retryCount = parseNonNegativeIntegerField(record.retryCount, 'retryCount', env);
   if (!retryCount.ok) return retryCount;
 
-  const maxDoublings = parseNonNegativeIntegerField(record.maxDoublings, 'maxDoublings');
+  const maxDoublings = parseNonNegativeIntegerField(record.maxDoublings, 'maxDoublings', env);
   if (!maxDoublings.ok) return maxDoublings;
 
-  const maxRetrySeconds = parseDurationSecondsField(record.maxRetrySeconds, 'maxRetrySeconds');
+  const maxRetrySeconds = parseDurationSecondsField(record.maxRetrySeconds, 'maxRetrySeconds', env);
   if (!maxRetrySeconds.ok) return maxRetrySeconds;
 
   const minBackoffSeconds = parseDurationSecondsField(
     record.minBackoffSeconds,
     'minBackoffSeconds',
+    env,
   );
   if (!minBackoffSeconds.ok) return minBackoffSeconds;
 
   const maxBackoffSeconds = parseDurationSecondsField(
     record.maxBackoffSeconds,
     'maxBackoffSeconds',
+    env,
   );
   if (!maxBackoffSeconds.ok) return maxBackoffSeconds;
 
@@ -268,6 +265,7 @@ export function inspectSchedulerTriggers(
 ): SchedulerTriggerInspection {
   const defaultRegion = options.defaultRegion ?? DEFAULT_REGION;
   const shouldValidateSchedule = options.validateSchedule ?? true;
+  const env = options.env;
   const triggers: DiscoveredSchedulerTrigger[] = [];
   const unsupported: UnsupportedSchedulerTrigger[] = [];
 
@@ -275,7 +273,7 @@ export function inspectSchedulerTriggers(
     const endpoint = callable.__endpoint;
     if (!endpoint || !isScheduleEndpoint(endpoint)) continue;
 
-    const omitState = classifyEndpointOmit(endpoint.omit);
+    const omitState = classifyEndpointOmit(endpoint.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({
         exportName,
@@ -300,22 +298,26 @@ export function inspectSchedulerTriggers(
     }
 
     const scheduleManifest = endpoint.scheduleTrigger as RawScheduleTriggerManifest;
-    const rawSchedule = scheduleManifest.schedule;
-    if (typeof rawSchedule !== 'string') {
+    const resolvedSchedule = resolveStringOption(scheduleManifest.schedule, env);
+    if (!resolvedSchedule.ok) {
       unsupported.push({
         exportName,
         eventType: 'schedule (unsupported dynamic schedule option)',
       });
       continue;
     }
+    const rawSchedule = resolvedSchedule.value;
 
     let parsedSchedule: ParsedScheduleExpression | undefined;
     if (shouldValidateSchedule) {
       const scheduleCheck = parseScheduleExpression(rawSchedule);
       if (!scheduleCheck.ok) {
+        const reason = resolvedSchedule.containsSecret
+          ? 'invalid schedule'
+          : `invalid schedule: ${scheduleCheck.reason}`;
         unsupported.push({
           exportName,
-          eventType: `schedule (invalid schedule: ${scheduleCheck.reason})`,
+          eventType: `schedule (${reason})`,
         });
         continue;
       }
@@ -325,24 +327,47 @@ export function inspectSchedulerTriggers(
     const rawTimeZone = scheduleManifest.timeZone;
     let timeZone: string | undefined;
     if (rawTimeZone !== undefined && rawTimeZone !== null && !isResetValueObject(rawTimeZone)) {
-      if (typeof rawTimeZone !== 'string') {
-        unsupported.push({
-          exportName,
-          eventType: 'schedule (unsupported dynamic timeZone option)',
-        });
-        continue;
+      let resolvedTzValue: unknown = rawTimeZone;
+      let tzContainsSecret = false;
+      if (isParamExpression(rawTimeZone)) {
+        const resolved = resolveParamExpression(rawTimeZone, env);
+        if (!resolved.ok) {
+          unsupported.push({
+            exportName,
+            eventType: 'schedule (unsupported dynamic timeZone option)',
+          });
+          continue;
+        }
+        resolvedTzValue = resolved.value;
+        tzContainsSecret = resolved.containsSecret;
       }
-      if (!isSupportedTimeZone(rawTimeZone)) {
-        unsupported.push({
-          exportName,
-          eventType: `schedule (invalid timeZone: ${rawTimeZone})`,
-        });
-        continue;
+      if (
+        resolvedTzValue !== undefined &&
+        resolvedTzValue !== null &&
+        !isResetValueObject(resolvedTzValue)
+      ) {
+        if (typeof resolvedTzValue !== 'string') {
+          unsupported.push({
+            exportName,
+            eventType: 'schedule (unsupported dynamic timeZone option)',
+          });
+          continue;
+        }
+        if (!isSupportedTimeZone(resolvedTzValue)) {
+          const tzReason = tzContainsSecret
+            ? 'invalid timeZone'
+            : `invalid timeZone: ${resolvedTzValue}`;
+          unsupported.push({
+            exportName,
+            eventType: `schedule (${tzReason})`,
+          });
+          continue;
+        }
+        timeZone = resolvedTzValue;
       }
-      timeZone = rawTimeZone;
     }
 
-    const retryCheck = validateSchedulerRetryConfig(scheduleManifest.retryConfig);
+    const retryCheck = validateSchedulerRetryConfig(scheduleManifest.retryConfig, env);
     if (!retryCheck.ok) {
       if (retryCheck.kind === 'dynamic') {
         unsupported.push({
@@ -358,7 +383,7 @@ export function inspectSchedulerTriggers(
       continue;
     }
 
-    const parsedRegions = parseEndpointRegions(endpoint.region, defaultRegion);
+    const parsedRegions = resolveEndpointRegionsOption(endpoint.region, defaultRegion, env);
     if (!parsedRegions.ok) {
       unsupported.push({
         exportName,
@@ -367,7 +392,7 @@ export function inspectSchedulerTriggers(
       continue;
     }
 
-    const parsedTimeout = parseTimeoutSeconds(endpoint.timeoutSeconds);
+    const parsedTimeout = resolveTimeoutSecondsOption(endpoint.timeoutSeconds, env);
     if (!parsedTimeout.ok) {
       if (parsedTimeout.kind === 'dynamic') {
         unsupported.push({
@@ -421,5 +446,6 @@ export function discoverSchedulerTriggers(
 /** The v2 Cloud Scheduler (`onSchedule`) trigger family. */
 export const schedulerTriggersFamily: FunctionsTriggerFamily = {
   claims: isScheduleEndpoint,
-  unsupported: (exported: Record<string, unknown>) => inspectSchedulerTriggers(exported).unsupported,
+  unsupported: (exported: Record<string, unknown>, env?: ParamsEnvMap) =>
+    inspectSchedulerTriggers(exported, env === undefined ? {} : { env }).unsupported,
 };

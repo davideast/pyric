@@ -3,11 +3,18 @@
  * Cloud Storage object triggers (`google.cloud.storage.object.v1.*`).
  */
 import {
+  resolveBooleanOption,
+  resolveEndpointRegionsOption,
+  resolveStringOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
-  isResetValueObject,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
+import { DEFAULT_REGION } from '../http/discovery.js';
+import type { ParamsEnvMap } from '../params-resolver.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
 export const FINALIZED_EVENT_TYPE = 'google.cloud.storage.object.v1.finalized';
@@ -61,13 +68,14 @@ export interface StorageTriggerInspection {
 export interface InspectStorageTriggersOptions {
   defaultBucket?: string;
   activeEventTypes?: ReadonlySet<StorageEventType>;
+  env?: ParamsEnvMap;
 }
 
 export function isStorageEventType(value: unknown): value is StorageEventType {
   return typeof value === 'string' && STORAGE_EVENT_TYPE_SET.has(value);
 }
 
-function defaultBucketFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+function defaultBucketFromEnv(env: ParamsEnvMap = process.env): string | undefined {
   const rawConfig = env.FIREBASE_CONFIG;
   if (typeof rawConfig !== 'string' || rawConfig.length === 0) return undefined;
   if (!rawConfig.trim().startsWith('{')) return undefined;
@@ -82,29 +90,6 @@ function defaultBucketFromEnv(env: NodeJS.ProcessEnv = process.env): string | un
   return undefined;
 }
 
-function parseEndpointLocation(
-  region: unknown,
-): { ok: true; location?: string } | { ok: false } {
-  if (region === undefined || region === null || isResetValueObject(region)) {
-    return { ok: true };
-  }
-  if (typeof region === 'string') {
-    if (region.length === 0) return { ok: false };
-    return { ok: true, location: region };
-  }
-  if (Array.isArray(region)) {
-    if (region.length === 0) return { ok: true };
-    const allStrings = region.every((item) => typeof item === 'string' && item.length > 0);
-    if (!allStrings) return { ok: false };
-    const first = region[0];
-    if (typeof first === 'string') {
-      return { ok: true, location: first };
-    }
-    return { ok: true };
-  }
-  return { ok: false };
-}
-
 /**
  * Inspect exported functions for `firebase-functions/v2/storage` triggers,
  * classifying omitted, dynamic-expression, or not-yet-activated triggers.
@@ -113,7 +98,8 @@ export function inspectStorageTriggers(
   exported: Record<string, unknown>,
   options: InspectStorageTriggersOptions = {},
 ): StorageTriggerInspection {
-  const effectiveDefaultBucket = options.defaultBucket ?? defaultBucketFromEnv();
+  const env = options.env;
+  const effectiveDefaultBucket = options.defaultBucket ?? defaultBucketFromEnv(env);
   const triggers: DiscoveredStorageTrigger[] = [];
   const unsupported: UnsupportedStorageTrigger[] = [];
 
@@ -122,7 +108,7 @@ export function inspectStorageTriggers(
     const eventType = endpoint?.eventTrigger?.eventType;
     if (!isStorageEventType(eventType)) continue;
 
-    const omitState = classifyEndpointOmit(endpoint?.omit);
+    const omitState = classifyEndpointOmit(endpoint?.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({
         exportName,
@@ -139,19 +125,40 @@ export function inspectStorageTriggers(
     }
 
     const rawBucket = endpoint?.eventTrigger?.eventFilters?.bucket;
-    if (rawBucket !== undefined && (typeof rawBucket !== 'string' || rawBucket.length === 0)) {
-      unsupported.push({
-        exportName,
-        eventType: `${eventType} (unsupported dynamic bucket option)`,
-      });
-      continue;
+    let bucket: string | undefined;
+    if (rawBucket !== undefined) {
+      const resolvedBucket = resolveStringOption(rawBucket, env);
+      if (!resolvedBucket.ok || resolvedBucket.value.length === 0) {
+        unsupported.push({
+          exportName,
+          eventType: `${eventType} (unsupported dynamic bucket option)`,
+        });
+        continue;
+      }
+      bucket = resolvedBucket.value;
     }
 
-    const parsedRegion = parseEndpointLocation(endpoint?.region);
+    const parsedRegion = resolveEndpointRegionsOption(endpoint?.region, DEFAULT_REGION, env);
     if (!parsedRegion.ok) {
       unsupported.push({
         exportName,
         eventType: `${eventType} (unsupported dynamic region option)`,
+      });
+      continue;
+    }
+
+    if (!resolveBooleanOption(endpoint?.eventTrigger?.retry, env).ok) {
+      unsupported.push({
+        exportName,
+        eventType: `${eventType} (unsupported dynamic retry option)`,
+      });
+      continue;
+    }
+
+    if (!resolveTimeoutSecondsOption(endpoint?.timeoutSeconds, env, { allowZero: true }).ok) {
+      unsupported.push({
+        exportName,
+        eventType: `${eventType} (unsupported dynamic timeoutSeconds option)`,
       });
       continue;
     }
@@ -164,7 +171,6 @@ export function inspectStorageTriggers(
       continue;
     }
 
-    const bucket = typeof rawBucket === 'string' ? rawBucket : undefined;
     const targetsDefaultBucket =
       bucket === undefined ||
       bucket === DEFAULT_SANDBOX_STORE_BUCKET ||
@@ -198,6 +204,9 @@ export function discoverStorageTriggers(
   if (options.defaultBucket !== undefined) {
     inspectionOptions.defaultBucket = options.defaultBucket;
   }
+  if (options.env !== undefined) {
+    inspectionOptions.env = options.env;
+  }
   return inspectStorageTriggers(exported, inspectionOptions).triggers;
 }
 
@@ -226,6 +235,9 @@ export function matchesStorageTriggerBucket(
 /** The v2 Cloud Storage object trigger family (`google.cloud.storage.object.v1.*`). */
 export const storageTriggersFamily: FunctionsTriggerFamily = {
   claims: (endpoint: FirebaseEndpoint) => isStorageEventType(endpoint.eventTrigger?.eventType),
-  unsupported: (exported: Record<string, unknown>) =>
-    inspectStorageTriggers(exported, { activeEventTypes: ACTIVE_STORAGE_EVENT_TYPES }).unsupported,
+  unsupported: (exported: Record<string, unknown>, env?: ParamsEnvMap) =>
+    inspectStorageTriggers(exported, {
+      activeEventTypes: ACTIVE_STORAGE_EVENT_TYPES,
+      ...(env === undefined ? {} : { env }),
+    }).unsupported,
 };

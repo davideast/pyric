@@ -2,12 +2,14 @@
  * Discovery and queue-name resolution for `firebase-functions/v2/tasks`
  * (`onTaskDispatched`) endpoints (`__endpoint.taskQueueTrigger`).
  */
+import { resolveBooleanOption } from '../endpoint-options.js';
 import {
   classifyEndpointOmit,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
 import { DEFAULT_REGION } from '../http/discovery.js';
+import type { ParamsEnvMap } from '../params-resolver.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
   parseTaskEndpointRegions,
@@ -55,6 +57,7 @@ export interface TasksTriggerInspection {
 
 export interface InspectTasksTriggersOptions {
   defaultRegion?: string;
+  env?: ParamsEnvMap;
 }
 
 export interface ResolvedQueueSelector {
@@ -82,6 +85,7 @@ export function inspectTasksTriggers(
   options: InspectTasksTriggersOptions = {},
 ): TasksTriggerInspection {
   const defaultRegion = options.defaultRegion ?? DEFAULT_REGION;
+  const env = options.env;
   const triggers: DiscoveredTaskTrigger[] = [];
   const unsupported: UnsupportedTaskTrigger[] = [];
 
@@ -91,7 +95,7 @@ export function inspectTasksTriggers(
     const endpoint = callable.__endpoint;
     if (!endpoint || !isTaskQueueEndpoint(endpoint)) continue;
 
-    const omitState = classifyEndpointOmit(endpoint.omit);
+    const omitState = classifyEndpointOmit(endpoint.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({
         exportName,
@@ -116,7 +120,7 @@ export function inspectTasksTriggers(
     }
 
     const manifest = endpoint.taskQueueTrigger as RawTaskQueueTriggerManifest;
-    const retryCheck = validateTasksRetryConfig(manifest.retryConfig);
+    const retryCheck = validateTasksRetryConfig(manifest.retryConfig, env);
     if (!retryCheck.ok) {
       let eventType = `task-queue (invalid retryConfig: ${retryCheck.reason})`;
       if (retryCheck.kind === 'dynamic') {
@@ -126,7 +130,7 @@ export function inspectTasksTriggers(
       continue;
     }
 
-    const rateLimitsCheck = validateTasksRateLimits(manifest.rateLimits);
+    const rateLimitsCheck = validateTasksRateLimits(manifest.rateLimits, env);
     if (!rateLimitsCheck.ok) {
       let eventType = `task-queue (invalid rateLimits: ${rateLimitsCheck.reason})`;
       if (rateLimitsCheck.kind === 'dynamic') {
@@ -136,7 +140,7 @@ export function inspectTasksTriggers(
       continue;
     }
 
-    const invokerCheck = parseTaskInvokerField(manifest.invoker);
+    const invokerCheck = parseTaskInvokerField(manifest.invoker, env);
     if (!invokerCheck.ok) {
       let eventType = 'task-queue (invalid invoker option)';
       if (invokerCheck.kind === 'dynamic') {
@@ -146,7 +150,7 @@ export function inspectTasksTriggers(
       continue;
     }
 
-    const parsedRegions = parseTaskEndpointRegions(endpoint.region, defaultRegion);
+    const parsedRegions = parseTaskEndpointRegions(endpoint.region, defaultRegion, env);
     if (!parsedRegions.ok) {
       unsupported.push({
         exportName,
@@ -155,7 +159,7 @@ export function inspectTasksTriggers(
       continue;
     }
 
-    const parsedTimeout = parseTaskTimeoutSeconds(endpoint.timeoutSeconds);
+    const parsedTimeout = parseTaskTimeoutSeconds(endpoint.timeoutSeconds, env);
     if (!parsedTimeout.ok) {
       let eventType = 'task-queue (invalid timeoutSeconds option)';
       if (parsedTimeout.kind === 'dynamic') {
@@ -166,6 +170,19 @@ export function inspectTasksTriggers(
     }
 
     const endpointRecord = endpoint as Record<string, unknown>;
+    let resolvedRetry: boolean | undefined;
+    if (endpointRecord.retry !== undefined) {
+      const parsedRetry = resolveBooleanOption(endpointRecord.retry, env);
+      if (!parsedRetry.ok) {
+        unsupported.push({
+          exportName,
+          eventType: 'task-queue (unsupported dynamic retry option)',
+        });
+        continue;
+      }
+      resolvedRetry = parsedRetry.value;
+    }
+
     const primaryRegion = parsedRegions.regions[0] ?? defaultRegion;
     const discovered: DiscoveredTaskTrigger = {
       exportName,
@@ -175,8 +192,8 @@ export function inspectTasksTriggers(
       regions: parsedRegions.regions,
       callable,
     };
-    if (typeof endpointRecord.retry === 'boolean') {
-      discovered.retry = endpointRecord.retry;
+    if (resolvedRetry !== undefined) {
+      discovered.retry = resolvedRetry;
     }
     if (invokerCheck.invoker !== undefined) {
       discovered.invoker = invokerCheck.invoker;
@@ -289,5 +306,6 @@ export function resolveDiscoveredTaskTrigger(
 /** The v2 Cloud Tasks (`onTaskDispatched`) trigger family. */
 export const tasksTriggersFamily: FunctionsTriggerFamily = {
   claims: isTaskQueueEndpoint,
-  unsupported: (exported: Record<string, unknown>) => inspectTasksTriggers(exported).unsupported,
+  unsupported: (exported: Record<string, unknown>, env?: ParamsEnvMap) =>
+    inspectTasksTriggers(exported, env === undefined ? {} : { env }).unsupported,
 };

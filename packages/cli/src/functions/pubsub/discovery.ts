@@ -3,11 +3,18 @@
  * triggers (`google.cloud.pubsub.topic.v1.messagePublished`).
  */
 import {
+  resolveBooleanOption,
+  resolveEndpointRegionsOption,
+  resolveStringOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
-  isResetValueObject,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
+import { DEFAULT_REGION } from '../http/discovery.js';
+import type { ParamsEnvMap } from '../params-resolver.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
 export const MESSAGE_PUBLISHED_EVENT_TYPE =
@@ -52,7 +59,7 @@ export interface PubSubTriggerInspection {
 
 export interface InspectPubSubTriggersOptions {
   projectId?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: ParamsEnvMap;
 }
 
 export function isPubSubEventType(
@@ -63,7 +70,7 @@ export function isPubSubEventType(
 
 /** Resolve the default project ID from `FIREBASE_CONFIG` or GCP env vars. */
 export function defaultProjectIdFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
+  env: ParamsEnvMap = process.env,
   fallbackProjectId = DEFAULT_FALLBACK_PROJECT_ID,
 ): string {
   const rawConfig = env.FIREBASE_CONFIG;
@@ -142,68 +149,6 @@ export function normalizePubSubTopic(
   return resolved;
 }
 
-function parseEndpointLocation(
-  region: unknown,
-): { ok: true; location?: string } | { ok: false } {
-  if (region === undefined || region === null || isResetValueObject(region)) {
-    return { ok: true };
-  }
-  if (typeof region === 'string') {
-    if (region.length === 0) return { ok: false };
-    return { ok: true, location: region };
-  }
-  if (Array.isArray(region)) {
-    if (region.length === 0) return { ok: true };
-    const allStrings = region.every(
-      (item) => typeof item === 'string' && item.length > 0,
-    );
-    if (!allStrings) return { ok: false };
-    const first = region[0];
-    if (typeof first === 'string') {
-      return { ok: true, location: first };
-    }
-    return { ok: true };
-  }
-  return { ok: false };
-}
-
-function parseEndpointRetry(
-  retry: unknown,
-): { ok: true; retry: boolean } | { ok: false } {
-  if (retry === true) return { ok: true, retry: true };
-  if (
-    retry === undefined ||
-    retry === null ||
-    retry === false ||
-    isResetValueObject(retry)
-  ) {
-    return { ok: true, retry: false };
-  }
-  return { ok: false };
-}
-
-function parseEndpointTimeoutSeconds(
-  timeoutSeconds: unknown,
-): { ok: true; timeoutSeconds?: number } | { ok: false } {
-  if (
-    timeoutSeconds === undefined ||
-    timeoutSeconds === null ||
-    isResetValueObject(timeoutSeconds)
-  ) {
-    return { ok: true };
-  }
-  if (typeof timeoutSeconds === 'number') {
-    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0) {
-      return { ok: false };
-    }
-    if (timeoutSeconds === 0) {
-      return { ok: true };
-    }
-    return { ok: true, timeoutSeconds };
-  }
-  return { ok: false };
-}
-
 /**
  * Inspect exported functions for `firebase-functions/v2/pubsub` triggers,
  * classifying omitted, malformed-topic, or dynamic-expression endpoints.
@@ -212,8 +157,9 @@ export function inspectPubSubTriggers(
   exported: Record<string, unknown>,
   options: InspectPubSubTriggersOptions = {},
 ): PubSubTriggerInspection {
+  const env = options.env;
   const effectiveProjectId =
-    options.projectId ?? defaultProjectIdFromEnv(options.env);
+    options.projectId ?? defaultProjectIdFromEnv(env);
   const triggers: DiscoveredPubSubTrigger[] = [];
   const unsupported: UnsupportedPubSubTrigger[] = [];
 
@@ -225,7 +171,7 @@ export function inspectPubSubTriggers(
     const eventType = eventTrigger?.eventType;
     if (!isPubSubEventType(eventType)) continue;
 
-    const omitState = classifyEndpointOmit(endpoint?.omit);
+    const omitState = classifyEndpointOmit(endpoint?.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({
         exportName,
@@ -241,14 +187,15 @@ export function inspectPubSubTriggers(
       continue;
     }
 
-    const rawTopic = eventTrigger?.eventFilters?.topic;
-    if (typeof rawTopic !== 'string') {
+    const rawTopicOpt = resolveStringOption(eventTrigger?.eventFilters?.topic, env);
+    if (!rawTopicOpt.ok) {
       unsupported.push({
         exportName,
         eventType: `${eventType} (unsupported dynamic topic option)`,
       });
       continue;
     }
+    const rawTopic = rawTopicOpt.value;
 
     const resolvedTopic = tryResolvePubSubTopic(rawTopic, effectiveProjectId);
     if (resolvedTopic === null) {
@@ -259,7 +206,7 @@ export function inspectPubSubTriggers(
       continue;
     }
 
-    const parsedLocation = parseEndpointLocation(endpoint?.region);
+    const parsedLocation = resolveEndpointRegionsOption(endpoint?.region, DEFAULT_REGION, env);
     if (!parsedLocation.ok) {
       unsupported.push({
         exportName,
@@ -269,7 +216,7 @@ export function inspectPubSubTriggers(
     }
 
     const rawRetry = (eventTrigger as { retry?: unknown } | undefined)?.retry;
-    const parsedRetry = parseEndpointRetry(rawRetry);
+    const parsedRetry = resolveBooleanOption(rawRetry, env);
     if (!parsedRetry.ok) {
       unsupported.push({
         exportName,
@@ -278,7 +225,9 @@ export function inspectPubSubTriggers(
       continue;
     }
 
-    const parsedTimeout = parseEndpointTimeoutSeconds(endpoint?.timeoutSeconds);
+    const parsedTimeout = resolveTimeoutSecondsOption(endpoint?.timeoutSeconds, env, {
+      allowZero: true,
+    });
     if (!parsedTimeout.ok) {
       unsupported.push({
         exportName,
@@ -293,7 +242,7 @@ export function inspectPubSubTriggers(
       rawTopic,
       topic: resolvedTopic.topicId,
       topicResource: resolvedTopic.resourceName,
-      retry: parsedRetry.retry,
+      retry: parsedRetry.value,
       callable,
     };
     if (resolvedTopic.explicitProject !== undefined) {
@@ -344,6 +293,6 @@ export function matchesPubSubTopic(
 export const pubsubTriggersFamily: FunctionsTriggerFamily = {
   claims: (endpoint: FirebaseEndpoint) =>
     isPubSubEventType(endpoint.eventTrigger?.eventType),
-  unsupported: (exported: Record<string, unknown>) =>
-    inspectPubSubTriggers(exported).unsupported,
+  unsupported: (exported: Record<string, unknown>, env?: ParamsEnvMap) =>
+    inspectPubSubTriggers(exported, env === undefined ? {} : { env }).unsupported,
 };
