@@ -1,0 +1,48 @@
+{
+  "authority": "pinned independent python-chess on legal predecessor turns",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "seed": 570816,
+  "samplesPerStratum": 6,
+  "boards": 2232,
+  "uniqueSuccessors": 2200,
+  "families": {
+    "stratified-attacker": 648,
+    "stratified-defender": 648,
+    "stratified-none": 648,
+    "transformed-bishop": 96,
+    "transformed-queen": 160,
+    "transformed-rook": 32
+  },
+  "defenderMaterial": {
+    "b": 496,
+    "bb": 55,
+    "bn": 45,
+    "bp": 62,
+    "bq": 84,
+    "br": 94,
+    "nq": 61,
+    "nr": 47,
+    "pq": 108,
+    "pr": 42,
+    "q": 528,
+    "qq": 32,
+    "qr": 65,
+    "r": 464,
+    "rr": 49
+  },
+  "features": {
+    "corner": 936,
+    "defender-b": 1116,
+    "defender-w": 1116,
+    "double-check": 26,
+    "edge": 648,
+    "interior": 648,
+    "king-reply": 1913,
+    "legal-capture": 493,
+    "legal-interposition": 731,
+    "mate": 158,
+    "multiple-slider-replies": 218,
+    "pinned-slider": 21
+  },
+  "inputsAndRepliesSha256": "5c4e2de98be4c3663c88ecbb05324b18d7e2373033c6c9d8a0d090a3db2e1167"
+}
