@@ -20,19 +20,25 @@ public final class Transaction: @unchecked Sendable {
 
     private let firestore: Firestore
     internal let txnId: String?
+    private let actAs: AuthLens?
     private var hasWritten: Bool = false
 
     public internal(set) var stagedReads: [TxnReadEntry] = []
     public internal(set) var stagedWrites: [WriteDescriptor] = []
 
-    internal init(firestore: Firestore, txnId: String? = nil) {
+    internal init(firestore: Firestore, txnId: String? = nil, actAs: AuthLens? = nil) {
         self.firestore = firestore
         self.txnId = txnId
+        self.actAs = actAs
     }
 
     // -- Transaction Reads (Must precede all writes) --
 
     public func getDocument(_ document: DocumentReference) async throws -> DocumentSnapshot {
+        try firestore.lifecycle.ensureActiveAndMarkStarted()
+        guard firestore.lifecycle.isNetworkEnabled else {
+            throw PyricBridgeError.unavailable("Transactions cannot be executed while the client is offline.")
+        }
         guard !hasWritten else {
             throw PyricBridgeError.invalidArgument(
                 "Firestore transactions require all reads to be executed before all writes."
@@ -40,7 +46,7 @@ public final class Transaction: @unchecked Sendable {
         }
         let raw = try await firestore.bridgeClient.getDoc(
             path: document.path,
-            actAs: firestore.effectiveAuthLens,
+            actAs: actAs ?? firestore.effectiveAuthLens,
             txnId: txnId
         )
         let snapshot = DocumentSnapshot.fromWire(firestore: firestore, path: document.path, wire: raw)

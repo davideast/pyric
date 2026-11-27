@@ -87,6 +87,16 @@ public final class AggregateQuery: @unchecked Sendable {
     }
 
     private func getAggregation(turn: OperationTurn) async throws -> AggregateQuerySnapshot {
+        do {
+            try query.firestore.lifecycle.ensureActiveAndMarkStarted()
+        } catch {
+            await query.firestore.bridgeClient.pass(turn: turn)
+            throw error
+        }
+        guard query.firestore.lifecycle.isNetworkEnabled else {
+            await query.firestore.bridgeClient.pass(turn: turn)
+            throw PyricBridgeError.unavailable("Aggregate queries cannot be executed while the client is offline.")
+        }
         let target = query.compileTarget()
 
         if aggregateFields.count == 1 && aggregateFields[0].isCount {

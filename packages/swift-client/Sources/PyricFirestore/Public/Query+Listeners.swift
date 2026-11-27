@@ -50,7 +50,7 @@ extension Query {
             includeMetadataChanges: includeMetadataChanges,
             listenSource: listenSource,
             onEvent: { event in
-                db.lifecycle.recordOnlineQueryWire(event)
+                db.lifecycle.recordOnlineQueryWire(event, authScope: db.effectiveAuthLens.cacheScopeKey)
                 let (prevDocs, hadDeliveredFromCache) = stateBox.snapshotPrevious()
                 let snapshot = QuerySnapshot.fromWire(
                     firestore: db,
@@ -78,7 +78,10 @@ extension Query {
                 }
             },
             onOffline: {
-                let wire = db.lifecycle.projectOfflineQueryWire(target: target)
+                let wire = db.lifecycle.projectOfflineQueryWire(
+                    target: target,
+                    authScope: db.effectiveAuthLens.cacheScopeKey
+                )
                 let (prevDocs, _) = stateBox.snapshotPrevious()
                 let snapshot = QuerySnapshot.fromWire(
                     firestore: db,

@@ -62,7 +62,7 @@ struct StorageCompletionAndBucketTests {
                     return
                 }
                 transport.sendFromServer(["type": "worker-res", "id": id, "ok": true, "value": store.serialize(entry)])
-            case "storage.setMetadata":
+            case "storage.setMetadata", "storage.updateMetadata":
                 let patch = op["patch"]?.dictionaryValue ?? [:]
                 guard let updated = store.patch(bucket: bucket, path: path, patch: patch) else {
                     transport.sendFromServer(["type": "worker-res", "id": id, "ok": false, "error": ["code": "storage/object-not-found", "message": "Missing"]])
@@ -303,15 +303,17 @@ struct StorageCompletionAndBucketTests {
             }
             #expect(downloadUrlMissing == true)
 
-            var updateMissing = false
+            // Client-plane updateMetadata returns storage/unauthorized for missing objects
+            // (conformance storage/metadata/87: server requires an existing object to synthesize request.resource).
+            var updateMissingUnauthorized = false
             do {
                 let m = StorageMetadata()
                 m.contentType = "application/octet-stream"
                 _ = try await missingRef.updateMetadata(m)
-            } catch StorageErrorCode.objectNotFound {
-                updateMissing = true
+            } catch StorageErrorCode.unauthorized {
+                updateMissingUnauthorized = true
             }
-            #expect(updateMissing == true)
+            #expect(updateMissingUnauthorized == true)
 
             // Upload 0-byte empty file and verify round-trip metadata + data(maxSize:).
             let emptyRef = storage.reference(withPath: "users/\(signedIn.user.uid)/empty.bin")

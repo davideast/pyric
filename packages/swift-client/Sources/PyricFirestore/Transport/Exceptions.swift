@@ -121,9 +121,8 @@ public struct PyricBridgeError: Error, CustomStringConvertible, LocalizedError, 
     }
 
     public var description: String {
-        if let denialContext {
-            return "PyricBridgeError(\(rawCode)): \(message) [denialContext: \(denialContext)]"
-        }
+        // Keep structured denialContext on the property rather than dumping
+        // raw expressionTrace payloads into user-facing error descriptions.
         return "PyricBridgeError(\(rawCode)): \(message)"
     }
 

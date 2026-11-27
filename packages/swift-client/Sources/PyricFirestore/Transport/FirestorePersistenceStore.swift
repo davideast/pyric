@@ -6,6 +6,7 @@ internal final class FirestorePersistenceStore: @unchecked Sendable {
     private struct StoreKey: Hashable {
         let appName: String
         let database: String
+        let authScope: String
     }
 
     private struct DatabaseCache {
@@ -17,42 +18,49 @@ internal final class FirestorePersistenceStore: @unchecked Sendable {
     private let lock = NSLock()
     private var caches: [StoreKey: DatabaseCache] = [:]
 
-    func docsSnapshot(appName: String, database: String) -> [String: CachedDocumentRecord] {
+    func docsSnapshot(appName: String, database: String, authScope: String) -> [String: CachedDocumentRecord] {
         lock.lock()
         defer { lock.unlock() }
-        return caches[StoreKey(appName: appName, database: database)]?.docs ?? [:]
+        return caches[StoreKey(appName: appName, database: database, authScope: authScope)]?.docs ?? [:]
     }
 
-    func recordDoc(appName: String, database: String, path: String, exists: Bool, encodedFields: [String: AnySendable]?) {
+    func recordDoc(
+        appName: String,
+        database: String,
+        authScope: String,
+        path: String,
+        exists: Bool,
+        encodedFields: [String: AnySendable]?
+    ) {
         lock.lock()
-        let key = StoreKey(appName: appName, database: database)
+        let key = StoreKey(appName: appName, database: database, authScope: authScope)
         var entry = caches[key] ?? DatabaseCache()
         entry.docs[path] = CachedDocumentRecord(exists: exists, encodedFields: exists ? (encodedFields ?? [:]) : nil)
         caches[key] = entry
         lock.unlock()
     }
 
-    func removeDoc(appName: String, database: String, path: String) {
+    func removeDoc(appName: String, database: String, authScope: String, path: String) {
         lock.lock()
-        let key = StoreKey(appName: appName, database: database)
+        let key = StoreKey(appName: appName, database: database, authScope: authScope)
         var entry = caches[key] ?? DatabaseCache()
         entry.docs.removeValue(forKey: path)
         caches[key] = entry
         lock.unlock()
     }
 
-    func markQueryWarmed(appName: String, database: String) {
+    func markQueryWarmed(appName: String, database: String, authScope: String) {
         lock.lock()
-        let key = StoreKey(appName: appName, database: database)
+        let key = StoreKey(appName: appName, database: database, authScope: authScope)
         var entry = caches[key] ?? DatabaseCache()
         entry.hasCachedQueryResults = true
         caches[key] = entry
         lock.unlock()
     }
 
-    func recordNamedQuery(appName: String, database: String, spec: BundledNamedQuerySpec) {
+    func recordNamedQuery(appName: String, database: String, authScope: String, spec: BundledNamedQuerySpec) {
         lock.lock()
-        let key = StoreKey(appName: appName, database: database)
+        let key = StoreKey(appName: appName, database: database, authScope: authScope)
         var entry = caches[key] ?? DatabaseCache()
         entry.namedQueries[spec.name] = spec
         entry.hasCachedQueryResults = true
@@ -60,15 +68,15 @@ internal final class FirestorePersistenceStore: @unchecked Sendable {
         lock.unlock()
     }
 
-    func namedQuery(appName: String, database: String, name: String) -> BundledNamedQuerySpec? {
+    func namedQuery(appName: String, database: String, authScope: String, name: String) -> BundledNamedQuerySpec? {
         lock.lock()
         defer { lock.unlock() }
-        return caches[StoreKey(appName: appName, database: database)]?.namedQueries[name]
+        return caches[StoreKey(appName: appName, database: database, authScope: authScope)]?.namedQueries[name]
     }
 
     func clear(appName: String, database: String) {
         lock.lock()
-        caches.removeValue(forKey: StoreKey(appName: appName, database: database))
+        caches = caches.filter { !($0.key.appName == appName && $0.key.database == database) }
         lock.unlock()
     }
 

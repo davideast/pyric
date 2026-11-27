@@ -41,9 +41,49 @@ public struct AuthError: LocalizedError, CustomNSError, CustomStringConvertible,
             return authErr
         }
         if let bridgeErr = error as? PyricBridgeError {
-            let authCode = AuthErrorCode.from(codeString: bridgeErr.rawCode)
-            return AuthError(code: authCode, message: bridgeErr.message)
+            let parsed = parseStructuredBlockingError(bridgeErr.message)
+            var authCode = AuthErrorCode.from(codeString: bridgeErr.rawCode)
+            if authCode == .internalError, let status = parsed.status {
+                authCode = mapBlockingStatus(status)
+            }
+            return AuthError(code: authCode, message: parsed.message ?? bridgeErr.message)
         }
         return AuthError(code: .internalError, message: error.localizedDescription)
+    }
+
+    private static func parseStructuredBlockingError(_ raw: String) -> (message: String?, status: String?) {
+        guard let start = raw.firstIndex(of: "{"),
+              let end = raw.lastIndex(of: "}"),
+              start < end else {
+            return (nil, nil)
+        }
+        let slice = String(raw[start...end])
+        guard let data = slice.data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let inner = decoded["error"] as? [String: Any] else {
+            return (nil, nil)
+        }
+        let rawMessage = (inner["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = (rawMessage?.isEmpty == false) ? rawMessage : nil
+        let rawStatus = (inner["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let status = (rawStatus?.isEmpty == false) ? rawStatus : nil
+        return (message, status)
+    }
+
+    private static func mapBlockingStatus(_ status: String) -> AuthErrorCode {
+        switch status {
+        case "PERMISSION_DENIED": return .permissionDenied
+        case "UNAUTHENTICATED": return .unauthenticated
+        case "INVALID_ARGUMENT": return .invalidArgument
+        case "FAILED_PRECONDITION": return .failedPrecondition
+        case "RESOURCE_EXHAUSTED": return .resourceExhausted
+        case "ALREADY_EXISTS": return .alreadyExists
+        case "NOT_FOUND": return .notFound
+        case "UNAVAILABLE": return .unavailable
+        case "DEADLINE_EXCEEDED": return .deadlineExceeded
+        case "CANCELLED", "CANCELED": return .cancelled
+        case "ABORTED": return .aborted
+        default: return .internalError
+        }
     }
 }

@@ -77,30 +77,41 @@ extension Firestore {
         guard lifecycle.isNetworkEnabled else {
             throw PyricBridgeError.unavailable("Transactions cannot be executed while the client is offline.")
         }
+        let txLens = effectiveAuthLens
+        let txScope = txLens.cacheScopeKey
         var attempts = 0
 
         while attempts < maxAttempts {
+            try lifecycle.ensureActiveAndMarkStarted()
+            guard lifecycle.isNetworkEnabled else {
+                throw PyricBridgeError.unavailable("Transactions cannot be executed while the client is offline.")
+            }
             attempts += 1
             let attemptTxnId = UUID().uuidString
-            let txn = Transaction(firestore: self, txnId: attemptTxnId)
+            let txn = Transaction(firestore: self, txnId: attemptTxnId, actAs: txLens)
             var inCommit = false
             do {
                 let result = try await updateBlock(txn)
-                let writeId = lifecycle.beginOnlineWrite()
+                try lifecycle.ensureActiveAndMarkStarted()
+                guard lifecycle.isNetworkEnabled else {
+                    throw PyricBridgeError.unavailable("Transactions cannot be executed while the client is offline.")
+                }
+                let writeId = lifecycle.beginOnlineWrite(authScope: txScope)
                 inCommit = true
                 do {
                     try await bridgeClient.txnCommit(
                         reads: txn.stagedReads,
                         writes: txn.stagedWrites,
-                        actAs: effectiveAuthLens,
+                        actAs: txLens,
                         txnId: attemptTxnId
                     )
                     lifecycle.finishOnlineWrite(
                         writeId,
+                        authScope: txScope,
                         committedMutations: txn.stagedWrites.map { $0.toOfflineMutation() }
                     )
                 } catch {
-                    lifecycle.finishOnlineWrite(writeId, committedMutations: nil)
+                    lifecycle.finishOnlineWrite(writeId, authScope: txScope, committedMutations: nil)
                     throw error
                 }
                 return result

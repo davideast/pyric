@@ -18,9 +18,9 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
     private var terminated = false
     private var networkEnabled = true
     private var nextStageId = 1
-    private var stagedEntries: [(stageId: Int, mutations: [OfflineWriteMutation])] = []
+    private var stagedEntries: [(stageId: Int, authScope: String, mutations: [OfflineWriteMutation])] = []
     private var queuedOfflineWrites: [StagedOfflineWriteEntry] = []
-    private var pendingWriteSettlements: [UUID: PendingWriteSettlement] = [:]
+    private var pendingWriteSettlements: [UUID: (authScope: String, settlement: PendingWriteSettlement)] = [:]
     private var activeBundleLoads: [UUID: PendingWriteSettlement] = [:]
     private var managedListeners: [UUID: ManagedSnapshotListenerHooks] = [:]
     private var syncObservers: [UUID: SyncObserverEntry] = [:]
@@ -74,25 +74,25 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
 
     // MARK: - Pending Writes Tracking
 
-    func beginOnlineWrite() -> UUID {
+    func beginOnlineWrite(authScope: String) -> UUID {
         let id = UUID()
         let settlement = PendingWriteSettlement()
         lock.lock()
         started = true
-        pendingWriteSettlements[id] = settlement
+        pendingWriteSettlements[id] = (authScope: authScope, settlement: settlement)
         lock.unlock()
         return id
     }
 
-    func finishOnlineWrite(_ id: UUID, committedMutations: [OfflineWriteMutation]?) {
+    func finishOnlineWrite(_ id: UUID, authScope: String, committedMutations: [OfflineWriteMutation]?) {
         if let committedMutations, !committedMutations.isEmpty {
-            applyCommittedMutations(committedMutations)
+            applyCommittedMutations(committedMutations, authScope: authScope)
             notifyCacheOnlyListeners(for: Set(committedMutations.map(\.path)))
         }
         lock.lock()
-        let settlement = pendingWriteSettlements.removeValue(forKey: id)
+        let entry = pendingWriteSettlements.removeValue(forKey: id)
         lock.unlock()
-        settlement?.markSettled()
+        entry?.settlement.markSettled()
     }
 
     private func notifyCacheOnlyListeners(for touchedPaths: Set<String>) {
@@ -126,8 +126,9 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         started = true
         let stageId = nextStageId
         nextStageId += 1
-        stagedEntries.append((stageId: stageId, mutations: mutations))
-        pendingWriteSettlements[writeId] = settlement
+        let authScope = actAs.cacheScopeKey
+        stagedEntries.append((stageId: stageId, authScope: authScope, mutations: mutations))
+        pendingWriteSettlements[writeId] = (authScope: authScope, settlement: settlement)
         queuedOfflineWrites.append(
             StagedOfflineWriteEntry(
                 stageId: stageId,
@@ -149,11 +150,13 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         }
     }
 
-    func snapshotPendingWriteSettlements() -> [PendingWriteSettlement] {
+    func snapshotPendingWriteSettlements(authScope: String) -> [PendingWriteSettlement] {
         lock.lock()
         defer { lock.unlock() }
         started = true
-        return Array(pendingWriteSettlements.values)
+        return pendingWriteSettlements.values
+            .filter { $0.authScope == authScope }
+            .map(\.settlement)
     }
 
     // MARK: - Network Toggle & Flush
@@ -193,12 +196,12 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
 
     func finishFlushedWrite(_ entry: StagedOfflineWriteEntry, error: Error?) {
         if error == nil {
-            applyCommittedMutations(entry.mutations)
+            applyCommittedMutations(entry.mutations, authScope: entry.actAs.cacheScopeKey)
         }
         let listenersToRefreshOnRollback: [ManagedSnapshotListenerHooks]
         lock.lock()
         stagedEntries.removeAll { $0.stageId == entry.stageId }
-        let settlement = pendingWriteSettlements.removeValue(forKey: entry.writeId)
+        let settlementEntry = pendingWriteSettlements.removeValue(forKey: entry.writeId)
         if error != nil && !networkEnabled {
             let touched = Set(entry.mutations.map(\.path))
             listenersToRefreshOnRollback = managedListeners.values.filter { hooks in
@@ -214,7 +217,7 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         } else {
             entry.continuation.resume(returning: ())
         }
-        settlement?.markSettled()
+        settlementEntry?.settlement.markSettled()
 
         for hooks in listenersToRefreshOnRollback {
             hooks.deliverOfflineProjection()
@@ -238,11 +241,11 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
 
     // MARK: - Cache Reads & Updates
 
-    func readCachedDocumentWire(path: String) throws -> AnySendable {
-        let baseDocs = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database)
+    func readCachedDocumentWire(path: String, authScope: String) throws -> AnySendable {
+        let baseDocs = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database, authScope: authScope)
         let batches: [[OfflineWriteMutation]]
         lock.lock()
-        batches = stagedEntries.map(\.mutations)
+        batches = stagedEntries.filter { $0.authScope == authScope }.map(\.mutations)
         lock.unlock()
 
         let projected = FirestoreOfflineProjection.projectDocument(
@@ -256,11 +259,11 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         return projected.wirePayload
     }
 
-    func projectOfflineDocumentWire(path: String) -> AnySendable {
-        let baseDocs = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database)
+    func projectOfflineDocumentWire(path: String, authScope: String) -> AnySendable {
+        let baseDocs = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database, authScope: authScope)
         let batches: [[OfflineWriteMutation]]
         lock.lock()
-        batches = stagedEntries.map(\.mutations)
+        batches = stagedEntries.filter { $0.authScope == authScope }.map(\.mutations)
         lock.unlock()
         return FirestoreOfflineProjection.projectDocument(
             path: path,
@@ -269,11 +272,11 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         ).wirePayload
     }
 
-    func projectOfflineQueryWire(target: TargetDescriptor) -> AnySendable {
-        let baseDocs = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database)
+    func projectOfflineQueryWire(target: TargetDescriptor, authScope: String) -> AnySendable {
+        let baseDocs = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database, authScope: authScope)
         let batches: [[OfflineWriteMutation]]
         lock.lock()
-        batches = stagedEntries.map(\.mutations)
+        batches = stagedEntries.filter { $0.authScope == authScope }.map(\.mutations)
         lock.unlock()
         return FirestoreOfflineProjection.projectQuery(
             target: target,
@@ -282,54 +285,49 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         )
     }
 
-    func recordOnlineDocWire(path: String, wire: AnySendable) {
+    func recordOnlineDocWire(path: String, wire: AnySendable, authScope: String) {
         let exists = wire["exists"]?.boolValue ?? true
         if !exists && wire["exists"] != nil {
             FirestorePersistenceStore.shared.recordDoc(
-                appName: appName,
-                database: database,
-                path: path,
-                exists: false,
-                encodedFields: nil
+                appName: appName, database: database, authScope: authScope,
+                path: path, exists: false, encodedFields: nil
             )
             return
         }
         let encodedFields = extractWireFields(from: wire["data"] ?? wire)
         FirestorePersistenceStore.shared.recordDoc(
-            appName: appName,
-            database: database,
-            path: path,
-            exists: true,
-            encodedFields: encodedFields
+            appName: appName, database: database, authScope: authScope,
+            path: path, exists: true, encodedFields: encodedFields
         )
     }
 
-    func recordOnlineQueryWire(_ wire: AnySendable) {
-        FirestorePersistenceStore.shared.markQueryWarmed(appName: appName, database: database)
+    func recordOnlineQueryWire(_ wire: AnySendable, authScope: String) {
+        FirestorePersistenceStore.shared.markQueryWarmed(appName: appName, database: database, authScope: authScope)
         guard let docs = wire["docs"]?.arrayValue else { return }
         for item in docs {
             guard let docPath = item["path"]?.stringValue else { continue }
-            recordOnlineDocWire(path: docPath, wire: item)
+            recordOnlineDocWire(path: docPath, wire: item, authScope: authScope)
         }
     }
 
-    func recordBundledEntry(_ entry: BundledDocumentEntry) {
+    func recordBundledEntry(_ entry: BundledDocumentEntry, authScope: String) {
         FirestorePersistenceStore.shared.recordDoc(
-            appName: appName,
-            database: database,
-            path: entry.docPath,
-            exists: entry.exists,
-            encodedFields: entry.encodedFields
+            appName: appName, database: database, authScope: authScope,
+            path: entry.docPath, exists: entry.exists, encodedFields: entry.encodedFields
         )
         notifyCacheOnlyListeners(for: [entry.docPath])
     }
 
-    func recordBundledNamedQuery(_ spec: BundledNamedQuerySpec) {
-        FirestorePersistenceStore.shared.recordNamedQuery(appName: appName, database: database, spec: spec)
+    func recordBundledNamedQuery(_ spec: BundledNamedQuerySpec, authScope: String) {
+        FirestorePersistenceStore.shared.recordNamedQuery(
+            appName: appName, database: database, authScope: authScope, spec: spec
+        )
     }
 
-    func bundledNamedQuery(named name: String) -> BundledNamedQuerySpec? {
-        FirestorePersistenceStore.shared.namedQuery(appName: appName, database: database, name: name)
+    func bundledNamedQuery(named name: String, authScope: String) -> BundledNamedQuerySpec? {
+        FirestorePersistenceStore.shared.namedQuery(
+            appName: appName, database: database, authScope: authScope, name: name
+        )
     }
 
     func beginBundleLoad() -> UUID {
@@ -355,12 +353,12 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         return Array(activeBundleLoads.values)
     }
 
-    private func applyCommittedMutations(_ mutations: [OfflineWriteMutation]) {
-        let currentBase = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database)
+    private func applyCommittedMutations(_ mutations: [OfflineWriteMutation], authScope: String) {
+        let currentBase = FirestorePersistenceStore.shared.docsSnapshot(appName: appName, database: database, authScope: authScope)
         for mutation in mutations {
             switch mutation {
             case .delete(let path):
-                FirestorePersistenceStore.shared.removeDoc(appName: appName, database: database, path: path)
+                FirestorePersistenceStore.shared.removeDoc(appName: appName, database: database, authScope: authScope, path: path)
             case .set(let path, _, _, _), .update(let path, _), .updateSegments(let path, _):
                 let projected = FirestoreOfflineProjection.projectDocument(
                     path: path,
@@ -369,11 +367,8 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
                 )
                 if projected.exists {
                     FirestorePersistenceStore.shared.recordDoc(
-                        appName: appName,
-                        database: database,
-                        path: path,
-                        exists: true,
-                        encodedFields: projected.encodedFields
+                        appName: appName, database: database, authScope: authScope,
+                        path: path, exists: true, encodedFields: projected.encodedFields
                     )
                 }
             }
@@ -431,7 +426,7 @@ internal final class FirestoreClientLifecycle: @unchecked Sendable {
         abortedWrites = queuedOfflineWrites
         queuedOfflineWrites.removeAll()
         stagedEntries.removeAll()
-        settlements = Array(pendingWriteSettlements.values) + Array(activeBundleLoads.values)
+        settlements = pendingWriteSettlements.values.map(\.settlement) + Array(activeBundleLoads.values)
         pendingWriteSettlements.removeAll()
         activeBundleLoads.removeAll()
         lock.unlock()
