@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync, writeFileSync} from 'node:fs';
 import {loadPolicyApi} from '../../king-safety/policy/public-api.mjs';
+import {lowerProtocol} from './lowering.mjs';
 import {sources, binding} from './sources.mjs';
 
 const baseline = new URL('../../chess-safety/artefacts/knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5.rules', import.meta.url);
@@ -23,7 +24,8 @@ export function link(compiled, variant) {
   const original = "let defender = white ? 'b' : 'w';\n    return status == 'playing' ?";
   assert.equal(rules.split(original).length, 2);
   const fallback = "let defender = white ? 'b' : 'w';\n    return (white ? sliderMaterialb(text) : sliderMaterialw(text)) ? sliderStatus(text,defender,status) : status == 'playing' ?";
-  return rules.replace(original, () => fallback);
+  rules=rules.replace(original, () => fallback);
+  return variant==='all-packed-path-v5' ? lowerProtocol(rules) : rules;
 }
 
 export function emit(compileFunction, variant) {

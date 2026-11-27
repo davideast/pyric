@@ -1,3 +1,4 @@
+import {protocolSources,protocolBinding} from './lowering.mjs';
 import {crossBinding,crossSources} from './cross.mjs';
 import {extendedBinding,extendedSources} from './family.mjs';
 // In a compact post-move board each playable square occupies one character.
@@ -41,12 +42,12 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
   if (!kinds) throw Error('Unknown slider policy variant: ' + variant);
-  if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant)};
+  if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant),...(variant==='all-packed-path-v5'?protocolSources():{})};
   const out = {};
   for (const color of ['w', 'b']) {
     const enemy = color === 'w' ? 'b' : 'w';
@@ -83,7 +84,10 @@ export function sources(variant) {
 }
 
 export function binding(variant) {
-  if (variants[variant]?.length > 1) return extendedBinding(variants[variant]);
+  if (variants[variant]?.length > 1) {
+    const optimized=variant==='all-packed-path-v5';
+    return extendedBinding(variants[variant],optimized)+(optimized?'\n  '+protocolBinding():'');
+  }
   if (variant !== 'rook-rays-v1') return crossBinding(variant);
   return `function sliderMove(text, defender) {
     return defender == 'w' ? sliderorthogonalw(sliderEncodew(text)) : sliderorthogonalb(sliderEncodeb(text));
