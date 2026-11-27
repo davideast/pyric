@@ -7,10 +7,12 @@ import 'sandbox_user_record.dart';
 /// Modal bottom sheet containing Identity Impersonation controls and CEL Denial diagnostics.
 class PyricDebugSheet extends StatefulWidget {
   final PyricDebugController controller;
+  final VoidCallback? onClose;
 
   const PyricDebugSheet({
     super.key,
     required this.controller,
+    this.onClose,
   });
 
   @override
@@ -29,7 +31,7 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
     _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.controller.users.isEmpty) {
-        widget.controller.refreshUsers();
+        widget.controller.refreshUsers(silent: true);
       }
     });
   }
@@ -107,7 +109,13 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
                           ),
                         IconButton(
                           icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: () {
+                            if (widget.onClose != null) {
+                              widget.onClose!();
+                            } else {
+                              Navigator.maybeOf(context)?.pop();
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -333,7 +341,7 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
                 if (user.tenantId != null && user.tenantId!.isNotEmpty) ...[
                   const SizedBox(width: 4),
                   Text(
-                    '• ${user.tenantId}',
+                    '- ${user.tenantId}',
                     style: const TextStyle(fontSize: 11, color: Colors.purple),
                   ),
                 ],

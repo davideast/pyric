@@ -49,14 +49,16 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
                     color: Colors.red.withAlpha(30),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.gpp_bad, color: Colors.red, size: 14),
-                      SizedBox(width: 4),
+                      const Icon(Icons.gpp_bad, color: Colors.red, size: 14),
+                      const SizedBox(width: 4),
                       Text(
-                        'PERMISSION_DENIED',
-                        style: TextStyle(
+                        report.isStorage
+                            ? (report.errorCode ?? 'storage/unauthorized')
+                            : 'PERMISSION_DENIED',
+                        style: const TextStyle(
                           color: Colors.red,
                           fontWeight: FontWeight.bold,
                           fontSize: 11,
@@ -133,7 +135,7 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '• ',
+                        '- ',
                         style: TextStyle(
                           color: Colors.red,
                           fontWeight: FontWeight.bold,

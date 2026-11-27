@@ -93,5 +93,77 @@ void main() {
       expect(find.text('allow read: if request.auth != null;'), findsOneWidget);
       expect(find.text('1-Tap Admin Bypass'), findsOneWidget);
     });
+
+    testWidgets('opens inline sheet without Navigator crash when mounted in MaterialApp.builder', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => PyricDebugOverlay(
+            controller: controller,
+            child: child,
+          ),
+          home: const Scaffold(
+            body: Center(child: Text('Builder Child')),
+          ),
+        ),
+      );
+
+      controller.addDenial(
+        RulesDenialReport(
+          engine: 'storage',
+          file: 'storage.rules',
+          citation: 'storage.rules',
+          errorCode: 'storage/unauthorized',
+          requestMethod: 'get',
+          requestPath: 'audio/alice/narr-1.wav',
+          reasons: ['Get "audio/alice/narr-1.wav" denied by rules.'],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('ANONYMOUS'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Pyric Companion'), findsOneWidget);
+
+      await tester.tap(find.text('Rules Denials'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('storage/unauthorized'), findsOneWidget);
+      expect(find.text('storage.rules'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pyric Companion'), findsNothing);
+    });
+
+    testWidgets('opens modal sheet via navigatorKey when mounted in MaterialApp.builder', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navKey,
+          builder: (context, child) => PyricDebugOverlay(
+            controller: controller,
+            navigatorKey: navKey,
+            child: child,
+          ),
+          home: const Scaffold(
+            body: Center(child: Text('NavKey Child')),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('ANONYMOUS'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Pyric Companion'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pyric Companion'), findsNothing);
+    });
   });
 }

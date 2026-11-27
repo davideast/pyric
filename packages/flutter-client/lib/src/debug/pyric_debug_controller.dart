@@ -18,12 +18,16 @@ class PyricDebugController extends ChangeNotifier {
 
   List<SandboxUserRecord> _users = [];
   bool _isLoadingUsers = false;
+  bool _disposed = false;
+  Future<void>? _refreshInFlight;
+  String? _lastSessionUid;
   AuthLens _currentLens = AuthLens.anon;
   final List<RulesDenialReport> _denials = [];
 
   StreamSubscription<AuthLens>? _lensSub;
   StreamSubscription<AuthLens>? _remoteLensSub;
   StreamSubscription<RulesDenialReport>? _denialSub;
+  StreamSubscription<UserPlatform?>? _authStateSub;
 
   PyricDebugController({
     PyricFirebaseAuthPlatform? authPlatform,
@@ -36,16 +40,35 @@ class PyricDebugController extends ChangeNotifier {
             (authPlatform?.bridgeClient ?? PyricBridgeClient()),
         _diagnostics = diagnostics ?? PyricDebugDiagnostics.instance {
     _currentLens = _authPlatform.currentAuthLens;
+    _lastSessionUid = _authPlatform.currentUser?.uid;
     _denials.addAll(_diagnostics.history);
 
     _initSubscriptions();
+    unawaited(refreshUsers(silent: true));
   }
 
   void _initSubscriptions() {
     _lensSub = _authPlatform.authLensChanges.listen(
       (lens) {
         _currentLens = lens;
-        notifyListeners();
+        if (lens.mode == 'as' && _users.isEmpty) {
+          unawaited(refreshUsers(silent: true));
+        }
+        _notifyIfAlive();
+      },
+      onError: (Object _, StackTrace __) {},
+    );
+
+    _authStateSub = _authPlatform.authStateChanges().listen(
+      (user) {
+        final nextUid = user?.uid;
+        if (_lastSessionUid != null && nextUid != _lastSessionUid) {
+          clearDenials();
+        }
+        _lastSessionUid = nextUid;
+        if (nextUid != null && _users.isEmpty) {
+          unawaited(refreshUsers(silent: true));
+        }
       },
       onError: (Object _, StackTrace __) {},
     );
@@ -62,8 +85,14 @@ class PyricDebugController extends ChangeNotifier {
       if (_denials.length > 20) {
         _denials.removeLast();
       }
-      notifyListeners();
+      _notifyIfAlive();
     });
+  }
+
+  void _notifyIfAlive() {
+    if (!_disposed) {
+      notifyListeners();
+    }
   }
 
   /// Available sandbox users discovered via bridge `auth.listUsers`.
@@ -106,6 +135,14 @@ class PyricDebugController extends ChangeNotifier {
         if (user.displayName != null && user.displayName!.isNotEmpty) {
           return user.displayName!;
         }
+        final tokenEmail = _currentLens.token?['email'];
+        if (tokenEmail is String && tokenEmail.isNotEmpty) {
+          return tokenEmail;
+        }
+        final tokenName = _currentLens.token?['name'];
+        if (tokenName is String && tokenName.isNotEmpty) {
+          return tokenName;
+        }
         final tenant = _currentLens.tenant;
         if (tenant != null && tenant.isNotEmpty) {
           return '$uid ($tenant)';
@@ -117,28 +154,57 @@ class PyricDebugController extends ChangeNotifier {
   }
 
   /// Refreshes sandbox users from the bridge server.
-  Future<void> refreshUsers() async {
-    _isLoadingUsers = true;
-    notifyListeners();
+  ///
+  /// When [silent] is `true`, the request executes in the background without
+  /// toggling [isLoadingUsers].
+  Future<void> refreshUsers({bool silent = false}) {
+    if (_disposed) return Future<void>.value();
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
+    final future = _doRefreshUsers(silent: silent);
+    _refreshInFlight = future;
+    future.whenComplete(() {
+      if (identical(_refreshInFlight, future)) {
+        _refreshInFlight = null;
+      }
+    });
+    return future;
+  }
+
+  Future<void> _doRefreshUsers({required bool silent}) async {
+    if (!silent) {
+      _isLoadingUsers = true;
+      _notifyIfAlive();
+    }
 
     try {
       final rawList = await _bridgeClient.authListUsers();
+      if (_disposed) return;
       _users = rawList.map((m) => SandboxUserRecord.fromMap(m)).toList();
     } catch (_) {
       // Keep existing users on failure
     } finally {
-      _isLoadingUsers = false;
-      notifyListeners();
+      if (!silent) {
+        _isLoadingUsers = false;
+      }
+      _notifyIfAlive();
     }
   }
 
   /// Switches active impersonation identity to the given sandbox user.
   void selectUser(SandboxUserRecord user) {
+    final hydrated = <String, dynamic>{...user.customClaims};
+    if (user.email != null && user.email!.isNotEmpty) {
+      hydrated.putIfAbsent('email', () => user.email);
+    }
+    if (user.displayName != null && user.displayName!.isNotEmpty) {
+      hydrated.putIfAbsent('name', () => user.displayName);
+    }
     _authPlatform.switchAuthLens(
       AuthLens.asUser(
         uid: user.uid,
         tenant: user.tenantId,
-        token: user.customClaims.isNotEmpty ? user.customClaims : null,
+        token: hydrated.isNotEmpty ? hydrated : null,
       ),
     );
   }
@@ -166,7 +232,7 @@ class PyricDebugController extends ChangeNotifier {
   void clearDenials() {
     _denials.clear();
     _diagnostics.clear();
-    notifyListeners();
+    _notifyIfAlive();
   }
 
   /// Manually records a denial report.
@@ -176,7 +242,9 @@ class PyricDebugController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _lensSub?.cancel();
+    _authStateSub?.cancel();
     _remoteLensSub?.cancel();
     _denialSub?.cancel();
     super.dispose();

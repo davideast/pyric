@@ -73,6 +73,8 @@ class RulesDenialReport {
 
   bool get isRtdb => engine == 'rtdb';
 
+  bool get isStorage => engine == 'storage';
+
   RulesDenialReport({
     this.engine = 'firestore',
     this.file = 'firestore.rules',
@@ -179,13 +181,71 @@ class RulesDenialReport {
     );
   }
 
-  /// Extracts a `RulesDenialReport` from a `PyricBridgeException` if it contains `denialContext`.
+  static final RegExp _storageMessagePattern = RegExp(
+    r'^(?:storage/unauthorized:\s*)?([A-Za-z]+)\s+"([^"]+)"(?:\s+in\s+bucket\s+"([^"]+)")?',
+    caseSensitive: false,
+  );
+
+  /// Extracts a `RulesDenialReport` from a `PyricBridgeException`.
+  ///
+  /// Uses `denialContext` when present, and synthesizes a minimal report for
+  /// `storage/unauthorized` and `permission-denied` errors emitted without a
+  /// structured `denialContext` map.
   static RulesDenialReport? fromBridgeException(PyricBridgeException ex) {
-    if (ex.denialContext is! Map) return null;
-    return RulesDenialReport.fromMap(
-      ex.denialContext as Map,
-      errorMessage: ex.message,
-    );
+    if (ex.denialContext is Map) {
+      return RulesDenialReport.fromMap(
+        ex.denialContext as Map,
+        errorMessage: ex.message,
+      );
+    }
+    final lowerCode = ex.code.toLowerCase();
+    final isStorageDenial =
+        lowerCode == 'storage/unauthorized' || lowerCode == 'unauthorized';
+    if (isStorageDenial) {
+      final rawMessage = ex.message.trim();
+      final match = _storageMessagePattern.firstMatch(rawMessage);
+      final method = match?.group(1)?.toLowerCase() ?? 'storage';
+      final rawPath = match?.group(2);
+      final path = (rawPath != null && rawPath.isNotEmpty) ? rawPath : null;
+      final stripped = rawMessage.replaceFirst(
+        RegExp(r'^storage/unauthorized:\s*', caseSensitive: false),
+        '',
+      );
+      final reason = stripped.isNotEmpty
+          ? stripped
+          : 'Storage operation denied by security rules.';
+      return RulesDenialReport(
+        engine: 'storage',
+        file: 'storage.rules',
+        citation: 'storage.rules',
+        reasons: [reason],
+        requestMethod: method,
+        requestPath: path,
+        reason: reason,
+        errorCode: ex.code,
+        errorMessage: ex.message,
+      );
+    }
+    final isPermissionDenied = lowerCode == 'permission-denied' ||
+        lowerCode == 'permission_denied' ||
+        lowerCode == 'firestore/permission-denied' ||
+        lowerCode == 'database/permission-denied';
+    if (isPermissionDenied) {
+      final isDatabase = lowerCode.startsWith('database/');
+      final rawMessage = ex.message.trim();
+      final reason = rawMessage.isNotEmpty
+          ? rawMessage
+          : 'Missing or insufficient permissions.';
+      return RulesDenialReport(
+        engine: isDatabase ? 'rtdb' : 'firestore',
+        file: isDatabase ? 'database.rules.json' : 'firestore.rules',
+        reasons: [reason],
+        reason: reason,
+        errorCode: ex.code,
+        errorMessage: ex.message,
+      );
+    }
+    return null;
   }
 
   @override

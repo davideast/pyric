@@ -7,11 +7,13 @@ import 'pyric_debug_sheet.dart';
 class PyricDebugOverlay extends StatefulWidget {
   final Widget? child;
   final PyricDebugController? controller;
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   const PyricDebugOverlay({
     super.key,
     this.child,
     this.controller,
+    this.navigatorKey,
   });
 
   @override
@@ -21,6 +23,7 @@ class PyricDebugOverlay extends StatefulWidget {
 class _PyricDebugOverlayState extends State<PyricDebugOverlay> {
   late PyricDebugController _controller;
   bool _internalController = false;
+  bool _isInlineSheetOpen = false;
 
   Offset _position = const Offset(16, 60);
 
@@ -43,12 +46,68 @@ class _PyricDebugOverlayState extends State<PyricDebugOverlay> {
     super.dispose();
   }
 
+  void _closeInlineSheet() {
+    if (_isInlineSheetOpen && mounted) {
+      setState(() {
+        _isInlineSheetOpen = false;
+      });
+    }
+  }
+
   void _showSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => PyricDebugSheet(controller: _controller),
+    final navContext = widget.navigatorKey?.currentContext;
+    if (navContext != null && Navigator.maybeOf(navContext) != null) {
+      showModalBottomSheet<void>(
+        context: navContext,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) => PyricDebugSheet(controller: _controller),
+      );
+      return;
+    }
+    if (Navigator.maybeOf(context) != null) {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) => PyricDebugSheet(controller: _controller),
+      );
+      return;
+    }
+    setState(() {
+      _isInlineSheetOpen = true;
+    });
+  }
+
+  Widget _buildInlineSheetModal() {
+    return Positioned.fill(
+      child: Overlay(
+        initialEntries: [
+          OverlayEntry(
+            builder: (overlayContext) => Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _closeInlineSheet,
+                    child: const ColoredBox(color: Colors.black54),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: PyricDebugSheet(
+                      controller: _controller,
+                      onClose: _closeInlineSheet,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -143,6 +202,7 @@ class _PyricDebugOverlayState extends State<PyricDebugOverlay> {
       children: [
         widget.child!,
         pill,
+        if (_isInlineSheetOpen) _buildInlineSheetModal(),
       ],
     );
   }

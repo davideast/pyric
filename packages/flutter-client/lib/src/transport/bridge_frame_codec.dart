@@ -91,11 +91,12 @@ ParsedBridgeError parseBridgeError(
     envelope: envelope,
   );
   final lowerCode = code.toLowerCase();
-  final isStorageDenial =
-      lowerCode == 'storage/unauthorized' || lowerCode == 'unauthorized';
-  final isDenial = denialContext != null ||
-      lowerCode.contains('permission') ||
-      isStorageDenial ||
-      message.toLowerCase().contains('permission_denied');
+  final isRulesDenialCode = lowerCode == 'permission-denied' ||
+      lowerCode == 'permission_denied' ||
+      lowerCode == 'firestore/permission-denied' ||
+      lowerCode == 'database/permission-denied' ||
+      lowerCode == 'storage/unauthorized' ||
+      lowerCode == 'unauthorized';
+  final isDenial = denialContext != null || isRulesDenialCode;
   return ParsedBridgeError(exception: exception, isDenial: isDenial);
 }

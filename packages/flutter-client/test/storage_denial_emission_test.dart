@@ -30,5 +30,33 @@ void main() {
       );
       expect(parsed.isDenial, isFalse);
     });
+
+    test('does not fire isDenial on auth/internal-error containing PERMISSION_DENIED text', () {
+      final parsed = parseBridgeError(
+        const {
+          'code': 'auth/internal-error',
+          'message': '{"error":{"message":"Email not allowlisted.","status":"PERMISSION_DENIED"}}',
+        },
+        defaultCode: 'unknown',
+        defaultMessage: 'Unknown error',
+      );
+      expect(parsed.isDenial, isFalse);
+    });
+
+    test('marks canonical permission-denied codes as denials', () {
+      for (final code in const [
+        'permission-denied',
+        'PERMISSION_DENIED',
+        'firestore/permission-denied',
+        'database/permission-denied',
+      ]) {
+        final parsed = parseBridgeError(
+          {'code': code, 'message': 'Denied'},
+          defaultCode: 'unknown',
+          defaultMessage: 'Unknown error',
+        );
+        expect(parsed.isDenial, isTrue, reason: 'Expected $code to be classified as denial');
+      }
+    });
   });
 }
