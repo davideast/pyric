@@ -83,6 +83,27 @@ function createWorkerHarness(rules: string, documents: Record<string, Record<str
 }
 
 describe('worker Firestore sandbox enforcement (FS-ENF-1, FS-ENF-2b, FS-ENF-3a, FS-ENF-6)', () => {
+  it('carries every array-contains-any alternative to the list authorizer', async () => {
+    const rules = `rules_version = '2'; service cloud.firestore {
+      match /databases/{database}/documents/items/{id} {
+        allow list: if 'staff' in resource.data.groups;
+      }
+    }`;
+    const harness = createWorkerHarness(rules, {
+      'items/x': { groups: ['staff'] },
+      'items/y': { groups: ['visitors'] },
+    });
+    try {
+      const items = workerClient.collection(harness.wdb, 'items');
+      const list = (groups: string[]) => workerClient.getDocs(workerClient.query(items,
+        workerClient.where('groups', 'array-contains-any', groups)));
+      expect((await list(['staff'])).docs.map(doc => doc.id)).toEqual(['x']);
+      await expect(list(['staff', 'unused'])).rejects.toMatchObject({ code: 'permission-denied' });
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it('FS-ENF-1: txnCommit re-read enforces get security rules when ACL is revoked before commit', async () => {
     const rules = `rules_version = '2';
 service cloud.firestore {

@@ -448,12 +448,21 @@ function resolveGuaranteedArrayContains(
     functionScopes,
   );
   if (ruleVal === undefined) return undefined;
-  const matched = (constraints.where ?? []).some((filter) => {
-    if (filter.field !== arrayField || filter.op !== "array-contains" || Array.isArray(filter.value)) {
-      return false;
-    }
-    const strict = normalizeStrictQueryScalar(filter.value);
+  const matchesElement = (operand: unknown): boolean => {
+    const strict = normalizeStrictQueryScalar(operand);
     return strict !== undefined && listElementsEqual(ruleVal, strict);
+  };
+  const matched = (constraints.where ?? []).some((filter) => {
+    if (filter.field !== arrayField) return false;
+    if (filter.op === "array-contains") return matchesElement(filter.value);
+    const alternatives = filter.value;
+    if (filter.op !== "array-contains-any" || !Array.isArray(alternatives) ||
+        alternatives.length === 0 || alternatives.length > 30) return false;
+    // Each alternative can independently select a document.
+    for (const operand of alternatives) {
+      if (!matchesElement(operand)) return false;
+    }
+    return true;
   });
   return matched ? ruleVal : undefined;
 }

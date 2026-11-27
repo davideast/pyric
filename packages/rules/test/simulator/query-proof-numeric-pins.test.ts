@@ -185,6 +185,19 @@ describe('list query prover numeric int/float pin equivalence', () => {
     expect(listDecision(rulesFor('resource.data.scores.hasAll([1.5])'), containsFraction)).toBe('ALLOW');
   });
 
+  test('array-contains-any proves membership only when every alternative guarantees that element', () => {
+    const source = rulesFor('1 in resource.data.scores');
+    const decide = (values: QueryWhereConstraint['value']) => internalListDecision(source, [
+      { field: 'scores', op: 'array-contains-any', value: values },
+    ]);
+    expect(decide([1])).toBe('ALLOW');
+    expect(decide([1, 1])).toBe('ALLOW');
+    expect(decide([1, new RulesFloat(1)])).toBe('DENY');
+    expect(decide([2, 1])).toBe('DENY');
+    expect(decide([])).toBe('DENY');
+    expect(decide(1)).toBe('DENY');
+  });
+
   test('preserves worst-case lookup budget when an unprovable sibling guards lookups with a numeric type check', () => {
     const lookups = Array.from(
       { length: 11 },
