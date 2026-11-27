@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Observe create-once and owner-scoped chest claims on the same path and a fresh key."
+}

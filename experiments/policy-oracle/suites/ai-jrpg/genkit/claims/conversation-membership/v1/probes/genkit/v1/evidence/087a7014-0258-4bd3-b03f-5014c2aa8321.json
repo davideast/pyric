@@ -1,0 +1,2678 @@
+{
+  "family": "conversation-membership",
+  "variant": "genkit",
+  "runId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "a": {
+      "uid": "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "b": {
+      "uid": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "c": {
+      "uid": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "ctx": {
+    "uids": {
+      "a": "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+      "b": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+      "c": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+    },
+    "emails": {
+      "a": "a-087a7014-0258-4bd3-b03f-5014c2aa8321@example.invalid",
+      "b": "b-087a7014-0258-4bd3-b03f-5014c2aa8321@example.invalid",
+      "c": "c-087a7014-0258-4bd3-b03f-5014c2aa8321@example.invalid"
+    },
+    "runId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+    "variant": "genkit"
+  },
+  "seed": {
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-solo": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-excluded": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/outsider": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/wrong-sender": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/empty": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/at-limit": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/over-limit": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/image": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/bad-image": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/removed": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    },
+    "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/added": {
+      "document": null,
+      "readTime": "2026-11-27T18:08:41.386238Z"
+    }
+  },
+  "marker": "mapPins/o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+  "rows": {
+    "create-one-member": {
+      "step": {
+        "id": "create-one-member",
+        "actor": "a",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-solo",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-solo"
+        ],
+        "data": {
+          "memberIds": [
+            "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+          ]
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-solo": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:43.443604Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-solo": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:43.535964Z"
+        }
+      },
+      "started": "2026-11-27T18:08:48.401Z",
+      "finished": "2026-11-27T18:08:48.452Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "create-without-caller": {
+      "step": {
+        "id": "create-without-caller",
+        "actor": "a",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-excluded",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-excluded"
+        ],
+        "data": {
+          "memberIds": [
+            "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+          ]
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-excluded": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:43.596286Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321-excluded": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:43.693571Z"
+        }
+      },
+      "started": "2026-11-27T18:08:48.574Z",
+      "finished": "2026-11-27T18:08:48.624Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "create-pair": {
+      "step": {
+        "id": "create-pair",
+        "actor": "a",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ],
+        "data": {
+          "memberIds": [
+            "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+            "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+          ]
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:43.763803Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:43.890721Z"
+        }
+      },
+      "started": "2026-11-27T18:08:48.743Z",
+      "finished": "2026-11-27T18:08:48.831Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "member-read": {
+      "step": {
+        "id": "member-read",
+        "actor": "b",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:43.928565Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.024973Z"
+        }
+      },
+      "started": "2026-11-27T18:08:48.900Z",
+      "finished": "2026-11-27T18:08:48.956Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": {
+          "memberIds": [
+            "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+            "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+          ]
+        }
+      }
+    },
+    "outsider-read": {
+      "step": {
+        "id": "outsider-read",
+        "actor": "c",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.066480Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.142708Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.042Z",
+      "finished": "2026-11-27T18:08:49.087Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "outsider-change-members": {
+      "step": {
+        "id": "outsider-change-members",
+        "actor": "c",
+        "op": "update",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ],
+        "data": {
+          "memberIds": [
+            "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+            "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+          ]
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.183874Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.280844Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.162Z",
+      "finished": "2026-11-27T18:08:49.235Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "member-text": {
+      "step": {
+        "id": "member-text",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": "Hello from the oracle"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.317612Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.317612Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.392371Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:44.392371Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.301Z",
+      "finished": "2026-11-27T18:08:49.344Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "member-read-message": {
+      "step": {
+        "id": "member-read-message",
+        "actor": "b",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.429048Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:44.429048Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.506457Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:44.506457Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.423Z",
+      "finished": "2026-11-27T18:08:49.464Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": "Hello from the oracle"
+        }
+      }
+    },
+    "outsider-read-message": {
+      "step": {
+        "id": "outsider-read-message",
+        "actor": "c",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.535890Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:44.535890Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.619595Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:44.619595Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.529Z",
+      "finished": "2026-11-27T18:08:49.578Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "outsider-text": {
+      "step": {
+        "id": "outsider-text",
+        "actor": "c",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/outsider",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/outsider"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2",
+          "text": "Hello from the oracle"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.656357Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/outsider": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.656357Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.732728Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/outsider": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.732728Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.657Z",
+      "finished": "2026-11-27T18:08:49.696Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "sender-mismatch": {
+      "step": {
+        "id": "sender-mismatch",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/wrong-sender",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/wrong-sender"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+          "text": "Hello from the oracle"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.761120Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/wrong-sender": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.761120Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.853197Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/wrong-sender": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.853197Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.764Z",
+      "finished": "2026-11-27T18:08:49.820Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "empty-text": {
+      "step": {
+        "id": "empty-text",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/empty",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/empty"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": ""
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.892016Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/empty": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.892016Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:44.996681Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/empty": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:44.996681Z"
+        }
+      },
+      "started": "2026-11-27T18:08:49.909Z",
+      "finished": "2026-11-27T18:08:49.975Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "text-at-limit": {
+      "step": {
+        "id": "text-at-limit",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/at-limit",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/at-limit"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.031059Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/at-limit": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.031059Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.121523Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/at-limit": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/at-limit",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.091225Z",
+            "updateTime": "2026-11-27T18:08:45.091225Z"
+          },
+          "readTime": "2026-11-27T18:08:45.121523Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.041Z",
+      "finished": "2026-11-27T18:08:50.101Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "text-over-limit": {
+      "step": {
+        "id": "text-over-limit",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/over-limit",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/over-limit"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.152431Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/over-limit": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.152431Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.224022Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/over-limit": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.224022Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.164Z",
+      "finished": "2026-11-27T18:08:50.209Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "image-without-text": {
+      "step": {
+        "id": "image-without-text",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/image",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/image"
+        ],
+        "data": {
+          "type": "image",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "imagePath": "images/test.png"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.255534Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/image": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.255534Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.361057Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/image": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/image",
+            "fields": {
+              "type": {
+                "stringValue": "image"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "imagePath": {
+                "stringValue": "images/test.png"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.327225Z",
+            "updateTime": "2026-11-27T18:08:45.327225Z"
+          },
+          "readTime": "2026-11-27T18:08:45.361057Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.273Z",
+      "finished": "2026-11-27T18:08:50.348Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "image-empty-path": {
+      "step": {
+        "id": "image-empty-path",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/bad-image",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/bad-image"
+        ],
+        "data": {
+          "type": "image",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "imagePath": ""
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.399988Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/bad-image": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.399988Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.472197Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/bad-image": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.472197Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.420Z",
+      "finished": "2026-11-27T18:08:50.460Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "member-own-typing": {
+      "step": {
+        "id": "member-own-typing",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+        ],
+        "data": {
+          "updatedAt": {
+            "$server": true
+          }
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.509477Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:45.509477Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.583610Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.583610Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.536Z",
+      "finished": "2026-11-27T18:08:50.573Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "member-change-others-typing": {
+      "step": {
+        "id": "member-change-others-typing",
+        "actor": "a",
+        "op": "update",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+        ],
+        "data": {
+          "updatedAt": {
+            "$server": true
+          }
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.635868Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.635868Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.722843Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.722843Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.667Z",
+      "finished": "2026-11-27T18:08:50.725Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "member-extra-typing-key": {
+      "step": {
+        "id": "member-extra-typing-key",
+        "actor": "b",
+        "op": "update",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+        ],
+        "data": {
+          "updatedAt": {
+            "$server": true
+          },
+          "extra": true
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.763287Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.763287Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.840995Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.840995Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.797Z",
+      "finished": "2026-11-27T18:08:50.842Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "member-invalid-typing-time": {
+      "step": {
+        "id": "member-invalid-typing-time",
+        "actor": "b",
+        "op": "update",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+        ],
+        "data": {
+          "updatedAt": "now"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.872080Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.872080Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:45.948385Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:45.948385Z"
+        }
+      },
+      "started": "2026-11-27T18:08:50.909Z",
+      "finished": "2026-11-27T18:08:50.955Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "outsider-own-typing": {
+      "step": {
+        "id": "outsider-own-typing",
+        "actor": "c",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+        ],
+        "data": {
+          "updatedAt": {
+            "$server": true
+          }
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:46.004463Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:46.004463Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:46.091381Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:46.091381Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.058Z",
+      "finished": "2026-11-27T18:08:51.097Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "replace-member": {
+      "step": {
+        "id": "replace-member",
+        "actor": "a",
+        "op": "update",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ],
+        "data": {
+          "memberIds": [
+            "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+            "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+          ]
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:43.854684Z"
+          },
+          "readTime": "2026-11-27T18:08:46.129108Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.199688Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.174Z",
+      "finished": "2026-11-27T18:08:51.219Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "removed-read": {
+      "step": {
+        "id": "removed-read",
+        "actor": "b",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.231099Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.311464Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.278Z",
+      "finished": "2026-11-27T18:08:51.333Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "added-read": {
+      "step": {
+        "id": "added-read",
+        "actor": "c",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.347903Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.414581Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.400Z",
+      "finished": "2026-11-27T18:08:51.436Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": {
+          "memberIds": [
+            "o9QpxJRXI4NrvXqC7wa5fAeNFji1",
+            "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+          ]
+        }
+      }
+    },
+    "removed-read-message": {
+      "step": {
+        "id": "removed-read-message",
+        "actor": "b",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.446069Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:46.446069Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.518326Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:46.518326Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.502Z",
+      "finished": "2026-11-27T18:08:51.543Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "added-read-message": {
+      "step": {
+        "id": "added-read-message",
+        "actor": "c",
+        "op": "get",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first"
+        ]
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.549873Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:46.549873Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.622562Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/first",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:44.357418Z",
+            "updateTime": "2026-11-27T18:08:44.357418Z"
+          },
+          "readTime": "2026-11-27T18:08:46.622562Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.607Z",
+      "finished": "2026-11-27T18:08:51.650Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": "Hello from the oracle"
+        }
+      }
+    },
+    "removed-text": {
+      "step": {
+        "id": "removed-text",
+        "actor": "b",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/removed",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/removed"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+          "text": "Hello from the oracle"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.653825Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/removed": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:46.653825Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.722100Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/removed": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:46.722100Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.713Z",
+      "finished": "2026-11-27T18:08:51.753Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "added-text": {
+      "step": {
+        "id": "added-text",
+        "actor": "c",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/added",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/added"
+        ],
+        "data": {
+          "type": "text",
+          "senderId": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2",
+          "text": "Hello from the oracle"
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.755532Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/added": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:46.755532Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.831089Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/added": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/messages/added",
+            "fields": {
+              "type": {
+                "stringValue": "text"
+              },
+              "senderId": {
+                "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+              },
+              "text": {
+                "stringValue": "Hello from the oracle"
+              }
+            },
+            "createTime": "2026-11-27T18:08:46.800587Z",
+            "updateTime": "2026-11-27T18:08:46.800587Z"
+          },
+          "readTime": "2026-11-27T18:08:46.831089Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.820Z",
+      "finished": "2026-11-27T18:08:51.866Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "removed-own-typing": {
+      "step": {
+        "id": "removed-own-typing",
+        "actor": "b",
+        "op": "update",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2"
+        ],
+        "data": {
+          "updatedAt": {
+            "$server": true
+          }
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.862643Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:46.862643Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.932691Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/XO4cduvpDXUWYbbxWXfp7vSTZnI2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:45.538Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:45.548213Z",
+            "updateTime": "2026-11-27T18:08:45.548213Z"
+          },
+          "readTime": "2026-11-27T18:08:46.932691Z"
+        }
+      },
+      "started": "2026-11-27T18:08:51.931Z",
+      "finished": "2026-11-27T18:08:51.966Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "added-own-typing": {
+      "step": {
+        "id": "added-own-typing",
+        "actor": "c",
+        "op": "set",
+        "path": "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2",
+        "watch": [
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+          "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+        ],
+        "data": {
+          "updatedAt": {
+            "$server": true
+          }
+        }
+      },
+      "before": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:46.966433Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2": {
+          "document": null,
+          "readTime": "2026-11-27T18:08:46.966433Z"
+        }
+      },
+      "after": {
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321",
+            "fields": {
+              "memberIds": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "o9QpxJRXI4NrvXqC7wa5fAeNFji1"
+                    },
+                    {
+                      "stringValue": "Nfy8OJWFIBgXnZQyQInAfbVSCpG2"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:08:43.854684Z",
+            "updateTime": "2026-11-27T18:08:46.171774Z"
+          },
+          "readTime": "2026-11-27T18:08:47.042265Z"
+        },
+        "conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/conversations/087a7014-0258-4bd3-b03f-5014c2aa8321/typing/Nfy8OJWFIBgXnZQyQInAfbVSCpG2",
+            "fields": {
+              "updatedAt": {
+                "timestampValue": "2026-11-27T18:08:46.996Z"
+              }
+            },
+            "createTime": "2026-11-27T18:08:47.009141Z",
+            "updateTime": "2026-11-27T18:08:47.009141Z"
+          },
+          "readTime": "2026-11-27T18:08:47.042265Z"
+        }
+      },
+      "started": "2026-11-27T18:08:52.045Z",
+      "finished": "2026-11-27T18:08:52.083Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    }
+  },
+  "beforeProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/7eedda52-0a80-4012-97ba-4323a2ec1439",
+    "rulesSha256": "5b7dd2b1191136b9b7b1b866f5f13f2c72573ded381a6fd61fbbdbe7c96d59df",
+    "lockRunId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+    "lockVersion": "2026-11-27T18:06:39.671741Z",
+    "releaseUpdateTime": "2026-11-27T18:06:50.915627Z",
+    "verifiedAt": "2026-11-27T18:08:48.343Z",
+    "propagationReceiptSha256": "93d5fae487606bbe24f10c7b7888036ab54feaab6515c78971b7c0f66d1ad38e"
+  },
+  "afterProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/7eedda52-0a80-4012-97ba-4323a2ec1439",
+    "rulesSha256": "5b7dd2b1191136b9b7b1b866f5f13f2c72573ded381a6fd61fbbdbe7c96d59df",
+    "lockRunId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+    "lockVersion": "2026-11-27T18:06:39.671741Z",
+    "releaseUpdateTime": "2026-11-27T18:06:50.915627Z",
+    "verifiedAt": "2026-11-27T18:08:54.080Z",
+    "propagationReceiptSha256": "93d5fae487606bbe24f10c7b7888036ab54feaab6515c78971b7c0f66d1ad38e"
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "lockVersion": "2026-11-27T18:06:39.671741Z",
+        "releaseUpdateTime": "2026-11-27T18:05:58.677302Z",
+        "verifiedAt": "2026-11-27T18:06:42.920Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:06:47.656Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/7eedda52-0a80-4012-97ba-4323a2ec1439",
+        "rulesSha256": "5b7dd2b1191136b9b7b1b866f5f13f2c72573ded381a6fd61fbbdbe7c96d59df",
+        "lockRunId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "lockVersion": "2026-11-27T18:06:39.671741Z",
+        "releaseUpdateTime": "2026-11-27T18:06:50.915627Z",
+        "verifiedAt": "2026-11-27T18:06:56.727Z"
+      },
+      "write": "ALLOW",
+      "read": "ALLOW",
+      "at": "2026-11-27T18:07:06.115Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "087a7014-0258-4bd3-b03f-5014c2aa8321",
+        "lockVersion": "2026-11-27T18:06:39.671741Z",
+        "releaseUpdateTime": "2026-11-27T18:08:51.908686Z",
+        "verifiedAt": "2026-11-27T18:09:01.958Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:09:26.650Z"
+    }
+  }
+}

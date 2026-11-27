@@ -1,0 +1,22 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "c8db25c5ea6e7cfa4a4e768ff3b76d2b5c730af61e9c96c85149ee207749f227",
+  "results": {
+    "non-owner-unused": "DENY",
+    "owner-first": "ALLOW",
+    "owner-repeat": "DENY",
+    "owner-delete": "DENY",
+    "owner-fresh-key": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "bd96e3e0bb3b7c5e9caf7ec39b5aaae978ada612bb0011983270b2895ecde481",
+    "pointers": {
+      "non-owner-unused": "/rows/non-owner-unused/decision",
+      "owner-first": "/rows/owner-first/decision",
+      "owner-repeat": "/rows/owner-repeat/decision",
+      "owner-delete": "/rows/owner-delete/decision",
+      "owner-fresh-key": "/rows/owner-fresh-key/decision"
+    }
+  }
+}

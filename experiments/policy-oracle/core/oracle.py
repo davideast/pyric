@@ -18,11 +18,22 @@ WITNESSES = {
     "native-model": {"native-trace"},
     "firestore-sdk": {"imported-production-verdict", "authenticated-write-readback"},
     "rtdb-production": {"imported-production-verdict"},
-    "storage-production": {"imported-production-verdict"},
+    "storage-production": {"imported-production-verdict", "authenticated-write-readback"},
 }
 ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
 PIXELWOOD = "suites/ai-jrpg/pixelwood/claims/"
+CLIP_PROBE = "suites/ai-jrpg/storage/claims/clip-access/v1/probes/clip-objects/v1"
+CAMPAIGN_VERIFIER = "@oracle/adapters/ai-jrpg-campaign/v1/verify.mjs"
+CAMPAIGN_PROBES = {
+    "pixelwood": {"app": ("world-admin-lifecycle", "invite-contention", "profile-lifecycle", "combat-profile-create",
+                          "trade-ledger", "chest-claim", "house-claim", "event-ledger"), "deploy": ("combat-profile-create",)},
+    "genkit": {"genkit": ("conversation-membership",)},
+    "blockingfun": {"blocking": ("session-access", "lobby-transitions")},
+}
 SDK_VERIFIERS = {
+    **{f"suites/ai-jrpg/{suite}/claims/{family}/v1/probes/{variant}/v1": CAMPAIGN_VERIFIER
+       for suite, variants in CAMPAIGN_PROBES.items() for variant, families in variants.items() for family in families},
+    CLIP_PROBE: "@oracle/adapters/ai-jrpg-clips/v1/verify.mjs",
     PIXELWOOD + "hearthfest-atomic-award/v1/probes/contribution-and-award/v1": "@oracle/adapters/hearthfest-atomic/v1/verify.mjs",
     PIXELWOOD + "hearthfest-compiled-award/v1/probes/award-lifecycle/v1": "@oracle/adapters/hearthfest-compiled/v1/verify.mjs",
     PIXELWOOD + "hearthfest-award-write/v1/probes/award-lifecycle/v1": "@oracle/adapters/hearthfest-award/v1/verify.mjs",
@@ -238,9 +249,15 @@ def inspect_probe(root, version, claim_file, authority, witness, replay, pins, s
     cases = recipe["cases"]
     require(isinstance(cases, list) and cases and all(isinstance(c, str) and c for c in cases)
             and len(set(cases)) == len(cases), f"duplicate or invalid case IDs: {recipe_file}")
+    query_cases = recipe.get("queryCases", [])
+    require(isinstance(query_cases, list) and all(case in cases for case in query_cases)
+            and len(query_cases) == len(set(query_cases)), f"invalid query case IDs: {recipe_file}")
     runner = pin_files(root, version, recipe)
     if witness == "authenticated-write-readback":
-        verifier = SDK_VERIFIERS.get(version.relative_to(root).as_posix(), ARCADE_VERIFIER)
+        probe_id = version.relative_to(root).as_posix()
+        require((authority == "storage-production") == (probe_id == CLIP_PROBE),
+                f"incorrect service for SDK receipt: {probe_id}")
+        verifier = SDK_VERIFIERS.get(probe_id, ARCADE_VERIFIER)
         require(recipe.get("verifyEvidence") == verifier and verifier in recipe["pins"],
                 f"missing reviewed SDK write/readback verifier: {recipe_file}")
     input_digest = sha(claim_file.read_bytes() + b"\0" + recipe_file.read_bytes())

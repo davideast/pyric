@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Measure both claimants and the stored owner under competing writes to an unused invite across three fresh races."
+}

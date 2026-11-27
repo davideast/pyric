@@ -1,0 +1,423 @@
+{
+  "family": "chest-claim",
+  "variant": "app",
+  "runId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "a": {
+      "uid": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "b": {
+      "uid": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "c": {
+      "uid": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "ctx": {
+    "uids": {
+      "a": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+      "b": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+      "c": "aDkmPzeie2dlKp5wal7Df6hlITp1"
+    },
+    "emails": {
+      "a": "a-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid",
+      "b": "b-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid",
+      "c": "c-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid"
+    },
+    "runId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "variant": "app"
+  },
+  "seed": {
+    "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+      "document": null,
+      "readTime": "2026-11-27T17:59:57.909539Z"
+    },
+    "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+      "document": null,
+      "readTime": "2026-11-27T17:59:57.909539Z"
+    }
+  },
+  "marker": "mapPins/QPjXv5CNxga0ObWxX4faT1V7ba82",
+  "rows": {
+    "non-owner-unused": {
+      "step": {
+        "id": "non-owner-unused",
+        "actor": "b",
+        "op": "set",
+        "path": "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+        "data": {
+          "claimedAt": {
+            "$server": true
+          }
+        },
+        "watch": [
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82"
+        ]
+      },
+      "before": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.097086Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.097086Z"
+        }
+      },
+      "after": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.174061Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.174061Z"
+        }
+      },
+      "started": "2026-11-27T18:00:06.807Z",
+      "finished": "2026-11-27T18:00:06.854Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "owner-first": {
+      "step": {
+        "id": "owner-first",
+        "actor": "a",
+        "op": "set",
+        "path": "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+        "data": {
+          "claimedAt": {
+            "$server": true
+          }
+        },
+        "watch": [
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82"
+        ]
+      },
+      "before": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.205483Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.205483Z"
+        }
+      },
+      "after": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.279801Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.279801Z"
+        }
+      },
+      "started": "2026-11-27T18:00:06.919Z",
+      "finished": "2026-11-27T18:00:06.960Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "owner-repeat": {
+      "step": {
+        "id": "owner-repeat",
+        "actor": "a",
+        "op": "set",
+        "path": "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+        "data": {
+          "claimedAt": {
+            "$server": true
+          }
+        },
+        "watch": [
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82"
+        ]
+      },
+      "before": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.314519Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.314519Z"
+        }
+      },
+      "after": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.382834Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.382834Z"
+        }
+      },
+      "started": "2026-11-27T18:00:07.030Z",
+      "finished": "2026-11-27T18:00:07.066Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "owner-delete": {
+      "step": {
+        "id": "owner-delete",
+        "actor": "a",
+        "op": "delete",
+        "path": "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+        "watch": [
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82"
+        ]
+      },
+      "before": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.416134Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.416134Z"
+        }
+      },
+      "after": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.490979Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.490979Z"
+        }
+      },
+      "started": "2026-11-27T18:00:07.133Z",
+      "finished": "2026-11-27T18:00:07.176Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "owner-fresh-key": {
+      "step": {
+        "id": "owner-fresh-key",
+        "actor": "a",
+        "op": "set",
+        "path": "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+        "data": {
+          "claimedAt": {
+            "$server": true
+          }
+        },
+        "watch": [
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+          "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82"
+        ]
+      },
+      "before": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.528510Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:02.528510Z"
+        }
+      },
+      "after": {
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-first/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.235Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.246272Z",
+            "updateTime": "2026-11-27T18:00:02.246272Z"
+          },
+          "readTime": "2026-11-27T18:00:02.604024Z"
+        },
+        "chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/chestClaims/9d75c658-d645-41e5-a39b-b3f0b22ed896-next/players/QPjXv5CNxga0ObWxX4faT1V7ba82",
+            "fields": {
+              "claimedAt": {
+                "timestampValue": "2026-11-27T18:00:02.562Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:02.574163Z",
+            "updateTime": "2026-11-27T18:00:02.574163Z"
+          },
+          "readTime": "2026-11-27T18:00:02.604024Z"
+        }
+      },
+      "started": "2026-11-27T18:00:07.253Z",
+      "finished": "2026-11-27T18:00:07.297Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    }
+  },
+  "beforeProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "lockVersion": "2026-11-27T17:57:29.763330Z",
+    "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+    "verifiedAt": "2026-11-27T18:00:06.685Z",
+    "propagationReceiptSha256": "454db656b3179a0225af96427abe48e4fe8bae4c910bc3e0396aebe9eff78a6e"
+  },
+  "afterProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "lockVersion": "2026-11-27T17:57:29.763330Z",
+    "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+    "verifiedAt": "2026-11-27T18:00:10.075Z",
+    "propagationReceiptSha256": "454db656b3179a0225af96427abe48e4fe8bae4c910bc3e0396aebe9eff78a6e"
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T17:49:24.598889Z",
+        "verifiedAt": "2026-11-27T17:57:32.150Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T17:57:36.965Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+        "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+        "verifiedAt": "2026-11-27T17:57:46.203Z"
+      },
+      "write": "ALLOW",
+      "read": "ALLOW",
+      "at": "2026-11-27T17:57:49.428Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T18:00:20.417699Z",
+        "verifiedAt": "2026-11-27T18:00:30.475Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:00:45.983Z"
+    }
+  }
+}

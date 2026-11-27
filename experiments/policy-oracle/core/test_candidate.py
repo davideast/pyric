@@ -75,6 +75,18 @@ class CandidateTest(unittest.TestCase):
             self.assertEqual(classify(row, reference, values, errors.get("edge"))["outcome"], "unsupported")
         self.assertEqual(classify({**row, "status": "pending"}, reference, {}, "runner failed")["outcome"], "pending")
 
+    def test_query_permissions_and_matching_documents_are_scored_separately(self):
+        from candidate import classify
+        allowed = {"verdict": "ALLOW", "matches": [0]}
+        def score_query(expected, actual):
+            row = {"case": "query", "status": "evidenced", "expected": expected, "query": True}
+            return classify(row, {"query": expected}, {"query": actual}, None)["outcome"]
+        self.assertEqual(score_query(allowed, "DENY"), "false-denial")
+        self.assertEqual(score_query("DENY", allowed), "false-allow")
+        self.assertEqual(score_query(allowed, {**allowed, "matches": []}), "mismatch")
+        self.assertEqual(score_query(allowed, {**allowed, "matches": [-1]}), "unsupported")
+        self.assertEqual(score_query(allowed, allowed), "match")
+
     def test_public_tarball_and_altered_tarball(self):
         stock = score(STOCK, 0)
         self.assertEqual(stock["summary"]["matches"], stock["summary"]["scored"])

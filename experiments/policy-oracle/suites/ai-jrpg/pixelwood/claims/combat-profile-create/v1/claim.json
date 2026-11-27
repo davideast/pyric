@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Compare SDK creates of identical combat-only profiles across caller roles and allowlist states under the app and deploy rules."
+}

@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Compare named profile creation before and after claiming the invite, then try owner and non-owner renames."
+}

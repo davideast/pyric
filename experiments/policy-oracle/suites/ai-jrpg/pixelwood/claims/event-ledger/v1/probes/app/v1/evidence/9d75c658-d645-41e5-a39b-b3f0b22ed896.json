@@ -1,0 +1,1041 @@
+{
+  "family": "event-ledger",
+  "variant": "app",
+  "runId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "a": {
+      "uid": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "b": {
+      "uid": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "c": {
+      "uid": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "ctx": {
+    "uids": {
+      "a": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+      "b": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+      "c": "aDkmPzeie2dlKp5wal7Df6hlITp1"
+    },
+    "emails": {
+      "a": "a-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid",
+      "b": "b-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid",
+      "c": "c-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid"
+    },
+    "runId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "variant": "app"
+  },
+  "seed": {
+    "world/config": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    },
+    "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    },
+    "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-other": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    },
+    "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-self": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    },
+    "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-other": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    },
+    "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-self": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    },
+    "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-other": {
+      "document": null,
+      "readTime": "2026-11-27T18:00:11.992550Z"
+    }
+  },
+  "marker": "mapPins/QPjXv5CNxga0ObWxX4faT1V7ba82",
+  "rows": {
+    "open-self": {
+      "step": {
+        "id": "open-self",
+        "actor": "b",
+        "op": "set",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+        "data": {
+          "kind": "caught",
+          "actor": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+          "zone": "cave",
+          "detail": "test",
+          "ts": {
+            "$server": true
+          },
+          "cycle": 7
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.196249Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.196249Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.263558Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:15.263558Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.289Z",
+      "finished": "2026-11-27T18:00:20.328Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "open-other": {
+      "step": {
+        "id": "open-other",
+        "actor": "b",
+        "op": "set",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-other",
+        "data": {
+          "kind": "caught",
+          "actor": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+          "zone": "cave",
+          "detail": "test",
+          "ts": {
+            "$server": true
+          },
+          "cycle": 7
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-other"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.295414Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-other": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.295414Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.391788Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-other": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-other",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "aDkmPzeie2dlKp5wal7Df6hlITp1"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.325Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.362349Z",
+            "updateTime": "2026-11-27T18:00:15.362349Z"
+          },
+          "readTime": "2026-11-27T18:00:15.391788Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.389Z",
+      "finished": "2026-11-27T18:00:20.459Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "bootstrap-admin": {
+      "step": {
+        "id": "bootstrap-admin",
+        "actor": "a",
+        "op": "set",
+        "path": "world/config",
+        "data": {
+          "admins": [
+            "QPjXv5CNxga0ObWxX4faT1V7ba82"
+          ]
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.428880Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:15.428880Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.499014Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:15.499014Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.526Z",
+      "finished": "2026-11-27T18:00:20.568Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "configured-self": {
+      "step": {
+        "id": "configured-self",
+        "actor": "b",
+        "op": "set",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-self",
+        "data": {
+          "kind": "caught",
+          "actor": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+          "zone": "cave",
+          "detail": "test",
+          "ts": {
+            "$server": true
+          },
+          "cycle": 7
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-self"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.530028Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-self": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.530028Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.606176Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.559Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.573428Z",
+            "updateTime": "2026-11-27T18:00:15.573428Z"
+          },
+          "readTime": "2026-11-27T18:00:15.606176Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.630Z",
+      "finished": "2026-11-27T18:00:20.674Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "configured-other": {
+      "step": {
+        "id": "configured-other",
+        "actor": "b",
+        "op": "set",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-other",
+        "data": {
+          "kind": "caught",
+          "actor": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+          "zone": "cave",
+          "detail": "test",
+          "ts": {
+            "$server": true
+          },
+          "cycle": 7
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-other"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.647324Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-other": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.647324Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.715974Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-configured-other": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.715974Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.753Z",
+      "finished": "2026-11-27T18:00:20.789Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "admin-self": {
+      "step": {
+        "id": "admin-self",
+        "actor": "a",
+        "op": "set",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-self",
+        "data": {
+          "kind": "caught",
+          "actor": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+          "zone": "cave",
+          "detail": "test",
+          "ts": {
+            "$server": true
+          },
+          "cycle": 7
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-self"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.747282Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-self": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.747282Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.822725Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.774Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.790459Z",
+            "updateTime": "2026-11-27T18:00:15.790459Z"
+          },
+          "readTime": "2026-11-27T18:00:15.822725Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.853Z",
+      "finished": "2026-11-27T18:00:20.898Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "admin-other": {
+      "step": {
+        "id": "admin-other",
+        "actor": "a",
+        "op": "set",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-other",
+        "data": {
+          "kind": "caught",
+          "actor": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+          "zone": "cave",
+          "detail": "test",
+          "ts": {
+            "$server": true
+          },
+          "cycle": 7
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-other"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.851103Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-other": {
+          "document": null,
+          "readTime": "2026-11-27T18:00:15.851103Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.941181Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-other": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-admin-other",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "aDkmPzeie2dlKp5wal7Df6hlITp1"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.882Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.902917Z",
+            "updateTime": "2026-11-27T18:00:15.902917Z"
+          },
+          "readTime": "2026-11-27T18:00:15.941181Z"
+        }
+      },
+      "started": "2026-11-27T18:00:20.959Z",
+      "finished": "2026-11-27T18:00:21.018Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "owner-edit": {
+      "step": {
+        "id": "owner-edit",
+        "actor": "b",
+        "op": "update",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+        "data": {
+          "detail": "revised"
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:15.974324Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:15.974324Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:16.090093Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:16.090093Z"
+        }
+      },
+      "started": "2026-11-27T18:00:21.085Z",
+      "finished": "2026-11-27T18:00:21.169Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "admin-edit": {
+      "step": {
+        "id": "admin-edit",
+        "actor": "a",
+        "op": "update",
+        "path": "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+        "data": {
+          "detail": "revised"
+        },
+        "watch": [
+          "world/config",
+          "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:16.121520Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:16.121520Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.471882Z",
+            "updateTime": "2026-11-27T18:00:15.471882Z"
+          },
+          "readTime": "2026-11-27T18:00:16.183277Z"
+        },
+        "events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/events/9d75c658-d645-41e5-a39b-b3f0b22ed896-open-self",
+            "fields": {
+              "kind": {
+                "stringValue": "caught"
+              },
+              "actor": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "zone": {
+                "stringValue": "cave"
+              },
+              "detail": {
+                "stringValue": "test"
+              },
+              "cycle": {
+                "integerValue": "7"
+              },
+              "ts": {
+                "timestampValue": "2026-11-27T18:00:15.222Z"
+              }
+            },
+            "createTime": "2026-11-27T18:00:15.233625Z",
+            "updateTime": "2026-11-27T18:00:15.233625Z"
+          },
+          "readTime": "2026-11-27T18:00:16.183277Z"
+        }
+      },
+      "started": "2026-11-27T18:00:21.241Z",
+      "finished": "2026-11-27T18:00:21.269Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    }
+  },
+  "beforeProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "lockVersion": "2026-11-27T17:57:29.763330Z",
+    "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+    "verifiedAt": "2026-11-27T18:00:20.255Z",
+    "propagationReceiptSha256": "454db656b3179a0225af96427abe48e4fe8bae4c910bc3e0396aebe9eff78a6e"
+  },
+  "afterProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "lockVersion": "2026-11-27T17:57:29.763330Z",
+    "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+    "verifiedAt": "2026-11-27T18:00:23.669Z",
+    "propagationReceiptSha256": "454db656b3179a0225af96427abe48e4fe8bae4c910bc3e0396aebe9eff78a6e"
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T17:49:24.598889Z",
+        "verifiedAt": "2026-11-27T17:57:32.150Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T17:57:36.965Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+        "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+        "verifiedAt": "2026-11-27T17:57:46.203Z"
+      },
+      "write": "ALLOW",
+      "read": "ALLOW",
+      "at": "2026-11-27T17:57:49.428Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T18:00:20.417699Z",
+        "verifiedAt": "2026-11-27T18:00:30.475Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:00:45.983Z"
+    }
+  }
+}

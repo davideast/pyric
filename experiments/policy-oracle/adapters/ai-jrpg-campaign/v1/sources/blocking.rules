@@ -1,0 +1,221 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+      // @pyric/oracle - read/write under pyric_oracle/* for the conformance oracle harness
+      match /pyric_oracle/{run}/{anything=**} {
+        allow read, write: if request.auth != null;
+      }
+
+    match /pyric_sessions/{sessionId} {
+      allow create: if request.auth != null;
+      allow get, list: if request.auth != null
+        && request.auth.token.email == resource.data._savedBy.email;
+      allow update, delete: if false;
+    }
+
+
+    // Default deny — leaves all corpus_* and other collections untouched.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ─── TTT Lobbies ───────────────────────────────────────────────────
+    match /ttt_lobbies/{lobbyId} {
+      allow read: if request.auth != null;
+
+      // Create: any auth'd user, must declare self as host, status open
+      allow create: if request.auth != null
+        && request.resource.data.host == request.auth.uid
+        && request.resource.data.status == 'open'
+        && !('guest' in request.resource.data)
+        && !('gameId' in request.resource.data);
+
+      // Update: cancel | join | start
+      allow update: if request.auth != null && (
+        // Cancel: host only, open -> cancelled
+        (resource.data.host == request.auth.uid
+          && resource.data.status == 'open'
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
+        ||
+        // Join: not host, no guest yet, sets guest=self
+        (resource.data.host != request.auth.uid
+          && resource.data.status == 'open'
+          && !('guest' in resource.data)
+          && request.resource.data.guest == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['guest']))
+        ||
+        // Start: host, has guest, transitions to playing + sets gameId
+        (resource.data.host == request.auth.uid
+          && 'guest' in resource.data
+          && resource.data.status == 'open'
+          && request.resource.data.status == 'playing'
+          && 'gameId' in request.resource.data
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'gameId']))
+      );
+
+      allow delete: if false;
+    }
+
+    // ─── TTT Games ─────────────────────────────────────────────────────
+    match /ttt_games/{gameId} {
+      allow read: if request.auth != null;
+
+      // Create: empty board, X starts, both players named, one of them is caller
+      allow create: if request.auth != null
+        && request.resource.data.board == ['','','','','','','','','']
+        && request.resource.data.currentTurn == 'X'
+        && request.resource.data.moveCount == 0
+        && request.resource.data.status == 'playing'
+        && request.resource.data.winner == null
+        && (request.resource.data.playerX == request.auth.uid
+            || request.resource.data.playerO == request.auth.uid);
+
+      // Update: only the current turn's player can move
+      // Move increments moveCount, flips currentTurn, immutables stay immutable
+      allow update: if request.auth != null
+        && resource.data.status == 'playing'
+        && ((resource.data.currentTurn == 'X' && request.auth.uid == resource.data.playerX)
+            || (resource.data.currentTurn == 'O' && request.auth.uid == resource.data.playerO))
+        && request.resource.data.moveCount == resource.data.moveCount + 1
+        && request.resource.data.currentTurn != resource.data.currentTurn
+        && request.resource.data.playerX == resource.data.playerX
+        && request.resource.data.playerO == resource.data.playerO
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if false;
+    }
+
+    // ─── Pixelwood Valley (spike/jrpg/06-pixelwood, H-DEPLOY probe) ─────
+    // Identity-bound presence, zone-scoped (05-world shape). Peers may DELETE
+    // stale docs (staleness eviction + boot sweep — the ghosts law).
+    match /zones/{zone}/players/{uid} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Radiant NPCs. SPIKE TRUST MODEL: any authed session may drive NPC
+    // bodies (a director tab is anonymous).
+    match /zones/{zone}/npcs/{npcId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+
+      // Conversation inbox: players write AS THEMSELVES; the director
+      // consumes (deletes) after handing the message to the NPC's agent.
+      match /inbox/{msg} {
+        allow read, delete: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.from == request.auth.uid;
+      }
+    }
+
+    // Shared per-zone conversation transcript (drives the portrait 1:1 view).
+    // NPC lines come from the director, player lines are the sender's
+    // optimistic echo. UPDATE is the director stamping {clip} on a reply
+    // entry after voice synthesis (N2 — voices scoped to the 1:1).
+    match /zones/{zone}/dialogue/{entry} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Voice clips: hash-keyed WAV cache written by the director, fetched by
+    // game tabs when a dialogue entry carries a clip stamp. SPIKE TRUST
+    // MODEL: any authed session may be the director.
+    match /voiceClips/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Director liveness heartbeat (game tabs read it to know the minds are awake).
+    match /world/{doc} {
+      allow read, write: if request.auth != null;
+    }
+
+    // NPC durable memories, written by the director's remember() tool.
+    // SPIKE TRUST MODEL: any authed session may be the director.
+    match /npcBrains/{npcId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── P5 mechanics: shared deterministic world state ──────────────────────
+
+    // Farm plots (zones/orchard-farm/plots/{x_y}): tilled/planted docs any
+    // authed player may write — a shared field (delete = harvest returns the
+    // tile to untilled ground).
+    match /zones/{zone}/plots/{plot} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Ore nodes (zones/cave/nodes/{id}): seeded idempotently by whoever
+    // arrives first; swings decrement hp; respawn stamps rewrite it.
+    match /zones/{zone}/nodes/{node} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Inventories: players update their OWN pack; reads are open (shops,
+    // quest progress checks). SPIKE TRUST MODEL: writes stay open to any
+    // authed session so the director can grant quest rewards (P6).
+    match /inventory/{pid} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H1: the event ledger — APPEND-ONLY facts (events/{autoId}:
+    // {kind, actor, zone, detail, ts, cycle}). Feeds the fair tally + the
+    // Post (H2+). No update/delete for ANYONE: transitions are pure
+    // functions of this ledger, so its history must be immutable.
+    match /events/{id} {
+      allow read, create: if request.auth != null;
+    }
+
+    // ── H2: the Hearth Table — hearthfest/{cycle}/contributions/{pid}:
+    // per-player, per-cycle offering counts ({pid, name, items:{id:n}}).
+    // Writes bind to the depositor's OWN uid (your offering is yours to
+    // grow); no delete — what the Hearth is given, it keeps. Reads open:
+    // the fair tally (H3) and neighborly noticeboards read everyone's.
+    match /hearthfest/{cycle}/contributions/{pid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == pid;
+    }
+
+    // ── H3: fair awards — hearthfest/{cycle}/awards/{pid}: the tally's
+    // per-player grant record ({pid, tier, points, benefit, attended,
+    // granted}). Written by the DIRECTOR at the tally deadline (spike trust
+    // model: any authed session may be the director); the granted flag is
+    // the idempotency latch, so no delete — an award, once written, stands.
+    // Reads open: the awarded player's tab shows the toast.
+    match /hearthfest/{cycle}/awards/{pid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+    }
+
+    // ── H6: per-player-per-cycle wild chests — chestClaims/{key}/players/{uid}
+    // (key = "{cycle}_{zone}", app/chests.js). Create-only, OWNER-BOUND, no
+    // update/delete — the awards-doc idempotency latch tightened to the
+    // claimant's own uid: loot lands exactly once per player per cycle per zone,
+    // a re-open is DENIED, and no one can claim another's chest. Reads open.
+    match /chestClaims/{key}/players/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── H4: the Pixelwood Post — posts/{seq}: in-world newspaper editions
+    // ({seq, cycle, simDay, headline, sections[], factsUsed[], template}).
+    // Written by the DIRECTOR at each sim-dawn (spike trust model: any authed
+    // session may be the director). An edition is an IMMUTABLE record — the
+    // shared world's memory and the late-joiner's catch-up path — so NO update
+    // and NO delete: once the Post goes to press, it stands. Reads open: every
+    // tab's reader opens the latest and pages the archive.
+    match /posts/{seq} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+    }
+
+    // Quests (05-world schema: {id,type,title,description,giver,assignee,
+    // status,progress,reward,target}). Authored by the director's offer_quest
+    // tool, completed by complete_quest / deliver auto-completion; game tabs
+    // subscribe for the journal + map pins. SPIKE TRUST MODEL: any authed
+    // session may be the director.
+    match /quests/{qid} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+  }
+}

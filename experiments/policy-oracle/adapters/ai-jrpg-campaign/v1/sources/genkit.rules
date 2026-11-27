@@ -1,0 +1,385 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isMember(conversationId) {
+      return request.auth != null
+        && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.memberIds;
+    }
+
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/conversationRefs/{refId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/contacts/{contactId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.email is string
+                    && request.resource.data.email.size() > 0
+                    && request.resource.data.displayName is string
+                    && request.resource.data.displayName.size() > 0;
+      allow update: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.email is string
+                    && request.resource.data.displayName is string;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /conversations/{conversationId} {
+      allow read: if request.auth != null
+                  && request.auth.uid in resource.data.memberIds;
+      allow create: if request.auth != null
+                    && request.auth.uid in request.resource.data.memberIds
+                    && request.resource.data.memberIds.size() >= 2;
+      allow update: if request.auth != null
+                    && request.auth.uid in resource.data.memberIds;
+
+      match /messages/{messageId} {
+        allow read: if isMember(conversationId);
+        allow create: if isMember(conversationId)
+                      && request.resource.data.senderId == request.auth.uid
+                      && (
+                        (request.resource.data.type == 'image'
+                         && request.resource.data.imagePath is string
+                         && request.resource.data.imagePath.size() > 0
+                         && (!('text' in request.resource.data)
+                             || (request.resource.data.text is string
+                                 && request.resource.data.text.size() <= 4000)))
+                        ||
+                        (request.resource.data.text is string
+                         && request.resource.data.text.size() > 0
+                         && request.resource.data.text.size() <= 4000)
+                      );
+        allow delete: if isMember(conversationId)
+                      && resource.data.senderId == request.auth.uid;
+      }
+
+      match /typing/{userId} {
+        allow read: if isMember(conversationId);
+        allow create, update: if isMember(conversationId)
+                              && request.auth.uid == userId
+                              && request.resource.data.keys().hasOnly(['updatedAt'])
+                              && request.resource.data.updatedAt is timestamp;
+        allow delete: if isMember(conversationId) && request.auth.uid == userId;
+      }
+    }
+
+    // ── PIXELWOOD VALLEY (spike/jrpg/06-pixelwood) — appended by H-DEPLOY
+    // merge; the chat-app rules above are preserved verbatim. ──────────────
+
+    // ── H-ID: the DM/admin role (config-doc allowlist). world/config.admins
+    // is the allowlist; its EXISTENCE hardens the world (canon writes require
+    // an admin uid). Fresh/dev world (no config) → open (spike trust). ──────
+    function hasConfig() {
+      return exists(/databases/$(database)/documents/world/config);
+    }
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.uid in get(/databases/$(database)/documents/world/config).data.admins;
+    }
+    function adminOrOpen() {
+      return request.auth != null && (!hasConfig() || isAdmin());
+    }
+
+    // Identity-bound presence, zone-scoped (05-world shape). Peers may DELETE
+    // stale docs (staleness eviction + boot sweep — the ghosts law).
+    match /zones/{zone}/players/{uid} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Radiant NPC bodies — the director's lane. DM-role gated (create/update)
+    // once hardened; DELETE stays open (the ghosts law: peers evict a dead
+    // director's stale villagers).
+    match /zones/{zone}/npcs/{npcId} {
+      allow read: if request.auth != null;
+      allow create, update: if adminOrOpen();
+      allow delete: if request.auth != null;
+
+      // Conversation inbox: players write AS THEMSELVES; the director
+      // consumes (deletes) after handing the message to the NPC's agent.
+      match /inbox/{msg} {
+        allow read, delete: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.resource.data.from == request.auth.uid;
+      }
+    }
+
+    // Shared per-zone conversation transcript (drives the portrait 1:1 view).
+    // NPC lines come from the director, player lines are the sender's
+    // optimistic echo. UPDATE is the director stamping {clip} on a reply
+    // entry after voice synthesis (N2 — voices scoped to the 1:1).
+    match /zones/{zone}/dialogue/{entry} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Voice clips: hash-keyed WAV cache written by the director, fetched by
+    // game tabs when a dialogue entry carries a clip stamp. SPIKE TRUST
+    // MODEL: any authed session may be the director.
+    match /voiceClips/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H-ID: the admin allowlist. Creating this doc HARDENS the world; the
+    // creator must list themselves; existing admins may edit it. ────────────
+    match /world/config {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.admins is list
+                    && request.auth.uid in request.resource.data.admins;
+      allow update: if isAdmin();
+    }
+
+    // The arc/canon doc — DM-role gated once hardened; open in a fresh world.
+    match /world/arc {
+      allow read: if request.auth != null;
+      allow write: if adminOrOpen();
+    }
+
+    // Low-stakes world singletons — director heartbeat + Post sequence cursor.
+    match /world/director { allow read, write: if request.auth != null; }
+    match /world/post     { allow read, write: if request.auth != null; }
+    match /world/deepSeed { allow read, write: if request.auth != null; }
+
+    // ── M3 "You hold the dials": the live world-tuning singleton (ore respawn,
+    // swing weight, patrol speed/dwell, heist catchCore/spotRadius, crop
+    // timings). Same adminOrOpen() gate as world/arc; missing doc/fields are
+    // fail-soft defaults (app/tuning.js). ──────────────────────────────────
+    match /world/tuning { allow read: if request.auth != null; allow write: if adminOrOpen(); }
+
+    // NPC durable memories, written by the director's remember() tool.
+    // Canon-adjacent → DM-role gated (create/update) once hardened; reads open.
+    match /npcBrains/{npcId} {
+      allow read: if request.auth != null;
+      allow create, update: if adminOrOpen();
+      allow delete: if adminOrOpen(); // M2 #6: factory reset wipes brains
+    }
+
+    // ── P5 mechanics: shared deterministic world state ──────────────────────
+
+    // Farm plots (zones/orchard-farm/plots/{x_y}): tilled/planted docs any
+    // authed player may write — a shared field (delete = harvest returns the
+    // tile to untilled ground).
+    match /zones/{zone}/plots/{plot} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Ore nodes (zones/cave/nodes/{id}): seeded idempotently by whoever
+    // arrives first; swings decrement hp; respawn stamps rewrite it.
+    match /zones/{zone}/nodes/{node} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // Inventories: players update their OWN pack; reads are open (shops,
+    // quest progress checks). SPIKE TRUST MODEL: writes stay open to any
+    // authed session so the director can grant quest rewards (P6).
+    match /inventory/{pid} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H1: the event ledger — APPEND-ONLY facts (events/{autoId}:
+    // {kind, actor, zone, detail, ts, cycle}). Feeds the fair tally + the
+    // Post (H2+). No update/delete for ANYONE: transitions are pure
+    // functions of this ledger, so its history must be immutable.
+    // H-HEIST-b tightens create to the DIRECTOR-OR-SELF-WITNESSED shape: an
+    // event's `actor` must be the writer's own uid, OR the writer is the DM
+    // (adminOrOpen — open in a fresh/dev world). A `caught` burglary event is
+    // thus self-witnessed (the player's own client writes actor == uid); no
+    // one can forge a caught event against another wanderer to ban them.
+    match /events/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && (request.resource.data.actor == request.auth.uid || adminOrOpen());
+      allow delete: if isAdmin(); // M2 #6: append-only in play; only a hardened world's admin reset may wipe history
+    }
+
+    // ── M6: barter — the commerce ledger. trades/{autoId}:
+    // {uid, npc, side, item, qty, unit, gold, give, take, t}. An APPEND-ONLY
+    // RECEIPT bound to the trader's OWN uid + a serverTimestamp pinned to
+    // request.time. No update; delete gated to a hardened world's admin only.
+    match /trades/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.t == request.time;
+      allow delete: if isAdmin();
+    }
+
+    // ── M6: valley reputation — reputation/{pid}.townsfolk (the rep-priced
+    // trade tier). Owner-bound writes + director grants (spike trust); reads open.
+    match /reputation/{pid} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── H2: the Hearth Table — hearthfest/{cycle}/contributions/{pid}:
+    // per-player, per-cycle offering counts ({pid, name, items:{id:n}}).
+    // Writes bind to the depositor's OWN uid (your offering is yours to
+    // grow); no delete — what the Hearth is given, it keeps. Reads open:
+    // the fair tally (H3) and neighborly noticeboards read everyone's.
+    match /hearthfest/{cycle}/contributions/{pid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == pid;
+    }
+
+    // ── H3: fair awards — hearthfest/{cycle}/awards/{pid}: the tally's
+    // per-player grant record ({pid, tier, points, benefit, attended,
+    // granted}). Written by the DIRECTOR at the tally deadline (spike trust
+    // model: any authed session may be the director); the granted flag is
+    // the idempotency latch, so no delete — an award, once written, stands.
+    // Reads open: the awarded player's tab shows the toast.
+    match /hearthfest/{cycle}/awards/{pid} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null;
+    }
+
+    // ── H6: per-player-per-cycle wild chests — chestClaims/{key}/players/{uid}
+    // (key = "{cycle}_{zone}", app/chests.js). Create-only, OWNER-BOUND, no
+    // update/delete — the awards-doc idempotency latch tightened to the
+    // claimant's own uid: loot lands exactly once per player per cycle per zone,
+    // a re-open is DENIED, and no one can claim another's chest. Reads open.
+    match /chestClaims/{key}/players/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── H-HEIST-b: per-player-per-cycle-per-house burglary claims —
+    // houseClaims/{cycle}_{home}/players/{uid} (app/heist.js). The chest latch
+    // applied to a home's valuable: create-only, OWNER-BOUND, no update/delete,
+    // so a home's loot lands exactly once per player per cycle (a re-loot is
+    // DENIED, and no one can claim another wanderer's take). Reads open.
+    match /houseClaims/{key}/players/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── H4: the Pixelwood Post — posts/{seq}: in-world newspaper editions
+    // ({seq, cycle, simDay, headline, sections[], factsUsed[], template}).
+    // Written by the DIRECTOR at each sim-dawn (spike trust model: any authed
+    // session may be the director). An edition is an IMMUTABLE record — the
+    // shared world's memory and the late-joiner's catch-up path — so NO update
+    // and NO delete: once the Post goes to press, it stands. Reads open: every
+    // tab's reader opens the latest and pages the archive.
+    match /posts/{seq} {
+      allow read: if request.auth != null;
+      allow create: if adminOrOpen();
+      allow delete: if adminOrOpen(); // M2 #6: factory reset wipes the archive
+    }
+
+    // ── H-ID: admin-minted invite codes (invites/{code}: createdBy, createdAt,
+    // usedBy, usedAt). Minting DM-role gated (open in a fresh world). Consuming
+    // = self-claim of an UNUSED invite; the first of two sequential signup
+    // writes (profile create is second — no batch, #756 getAfter gap).
+    match /invites/{code} {
+      allow read: if request.auth != null;
+      allow create: if adminOrOpen()
+                    && request.resource.data.usedBy == null;
+      allow update: if request.auth != null
+                    && resource.data.usedBy == null
+                    && request.resource.data.usedBy == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy', 'usedAt']);
+      allow delete: if isAdmin();
+    }
+
+    // ── H-ID: account profiles (players/{uid}: name, createdAt, inviteCode) —
+    // the stable display name presence/dialogue read from (guests keep
+    // wanderer-*). Create REQUIRES a consumed invite (usedBy == my uid).
+    match /players/{uid} {
+      allow read: if request.auth != null;
+      // create: EITHER a real account (invite-gated name) OR — H-HEIST-b — a
+      // SKILLS-ONLY record for a guest (no name, no invite): it carries only
+      // the lockpicking skill / rep, so persisting a guest's earned skill never
+      // bypasses the invite gate for a display name.
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && (
+                      ( request.resource.data.name is string
+                        && request.resource.data.name.size() > 0
+                        && exists(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode))
+                        && get(/databases/$(database)/documents/invites/$(request.resource.data.inviteCode)).data.usedBy == request.auth.uid )
+                      ||
+                      request.resource.data.keys().hasOnly(['skills', 'rep', 'updatedAt'])
+                    );
+      // update: own-profile rename AND/OR own skills/rep (H-HEIST-b: the
+      // lockpicking XP and the caught-rep hit are the player's own record).
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'skills', 'rep', 'updatedAt']);
+      allow delete: if adminOrOpen(); // M2 #6: factory reset wipes profiles
+    }
+
+    // Quests (05-world schema: {id,type,title,description,giver,assignee,
+    // status,progress,reward,target}). Authored by the director's offer_quest
+    // tool, completed by complete_quest / deliver auto-completion; game tabs
+    // subscribe for the journal + map pins. SPIKE TRUST MODEL: any authed
+    // session may be the director.
+    match /quests/{qid} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // ── H-SOCIAL (#812): player chat — a global valley channel + per-zone local
+    // chat, one append-only ledger (chat/{autoId}). Each doc stamps the speaker's
+    // TILE at send (tx,ty) for the proximity-gossip digest. ──────────────────
+
+    // Rate-limit ledger (F-004 spacing): a player owns chatMeta/{uid} and stamps
+    // lastChatAt on every send; updates must be ≥1.5s apart (a burst is DENIED
+    // here). The client routes every send through this gate (bumpChatMeta → on
+    // success, addDoc chat), so a too-fast send is dropped. The residual (a
+    // hand-rolled client skipping the gate) is the spike-trust boundary. The
+    // chat create avoids a fixed chatMeta-freshness window — it false-denies
+    // under a slow serve where the stamp→write gap drifts past it.
+    match /chatMeta/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.lastChatAt == request.time;
+      allow update: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.lastChatAt == request.time
+                    && request.time > resource.data.lastChatAt + duration.value(1500, 'ms');
+      allow delete: if adminOrOpen(); // M2 #6: factory reset clears rate ledgers
+    }
+
+    // A chat line: bound to the sender's uid; name must MATCH the account profile
+    // (players/{uid}.name) or the wanderer-* guest shape; text ≤ 200; scope ∈
+    // {global, zone}; tx/ty the speaker's tile; t pins serverTimestamp. Append-only.
+    function chatNameOk(uid, name) {
+      return name is string && name.size() > 0 && name.size() <= 40
+        && ( exists(/databases/$(database)/documents/players/$(uid))
+             ? name == get(/databases/$(database)/documents/players/$(uid)).data.name
+             : name.matches('wanderer-.*') );
+    }
+    match /chat/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
+                    && request.resource.data.text.size() <= 200
+                    && request.resource.data.scope in ['global', 'zone']
+                    && request.resource.data.zone is string
+                    && request.resource.data.tx is int
+                    && request.resource.data.ty is int
+                    && request.resource.data.t == request.time
+                    && chatNameOk(request.auth.uid, request.resource.data.name);
+    }
+
+    // Map pins — mapPins/{uid} is a GLOBAL presence-lite doc a player writes ONLY
+    // while "signed to the map". Ghosts law: stale pins peer-evicted (delete
+    // open); create/update bind to the OWN uid (own flag only).
+    match /mapPins/{uid} {
+      allow read: if request.auth != null;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

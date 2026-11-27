@@ -1,0 +1,36 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "db124d5f8a32682ae9511a1c030b920374df155d72738400404243fde403cafe",
+  "results": {
+    "open-owner-create": "DENY",
+    "open-peer-create": "DENY",
+    "open-clear-owner": "ALLOW",
+    "open-clear-peer": "ALLOW",
+    "bootstrap": "ALLOW",
+    "unlisted-owner-create": "DENY",
+    "unlisted-peer-create": "DENY",
+    "unlisted-clear-owner": "ALLOW",
+    "unlisted-clear-peer": "ALLOW",
+    "list-caller": "ALLOW",
+    "listed-owner-create": "DENY",
+    "listed-peer-create": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/50d5529f-3674-4605-8781-a7e326637c12.json",
+    "sha256": "3e736ca6aa9e00b891fb9a484a75db40f11bebb06b9c44a73c272f8216140701",
+    "pointers": {
+      "open-owner-create": "/rows/open-owner-create/decision",
+      "open-peer-create": "/rows/open-peer-create/decision",
+      "open-clear-owner": "/rows/open-clear-owner/decision",
+      "open-clear-peer": "/rows/open-clear-peer/decision",
+      "bootstrap": "/rows/bootstrap/decision",
+      "unlisted-owner-create": "/rows/unlisted-owner-create/decision",
+      "unlisted-peer-create": "/rows/unlisted-peer-create/decision",
+      "unlisted-clear-owner": "/rows/unlisted-clear-owner/decision",
+      "unlisted-clear-peer": "/rows/unlisted-clear-peer/decision",
+      "list-caller": "/rows/list-caller/decision",
+      "listed-owner-create": "/rows/listed-owner-create/decision",
+      "listed-peer-create": "/rows/listed-peer-create/decision"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "edfb0fca655fc35d8e077ef7b6686ddfd02e3dfc5803db811dc35e8f02dd9d21",
+  "results": {
+    "open-owner-create": "ALLOW",
+    "open-peer-create": "ALLOW",
+    "open-clear-owner": "ALLOW",
+    "open-clear-peer": "ALLOW",
+    "bootstrap": "ALLOW",
+    "unlisted-owner-create": "ALLOW",
+    "unlisted-peer-create": "DENY",
+    "unlisted-clear-owner": "ALLOW",
+    "unlisted-clear-peer": "ALLOW",
+    "list-caller": "ALLOW",
+    "listed-owner-create": "ALLOW",
+    "listed-peer-create": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "7d58e6f9dee7495e94dde344238f33e4c8ef47e21d789d81f2731b0e18f0f52b",
+    "pointers": {
+      "open-owner-create": "/rows/open-owner-create/decision",
+      "open-peer-create": "/rows/open-peer-create/decision",
+      "open-clear-owner": "/rows/open-clear-owner/decision",
+      "open-clear-peer": "/rows/open-clear-peer/decision",
+      "bootstrap": "/rows/bootstrap/decision",
+      "unlisted-owner-create": "/rows/unlisted-owner-create/decision",
+      "unlisted-peer-create": "/rows/unlisted-peer-create/decision",
+      "unlisted-clear-owner": "/rows/unlisted-clear-owner/decision",
+      "unlisted-clear-peer": "/rows/unlisted-clear-peer/decision",
+      "list-caller": "/rows/list-caller/decision",
+      "listed-owner-create": "/rows/listed-owner-create/decision",
+      "listed-peer-create": "/rows/listed-peer-create/decision"
+    }
+  }
+}

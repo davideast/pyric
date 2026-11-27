@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Track one protected write as clients bootstrap the world allowlist, add a peer and remove the peer."
+}

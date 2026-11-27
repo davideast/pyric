@@ -1,0 +1,873 @@
+{
+  "family": "session-access",
+  "variant": "blocking",
+  "runId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "a": {
+      "uid": "Hds2Y8TgTsWaGgNRRb91WdzZDbm2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "password",
+      "email": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+    },
+    "b": {
+      "uid": "rHp73yrXgwdfMa841AiHjrAZ9W32",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "password",
+      "email": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+    },
+    "c": {
+      "uid": "3BdkzG1FBxXktS0l0JxqC24OpaJ2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "ctx": {
+    "uids": {
+      "a": "Hds2Y8TgTsWaGgNRRb91WdzZDbm2",
+      "b": "rHp73yrXgwdfMa841AiHjrAZ9W32",
+      "c": "3BdkzG1FBxXktS0l0JxqC24OpaJ2"
+    },
+    "emails": {
+      "a": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid",
+      "b": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid",
+      "c": "c-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+    },
+    "runId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+    "variant": "blocking"
+  },
+  "seed": {
+    "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+      "document": null,
+      "readTime": "2026-11-27T18:02:53.020896Z"
+    },
+    "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+      "document": null,
+      "readTime": "2026-11-27T18:02:53.020896Z"
+    }
+  },
+  "marker": "pyric_oracle/2798509f-4d00-4eb2-a78d-ed5fa9710f11/checks/propagation",
+  "rows": {
+    "create-session-a": {
+      "step": {
+        "id": "create-session-a",
+        "actor": "a",
+        "op": "set",
+        "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a"
+        ],
+        "data": {
+          "_savedBy": {
+            "email": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+          }
+        }
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": null,
+          "readTime": "2026-11-27T18:02:55.056999Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.174189Z"
+        }
+      },
+      "started": "2026-11-27T18:02:59.906Z",
+      "finished": "2026-11-27T18:02:59.969Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "create-session-b": {
+      "step": {
+        "id": "create-session-b",
+        "actor": "b",
+        "op": "set",
+        "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b"
+        ],
+        "data": {
+          "_savedBy": {
+            "email": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+          }
+        }
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": null,
+          "readTime": "2026-11-27T18:02:55.220054Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:55.319662Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.073Z",
+      "finished": "2026-11-27T18:03:00.139Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "own-get": {
+      "step": {
+        "id": "own-get",
+        "actor": "a",
+        "op": "get",
+        "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a"
+        ]
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.368498Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.465005Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.226Z",
+      "finished": "2026-11-27T18:03:00.280Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": {
+          "_savedBy": {
+            "email": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+          }
+        }
+      }
+    },
+    "other-get": {
+      "step": {
+        "id": "other-get",
+        "actor": "a",
+        "op": "get",
+        "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b"
+        ]
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:55.499376Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:55.582368Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.361Z",
+      "finished": "2026-11-27T18:03:00.400Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "signed-out-get": {
+      "step": {
+        "id": "signed-out-get",
+        "actor": "out",
+        "op": "get",
+        "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a"
+        ]
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.611495Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.689413Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.475Z",
+      "finished": "2026-11-27T18:03:00.519Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "own-query-a": {
+      "step": {
+        "id": "own-query-a",
+        "actor": "a",
+        "op": "query",
+        "path": "pyric_sessions",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b"
+        ],
+        "filters": [
+          [
+            "_savedBy.email",
+            "==",
+            "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+          ]
+        ]
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.721018Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:55.721018Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.904994Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:55.904994Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.597Z",
+      "finished": "2026-11-27T18:03:00.748Z",
+      "decision": {
+        "verdict": "ALLOW",
+        "matches": [
+          0
+        ]
+      },
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": [
+          {
+            "id": "2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "data": {
+              "_savedBy": {
+                "email": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "own-query-b": {
+      "step": {
+        "id": "own-query-b",
+        "actor": "b",
+        "op": "query",
+        "path": "pyric_sessions",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b"
+        ],
+        "filters": [
+          [
+            "_savedBy.email",
+            "==",
+            "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+          ]
+        ]
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:55.941332Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:55.941332Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:56.034638Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:56.034638Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.820Z",
+      "finished": "2026-11-27T18:03:00.882Z",
+      "decision": {
+        "verdict": "ALLOW",
+        "matches": [
+          1
+        ]
+      },
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": [
+          {
+            "id": "2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "path": "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "data": {
+              "_savedBy": {
+                "email": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "other-email-query": {
+      "step": {
+        "id": "other-email-query",
+        "actor": "a",
+        "op": "query",
+        "path": "pyric_sessions",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b"
+        ],
+        "filters": [
+          [
+            "_savedBy.email",
+            "==",
+            "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+          ]
+        ]
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:56.067023Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:56.067023Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:56.135517Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:56.135517Z"
+        }
+      },
+      "started": "2026-11-27T18:03:00.944Z",
+      "finished": "2026-11-27T18:03:00.982Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "unfiltered-mixed-owners": {
+      "step": {
+        "id": "unfiltered-mixed-owners",
+        "actor": "a",
+        "op": "query",
+        "path": "pyric_sessions",
+        "watch": [
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+          "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b"
+        ],
+        "filters": []
+      },
+      "before": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:56.165844Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:56.165844Z"
+        }
+      },
+      "after": {
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-a",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "a-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.120468Z",
+            "updateTime": "2026-11-27T18:02:55.120468Z"
+          },
+          "readTime": "2026-11-27T18:02:56.237031Z"
+        },
+        "pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/pyric_sessions/2798509f-4d00-4eb2-a78d-ed5fa9710f11-b",
+            "fields": {
+              "_savedBy": {
+                "mapValue": {
+                  "fields": {
+                    "email": {
+                      "stringValue": "b-2798509f-4d00-4eb2-a78d-ed5fa9710f11@example.invalid"
+                    }
+                  }
+                }
+              }
+            },
+            "createTime": "2026-11-27T18:02:55.281615Z",
+            "updateTime": "2026-11-27T18:02:55.281615Z"
+          },
+          "readTime": "2026-11-27T18:02:56.237031Z"
+        }
+      },
+      "started": "2026-11-27T18:03:01.047Z",
+      "finished": "2026-11-27T18:03:01.087Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    }
+  },
+  "beforeProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/9f9e8a1d-da62-4750-87ca-a5b08fb97fc2",
+    "rulesSha256": "8b21d14029f800e25f455dbc196445357bc5f35ac7a80b0a413a1de4f1b42fc3",
+    "lockRunId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+    "lockVersion": "2026-11-27T18:00:55.594965Z",
+    "releaseUpdateTime": "2026-11-27T18:01:08.287367Z",
+    "verifiedAt": "2026-11-27T18:02:59.859Z",
+    "propagationReceiptSha256": "c7b5ee07cf5c52c2ee2ef0d865af6a1495866f87b3abfaa06f783835a656ead7"
+  },
+  "afterProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/9f9e8a1d-da62-4750-87ca-a5b08fb97fc2",
+    "rulesSha256": "8b21d14029f800e25f455dbc196445357bc5f35ac7a80b0a413a1de4f1b42fc3",
+    "lockRunId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+    "lockVersion": "2026-11-27T18:00:55.594965Z",
+    "releaseUpdateTime": "2026-11-27T18:01:08.287367Z",
+    "verifiedAt": "2026-11-27T18:03:03.219Z",
+    "propagationReceiptSha256": "c7b5ee07cf5c52c2ee2ef0d865af6a1495866f87b3abfaa06f783835a656ead7"
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+        "lockVersion": "2026-11-27T18:00:55.594965Z",
+        "releaseUpdateTime": "2026-11-27T18:00:20.417699Z",
+        "verifiedAt": "2026-11-27T18:00:59.066Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:01:05.169Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9f9e8a1d-da62-4750-87ca-a5b08fb97fc2",
+        "rulesSha256": "8b21d14029f800e25f455dbc196445357bc5f35ac7a80b0a413a1de4f1b42fc3",
+        "lockRunId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+        "lockVersion": "2026-11-27T18:00:55.594965Z",
+        "releaseUpdateTime": "2026-11-27T18:01:08.287367Z",
+        "verifiedAt": "2026-11-27T18:01:14.354Z"
+      },
+      "write": "ALLOW",
+      "read": "ALLOW",
+      "at": "2026-11-27T18:01:17.532Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "2798509f-4d00-4eb2-a78d-ed5fa9710f11",
+        "lockVersion": "2026-11-27T18:00:55.594965Z",
+        "releaseUpdateTime": "2026-11-27T18:03:08.352032Z",
+        "verifiedAt": "2026-11-27T18:03:18.322Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:03:39.999Z"
+    }
+  }
+}

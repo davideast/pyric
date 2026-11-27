@@ -1,0 +1,48 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "adf231e762261dce647403f732af4ec29e9e0b382610bfcc03ad38254440084c",
+  "results": {
+    "create-wrong-host": "DENY",
+    "create-with-guest": "DENY",
+    "create-with-game": "DENY",
+    "create-to-cancel": "ALLOW",
+    "nonhost-cancel": "DENY",
+    "cancel-extra-field": "DENY",
+    "host-cancel": "ALLOW",
+    "join-cancelled": "DENY",
+    "create-to-play": "ALLOW",
+    "host-start-without-guest": "DENY",
+    "host-join": "DENY",
+    "join-extra-field": "DENY",
+    "guest-join": "ALLOW",
+    "second-join": "DENY",
+    "guest-start": "DENY",
+    "start-extra-field": "DENY",
+    "host-start": "ALLOW",
+    "cancel-playing": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/2798509f-4d00-4eb2-a78d-ed5fa9710f11.json",
+    "sha256": "c58269a93a311f2de0212765d370958000e95137525cfc686cd927934cab9d3f",
+    "pointers": {
+      "create-wrong-host": "/rows/create-wrong-host/decision",
+      "create-with-guest": "/rows/create-with-guest/decision",
+      "create-with-game": "/rows/create-with-game/decision",
+      "create-to-cancel": "/rows/create-to-cancel/decision",
+      "nonhost-cancel": "/rows/nonhost-cancel/decision",
+      "cancel-extra-field": "/rows/cancel-extra-field/decision",
+      "host-cancel": "/rows/host-cancel/decision",
+      "join-cancelled": "/rows/join-cancelled/decision",
+      "create-to-play": "/rows/create-to-play/decision",
+      "host-start-without-guest": "/rows/host-start-without-guest/decision",
+      "host-join": "/rows/host-join/decision",
+      "join-extra-field": "/rows/join-extra-field/decision",
+      "guest-join": "/rows/guest-join/decision",
+      "second-join": "/rows/second-join/decision",
+      "guest-start": "/rows/guest-start/decision",
+      "start-extra-field": "/rows/start-extra-field/decision",
+      "host-start": "/rows/host-start/decision",
+      "cancel-playing": "/rows/cancel-playing/decision"
+    }
+  }
+}

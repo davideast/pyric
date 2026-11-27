@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Exercise self and other actor event creates in open and configured worlds plus edits to existing events."
+}

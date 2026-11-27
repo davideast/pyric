@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Compare ownership and server time at trade creation and attempts to edit or delete the resulting receipt."
+}

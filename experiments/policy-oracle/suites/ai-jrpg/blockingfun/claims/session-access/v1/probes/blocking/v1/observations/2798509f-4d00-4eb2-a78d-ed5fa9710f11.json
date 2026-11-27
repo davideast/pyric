@@ -1,0 +1,40 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "b400f9abb25fb74aeccdfaa8128ea6f4b3094f733e6aa5b5fbb41213633ee30d",
+  "results": {
+    "create-session-a": "ALLOW",
+    "create-session-b": "ALLOW",
+    "own-get": "ALLOW",
+    "other-get": "DENY",
+    "signed-out-get": "DENY",
+    "own-query-a": {
+      "verdict": "ALLOW",
+      "matches": [
+        0
+      ]
+    },
+    "own-query-b": {
+      "verdict": "ALLOW",
+      "matches": [
+        1
+      ]
+    },
+    "other-email-query": "DENY",
+    "unfiltered-mixed-owners": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/2798509f-4d00-4eb2-a78d-ed5fa9710f11.json",
+    "sha256": "0074b3c3fb1ae8980c70864e6fdd21bfe4fd27e39e0261810a7857a5cd709e8a",
+    "pointers": {
+      "create-session-a": "/rows/create-session-a/decision",
+      "create-session-b": "/rows/create-session-b/decision",
+      "own-get": "/rows/own-get/decision",
+      "other-get": "/rows/other-get/decision",
+      "signed-out-get": "/rows/signed-out-get/decision",
+      "own-query-a": "/rows/own-query-a/decision",
+      "own-query-b": "/rows/own-query-b/decision",
+      "other-email-query": "/rows/other-email-query/decision",
+      "unfiltered-mixed-owners": "/rows/unfiltered-mixed-owners/decision"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Exercise conversation membership changes, sender and message shape, and owner-scoped typing across removal."
+}

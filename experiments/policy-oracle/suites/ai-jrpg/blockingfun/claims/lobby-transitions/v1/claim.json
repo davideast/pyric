@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Follow independent cancel and start paths and score actor, state and changed-field constraints on lobby writes."
+}

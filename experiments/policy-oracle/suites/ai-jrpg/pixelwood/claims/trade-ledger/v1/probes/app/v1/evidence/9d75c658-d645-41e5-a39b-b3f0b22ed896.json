@@ -1,0 +1,961 @@
+{
+  "family": "trade-ledger",
+  "variant": "app",
+  "runId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "endpoint": "firestore.googleapis.com",
+  "identities": {
+    "a": {
+      "uid": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "b": {
+      "uid": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "c": {
+      "uid": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "ctx": {
+    "uids": {
+      "a": "QPjXv5CNxga0ObWxX4faT1V7ba82",
+      "b": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+      "c": "aDkmPzeie2dlKp5wal7Df6hlITp1"
+    },
+    "emails": {
+      "a": "a-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid",
+      "b": "b-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid",
+      "c": "c-9d75c658-d645-41e5-a39b-b3f0b22ed896@example.invalid"
+    },
+    "runId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "variant": "app"
+  },
+  "seed": {
+    "world/config": {
+      "document": null,
+      "readTime": "2026-11-27T17:59:51.351386Z"
+    },
+    "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+      "document": null,
+      "readTime": "2026-11-27T17:59:51.351386Z"
+    }
+  },
+  "marker": "mapPins/QPjXv5CNxga0ObWxX4faT1V7ba82",
+  "rows": {
+    "bootstrap-admin": {
+      "step": {
+        "id": "bootstrap-admin",
+        "actor": "a",
+        "op": "set",
+        "path": "world/config",
+        "data": {
+          "admins": [
+            "QPjXv5CNxga0ObWxX4faT1V7ba82"
+          ]
+        },
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.499403Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.499403Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.597199Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.597199Z"
+        }
+      },
+      "started": "2026-11-27T17:59:58.984Z",
+      "finished": "2026-11-27T17:59:59.053Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "create-other-uid": {
+      "step": {
+        "id": "create-other-uid",
+        "actor": "b",
+        "op": "set",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "data": {
+          "uid": "aDkmPzeie2dlKp5wal7Df6hlITp1",
+          "npc": "smith",
+          "side": "buy",
+          "item": "iron",
+          "qty": 1,
+          "unit": 4,
+          "gold": 4,
+          "t": {
+            "$server": true
+          }
+        },
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.632953Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.632953Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.707195Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.707195Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.122Z",
+      "finished": "2026-11-27T17:59:59.168Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "create-stale-time": {
+      "step": {
+        "id": "create-stale-time",
+        "actor": "b",
+        "op": "set",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "data": {
+          "uid": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+          "npc": "smith",
+          "side": "buy",
+          "item": "iron",
+          "qty": 1,
+          "unit": 4,
+          "gold": 4,
+          "t": {
+            "$time": "2020-01-01T00:00:00.000Z"
+          }
+        },
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.746483Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.746483Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.810590Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.810590Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.246Z",
+      "finished": "2026-11-27T17:59:59.274Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "create-own-server-time": {
+      "step": {
+        "id": "create-own-server-time",
+        "actor": "b",
+        "op": "set",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "data": {
+          "uid": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33",
+          "npc": "smith",
+          "side": "buy",
+          "item": "iron",
+          "qty": 1,
+          "unit": 4,
+          "gold": 4,
+          "t": {
+            "$server": true
+          }
+        },
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.842568Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:54.842568Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.909599Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:54.909599Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.341Z",
+      "finished": "2026-11-27T17:59:59.380Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    },
+    "owner-edit": {
+      "step": {
+        "id": "owner-edit",
+        "actor": "b",
+        "op": "update",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "data": {
+          "qty": 2
+        },
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:54.936289Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:54.936289Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.053741Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:55.053741Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.459Z",
+      "finished": "2026-11-27T17:59:59.521Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "admin-edit": {
+      "step": {
+        "id": "admin-edit",
+        "actor": "a",
+        "op": "update",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "data": {
+          "qty": 2
+        },
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.090743Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:55.090743Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.144010Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:55.144010Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.594Z",
+      "finished": "2026-11-27T17:59:59.623Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "owner-delete": {
+      "step": {
+        "id": "owner-delete",
+        "actor": "b",
+        "op": "delete",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.179290Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:55.179290Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.242785Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:55.242785Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.686Z",
+      "finished": "2026-11-27T17:59:59.720Z",
+      "decision": "DENY",
+      "response": {
+        "verdict": "DENY",
+        "code": "permission-denied"
+      }
+    },
+    "admin-delete": {
+      "step": {
+        "id": "admin-delete",
+        "actor": "a",
+        "op": "delete",
+        "path": "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "watch": [
+          "world/config",
+          "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896"
+        ]
+      },
+      "before": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.273137Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896",
+            "fields": {
+              "uid": {
+                "stringValue": "Vrt34Ri5Itc66Qs1n9DOnaZ5aR33"
+              },
+              "npc": {
+                "stringValue": "smith"
+              },
+              "side": {
+                "stringValue": "buy"
+              },
+              "item": {
+                "stringValue": "iron"
+              },
+              "qty": {
+                "integerValue": "1"
+              },
+              "unit": {
+                "integerValue": "4"
+              },
+              "gold": {
+                "integerValue": "4"
+              },
+              "t": {
+                "timestampValue": "2026-11-27T17:59:54.867Z"
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.881282Z",
+            "updateTime": "2026-11-27T17:59:54.881282Z"
+          },
+          "readTime": "2026-11-27T17:59:55.273137Z"
+        }
+      },
+      "after": {
+        "world/config": {
+          "document": {
+            "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/world/config",
+            "fields": {
+              "admins": {
+                "arrayValue": {
+                  "values": [
+                    {
+                      "stringValue": "QPjXv5CNxga0ObWxX4faT1V7ba82"
+                    }
+                  ]
+                }
+              }
+            },
+            "createTime": "2026-11-27T17:59:54.548865Z",
+            "updateTime": "2026-11-27T17:59:54.548865Z"
+          },
+          "readTime": "2026-11-27T17:59:55.365502Z"
+        },
+        "trades/trade-9d75c658-d645-41e5-a39b-b3f0b22ed896": {
+          "document": null,
+          "readTime": "2026-11-27T17:59:55.365502Z"
+        }
+      },
+      "started": "2026-11-27T17:59:59.795Z",
+      "finished": "2026-11-27T17:59:59.844Z",
+      "decision": "ALLOW",
+      "response": {
+        "verdict": "ALLOW",
+        "code": "ok",
+        "value": null
+      }
+    }
+  },
+  "beforeProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "lockVersion": "2026-11-27T17:57:29.763330Z",
+    "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+    "verifiedAt": "2026-11-27T17:59:58.952Z",
+    "propagationReceiptSha256": "454db656b3179a0225af96427abe48e4fe8bae4c910bc3e0396aebe9eff78a6e"
+  },
+  "afterProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+    "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+    "lockVersion": "2026-11-27T17:57:29.763330Z",
+    "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+    "verifiedAt": "2026-11-27T18:00:02.342Z",
+    "propagationReceiptSha256": "454db656b3179a0225af96427abe48e4fe8bae4c910bc3e0396aebe9eff78a6e"
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T17:49:24.598889Z",
+        "verifiedAt": "2026-11-27T17:57:32.150Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T17:57:36.965Z"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/0c3b77b4-3dfb-4d87-8ce5-193fc422ba60",
+        "rulesSha256": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T17:57:40.901385Z",
+        "verifiedAt": "2026-11-27T17:57:46.203Z"
+      },
+      "write": "ALLOW",
+      "read": "ALLOW",
+      "at": "2026-11-27T17:57:49.428Z"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "9d75c658-d645-41e5-a39b-b3f0b22ed896",
+        "lockVersion": "2026-11-27T17:57:29.763330Z",
+        "releaseUpdateTime": "2026-11-27T18:00:20.417699Z",
+        "verifiedAt": "2026-11-27T18:00:30.475Z"
+      },
+      "write": "DENY",
+      "read": "DENY",
+      "at": "2026-11-27T18:00:45.983Z"
+    }
+  }
+}

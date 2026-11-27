@@ -1,0 +1,30 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "894968f821ed103e5e95540ecdb3f62bc3898dd2c9411774b307fe9530cba87f",
+  "results": {
+    "open-self": "ALLOW",
+    "open-other": "ALLOW",
+    "bootstrap-admin": "ALLOW",
+    "configured-self": "ALLOW",
+    "configured-other": "DENY",
+    "admin-self": "ALLOW",
+    "admin-other": "ALLOW",
+    "owner-edit": "DENY",
+    "admin-edit": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "ec4563177237d93f25e33669b1c09c722b808cd6642ac60c0ee88f25468bf47e",
+    "pointers": {
+      "open-self": "/rows/open-self/decision",
+      "open-other": "/rows/open-other/decision",
+      "bootstrap-admin": "/rows/bootstrap-admin/decision",
+      "configured-self": "/rows/configured-self/decision",
+      "configured-other": "/rows/configured-other/decision",
+      "admin-self": "/rows/admin-self/decision",
+      "admin-other": "/rows/admin-other/decision",
+      "owner-edit": "/rows/owner-edit/decision",
+      "admin-edit": "/rows/admin-edit/decision"
+    }
+  }
+}

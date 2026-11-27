@@ -1,0 +1,5 @@
+{
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback",
+  "description": "Compare direct session reads and constrained and unfiltered collection queries over two owners with verified email claims."
+}

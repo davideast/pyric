@@ -1,0 +1,28 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "d981e4d9ecdc2c00bbbfed4bc1e68216d3668589e8fd5c2a8ab5a77e6dffac80",
+  "results": {
+    "bootstrap-admin": "ALLOW",
+    "create-other-uid": "DENY",
+    "create-stale-time": "DENY",
+    "create-own-server-time": "ALLOW",
+    "owner-edit": "DENY",
+    "admin-edit": "DENY",
+    "owner-delete": "DENY",
+    "admin-delete": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "7bd196a5a7be9d275b02906589fa2162be5d3a36c5d66901a53f6bce1abbc584",
+    "pointers": {
+      "bootstrap-admin": "/rows/bootstrap-admin/decision",
+      "create-other-uid": "/rows/create-other-uid/decision",
+      "create-stale-time": "/rows/create-stale-time/decision",
+      "create-own-server-time": "/rows/create-own-server-time/decision",
+      "owner-edit": "/rows/owner-edit/decision",
+      "admin-edit": "/rows/admin-edit/decision",
+      "owner-delete": "/rows/owner-delete/decision",
+      "admin-delete": "/rows/admin-delete/decision"
+    }
+  }
+}

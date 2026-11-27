@@ -1,0 +1,30 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "46aef93eb477888338c9cbed261d690cfcf5c86f80b41cefc25a36b6c205db76",
+  "results": {
+    "arc-open": "ALLOW",
+    "bootstrap-excludes-caller": "DENY",
+    "bootstrap-includes-caller": "ALLOW",
+    "arc-after-bootstrap": "DENY",
+    "unlisted-self-add": "DENY",
+    "admin-adds-peer": "ALLOW",
+    "arc-after-add": "ALLOW",
+    "admin-removes-peer": "ALLOW",
+    "arc-after-remove": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "980a5375937433535d69d217170089ab13e97b4d0e5e1b7b8aacd98075bb1f79",
+    "pointers": {
+      "arc-open": "/rows/arc-open/decision",
+      "bootstrap-excludes-caller": "/rows/bootstrap-excludes-caller/decision",
+      "bootstrap-includes-caller": "/rows/bootstrap-includes-caller/decision",
+      "arc-after-bootstrap": "/rows/arc-after-bootstrap/decision",
+      "unlisted-self-add": "/rows/unlisted-self-add/decision",
+      "admin-adds-peer": "/rows/admin-adds-peer/decision",
+      "arc-after-add": "/rows/arc-after-add/decision",
+      "admin-removes-peer": "/rows/admin-removes-peer/decision",
+      "arc-after-remove": "/rows/arc-after-remove/decision"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/ai-jrpg",
+    "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+    "path": "app/firestore.rules"
+  },
+  "campaign": {
+    "family": "trade-ledger",
+    "variant": "app"
+  },
+  "cases": [
+    "bootstrap-admin",
+    "create-other-uid",
+    "create-stale-time",
+    "create-own-server-time",
+    "owner-edit",
+    "admin-edit",
+    "owner-delete",
+    "admin-delete"
+  ],
+  "pins": {
+    "@oracle/adapters/ai-jrpg-campaign/v1/catalog.mjs": "dbfd51d63ec8684526d044fb0ee6dfe31976fdd051383ec2863c6fbe68076d19",
+    "@oracle/adapters/ai-jrpg-campaign/v1/pixelwood.mjs": "7b56ad3a09d14c9effea29ba006bf788e30cf565bd9e5c2a2cedc3b6f5531f4f",
+    "@oracle/adapters/ai-jrpg-campaign/v1/replay.mjs": "10c4687cffea8b98692946ecfc528008e90b1cf72f94399dc9d4346910bdfdd8",
+    "@oracle/adapters/ai-jrpg-campaign/v1/values.mjs": "93ab0e979b3ea1cb93f267e57a7464117e69ee3f6c88b64449974764126c12aa",
+    "@oracle/adapters/ai-jrpg-campaign/v1/verify.mjs": "a7697b60aaec0bcc89a4dd9199541974cc147f0d70a8516ab25f32f15a3b9126",
+    "@oracle/adapters/arcade-sdk/v1/evidence.mjs": "d3a954cdd9406373a802757149e48bfb98283f2fe6af9b03c88e64e91bc49471",
+    "@oracle/adapters/arcade-sdk/v1/fixture.mjs": "a2b6b852d48bcbea44fb0f2ee22fee9f8086b369b302daa54a2667d7283de5fe",
+    "@oracle/arcade/corpus.mjs": "0eaca020e28edefe3a3a7efaea1202ec8a4ffed6c0457c0ecc407834f7e39baf",
+    "@oracle/arcade/live/control.mjs": "bfb9240f9f1b7e57d57e6728232f4b9976e0c4b8f10640fb36f9a35e1d4957e6",
+    "@oracle/arcade/live/controller/ai-jrpg-campaign.mjs": "dad284bafbb2fb5fc142854f6ae03f669ccb1d3fe1c065fb003e1219d7cac0c7",
+    "@oracle/arcade/live/controller/archive.mjs": "26082c467061608d262ab2f163a99ec0ea203fbb11888340ebb1aa6859c08e4c",
+    "@oracle/arcade/live/controller/clients.mjs": "b4863fcf846222ee307e8b6969dde85f9e6e96b42c46c5b91843fcc6659d8eeb",
+    "@oracle/arcade/live/controller/release.mjs": "fee745555110a1e3a2c9b2c74e19a68c5b36ad241676088266ad9f68cc253ff7",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/v1/manifest.json": "6f1a1d54e86d67d6848bee3389c84a5d34cfd2ee367cb21dd209dc9f5ecba93a",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377",
+    "@oracle/suites/ai-jrpg/pixelwood/claims/world-role/v1/probes/app-and-mirror/v1/app.rules": "7caa3834574676c501f781e15705eb95dfc3be14a6f9c8791a4177817303df2d",
+    "replay.mjs": "398bb1d46354729aa2af2253d3b26150cb3a071f7d0bf36cea5cbc02cd8290a8"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/ai-jrpg-campaign/v1/verify.mjs"
+}

@@ -1,0 +1,36 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "829a43d5ced3c8de9f55fea6401df8b7f2c378ea937380258009446857771ea6",
+  "results": {
+    "mint-1": "ALLOW",
+    "race-1": {
+      "allowed": 1,
+      "denied": 1,
+      "ownerIsSoleWinner": true
+    },
+    "mint-2": "ALLOW",
+    "race-2": {
+      "allowed": 1,
+      "denied": 1,
+      "ownerIsSoleWinner": true
+    },
+    "mint-3": "ALLOW",
+    "race-3": {
+      "allowed": 1,
+      "denied": 1,
+      "ownerIsSoleWinner": true
+    }
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "36aad4948d37f452601a8692895697bc91cc9b15661c438bffae6d3b07ba6270",
+    "pointers": {
+      "mint-1": "/rows/mint-1/decision",
+      "race-1": "/rows/race-1/decision",
+      "mint-2": "/rows/mint-2/decision",
+      "race-2": "/rows/race-2/decision",
+      "mint-3": "/rows/mint-3/decision",
+      "race-3": "/rows/race-3/decision"
+    }
+  }
+}

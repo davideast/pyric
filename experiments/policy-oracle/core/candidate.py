@@ -58,6 +58,7 @@ def discover(root, report):
                     execution = "stock Firestore rules and simulator"
             records[key] = [{"claim": claim, "probe": probe, "case": case, "status": info["status"],
                              "authority": report["claims"][claim]["authority"], "execution": execution,
+                             **({"query": True} if case in recipe.get("queryCases", []) else {}),
                              **({"expected": expected[case]} if case in expected else {})}
                             for case in info["cases"]]
     return tasks, records, files
@@ -86,6 +87,23 @@ def classify(row, reference, candidate, error):
     if row["status"] in ("pending", "disputed"):
         return {**row, "outcome": row["status"]}
     expected = row["expected"]
+    if row.get("query"):
+        # Allowed queries carry matched fixture IDs. Refusal has no result set.
+        # Count permission mismatches apart from a wrong set of returned documents.
+        def query_permission(result):
+            if result == "DENY":
+                return result
+            if (isinstance(result, dict) and set(result) == {"verdict", "matches"} and result["verdict"] == "ALLOW"
+                    and isinstance(result["matches"], list) and all(type(i) is int and i >= 0 for i in result["matches"])
+                    and sorted(set(result["matches"])) == result["matches"]):
+                return "ALLOW"
+            return None
+        want, got = query_permission(expected), query_permission(candidate.get(name))
+        if error or not got or not want:
+            return {**row, "outcome": "unsupported"}
+        if got != want:
+            return {**row, "outcome": "false-denial" if want == "ALLOW" else "false-allow",
+                    "regression": canonical(reference[name]) == canonical(expected)}
     # A malformed decision or an evaluator abstention cannot agree with a denial.
     if (error or name not in candidate or
         (type(expected) is bool and type(candidate[name]) is not bool) or

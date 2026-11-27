@@ -1,0 +1,24 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "12e31cf8e4c545a826c5bd8ff86c54b52a7e853ef3ea9b5df47ef861fdd12e8a",
+  "results": {
+    "mint-unused": "ALLOW",
+    "named-before-claim": "DENY",
+    "claim-for-self": "ALLOW",
+    "named-after-claim": "ALLOW",
+    "rename-owner": "ALLOW",
+    "rename-other": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/9d75c658-d645-41e5-a39b-b3f0b22ed896.json",
+    "sha256": "0372abcabee325c861816fb22e544c91bdc8ac23ac69c6be1226a631f735d0ca",
+    "pointers": {
+      "mint-unused": "/rows/mint-unused/decision",
+      "named-before-claim": "/rows/named-before-claim/decision",
+      "claim-for-self": "/rows/claim-for-self/decision",
+      "named-after-claim": "/rows/named-after-claim/decision",
+      "rename-owner": "/rows/rename-owner/decision",
+      "rename-other": "/rows/rename-other/decision"
+    }
+  }
+}
