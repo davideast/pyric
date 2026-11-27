@@ -1,0 +1,10 @@
+function plausibleGoal(last, scorer, served, ticks) {
+  let reach = 7 * (ticks > 1 ? ticks : 1) + 1;
+  let line = scorer == 'host' ? last.y : 128 - last.y;
+  let mouth = last.x < 32 ? 32 : (last.x > 64 ? 64 : last.x);
+  let dx = last.x - mouth;
+  let radius = reach + 3.5;
+  let serveY = scorer == 'host' ? 32 : 96;
+  return line <= reach && dx * dx + line * line <= radius * radius
+    && served.x == 48 && served.y == serveY && served.vx == 0 && served.vy == 0;
+}

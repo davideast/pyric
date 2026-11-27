@@ -1,0 +1,6 @@
+function plausibleMove(from, to, ticks) {
+  let dx = to.x - from.x;
+  let dy = to.y - from.y;
+  let reach = 7 * ticks + 1;
+  return ticks <= 0 ? (dx == 0 && dy == 0) : dx * dx + dy * dy <= reach * reach;
+}
