@@ -25,10 +25,17 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  void _handleTabChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(_handleTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && widget.controller.users.isEmpty) {
         widget.controller.refreshUsers(silent: true);
@@ -38,6 +45,7 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
 
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -91,6 +99,7 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
                         const Spacer(),
                         if (_tabController.index == 0)
                           IconButton(
+                            tooltip: 'Refresh users',
                             icon: widget.controller.isLoadingUsers
                                 ? const SizedBox(
                                     width: 16,
@@ -108,6 +117,7 @@ class _PyricDebugSheetState extends State<PyricDebugSheet>
                             child: const Text('Clear'),
                           ),
                         IconButton(
+                          tooltip: 'Close',
                           icon: const Icon(Icons.close),
                           onPressed: () {
                             if (widget.onClose != null) {

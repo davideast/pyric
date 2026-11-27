@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../transport/codecs.dart';
+import 'mutation_serialization.dart';
 
 enum OfflineMutationKind { set, update, delete }
 
@@ -285,7 +286,7 @@ class FirestoreOfflineProjection {
                   ? _deepCopyMap(current)
                   : <String, dynamic>{};
               for (final maskKey in mutation.mergeFields!) {
-                final segments = maskKey.split('.');
+                final segments = decodeFieldPathKeySegments(maskKey);
                 final picked = readField(resolvedMap, segments);
                 if (picked != null && !_isDeletedMarker(picked)) {
                   masked = _setField(

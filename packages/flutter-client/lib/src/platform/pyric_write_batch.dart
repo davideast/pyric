@@ -102,13 +102,13 @@ class PyricWriteBatch extends WriteBatchPlatform {
     _assertNotCommitted();
     _committed = true;
     final f = _firestorePlatform;
-    final lens = f.effectiveAuthLens;
     final writesSnapshot = List<Map<String, dynamic>>.from(_writes);
     final mutationsSnapshot = List<OfflineFirestoreMutation>.from(_mutations);
 
     return f.lifecycle.executeWrite(
       mutations: mutationsSnapshot,
-      sendOnline: () => _client.batchCommit(writesSnapshot, actAs: lens),
+      sendOnline: () =>
+          _client.batchCommit(writesSnapshot, actAs: f.effectiveAuthLens),
     );
   }
 }

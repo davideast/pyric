@@ -81,32 +81,35 @@ class _PyricDebugOverlayState extends State<PyricDebugOverlay> {
 
   Widget _buildInlineSheetModal() {
     return Positioned.fill(
-      child: Overlay(
-        initialEntries: [
-          OverlayEntry(
-            builder: (overlayContext) => Stack(
-              children: [
-                Positioned.fill(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _closeInlineSheet,
-                    child: const ColoredBox(color: Colors.black54),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: PyricDebugSheet(
-                      controller: _controller,
-                      onClose: _closeInlineSheet,
+      child: BlockSemantics(
+        child: Overlay(
+          initialEntries: [
+            OverlayEntry(
+              builder: (overlayContext) => Stack(
+                children: [
+                  Positioned.fill(
+                    child: ModalBarrier(
+                      color: Colors.black54,
+                      dismissible: true,
+                      onDismiss: _closeInlineSheet,
+                      semanticsLabel: 'Dismiss Pyric Companion',
                     ),
                   ),
-                ),
-              ],
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: PyricDebugSheet(
+                        controller: _controller,
+                        onClose: _closeInlineSheet,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -194,13 +197,9 @@ class _PyricDebugOverlayState extends State<PyricDebugOverlay> {
       },
     );
 
-    if (widget.child == null) {
-      return pill;
-    }
-
     return Stack(
       children: [
-        widget.child!,
+        if (widget.child != null) widget.child!,
         pill,
         if (_isInlineSheetOpen) _buildInlineSheetModal(),
       ],

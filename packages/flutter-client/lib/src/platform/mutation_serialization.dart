@@ -7,14 +7,64 @@ Map<String, dynamic> serializeSetData(Map<String, dynamic> data) {
   return unwrapFieldValues(data) as Map<String, dynamic>;
 }
 
+bool _needsFieldPathQuoting(String segment) {
+  return segment.isEmpty ||
+      segment.contains('.') ||
+      segment.contains('`') ||
+      segment.contains(r'\');
+}
+
+/// Encodes a [FieldPath] segment vector as a canonical update/merge mask key,
+/// backtick-quoting segments that contain `.`, `` ` ``, or `\` so the host
+/// `fieldPathKeySegments` decoder preserves literal dots.
+String encodeFieldPathKey(List<String> segments) {
+  return segments.map((segment) {
+    if (!_needsFieldPathQuoting(segment)) return segment;
+    final escaped = segment.replaceAll(r'\', r'\\').replaceAll('`', r'\`');
+    return '`$escaped`';
+  }).join('.');
+}
+
+/// Decodes an encoded field-path key back into its literal segments.
+List<String> decodeFieldPathKeySegments(String key) {
+  if (!key.contains('`')) return key.split('.');
+  final segments = <String>[];
+  final current = StringBuffer();
+  var quoted = false;
+  for (var i = 0; i < key.length; i++) {
+    final char = key[i];
+    if (quoted) {
+      if (char == r'\' && i + 1 < key.length) {
+        current.write(key[++i]);
+      } else if (char == '`') {
+        quoted = false;
+      } else {
+        current.write(char);
+      }
+      continue;
+    }
+    if (char == '`') {
+      quoted = true;
+    } else if (char == '.') {
+      segments.add(current.toString());
+      current.clear();
+    } else {
+      current.write(char);
+    }
+  }
+  segments.add(current.toString());
+  return segments;
+}
+
 /// Serializes [SetOptions] into canonical bridge wire format.
 Map<String, dynamic>? serializeSetOptions(SetOptions? options) {
   if (options == null) return null;
   return <String, dynamic>{
     if (options.merge != null) 'merge': options.merge,
     if (options.mergeFields != null)
-      'mergeFields':
-          options.mergeFields!.map((fp) => fp.components.join('.')).toList(),
+      'mergeFields': options.mergeFields!
+          .map((fp) => encodeFieldPathKey(fp.components))
+          .toList(),
   };
 }
 

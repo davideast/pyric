@@ -38,7 +38,7 @@ class SandboxUserRecord {
     final uid = _asString(map['uid']) ?? '';
     final email = _asString(map['email']);
     final displayName = _asString(map['displayName']);
-    final photoURL = _asString(map['photoURL']);
+    final photoURL = _asString(map['photoURL']) ?? _asString(map['photoUrl']);
     final tenantId = _asString(map['tenantId']) ?? _asString(map['tenant']);
     final emailVerified =
         (map['emailVerified'] ?? map['email_verified']) == true;

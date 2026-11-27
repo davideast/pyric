@@ -303,6 +303,20 @@ class PyricFirestoreLifecycle {
     _queuedOfflineWrites.clear();
 
     for (final entry in pending) {
+      if (entry.authScope != _authScope) {
+        _stagedBatches.remove(entry.stageId);
+        if (!entry.writeCompletion.isCompleted) {
+          entry.writeCompletion.completeError(
+            const PyricBridgeException(
+              code: 'permission-denied',
+              message:
+                  'Staged offline write aborted because the active auth session changed before flush.',
+            ),
+          );
+        }
+        _settleWrite(entry.writeId);
+        continue;
+      }
       try {
         await entry.sendOnline();
         applyCommittedMutations(entry.mutations, authScope: entry.authScope);
