@@ -47,13 +47,13 @@ for (const group of groups) {
     const diagnostic=result.unsupported?'unsupported':result.resourceLimit?'resource-limit':
       result.decision==='DENY' && result.trace.some(x=>x.verdict==='ERROR')?'rule-error':null;
     return {fen:fixture.fen,uci,claim,successor:truth.successor,replies:truth.replies,nativeLegal:truth.nativeLegal,
-      kingSafe:truth.kingSafe,native:truth.nativeAdmission?'ALLOW':'DENY',outcome:truth.outcome,
+      kingSafe:truth.kingSafe,checkedDefender:inCheck(position(truth.successor)),native:truth.nativeAdmission?'ALLOW':'DENY',outcome:truth.outcome,
       decision:result.decision,diagnostic,expressions:result.evaluatedExpressions};
   }
   const start=snapshot(before.board);
   assert.ok(start&&start.native===original.native&&start.decision===original.decision&&start.diagnostic===(original.diagnostic??null),id);
   const preserve=row=>row&&row.native===start.native&&row.decision===start.decision&&row.diagnostic===start.diagnostic&&
-    row.nativeLegal===start.nativeLegal&&row.kingSafe===start.kingSafe&&row.outcome===start.outcome&&
+    row.nativeLegal===start.nativeLegal&&row.kingSafe===start.kingSafe&&row.checkedDefender===start.checkedDefender&&row.outcome===start.outcome&&
     (start.replies?.length!==1 || equal(start.replies,row.replies));
   let board=[...before.board],smallest=start;
   const removed=[],trials=[];
@@ -70,4 +70,4 @@ for (const group of groups) {
   }
   reductions.push({group,id,start,smallest,removed,fixedSquares:[...fixed].map(squareName),trials});
 }
-console.log(JSON.stringify({rulesSha256,criterion:'One-piece deletion preserving the actor, move, victim, castling and en-passant state, prior check, legality, mover safety, result, admission, sole reply identity when unique, and local diagnostic.',reductions},null,2));
+console.log(JSON.stringify({rulesSha256,criterion:'One-piece deletion preserving the actor, move, victim, castling and en-passant state, prior check, legality, mover safety, successor check, result, admission, sole reply identity when unique, and local diagnostic.',reductions},null,2));

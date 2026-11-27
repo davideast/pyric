@@ -1,6 +1,6 @@
 {
   "rulesSha256": "c5543604497ff698ee864b7ffbb120ffa3ec82dfff84182234cd0c44605ae9ca",
-  "criterion": "One-piece deletion preserving the actor, move, victim, castling and en-passant state, prior check, legality, mover safety, result, admission, sole reply identity when unique, and local diagnostic.",
+  "criterion": "One-piece deletion preserving the actor, move, victim, castling and en-passant state, prior check, legality, mover safety, successor check, result, admission, sole reply identity when unique, and local diagnostic.",
   "reductions": [
     {
       "group": "original-190",
@@ -16,6 +16,7 @@
         "replies": [],
         "nativeLegal": true,
         "kingSafe": true,
+        "checkedDefender": true,
         "native": "DENY",
         "outcome": "checkmate",
         "decision": "ALLOW",
@@ -33,6 +34,7 @@
         "replies": [],
         "nativeLegal": true,
         "kingSafe": true,
+        "checkedDefender": true,
         "native": "DENY",
         "outcome": "checkmate",
         "decision": "ALLOW",

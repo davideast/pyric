@@ -14,6 +14,7 @@ def render(result):
     live = result['live']
     observed = {row['id']: row for row in live.get('rows', [])}
     standalone = result['standalone']
+    native_verdicts = result.get('nativeVerdicts') or {k:r['native'] for k,r in local.items()}
     output = [f"# Sliding reply scorecard for `{result['variant']}`",
               f"Compiler package `{result['packageSha256']}`. Full Rules `{compiled.get('rulesSha256', compiled['status'])}`.",
               f"Standalone Pyric returned an exact move list and outcome on {standalone['outcomes'].get('match', 0)} of {standalone['distinctPositions']} eligible distinct successors. "
@@ -23,14 +24,14 @@ def render(result):
     scores = []
     unique = list(dict.fromkeys(k for ids in groups.values() for k in ids))
     for group, ids in [*groups.items(), ('overall', unique)]:
-        measured = [k for k in ids if k in observed and k in local]
+        measured = [k for k in ids if k in observed]
         pred = [local[k] for k in ids if k in local]
         scores.append((group, len(ids), sum(r['status']=='match' for r in pred),
                        sum(r['status']=='false-allow' for r in pred), sum(r['status']=='false-refusal' for r in pred),
                        sum(r.get('diagnostic')=='resource-limit' for r in pred),
-                       sum(observed[k]['verdict']==local[k]['native'] for k in measured), len(measured),
-                       sum(observed[k]['verdict']=='ALLOW' and local[k]['native']=='DENY' for k in measured),
-                       sum(observed[k]['verdict']=='DENY' and local[k]['native']=='ALLOW' for k in measured)))
+                       sum(observed[k]['verdict']==native_verdicts[k] for k in measured), len(measured),
+                       sum(observed[k]['verdict']=='ALLOW' and native_verdicts[k]=='DENY' for k in measured),
+                       sum(observed[k]['verdict']=='DENY' and native_verdicts[k]=='ALLOW' for k in measured)))
     output.extend(['## Complete writes', table(['Batch','Cases','Local matches','Local false approvals','Local false refusals','Local limit hits¹','Live matches','Live measured','Live false approvals','Live false refusals'],scores),
                    '¹ Limit hits can also count as false refusals. The SDK exposes an admission verdict. Expression costs come from the pinned local evaluator.'])
     diagnostics=live.get('compileDiagnostics',[])
@@ -45,9 +46,16 @@ def render(result):
             def batch(key):
                 group=scores.get(key)
                 return '—' if group is None else f"{group['outcomes'].get('match',0)}/{group['cases']}"
-            history.append([row['variant'],row['compile']['status'],*(batch(g) for g in ('original-190',*FAMILIES)),
-                            row.get('witnesses','—'),row['live']['distinctCases']])
-        output.extend(['## Every saved revision',table(['Policy','Compiler result','Original','Rook','Bishop','Queen','Verified witness boards','Live measured'],history)])
+            overall=row.get('overall') or {}
+            counts=overall.get('outcomes',{})
+            limits=overall.get('diagnostics',{}).get('resource-limit',0)
+            history.append([row['variant'],row['compile']['status'],', '.join(row.get('officialSource',[])) or 'unmeasured',
+                            *(batch(g) for g in ('original-190',*FAMILIES)),
+                            *(counts.get(k,0) if overall else '—' for k in ('false-allow','false-refusal','evaluation-error')),
+                            limits if overall else '—',row.get('witnesses','—'),row['live']['distinctCases']])
+        output.extend(['## Every saved revision',
+                       table(['Policy','Local compile','Google source test','Original','Rook','Bishop','Queen',
+                              'False approvals','False refusals','Evaluation errors','Limit hits¹','Verified witness boards','Live measured'],history)])
     if compiled['status']!='emitted':
         output.append(f"Compilation failed. `{compiled['status']}`")
     output.append('## Same move and successor under three claims')

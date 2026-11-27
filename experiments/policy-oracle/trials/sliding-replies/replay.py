@@ -5,6 +5,7 @@ import base64
 from collections import Counter
 import json
 from pathlib import Path
+from typing import NamedTuple
 import re
 import runpy
 import subprocess
@@ -133,18 +134,30 @@ def material_profile(variant):
     return 'queen'
 
 
-def replay(args,scratch):
+class ReferenceSuite(NamedTuple):
+    requests: list
+    answers: dict
+    groups: dict
+    positions: dict
+    expected: dict
+    by_id: dict
+    native_evidence: dict
+    reference: Path
+    original: dict
+    default_package: Path
+
+
+def reference_suite(args,scratch):
+    # Only the immutable referee and its inputs are shared. Each compiler
+    # revision still runs an isolated package, standalone policy and full writes.
     native_evidence=run(sys.executable,'-B',HERE/'native/verify.py',
                         *(['--python-chess-archive',args.python_chess_archive] if args.python_chess_archive else []))
     requests,answers,prior,groups=load(args.through)
     positions,expected,by_id=prepare(requests)
-    package=args.candidate_package
-    if package is None:
-        package=scratch/'compiler.tgz'
-        subprocess.run([sys.executable,OLD/'mobility/pack.py','--split',package],check=True,stdout=subprocess.DEVNULL)
-        if sha(package.read_bytes())!=DEFAULT_PACKAGE_SHA: raise ValueError('Recorded compiler package changed')
-    package_sha,outputs,install_error=candidate_outputs(package,args.variant,list(positions.values()))
-    standalone=check_standalone(outputs,install_error,list(positions),expected,by_id,groups)
+    default_package=scratch/'compiler.tgz'
+    if not args.candidate_package or args.with_history:
+        subprocess.run([sys.executable,OLD/'mobility/pack.py','--split',default_package],check=True,stdout=subprocess.DEVNULL)
+        if sha(default_package.read_bytes())!=DEFAULT_PACKAGE_SHA: raise ValueError('Recorded compiler package changed')
     assert sha(RULES.read_bytes())==PRIOR
     ref_pkg=TOOLS['VENDOR']/'pyric-rules-0.1.0.tgz'
     assert sha(ref_pkg.read_bytes())==TOOLS['PINS'][ref_pkg.name]
@@ -152,7 +165,14 @@ def replay(args,scratch):
     original=evaluate(requests,answers,RULES,reference)
     assert all(original[k]['decision']==v for k,v in prior.items())
     assert aggregate(original,groups['original-190'])['outcomes']=={'match':182,'false-allow':7,'false-refusal':1}
+    return ReferenceSuite(requests,answers,groups,positions,expected,by_id,native_evidence,reference,original,default_package)
 
+
+def replay(args,scratch,suite):
+    requests,answers,groups=suite.requests,suite.answers,suite.groups
+    positions,reference,original=suite.positions,suite.reference,suite.original
+    package_sha,outputs,install_error=candidate_outputs(args.candidate_package or suite.default_package,args.variant,list(positions.values()))
+    standalone=check_standalone(outputs,install_error,list(positions),suite.expected,suite.by_id,groups)
     release=outputs.get('emit',{})
     error=install_error or release.get('error')
     path=scratch/'complete.rules'
@@ -169,8 +189,9 @@ def replay(args,scratch):
                 error='link-error: '+linked.stderr[-1500:]
             else:
                 path.write_text(json.loads(linked.stdout)['source'])
-    result={'variant':args.variant,'through':args.through,'nativeEvidence':native_evidence,'packageSha256':package_sha,'standalone':standalone,
+    result={'variant':args.variant,'through':args.through,'nativeEvidence':suite.native_evidence,'packageSha256':package_sha,'standalone':standalone,
             'requestSha256':digest(requests),'nativeSha256':digest(answers),'groups':groups,
+            'nativeVerdicts':{key:'ALLOW' if allowed else 'DENY' for key,allowed in answers.items()},
             'prior':{'rulesSha256':PRIOR,'signedNativeMatches':182,'distinctSigned':190,
                      'localGroups':{g:aggregate(original,ids) for g,ids in groups.items()}}}
     if not path.exists():
@@ -208,7 +229,7 @@ def replay(args,scratch):
     except (subprocess.CalledProcessError,ValueError) as error:
         result.update(local={'status':'evaluator-error','error':str(error)},passes=False)
         return result
-    result['local']={'rows':local,'groups':{g:aggregate(local,ids) for g,ids in groups.items()},
+    result['local']={'rows':local,'overall':aggregate(local,list(answers)),'groups':{g:aggregate(local,ids) for g,ids in groups.items()},
                      'changes':{g:difference(original,local,ids) for g,ids in groups.items()}}
     result['live']['localDisagreements']=[k for k in joined if observed[k]!=local[k]['decision']]
     witness=run('bun','--no-install',HERE/'review/witness.mjs',reference,path,
@@ -291,7 +312,8 @@ def main():
     if args.python_chess_archive: args.python_chess_archive=args.python_chess_archive.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='sliding-reply-replay-') as name:
         scratch=Path(name)
-        r=replay(args,scratch)
+        suite=reference_suite(args,scratch)
+        r=replay(args,scratch,suite)
         if args.with_history:
             if args.through!='queen': p.error('--with-history requires the full corpus')
             entries=[]
@@ -311,13 +333,15 @@ def main():
                     if file.stem=='prior': old.candidate_package=None
                     directory=scratch/file.stem
                     directory.mkdir()
-                    scored=replay(old,directory)
+                    scored=replay(old,directory,suite)
                 if (not args.candidate_package or file.stem=='prior') and projection(scored)!=frozen:
                     raise ValueError(f'Archived local revision changed: {file.stem}')
                 entries.append({'variant':file.stem,'compile':scored['compile'],
                                 'local':scored.get('local',{}).get('groups'),
                                 'standalone':scored['standalone']['outcomes'],
                                 'witnesses':scored.get('compiledWitness',{}).get('verifiedFocused'),
+                                'overall':scored.get('local',{}).get('overall'),
+                                'officialSource':sorted({row['state'] for row in scored['live'].get('compileDiagnostics',[])}),
                                 'live':{k:scored['live'][k] for k in ('status','distinctCases')}})
             r['revisionHistory']=entries
     if args.record:
@@ -335,7 +359,8 @@ def main():
     if args.summary:
         print(json.dumps({'variant':r['variant'],'compile':r['compile'],'standalone':r['standalone']['outcomes'],
                           'compiledWitness':{k:r.get('compiledWitness',{}).get(k) for k in ('verifiedFocused','requiredFocused')},
-                          'local':r.get('local',{}).get('groups'),'live':{k:r['live'][k] for k in ('status','distinctCases')}},indent=2))
+                          'local':r.get('local',{}).get('groups'),'overall':r.get('local',{}).get('overall'),
+                          'localConforms':r.get('localConforms',False),'passes':r['passes'],'live':{k:r['live'][k] for k in ('status','distinctCases')}},indent=2))
     else: print(output,end='')
     return int(bool(args.candidate_package) and not r['passes'])
 
