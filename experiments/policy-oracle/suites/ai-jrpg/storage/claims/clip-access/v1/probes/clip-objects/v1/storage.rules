@@ -1,0 +1,50 @@
+rules_version = '2';
+
+// H-DEPLOY-DURABLE — Cloud Storage rules for the deployed voice-clip transport.
+//
+// THE TRADEOFF (chosen deliberately): the Firestore ruleset gates canon writes
+// behind the DM-role allowlist — `request.auth.uid in get(/world/config).admins`
+// — but STORAGE RULES CANNOT READ FIRESTORE. There is no cross-service get(),
+// so the "only the director writes clips" boundary the Firestore side enjoys is
+// simply unavailable here. The realistic options were:
+//
+//   (a) Custom-claim the director's uid and check request.auth.token — rejected:
+//       setting a custom claim needs the Admin SDK, and the entire H-ID design
+//       exists BECAUSE this private-world host has no Admin SDK / privileged
+//       backend (the DM role is a client-checkable config doc precisely so it
+//       needs no server). Reintroducing an Admin-SDK step here would break that.
+//   (b) Scope writes to a `clips/` prefix for ANY authenticated user, bounded by
+//       content-type + size, and keep reads authenticated-only. CHOSEN.
+//
+// Why (b) is acceptable for this world: the world is PRIVATE behind the invite
+// gate — the only accounts that exist are family members the host invited, plus
+// zero-friction guests the host allows. Reads require auth, so nothing leaks to
+// an anonymous fetch. A write is capped to a single small audio/wav under the
+// clips/ prefix, so the worst a compromised guest can do is upload a well-formed
+// clip (which the game only plays when a matching dialogue entry references its
+// key) — no arbitrary-path writes, no oversized payloads, no reads without auth.
+// If this world ever grows past "private family server," promote clip writes to
+// a signed-URL mint from a tiny privileged endpoint; the transport seam
+// (app/clips.js) already isolates that change to one module.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Voice clips: authenticated read; writes scoped to clips/, one small WAV.
+    // (Storage rules have no create/update/delete granularity — `write` covers
+    //  all three; a delete carries a null request.resource, so the caps below
+    //  also deny client deletes. Clips are immutable cache entries — purging is
+    //  a host/console operation, not a client one.)
+    match /clips/{clip} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource != null
+                   && request.resource.size < 2 * 1024 * 1024   // 2 MiB ceiling (a ~30s 24kHz clip ≈ 1.4 MB)
+                   && request.resource.contentType == 'audio/wav';
+    }
+
+    // Everything else is closed.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

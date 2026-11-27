@@ -1,0 +1,34 @@
+{
+  "authority": "storage-production",
+  "inputDigest": "01e7d9346427f81f7eb92741c44e5e62015029a2bcc93f4b4dd6e6275563dc9e",
+  "results": {
+    "signed-wav-create": "ALLOW",
+    "signed-read": "ALLOW",
+    "signed-out-read": "DENY",
+    "signed-out-write": "DENY",
+    "wrong-mime": "DENY",
+    "signed-overwrite": "ALLOW",
+    "signed-delete": "DENY",
+    "limit-minus-one": "ALLOW",
+    "limit-equal": "DENY",
+    "limit-plus-one": "DENY",
+    "outside-prefix": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/031dfbf6-5494-4434-8eed-a483a875d775.json",
+    "sha256": "24cf411b5373e03e57cbded553dc455e1ed6d3d080f46cec873ea069a767ac5a",
+    "pointers": {
+      "signed-wav-create": "/rows/signed-wav-create/decision",
+      "signed-read": "/rows/signed-read/decision",
+      "signed-out-read": "/rows/signed-out-read/decision",
+      "signed-out-write": "/rows/signed-out-write/decision",
+      "wrong-mime": "/rows/wrong-mime/decision",
+      "signed-overwrite": "/rows/signed-overwrite/decision",
+      "signed-delete": "/rows/signed-delete/decision",
+      "limit-minus-one": "/rows/limit-minus-one/decision",
+      "limit-equal": "/rows/limit-equal/decision",
+      "limit-plus-one": "/rows/limit-plus-one/decision",
+      "outside-prefix": "/rows/outside-prefix/decision"
+    }
+  }
+}

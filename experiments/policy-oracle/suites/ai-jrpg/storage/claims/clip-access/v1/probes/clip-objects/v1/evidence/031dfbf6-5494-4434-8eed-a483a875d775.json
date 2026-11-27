@@ -1,0 +1,547 @@
+{
+  "runId": "031dfbf6-5494-4434-8eed-a483a875d775",
+  "revision": "b3bed5e36acaa7bfc47a600e86e015fb84b1ac70",
+  "project": "digame-mas",
+  "number": "803835021738",
+  "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+  "releaseName": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+  "sdk": "12.19.0",
+  "endpoint": "firebasestorage.googleapis.com",
+  "rulesSha256": "d09e21d88b48fe549f4536820ad7a2233a46117a6ee415d0d5b541a479caa0f5",
+  "closedSha256": "4a043206e7ecbd14ffb97ce055cd22fe2a1f1300fb4f61d1a984f5b27b6889cf",
+  "rows": {
+    "signed-wav-create": {
+      "id": "signed-wav-create",
+      "actor": "signed",
+      "op": "upload",
+      "path": "clips/new.wav",
+      "size": 256,
+      "mime": "audio/wav",
+      "salt": 1,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": null,
+      "at": "2026-11-27T18:03:57.139Z",
+      "decision": "ALLOW",
+      "code": "ok",
+      "sdkResult": {
+        "generation": "1795802633848402",
+        "size": 256,
+        "contentType": "audio/wav"
+      },
+      "after": {
+        "name": "clips/new.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802633848402",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:03:53.906Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "finishedAt": "2026-11-27T18:03:57.789Z"
+    },
+    "signed-read": {
+      "id": "signed-read",
+      "actor": "signed",
+      "op": "read",
+      "path": "clips/clip.wav",
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "at": "2026-11-27T18:03:57.960Z",
+      "decision": "ALLOW",
+      "code": "ok",
+      "sdkResult": {
+        "size": 256,
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "after": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "finishedAt": "2026-11-27T18:03:58.262Z"
+    },
+    "signed-out-read": {
+      "id": "signed-out-read",
+      "actor": "out",
+      "op": "read",
+      "path": "clips/clip.wav",
+      "actorUid": null,
+      "before": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "at": "2026-11-27T18:03:58.403Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "finishedAt": "2026-11-27T18:03:58.586Z"
+    },
+    "signed-out-write": {
+      "id": "signed-out-write",
+      "actor": "out",
+      "op": "upload",
+      "path": "clips/clip.wav",
+      "size": 256,
+      "mime": "audio/wav",
+      "salt": 2,
+      "actorUid": null,
+      "before": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "at": "2026-11-27T18:03:58.721Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "finishedAt": "2026-11-27T18:03:58.890Z"
+    },
+    "wrong-mime": {
+      "id": "wrong-mime",
+      "actor": "signed",
+      "op": "upload",
+      "path": "clips/clip.wav",
+      "size": 256,
+      "mime": "audio/mpeg",
+      "salt": 1,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "at": "2026-11-27T18:03:59.007Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "finishedAt": "2026-11-27T18:03:59.160Z"
+    },
+    "signed-overwrite": {
+      "id": "signed-overwrite",
+      "actor": "signed",
+      "op": "upload",
+      "path": "clips/clip.wav",
+      "size": 256,
+      "mime": "audio/wav",
+      "salt": 2,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802537751541",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:02:17.811Z",
+        "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+      },
+      "at": "2026-11-27T18:03:59.279Z",
+      "decision": "ALLOW",
+      "code": "ok",
+      "sdkResult": {
+        "generation": "1795802635743791",
+        "size": 256,
+        "contentType": "audio/wav"
+      },
+      "after": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802635743791",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:03:55.854Z",
+        "sha256": "4cddc1db441da2d707460ee3f62a89b82e5f1ae5af27893151f563595d4af017"
+      },
+      "finishedAt": "2026-11-27T18:03:59.656Z"
+    },
+    "signed-delete": {
+      "id": "signed-delete",
+      "actor": "signed",
+      "op": "delete",
+      "path": "clips/clip.wav",
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802635743791",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:03:55.854Z",
+        "sha256": "4cddc1db441da2d707460ee3f62a89b82e5f1ae5af27893151f563595d4af017"
+      },
+      "at": "2026-11-27T18:03:59.797Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": {
+        "name": "clips/clip.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802635743791",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "256",
+        "updated": "2026-11-27T18:03:55.854Z",
+        "sha256": "4cddc1db441da2d707460ee3f62a89b82e5f1ae5af27893151f563595d4af017"
+      },
+      "finishedAt": "2026-11-27T18:03:59.981Z"
+    },
+    "limit-minus-one": {
+      "id": "limit-minus-one",
+      "actor": "signed",
+      "op": "upload",
+      "path": "clips/below.wav",
+      "size": 2097151,
+      "mime": "audio/wav",
+      "salt": 3,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": null,
+      "at": "2026-11-27T18:04:00.044Z",
+      "decision": "ALLOW",
+      "code": "ok",
+      "sdkResult": {
+        "generation": "1795802637228595",
+        "size": 2097151,
+        "contentType": "audio/wav"
+      },
+      "after": {
+        "name": "clips/below.wav",
+        "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "generation": "1795802637228595",
+        "metageneration": "1",
+        "contentType": "audio/wav",
+        "size": "2097151",
+        "updated": "2026-11-27T18:03:57.288Z",
+        "sha256": "7b2494538d503840f90afa25fd8bddff7fe96e42d67ed9ac1cb811a717691750"
+      },
+      "finishedAt": "2026-11-27T18:04:01.508Z"
+    },
+    "limit-equal": {
+      "id": "limit-equal",
+      "actor": "signed",
+      "op": "upload",
+      "path": "clips/equal.wav",
+      "size": 2097152,
+      "mime": "audio/wav",
+      "salt": 3,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": null,
+      "at": "2026-11-27T18:04:01.592Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": null,
+      "finishedAt": "2026-11-27T18:04:02.459Z"
+    },
+    "limit-plus-one": {
+      "id": "limit-plus-one",
+      "actor": "signed",
+      "op": "upload",
+      "path": "clips/above.wav",
+      "size": 2097153,
+      "mime": "audio/wav",
+      "salt": 3,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": null,
+      "at": "2026-11-27T18:04:02.538Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": null,
+      "finishedAt": "2026-11-27T18:04:03.383Z"
+    },
+    "outside-prefix": {
+      "id": "outside-prefix",
+      "actor": "signed",
+      "op": "upload",
+      "path": "other/clip.wav",
+      "size": 256,
+      "mime": "audio/wav",
+      "salt": 1,
+      "actorUid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+      "before": null,
+      "at": "2026-11-27T18:04:03.454Z",
+      "decision": "DENY",
+      "code": "storage/unauthorized",
+      "after": null,
+      "finishedAt": "2026-11-27T18:04:03.546Z"
+    }
+  },
+  "phases": {
+    "initial": {
+      "deployment": {
+        "at": "2026-11-27T18:02:18.648Z",
+        "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "rulesetName": "projects/digame-mas/rulesets/1e72fba7-79f5-4c5c-adba-17ebb44905b1",
+        "rulesSha256": "4a043206e7ecbd14ffb97ce055cd22fe2a1f1300fb4f61d1a984f5b27b6889cf",
+        "updateTime": "2026-11-27T18:02:17.197672Z",
+        "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "bucketCreated": "2026-11-27T18:02:13.246Z",
+        "projectNumber": "803835021738"
+      },
+      "probes": [
+        {
+          "decision": "DENY",
+          "code": "storage/unauthorized",
+          "at": "2026-11-27T18:02:18.739Z"
+        },
+        {
+          "decision": "DENY",
+          "code": "storage/unauthorized",
+          "at": "2026-11-27T18:02:21.840Z"
+        }
+      ]
+    },
+    "control": {
+      "deployment": {
+        "at": "2026-11-27T18:02:22.975Z",
+        "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "rulesetName": "projects/digame-mas/rulesets/3ca5c8fd-56c2-44fa-a9e4-98ba3f529370",
+        "rulesSha256": "5950e548290e088a5b915980afa0e081dd449b45488de645a5d96e4b854325aa",
+        "updateTime": "2026-11-27T18:02:21.961716Z",
+        "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "bucketCreated": "2026-11-27T18:02:13.246Z",
+        "projectNumber": "803835021738"
+      },
+      "probes": [
+        {
+          "decision": "ALLOW",
+          "code": "ok",
+          "sdkResult": {
+            "size": 91,
+            "sha256": "13d182781c954f67fed7944bd930ba0b6a9b88df5f85a7111bab4aeb2905627c"
+          },
+          "at": "2026-11-27T18:02:23.158Z"
+        },
+        {
+          "decision": "ALLOW",
+          "code": "ok",
+          "sdkResult": {
+            "size": 91,
+            "sha256": "13d182781c954f67fed7944bd930ba0b6a9b88df5f85a7111bab4aeb2905627c"
+          },
+          "at": "2026-11-27T18:02:26.330Z"
+        }
+      ]
+    },
+    "armed": {
+      "deployment": {
+        "at": "2026-11-27T18:02:27.484Z",
+        "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "rulesetName": "projects/digame-mas/rulesets/1e72fba7-79f5-4c5c-adba-17ebb44905b1",
+        "rulesSha256": "4a043206e7ecbd14ffb97ce055cd22fe2a1f1300fb4f61d1a984f5b27b6889cf",
+        "updateTime": "2026-11-27T18:02:26.365112Z",
+        "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "bucketCreated": "2026-11-27T18:02:13.246Z",
+        "projectNumber": "803835021738"
+      },
+      "probes": [
+        {
+          "decision": "DENY",
+          "code": "storage/unauthorized",
+          "at": "2026-11-27T18:02:49.358Z"
+        },
+        {
+          "decision": "DENY",
+          "code": "storage/unauthorized",
+          "at": "2026-11-27T18:02:52.434Z"
+        }
+      ]
+    },
+    "open": {
+      "deployment": {
+        "at": "2026-11-27T18:02:53.546Z",
+        "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "rulesetName": "projects/digame-mas/rulesets/1570417b-d0fc-4210-9d0d-ad437798c5e5",
+        "rulesSha256": "d09e21d88b48fe549f4536820ad7a2233a46117a6ee415d0d5b541a479caa0f5",
+        "updateTime": "2026-11-27T18:02:51.687020Z",
+        "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "bucketCreated": "2026-11-27T18:02:13.246Z",
+        "projectNumber": "803835021738"
+      },
+      "probes": [
+        {
+          "decision": "ALLOW",
+          "code": "ok",
+          "sdkResult": {
+            "size": 91,
+            "sha256": "13d182781c954f67fed7944bd930ba0b6a9b88df5f85a7111bab4aeb2905627c"
+          },
+          "at": "2026-11-27T18:02:53.724Z"
+        },
+        {
+          "decision": "ALLOW",
+          "code": "ok",
+          "sdkResult": {
+            "size": 91,
+            "sha256": "13d182781c954f67fed7944bd930ba0b6a9b88df5f85a7111bab4aeb2905627c"
+          },
+          "at": "2026-11-27T18:02:56.858Z"
+        }
+      ]
+    },
+    "restored": {
+      "deployment": {
+        "at": "2026-11-27T18:04:04.821Z",
+        "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "rulesetName": "projects/digame-mas/rulesets/1e72fba7-79f5-4c5c-adba-17ebb44905b1",
+        "rulesSha256": "4a043206e7ecbd14ffb97ce055cd22fe2a1f1300fb4f61d1a984f5b27b6889cf",
+        "updateTime": "2026-11-27T18:04:00.829899Z",
+        "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+        "bucketCreated": "2026-11-27T18:02:13.246Z",
+        "projectNumber": "803835021738"
+      },
+      "probes": [
+        {
+          "decision": "DENY",
+          "code": "storage/unauthorized",
+          "at": "2026-11-27T18:04:04.914Z"
+        },
+        {
+          "decision": "DENY",
+          "code": "storage/unauthorized",
+          "at": "2026-11-27T18:04:07.944Z"
+        }
+      ]
+    }
+  },
+  "bucketCreated": "2026-11-27T18:02:13.246Z",
+  "identity": {
+    "uid": "PB7jO3pRt1YiPAkBvnrUcTRHRAH3",
+    "audience": "digame-mas",
+    "issuer": "https://securetoken.google.com/digame-mas",
+    "provider": "anonymous"
+  },
+  "marker": {
+    "name": "clips/propagation.wav",
+    "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+    "generation": "1795802537351351",
+    "metageneration": "1",
+    "contentType": "audio/wav",
+    "size": "91",
+    "updated": "2026-11-27T18:02:17.411Z",
+    "sha256": "13d182781c954f67fed7944bd930ba0b6a9b88df5f85a7111bab4aeb2905627c"
+  },
+  "seed": {
+    "name": "clips/clip.wav",
+    "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+    "generation": "1795802537751541",
+    "metageneration": "1",
+    "contentType": "audio/wav",
+    "size": "256",
+    "updated": "2026-11-27T18:02:17.811Z",
+    "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+  },
+  "transport": {
+    "upload": {
+      "decision": "ALLOW",
+      "code": "ok",
+      "sdkResult": {
+        "generation": "1795802545589907",
+        "size": 256,
+        "contentType": "audio/wav"
+      }
+    },
+    "stored": {
+      "name": "clips/transport.wav",
+      "bucket": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+      "generation": "1795802545589907",
+      "metageneration": "1",
+      "contentType": "audio/wav",
+      "size": "256",
+      "updated": "2026-11-27T18:02:25.648Z",
+      "sha256": "ca48ee06a2ac427ce184961b75696453eb996ea5171d10e9df6a8bd4a5582f2d"
+    }
+  },
+  "before": {
+    "at": "2026-11-27T18:03:57.079Z",
+    "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+    "rulesetName": "projects/digame-mas/rulesets/1570417b-d0fc-4210-9d0d-ad437798c5e5",
+    "rulesSha256": "d09e21d88b48fe549f4536820ad7a2233a46117a6ee415d0d5b541a479caa0f5",
+    "updateTime": "2026-11-27T18:02:51.687020Z",
+    "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+    "bucketCreated": "2026-11-27T18:02:13.246Z",
+    "projectNumber": "803835021738"
+  },
+  "after": {
+    "deployment": {
+      "at": "2026-11-27T18:04:04.018Z",
+      "name": "projects/digame-mas/releases/firebase.storage/digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+      "rulesetName": "projects/digame-mas/rulesets/1570417b-d0fc-4210-9d0d-ad437798c5e5",
+      "rulesSha256": "d09e21d88b48fe549f4536820ad7a2233a46117a6ee415d0d5b541a479caa0f5",
+      "updateTime": "2026-11-27T18:02:51.687020Z",
+      "bucketId": "digame-mas-jrpg-clips-031dfbf6549444348eeda483a875d775",
+      "bucketCreated": "2026-11-27T18:02:13.246Z",
+      "projectNumber": "803835021738"
+    },
+    "marker": {
+      "decision": "ALLOW",
+      "code": "ok",
+      "sdkResult": {
+        "size": 91,
+        "sha256": "13d182781c954f67fed7944bd930ba0b6a9b88df5f85a7111bab4aeb2905627c"
+      }
+    }
+  },
+  "cleanup": {
+    "bucket": "absent",
+    "release": "absent",
+    "at": "2026-11-27T18:04:11.809Z"
+  }
+}

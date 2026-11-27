@@ -1,0 +1,5 @@
+{
+  "description": "Observe literal metadata, strict size boundary, identity, prefix and object lifecycle for voice clip SDK operations on the isolated live Cloud Storage release.",
+  "authority": "storage-production",
+  "witness": "authenticated-write-readback"
+}
