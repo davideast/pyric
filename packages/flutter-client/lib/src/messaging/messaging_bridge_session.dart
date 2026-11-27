@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 
 import 'package:firebase_core/firebase_core.dart';
 
+import '../platform/platform_env.dart';
 import '../transport/bridge_client.dart';
 import 'messaging_wire_codec.dart';
 import 'remote_message.dart';
@@ -56,7 +56,7 @@ class MessagingBridgeSession {
         resolveStaticBackgroundHandler: resolveStaticBackgroundHandler,
       );
     }
-    final envUrl = Platform.environment['PYRIC_LIVE_BRIDGE_URL'];
+    final envUrl = readPlatformEnvironment('PYRIC_LIVE_BRIDGE_URL');
     if (envUrl != null && envUrl.isNotEmpty) {
       return MessagingBridgeSession(
         bridgeClient: PyricBridgeClient(uri: Uri.parse(envUrl)),

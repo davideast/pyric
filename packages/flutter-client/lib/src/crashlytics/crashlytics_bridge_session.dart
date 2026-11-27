@@ -1,9 +1,8 @@
-import 'dart:io' show Platform;
-
 import 'package:firebase_app_check_platform_interface/firebase_app_check_platform_interface.dart';
 import 'package:firebase_core/firebase_core.dart';
 
 import '../app_check/pyric_firebase_app_check_platform.dart';
+import '../platform/platform_env.dart';
 import '../transport/bridge_client.dart';
 import 'crashlytics_types.dart';
 import 'crashlytics_wire_codec.dart';
@@ -100,7 +99,7 @@ class CrashlyticsBridgeSession {
       'PYRIC_LIVE_BRIDGE_URL',
       'PYRIC_BRIDGE_URL',
     ]) {
-      final raw = Platform.environment[key]?.trim() ?? '';
+      final raw = readPlatformEnvironment(key)?.trim() ?? '';
       if (raw.isNotEmpty) {
         return Uri.parse(raw);
       }
