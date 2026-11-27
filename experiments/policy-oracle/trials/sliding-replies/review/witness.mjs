@@ -82,7 +82,7 @@ function inspected(row) {
   return {id:row.id,supported,code,move,expected,outcome,expressions:result.evaluatedExpressions,
     ...(guardErrors?{guardError:guardErrors}:{})};
 }
-function routes() {
+function routes(handle=original) {
   const all=[];
   for(const piece of ['rook','bishop','queen']){
     const {cases}=read('../native/'+piece+'/native.json');
@@ -90,7 +90,7 @@ function routes() {
       const {before,proposal}=sample(row,'writer','other');
       const req={description:row.id,path:'chess/oracle',method:'update',auth:{uid:'writer'},
         resource:before,data:{...before,...proposal},expectation:'ALLOW'};
-      const r=original.simulate([req]).cases[0];
+      const r=handle.simulate([req]).cases[0];
       const side=row.successor.split(' ')[1];
       const guards=calls(r,'sliderMaterial'+side);
       const wrapper=calls(r,'sliderMove');
@@ -110,6 +110,95 @@ function routes() {
   return all;
 }
 function add(counts,key){ counts[key]=(counts[key]??0)+1; }
+
+// The material promises are fixed independently of candidate source. In the
+// pawn extension, a defending pawn is supported only without an opposing pawn.
+function materialPromises(fen) {
+  const [placement,side]=fen.split(' ');
+  const own=[],opponent=[];
+  for(const piece of placement.match(/[prnbqk]/gi)){
+    const white=piece===piece.toUpperCase();
+    (white===(side==='w')?own:opponent).push(piece.toLowerCase());
+  }
+  const material=own.filter(piece=>piece!=='k');
+  const sliders=material.filter(piece=>'rbq'.includes(piece));
+  const single=sliders.length===1;
+  const optionalPawn=material.length===1 || (material.length===2 && material.includes('p') && !opponent.includes('p'));
+  return {rook:single && material.length===1 && sliders[0]==='r',
+    bishop:single && optionalPawn && 'rb'.includes(sliders[0]),
+    queen:single && optionalPawn,
+    'queen-with-knight-or-rooks':single && optionalPawn ||
+      (material.length===2 && (material.every(p=>p==='r') || single && material.includes('n')))};
+}
+
+function auditMaterial(rows,scores) {
+  const promises={rook:{},bishop:{},queen:{},'queen-with-knight-or-rooks':{}};
+  const firstMismatch={};
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i],score=scores[i];
+    for(const [profile,expected] of Object.entries(materialPromises(row.successor))){
+      const category=score.supported===null?'guard-error':
+        expected?(score.supported?'included':'omitted'):(score.supported?'overincluded':'excluded');
+      add(promises[profile],category);
+      if(!['included','excluded'].includes(category)){
+        (firstMismatch[profile]??={})[category]??={id:row.id,successor:row.successor};
+      }
+    }
+  }
+  return {promises,firstMismatch};
+}
+
+function auditUsage(focused,traces){
+  const byBoard=new Map(focused.map(row=>[row.id,row]));
+  const counts={}; const firstFailure={};
+  const audited=Object.fromEntries(focused.map(r=>[r.id,{required:2,verified:0,claims:{}}]));
+  const names=new Set(traces.flatMap(t=>t.actualWitness.map(w=>w.callee)));
+  const forced={};
+  for(const [label,code] of [['absent',-1],['present',3432]]){
+    let modified=full;
+    for(const name of names){
+      assert.ok(['sliderMove','slideTypedw','slideTypedb'].includes(name));
+      const declaration=new RegExp('\\bfunction\\s+'+name+'\\s*(\\([^)]*\\))\\s*\\{','g');
+      const matches=[...modified.matchAll(declaration)];
+      if(matches.length!==1) continue;
+      modified=modified.replace(declaration,(_signature,params)=>
+        'function '+name+params+' { return '+code+'; }\n  function disabled_'+name+params+' {');
+    }
+    const observations=names.size?routes(firestoreRules(modified)):[];
+    forced[label]={sha256:sha(modified),byId:new Map(observations.map(r=>[r.id,r]))};
+  }
+  for(const trace of traces){
+    const suffix=trace.id.slice(trace.id.lastIndexOf('-')+1);
+    const row=byBoard.get(trace.id.slice(0,-suffix.length-1));
+    assert.ok(row);
+    const actual=trace.actualWitness;
+    // Every focused successor is in check with either no reply at all or one
+    // legal slider reply. A draw claim may be rejected solely from check.
+    const needed=suffix!=='draw';
+    const valid=v=>Number.isInteger(v.code) && (v.code===-1?row.expected.length===0:row.expected.includes(decode(v.code)));
+    let category;
+    let diagnostics;
+    if(!needed && !actual.length) category='draw-short-circuit';
+    else if(!actual.length) category=trace.branch==='fallback'?'fallback':'required-unobserved';
+    else if(!actual.every(valid)) category='incorrect-return-on-write';
+    else if(needed){
+      const absent=forced.absent.byId.get(trace.id),present=forced.present.byId.get(trace.id);
+      const verdict=(r)=>r?{decision:r.local,error:r.error}:null;
+      diagnostics={absent:verdict(absent),present:verdict(present)};
+      if(trace.error || !absent || !present || absent.error || present.error) category='counterfactual-inconclusive';
+      else if(trace.local!==trace.expected) category='original-verdict-disagrees';
+      else if(absent.local===(suffix==='won'?'ALLOW':'DENY') && present.local===(suffix==='playing'?'ALLOW':'DENY')){
+        category='witness-used';
+      } else category='sign-dependence-unverified';
+    } else category='redundant-draw-witness';
+    add(counts,category);
+    if(needed && category!=='witness-used') firstFailure[category]??=trace.id;
+    audited[row.id].claims[suffix]={category,...(diagnostics?{forced:diagnostics}:{})};
+    if(needed && category==='witness-used')audited[row.id].verified++;
+  }
+  return {counts,firstFailure,byBoard:audited,
+    forcedAbsenceRulesSha256:forced.absent.sha256,forcedPresenceRulesSha256:forced.present.sha256};
+}
 function tally(rows,scores) {
   const result={boards:rows.length,scopes:{},byFamily:{},byDefendingMaterial:{},byFeature:{},
     firstDivergences:{},smallestSupportedDivergences:{},decisionsSha256:sha(JSON.stringify(scores))};
@@ -148,12 +237,15 @@ if(missing.length){
 }else{
   result.focused=focused.map(inspected);
   result.routes=routes();
+  result.materialAudit={focused:auditMaterial(focused,result.focused)};
+  result.fullWriteDerivation=auditUsage(result.focused,result.routes);
   if(option!=='--focused'){
     for(const [field,directory] of [['panel','panel'],['otherTurns','other-turns']]){
       const bytes=gunzipSync(readFileSync(new URL('./'+directory+'/boards.json.gz',import.meta.url)));
       const meta=read('./'+directory+'/freeze.json');assert.equal(sha(bytes),meta.inputsAndRepliesSha256);
       const rows=JSON.parse(bytes);const scores=rows.map(inspected);
       result[field]={inputsAndRepliesSha256:meta.inputsAndRepliesSha256,...tally(rows,scores)};
+      result.materialAudit[field]=auditMaterial(rows,scores);
     }
   }
 }

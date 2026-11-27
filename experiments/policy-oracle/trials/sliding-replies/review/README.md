@@ -30,3 +30,7 @@ python3 -B review/signed.py "$RULES_SHA256" "$PRIVATE_ARCHIVE" "$CHESS_SOURCE"
 ```
 
 The output reports unmeasured, partial or measured tied to the full source digest. The old 190-case release is labeled historical. Independent local witness results and live server observations have separate score fields and denominators.
+
+The material audit computes four eligibility profiles independently from the native successor FEN. The rook profile accepts a sole defending rook. The bishop profile includes a sole rook or bishop and permits one friendly pawn when the opponent has no pawn. The queen profile extends that choice to a queen. The two-defender profile also includes a supported slider and knight, or two rooks, against arbitrary opposing material. Each profile reports included, excluded, omitted and overincluded counts, along with any guard error.
+
+For the 36 focused playing and won proposals, the reviewer additionally runs two diagnostic rulesets that retain the entire write path and replace the observed integer producer with a fixed absence or a fixed presence. A verified claim must match its native outcome in the untouched source, return a legal integer or correct absence on its actual trace, and switch verdict as the diagnostic sign switches. A resource error or an unobservable dependency remains inconclusive. The contradictory draw claims can be refused directly from check.
