@@ -68,7 +68,7 @@ def run(args):
         sha=main['compile']['rulesSha256']
         assert sha==digest(rules.read_bytes())==w['rulesSha256']
         pair='queen-bishop' in main['groups']
-        assert len(main['local']['rows'])==(258 if 'lone-pawn' in main['groups'] else 249 if 'two-knights' in main['groups'] else 242 if pair else 238) and main['local']['groups']['original-190']['cases']==190
+        assert len(main['local']['rows'])==(273 if 'mixed-slider' in main['groups'] else 258 if 'lone-pawn' in main['groups'] else 249 if 'two-knights' in main['groups'] else 242 if pair else 238) and main['local']['groups']['original-190']['cases']==190
         assert len(w['focused'])==(20 if pair else 18) and len(w['routes'])==(58 if pair else 54)
         snapshot.update(variant=variant,rulesSha256=sha,packageSha256=main['packageSha256'],requestSha256=main['requestSha256'],
                         nativeSha256=main['nativeSha256'],standalone=main['standalone']['outcomes'],requestCount=len(main['local']['rows']),

@@ -47,6 +47,7 @@ export function inputs(version=1) {
   const families=version>=2?['rook','bishop','queen','queen-bishop']:['rook','bishop','queen'];
   if(version>=3) families.push('two-knights');
   if(version>=4) families.push('lone-pawn');
+  if(version>=5) families.push('mixed-slider');
   for(const piece of families) {
     const path=new URL('../native/'+piece+'/positions.json',root), bytes=readFileSync(path);
     origins[piece]=sha(bytes);
@@ -94,9 +95,11 @@ export function buildPlan(data,digest) {
   const pair=data.order.filter(id=>data.all.get(id).batch==='queen-bishop');
   const knightIds=data.origins['two-knights'] ? readJSON(new URL('../native/two-knights/positions.json',root)).map(c=>c.id) : [];
   const pawnIds=data.order.filter(id=>data.all.get(id).batch==='lone-pawn');
+  const mixedIds=data.order.filter(id=>data.all.get(id).batch==='mixed-slider');
+  if(mixedIds.length) chunks.push({name:'mixed-slider',ids:mixedIds});
   if(pawnIds.length) chunks.push({name:'lone-pawn',ids:pawnIds});
   if(knightIds.length) chunks.push({name:'two-knights',ids:knightIds});
-  const original=data.order.filter(id=>!['queen-bishop','two-knights','lone-pawn'].includes(data.all.get(id).batch));
+  const original=data.order.filter(id=>!['queen-bishop','two-knights','lone-pawn','mixed-slider'].includes(data.all.get(id).batch));
   assert.equal(original.length,238,'historical release corpus changed');
   assert.equal(pair.length,data.origins['queen-bishop']?4:0,'queen-and-bishop corpus changed');
   if(pair.length) chunks.push({name:'sliding-queen-bishop',ids:pair});
@@ -104,7 +107,7 @@ export function buildPlan(data,digest) {
     chunks.push({name:'sliding-part-'+(i/120+1),ids:original.slice(i,i+120).filter(id=>!knightIds.includes(id))});
   }
   assert.deepEqual(chunks.flatMap(chunk=>chunk.ids).sort(),[...data.all.keys()].sort());
-  return {version:pawnIds.length?4:knightIds.length?3:pair.length?2:1,rulesSha256:digest,previousRulesSha256:previousDigest,
+  return {version:mixedIds.length?5:pawnIds.length?4:knightIds.length?3:pair.length?2:1,rulesSha256:digest,previousRulesSha256:previousDigest,
     originalCases:data.prior.size,expectedCases:data.order.length,inputDigests:data.origins,chunks};
 }
 

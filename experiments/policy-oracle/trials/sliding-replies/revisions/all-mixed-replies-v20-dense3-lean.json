@@ -1,0 +1,340 @@
+{
+  "variant": "all-mixed-replies-v20-dense3-lean",
+  "through": "mixed-slider",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "requestSha256": "af3af300376a2f3570733f33af38a63ab9fdc988cbcb8c20dd354ac216a2e4cd",
+  "nativeSha256": "83857d2a215edb7fcd14222a0efefcd77c9471ad2e5b8c583849894c46143d47",
+  "compile": {
+    "status": "emitted",
+    "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+    "bytes": 119479
+  },
+  "standalone": {
+    "positions": 115,
+    "proposals": 233,
+    "outcomes": {
+      "match": 115
+    },
+    "replyRowsSha256": "38bcbe4ce4c5bc069a042033a6231665b3458edc2c76ffa7eda08f7b1e841205"
+  },
+  "local": {
+    "groups": {
+      "original-190": {
+        "cases": 190,
+        "outcomes": {
+          "match": 190
+        },
+        "diagnostics": {}
+      },
+      "rook": {
+        "cases": 6,
+        "outcomes": {
+          "match": 6
+        },
+        "diagnostics": {}
+      },
+      "bishop": {
+        "cases": 18,
+        "outcomes": {
+          "match": 18
+        },
+        "diagnostics": {}
+      },
+      "queen": {
+        "cases": 30,
+        "outcomes": {
+          "match": 30
+        },
+        "diagnostics": {}
+      },
+      "queen-bishop": {
+        "cases": 4,
+        "outcomes": {
+          "match": 4
+        },
+        "diagnostics": {}
+      },
+      "two-knights": {
+        "cases": 9,
+        "outcomes": {
+          "match": 9
+        },
+        "diagnostics": {}
+      },
+      "lone-pawn": {
+        "cases": 9,
+        "outcomes": {
+          "match": 9
+        },
+        "diagnostics": {}
+      },
+      "mixed-slider": {
+        "cases": 15,
+        "outcomes": {
+          "match": 15
+        },
+        "diagnostics": {}
+      }
+    },
+    "changes": {
+      "original-190": {
+        "repaired": [
+          "holdout-interior-v1-b-mate-playing",
+          "holdout-interior-v1-w-nonking-checked-won",
+          "holdout-replies-v1-stalemate-pinned-defender-playing",
+          "holdout-replies-v1-only-b-move-in-check-won",
+          "actual-fourth-ply-playing",
+          "promote-capturing-rook-right-held",
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "rook": {
+        "repaired": [
+          "rook-c5-after-queen-won",
+          "rook-h5-after-queen-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "bishop": {
+        "repaired": [
+          "bishop-e5-clear-won",
+          "bishop-e5-d6-blocker-playing",
+          "bishop-b6-clear-won",
+          "bishop-b6-c7-blocker-playing",
+          "bishop-b7-free-won",
+          "bishop-b7-pinned-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "queen": {
+        "repaired": [
+          "queen-rank-clear-won",
+          "queen-rank-c4-blocker-playing",
+          "queen-file-clear-won",
+          "queen-file-d3-blocker-playing",
+          "queen-diagonal-clear-won",
+          "queen-diagonal-e6-blocker-playing",
+          "queen-capture-g3-blocker-playing",
+          "queen-captures-only-checker-won",
+          "queen-capture-leaves-rook-check-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "queen-bishop": {
+        "repaired": [
+          "qb-pawn-won"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "two-knights": {
+        "repaired": [
+          "knight-reply-121",
+          "knight-reply-475"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "lone-pawn": {
+        "repaired": [
+          "lone-pawn-mate-playing",
+          "lone-pawn-blocked-playing"
+        ],
+        "regressed": [],
+        "remaining": []
+      },
+      "mixed-slider": {
+        "repaired": [
+          "mixed-slider-mate-correct-1-1-6-won",
+          "mixed-slider-stalemate-correct-0-1-6-draw",
+          "mixed-slider-one-rook-reply-wrong-result-0-1-5-won",
+          "mixed-slider-interior-272-won",
+          "mixed-slider-interior-314-won"
+        ],
+        "regressed": [],
+        "remaining": []
+      }
+    },
+    "verdictAndCostsSha256": "65b317a0658b18e61c768d51b15399c7d3e01136127a143355461c2a0da0f380",
+    "disagreements": {}
+  },
+  "specialPawnReplies": {
+    "boards": [
+      {
+        "fen": "8/8/k7/7r/K7/4r3/3P4/8 b - -",
+        "move": "h5h4",
+        "onlyReply": "d2d4"
+      },
+      {
+        "fen": "8/3p4/4R3/k7/7R/K7/8/8 w - -",
+        "move": "h4h5",
+        "onlyReply": "d7d5"
+      },
+      {
+        "fen": "2b5/5p2/3k4/6P1/4K3/2b3q1/8/8 b - -",
+        "move": "f7f5",
+        "onlyReply": "g5f6"
+      },
+      {
+        "fen": "8/8/2B3Q1/4k3/6p1/3K4/5P2/2B5 w - -",
+        "move": "f2f4",
+        "onlyReply": "g4f3"
+      }
+    ],
+    "localDecisions": {
+      "double-guest-playing": "ALLOW",
+      "double-guest-draw": "DENY",
+      "double-guest-won": "DENY",
+      "double-host-playing": "ALLOW",
+      "double-host-draw": "DENY",
+      "double-host-won": "DENY",
+      "ep-guest-playing": "ALLOW",
+      "ep-guest-draw": "DENY",
+      "ep-guest-won": "DENY",
+      "ep-host-playing": "ALLOW",
+      "ep-host-draw": "DENY",
+      "ep-host-won": "DENY"
+    },
+    "disagreements": []
+  },
+  "pinnedSliderControls": {
+    "cases": 8,
+    "rows": {
+      "free-bishop-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 559
+      },
+      "free-bishop-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 736
+      },
+      "pinned-bishop-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 559
+      },
+      "pinned-bishop-won": {
+        "native": "ALLOW",
+        "decision": "ALLOW",
+        "status": "match",
+        "localExpressions": 944
+      },
+      "free-bishop-reflected-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 571
+      },
+      "free-bishop-reflected-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 744
+      },
+      "pinned-bishop-reflected-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 571
+      },
+      "pinned-bishop-reflected-won": {
+        "native": "ALLOW",
+        "decision": "ALLOW",
+        "status": "match",
+        "localExpressions": 952
+      }
+    },
+    "disagreements": []
+  },
+  "missedSliderWrites": {
+    "mate-correct-1-1-6": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 744
+    },
+    "stalemate-correct-0-1-6": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 709
+    },
+    "one-rook-reply-wrong-result-0-1-5": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 736
+    },
+    "one-rook-reply-wrong-result-1-0-3": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 747
+    },
+    "one-rook-reply-wrong-result-1-1-2": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 744
+    },
+    "black-mate-correct-1-1-3": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 736
+    },
+    "interior-212": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 977
+    },
+    "interior-228": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 960
+    },
+    "interior-248": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 749
+    },
+    "interior-272": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 997
+    },
+    "interior-304": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 988
+    },
+    "interior-314": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 708
+    },
+    "interior-340": {
+      "native": "DENY",
+      "decision": "DENY",
+      "status": "match",
+      "localExpressions": 760
+    }
+  }
+}

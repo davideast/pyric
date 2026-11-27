@@ -22,6 +22,14 @@ The additional local controls check both pawn colors when a double push or en pa
 python3 -B review/lone-pawn.py 031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097 "$PRIVATE_ARCHIVE" "$CHESS_SOURCE" "$PINNED_RULES"
 ```
 
+The v20 rules check for a sliding reply before accepting a mixed-material terminal claim. The live set has five boards. That is the minimum covering all five defending piece combinations in the 13 v19 disagreements, both kinds of false claim, and every observed piece and reply role. The five include a sole rook capture, a sole bishop capture and a sole bishop interposition. The selection script checks all smaller subsets. The v19 live baseline admitted four false wins and one false draw. On the same 15 writes, v20 accepted only the five playing claims. The remaining 258 campaign writes were replayed locally on this digest. [Selection and native replies for all 13](native/mixed-slider/cover.json) · [Focused scorecard](MIXED-SLIDER.md)
+
+For a position outside the existing material solvers with at least two defending sliders, the new check tries capturing the last mover or blocking the line between that piece and the king. It projects the move with all blockers in place and tests king safety. A successful projection refutes a win or draw. Other ways to continue, including replies to a discovered check on a different line, can still fall outside this search. The costliest repaired claim was Rb8–b5 with Bc3–e5 as the only reply, at 997 expressions in the pinned local evaluator.
+
+```sh
+python3 -B review/mixed-slider.py f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04 "$PRIVATE_ARCHIVE" "$CHESS_SOURCE" "$PINNED_RULES"
+```
+
 ## Score a compiler
 
 Run from this directory on Linux with Python 3, Bun, Node, npm, Bubblewrap, and user and network namespaces available. The bundled fixtures and portable receipts support offline scoring. Substitute the tarball built by the compiler under test. It must expose the public `@pyric/rules/experimental/policy` entry point.
@@ -85,6 +93,8 @@ The declared material includes one defending slider, two defending rooks, a slid
 For the short diagonal check, the emitted function marks the checking bishop or queen and the two intervening empty squares. It tests every defending nonking piece for geometric access to the relevant squares. Pawn captures, advances and double advances have separate tests. A negative result proves that only a king move can answer the check. A positive geometric possibility defers to the previous policy. The path requires an empty successor en passant target. On this domain a dense position such as the fourth-ply mate can be decided without general full-board reply enumeration. [Proof source](protocol/dense.mjs) · [Frozen 2,400-board independent control](protocol/dense-freeze.json) · [Incorrect geometries](review/dense-geometry.py)
 
 ## Where the selected rules still disagree with chess
+
+The v20 local replay matched 15,888 of 15,905 proposals. It repaired the 12 false wins and one false draw caused by a missed sliding reply. Seventeen disagreements remain. [Per-write audit](review/scores/f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04/mixed-slider.json) · [Remaining disagreements](review/scores/f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04/residuals.json)
 
 The v19 local replay matched 15,875 of 15,905 proposals. All 20 lone-pawn disagreements were repaired, with zero new disagreements. The remaining 30 comprise 26 false approvals and four expression-limit refusals. [Full-write comparison](review/scores/031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097/lone-pawn.json) · [All 30 remaining disagreements](review/scores/031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097/residuals.json)
 

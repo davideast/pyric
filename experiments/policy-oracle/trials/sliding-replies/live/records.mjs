@@ -58,7 +58,7 @@ function verifyCapture(digest,name,folder,bundle,fixtures,data,archive) {
 export function lookup(digest,archive) {
   const dir=versionDirectory(digest),captures=[],distinct=new Map();
   const stored=existsSync(new URL('plan.json',dir))?verifiedPlan(digest):null;
-  const data=stored?.data??inputs(digest===previousDigest?1:4);
+  const data=stored?.data??inputs(digest===previousDigest?1:5);
   function add(entry) {
     captures.push(entry.meta);
     for(const row of entry.rows) {

@@ -1,0 +1,14 @@
+{
+  "authority": "Google Rules create and GET",
+  "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+  "requestSha256": "fc2b606ad55d107e0622f53686641637bb98fb12d77c95f9883c3343bda8948b",
+  "httpStatus": 200,
+  "state": "compiled",
+  "ruleset": "projects/digame-mas/rulesets/2133db0e-bdc8-43cd-b6d7-03ee3743421f",
+  "serviceCode": null,
+  "previousReleaseVersion": "2026-11-27T14:33:04.692988Z",
+  "finalReleaseVersion": "2026-11-27T14:33:04.692988Z",
+  "releasesActivated": 0,
+  "caseWrites": 0,
+  "receipt": "a9a6f2ccb3458bd4f808be6c46f494694429153eb07c50bd123349ef06b3680e"
+}

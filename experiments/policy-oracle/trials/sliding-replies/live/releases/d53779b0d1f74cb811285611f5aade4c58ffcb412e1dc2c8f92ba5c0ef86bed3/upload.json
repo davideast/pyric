@@ -1,0 +1,14 @@
+{
+  "authority": "Google Rules create and GET",
+  "rulesSha256": "d53779b0d1f74cb811285611f5aade4c58ffcb412e1dc2c8f92ba5c0ef86bed3",
+  "requestSha256": "3f5f167905f09fbe16803e4a980287ee8ed3693e3ec7669bc1bf0b0ed98a9731",
+  "httpStatus": 503,
+  "state": "service-error",
+  "ruleset": null,
+  "serviceCode": "UNAVAILABLE",
+  "previousReleaseVersion": "2026-11-27T14:33:04.692988Z",
+  "finalReleaseVersion": "2026-11-27T14:33:04.692988Z",
+  "releasesActivated": 0,
+  "caseWrites": 0,
+  "receipt": "a0c06d79d113759b64f4816663e113c7b191b06ff51dac4223b200006002aaa3"
+}

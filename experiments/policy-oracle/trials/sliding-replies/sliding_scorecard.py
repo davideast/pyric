@@ -88,7 +88,8 @@ def render(result):
     output.extend([table(['Piece','Board','Move','Native legal replies','Standalone Pyric sliders','Emitted helper (local trace)','Native P/D/W','Local P/D/W','Live P/D/W'],rows),
                    'Claims are ordered playing, draw, won. A means allow, D means deny, and — means unmeasured.'])
     for family, heading in [('queen-bishop','Qd2–b2 with and without the b6 pawn'),
-                            ('two-knights','Two defending knights'), ('lone-pawn','One defending pawn')]:
+                            ('two-knights','Two defending knights'), ('lone-pawn','One defending pawn'),
+                            ('mixed-slider','Missed sliding replies')]:
         if family not in groups: continue
         rows=[]
         fixtures={r['id']:r for r in read(HERE/'native'/family/'positions.json')}
@@ -107,6 +108,13 @@ def render(result):
         output.extend(['## Special pawn replies',
                        table(['Starting FEN','Move','Only legal reply'],[(b['fen'],b['move'],b['onlyReply']) for b in controls['boards']]),
                        f"Local full writes matched native chess on {len(controls['localDecisions'])-len(controls['disagreements'])} of {len(controls['localDecisions'])} claims."])
+    if 'missedSliderWrites' in result:
+        originals=result['missedSliderWrites']
+        pins=result['pinnedSliderControls']
+        output.extend(['## Original mixed-material failures',
+                       table(['Frozen case','Native','Local Rules','Local expressions'],
+                             [(k,r['native'],r['decision'],r['localExpressions']) for k,r in originals.items()]),
+                       f"The mirrored bishop-pin controls matched on {pins['cases']-len(pins['disagreements'])} of {pins['cases']} terminal claims."])
     output.append('## Changes from the historical release on the original 190')
     changes = result.get('local',{}).get('changes',{}).get('original-190')
     if changes:

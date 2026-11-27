@@ -31,10 +31,7 @@ def operands(row):
     return [actor, reader, before, submitted]
 
 
-def compare(digest, archive, chess, *, family='two-knights', baseline_digest=BASELINE,
-            defending_material=None, expected_targets=25):
-    if defending_material is None:
-        defending_material = [chess.KNIGHT, chess.KNIGHT]
+def compare_live(digest, archive, chess, family, baseline_digest):
     candidate = TRIAL/'live/releases'/digest
     cases = read(TRIAL/'native'/family/'native.json')['cases']
     baseline, before_proof = AUDIT['read_capture'](TRIAL/'supplemental'/family, family, baseline_digest, archive)
@@ -47,6 +44,14 @@ def compare(digest, archive, chess, *, family='two-knights', baseline_digest=BAS
         assert valid and allowed == case['nativeAdmission']
         rows.append({'id': case['id'], 'claim': case['claim']['status'], 'native': 'ALLOW' if allowed else 'DENY',
                      'before': old['observed'], 'after': new['observed']})
+    return rows, [before_proof,after_proof]
+
+
+def compare(digest, archive, chess, *, family='two-knights', baseline_digest=BASELINE,
+            defending_material=None, expected_targets=25):
+    if defending_material is None:
+        defending_material = [chess.KNIGHT, chess.KNIGHT]
+    rows, captures = compare_live(digest,archive,chess,family,baseline_digest)
     old, new = residuals(baseline_digest), residuals(digest)
     target = {}
     for key, record in old.items():
@@ -61,7 +66,7 @@ def compare(digest, archive, chess, *, family='two-knights', baseline_digest=BAS
                            'fixed': key not in new}
     assert len(target) == expected_targets
     return {'baselineRulesSha256': baseline_digest, 'candidateRulesSha256': digest, 'live': rows,
-            'captures': [before_proof, after_proof], 'wideLocal': {'caseCount': 15905, 'before': len(old),
+            'captures': captures, 'wideLocal': {'caseCount': 15905, 'before': len(old),
             'after': len(new), 'newDisagreements': sorted(new.keys()-old.keys()),
             'outsideGroupFixed': sorted(old.keys()-new.keys()-target.keys()),
             'targetFixed': dict(Counter(r['native'] for r in target.values() if r['fixed'])), 'targetCases': target}}

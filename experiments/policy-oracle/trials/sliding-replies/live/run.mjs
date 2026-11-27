@@ -16,7 +16,7 @@ export function prepare(file,digest) {
   const source=readFileSync(file,'utf8');
   verifySource(source,digest);
   const dir=versionDirectory(digest);
-  const plan=existsSync(new URL('plan.json',dir))?verifiedPlan(digest).plan:buildPlan(inputs(4),digest);
+  const plan=existsSync(new URL('plan.json',dir))?verifiedPlan(digest).plan:buildPlan(inputs(5),digest);
   mkdirSync(dir,{recursive:true});writeOnce(new URL('firestore.rules',dir),source);
   writeOnce(new URL('plan.json',dir),json(plan));
   return plan;

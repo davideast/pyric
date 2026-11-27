@@ -16,6 +16,8 @@ def projection(result):
     elif local:
         data['local']=local
     if 'specialPawnReplies' in result: data['specialPawnReplies']=result['specialPawnReplies']
+    if 'pinnedSliderControls' in result: data['pinnedSliderControls']=result['pinnedSliderControls']
+    if 'missedSliderWrites' in result: data['missedSliderWrites']=result['missedSliderWrites']
     return data
 
 

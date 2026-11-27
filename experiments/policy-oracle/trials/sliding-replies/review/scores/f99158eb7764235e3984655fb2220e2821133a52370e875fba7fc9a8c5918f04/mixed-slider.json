@@ -1,0 +1,284 @@
+{
+  "baseline": "031ff6cdfc8698e206156e248d6199d2b9c3253d5efd81852b91dd3e9b74a097",
+  "candidate": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+  "live": [
+    {
+      "id": "mixed-slider-mate-correct-1-1-6-playing",
+      "claim": "playing",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "mixed-slider-mate-correct-1-1-6-draw",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-mate-correct-1-1-6-won",
+      "claim": "won",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-stalemate-correct-0-1-6-playing",
+      "claim": "playing",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "mixed-slider-stalemate-correct-0-1-6-draw",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-stalemate-correct-0-1-6-won",
+      "claim": "won",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-one-rook-reply-wrong-result-0-1-5-playing",
+      "claim": "playing",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "mixed-slider-one-rook-reply-wrong-result-0-1-5-draw",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-one-rook-reply-wrong-result-0-1-5-won",
+      "claim": "won",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-interior-272-playing",
+      "claim": "playing",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "mixed-slider-interior-272-draw",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-interior-272-won",
+      "claim": "won",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-interior-314-playing",
+      "claim": "playing",
+      "native": "ALLOW",
+      "before": "ALLOW",
+      "after": "ALLOW"
+    },
+    {
+      "id": "mixed-slider-interior-314-draw",
+      "claim": "draw",
+      "native": "DENY",
+      "before": "DENY",
+      "after": "DENY"
+    },
+    {
+      "id": "mixed-slider-interior-314-won",
+      "claim": "won",
+      "native": "DENY",
+      "before": "ALLOW",
+      "after": "DENY"
+    }
+  ],
+  "captures": [
+    {
+      "capture": "mixed-slider",
+      "caseCount": 15,
+      "controllerSha256": "aee0a573a3b0349f9d0c45aa59375c015a4f3d81825f513916daf80cf22d8df2",
+      "journalSha256": "142e8338b6460f2cdefc59eb84878f43485c0f11e94c390792676c81dd90c007",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 15,
+      "openReleaseUpdateTime": "2026-11-27T14:30:16.468071Z"
+    },
+    {
+      "capture": "mixed-slider",
+      "caseCount": 15,
+      "controllerSha256": "75e923581f25c075f558e23037d8ed000fa277e0875c2bd00e42024078bb27e5",
+      "journalSha256": "8edcb29c50f759e9d4b343b38e32ad8423dd3d5016e5b65a363c8aa1dc74a694",
+      "snapshotAndVersionVerified": true,
+      "restoredAndReleased": true,
+      "phaseProofsVerified": 3,
+      "attemptProofPairsVerified": 15,
+      "openReleaseUpdateTime": "2026-11-27T14:40:09.880733Z"
+    }
+  ],
+  "minimumBoards": 5,
+  "wideLocal": {
+    "count": 15905,
+    "before": 30,
+    "after": 17,
+    "targetFixed": 13,
+    "targetRemaining": {},
+    "newDisagreements": [],
+    "outsideGroupFixed": [],
+    "targetWrites": {
+      "mate-correct-1-1-6": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 744
+      },
+      "stalemate-correct-0-1-6": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 709
+      },
+      "one-rook-reply-wrong-result-0-1-5": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 736
+      },
+      "one-rook-reply-wrong-result-1-0-3": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 747
+      },
+      "one-rook-reply-wrong-result-1-1-2": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 744
+      },
+      "black-mate-correct-1-1-3": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 736
+      },
+      "interior-212": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 977
+      },
+      "interior-228": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 960
+      },
+      "interior-248": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 749
+      },
+      "interior-272": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 997
+      },
+      "interior-304": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 988
+      },
+      "interior-314": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 708
+      },
+      "interior-340": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 760
+      }
+    }
+  },
+  "pinnedSliderControls": {
+    "cases": 8,
+    "rows": {
+      "free-bishop-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 559
+      },
+      "free-bishop-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 736
+      },
+      "pinned-bishop-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 559
+      },
+      "pinned-bishop-won": {
+        "native": "ALLOW",
+        "decision": "ALLOW",
+        "status": "match",
+        "localExpressions": 944
+      },
+      "free-bishop-reflected-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 571
+      },
+      "free-bishop-reflected-won": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 744
+      },
+      "pinned-bishop-reflected-draw": {
+        "native": "DENY",
+        "decision": "DENY",
+        "status": "match",
+        "localExpressions": 571
+      },
+      "pinned-bishop-reflected-won": {
+        "native": "ALLOW",
+        "decision": "ALLOW",
+        "status": "match",
+        "localExpressions": 952
+      }
+    },
+    "disagreements": []
+  },
+  "enPassantReplay": {
+    "cases": 524,
+    "beforeVerdicts": "8d65ce816f43e8bd6f0940c38c0c268ff19cbeec4d10f35616893d87e89dd34f",
+    "afterVerdicts": "8d65ce816f43e8bd6f0940c38c0c268ff19cbeec4d10f35616893d87e89dd34f"
+  }
+}

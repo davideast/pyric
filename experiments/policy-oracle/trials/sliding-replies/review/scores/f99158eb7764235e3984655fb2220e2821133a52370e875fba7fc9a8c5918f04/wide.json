@@ -1,0 +1,4478 @@
+{
+  "authority": "independent pinned local full Rules evaluator",
+  "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+  "cases": 15905,
+  "allMatch": false,
+  "outcomes": {
+    "match": 15888,
+    "false-refusal/resource-limit": 4,
+    "false-allow": 13
+  },
+  "cohorts": {
+    "v1": {
+      "cases": 2481,
+      "outcomes": {
+        "match": 2476,
+        "false-refusal/resource-limit": 2,
+        "false-allow": 3
+      },
+      "decisionsSha256": "d1c03e9ab120eccdf93911ca5a317bc9fbd2fd6a159e7559de06040a43fd9ffa"
+    },
+    "replies-v1": {
+      "cases": 378,
+      "outcomes": {
+        "match": 375,
+        "false-allow": 3
+      },
+      "decisionsSha256": "d9bbf9b1cc0d4b183dffcb04d26cf819ec141762f8e5c55951e5e411f6769dba"
+    },
+    "rights-v1": {
+      "cases": 1736,
+      "outcomes": {
+        "match": 1736
+      },
+      "decisionsSha256": "cede7ae6bc02e6dadc804c9346897c091ef0fea157b21979dbb0e54a0074751f"
+    },
+    "promotions-v1": {
+      "cases": 904,
+      "outcomes": {
+        "match": 904
+      },
+      "decisionsSha256": "6031ad3e8446b68313e204f02888a8ce4794120d5877903a662f12e3359cfd10"
+    },
+    "interior-v1": {
+      "cases": 384,
+      "outcomes": {
+        "match": 381,
+        "false-refusal/resource-limit": 2,
+        "false-allow": 1
+      },
+      "decisionsSha256": "65978d601bcf2ece544a3b86f85e3b3afffec0b5ef5c138baaa7ec2bf9fd2279"
+    },
+    "rights-claims-v1": {
+      "cases": 2048,
+      "outcomes": {
+        "match": 2048
+      },
+      "decisionsSha256": "b59842306a78f771058db07e99855b532bd8c3cfcfde1f8d5c6449cb1494ef5f"
+    },
+    "self-check-v1": {
+      "cases": 4440,
+      "outcomes": {
+        "match": 4440
+      },
+      "decisionsSha256": "6d5e7dace00252732d07d9984cd243709e1ef8f157ee70a7afbae2a08fc79f41"
+    },
+    "king-last-v1": {
+      "cases": 288,
+      "outcomes": {
+        "match": 288
+      },
+      "decisionsSha256": "16c49bed1b49236044c10fc0940acc563a6431ffaec8f4a07cc64234b55719b0"
+    },
+    "successor-claims-v1": {
+      "cases": 762,
+      "outcomes": {
+        "match": 756,
+        "false-allow": 6
+      },
+      "decisionsSha256": "1222f64322927dffaf7230b3c70ab454a0e564467200ef3fc39f72c80251879a"
+    },
+    "bare-defender-v1": {
+      "cases": 1992,
+      "outcomes": {
+        "match": 1992
+      },
+      "decisionsSha256": "aa2e59bcb17de09db2b1b69c8e56eb0ea9173cebd865e3f3005169226329092f"
+    },
+    "knight-replies-v1": {
+      "cases": 492,
+      "outcomes": {
+        "match": 492
+      },
+      "decisionsSha256": "dd046e09ed800edfb132232f484585f264c1197eab0145665ccd4957caf1b885"
+    }
+  },
+  "reports": {
+    "v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "285a5dda9dcdd99570a68ae68c9499b2a31700fa94806b09609f4f6d4bc2e7f0",
+      "caseCount": 2481,
+      "scoreSha256": "d1c03e9ab120eccdf93911ca5a317bc9fbd2fd6a159e7559de06040a43fd9ffa",
+      "groups": {
+        "01-rank-diagonal": {
+          "cases": 409,
+          "outcomes": {
+            "match": 409
+          },
+          "peakExpressions": 934
+        },
+        "02-king-destinations": {
+          "cases": 249,
+          "outcomes": {
+            "match": 249
+          },
+          "peakExpressions": 814
+        },
+        "03-check-evasions": {
+          "cases": 193,
+          "outcomes": {
+            "match": 193
+          },
+          "peakExpressions": 815
+        },
+        "04-en-passant": {
+          "cases": 74,
+          "outcomes": {
+            "match": 74
+          },
+          "peakExpressions": 896
+        },
+        "05-castling": {
+          "cases": 196,
+          "outcomes": {
+            "match": 195,
+            "false-refusal/resource-limit": 1
+          },
+          "peakExpressions": 1000
+        },
+        "06-composition": {
+          "cases": 180,
+          "outcomes": {
+            "match": 180
+          },
+          "peakExpressions": 848
+        },
+        "07-terminal": {
+          "cases": 239,
+          "outcomes": {
+            "match": 235,
+            "false-refusal/resource-limit": 1,
+            "false-allow": 3
+          },
+          "peakExpressions": 1000
+        },
+        "reachable-traces": {
+          "cases": 941,
+          "outcomes": {
+            "match": 941
+          },
+          "peakExpressions": 852
+        }
+      },
+      "reachableByMove": {
+        "p-2-quiet": {
+          "cases": 68,
+          "outcomes": {
+            "match": 68
+          }
+        },
+        "r-1-quiet": {
+          "cases": 82,
+          "outcomes": {
+            "match": 82
+          }
+        },
+        "p-1-quiet": {
+          "cases": 157,
+          "outcomes": {
+            "match": 157
+          }
+        },
+        "b-1-quiet": {
+          "cases": 93,
+          "outcomes": {
+            "match": 93
+          }
+        },
+        "b-2-quiet": {
+          "cases": 38,
+          "outcomes": {
+            "match": 38
+          }
+        },
+        "n-2-quiet": {
+          "cases": 148,
+          "outcomes": {
+            "match": 148
+          }
+        },
+        "b-long-quiet": {
+          "cases": 7,
+          "outcomes": {
+            "match": 7
+          }
+        },
+        "r-2-quiet": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          }
+        },
+        "b-1-capture": {
+          "cases": 13,
+          "outcomes": {
+            "match": 13
+          }
+        },
+        "b-3-quiet": {
+          "cases": 11,
+          "outcomes": {
+            "match": 11
+          }
+        },
+        "p-1-capture": {
+          "cases": 34,
+          "outcomes": {
+            "match": 34
+          }
+        },
+        "k-1-quiet": {
+          "cases": 57,
+          "outcomes": {
+            "match": 57
+          }
+        },
+        "r-2-capture": {
+          "cases": 5,
+          "outcomes": {
+            "match": 5
+          }
+        },
+        "q-1-quiet": {
+          "cases": 65,
+          "outcomes": {
+            "match": 65
+          }
+        },
+        "b-long-capture": {
+          "cases": 2,
+          "outcomes": {
+            "match": 2
+          }
+        },
+        "q-3-capture": {
+          "cases": 4,
+          "outcomes": {
+            "match": 4
+          }
+        },
+        "r-3-quiet": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          }
+        },
+        "r-long-quiet": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          }
+        },
+        "n-2-capture": {
+          "cases": 17,
+          "outcomes": {
+            "match": 17
+          }
+        },
+        "r-3-capture": {
+          "cases": 2,
+          "outcomes": {
+            "match": 2
+          }
+        },
+        "b-3-capture": {
+          "cases": 2,
+          "outcomes": {
+            "match": 2
+          }
+        },
+        "q-3-quiet": {
+          "cases": 7,
+          "outcomes": {
+            "match": 7
+          }
+        },
+        "q-long-quiet": {
+          "cases": 10,
+          "outcomes": {
+            "match": 10
+          }
+        },
+        "q-2-quiet": {
+          "cases": 30,
+          "outcomes": {
+            "match": 30
+          }
+        },
+        "r-1-capture": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          }
+        },
+        "k-1-capture": {
+          "cases": 4,
+          "outcomes": {
+            "match": 4
+          }
+        },
+        "b-2-capture": {
+          "cases": 7,
+          "outcomes": {
+            "match": 7
+          }
+        },
+        "q-1-capture": {
+          "cases": 8,
+          "outcomes": {
+            "match": 8
+          }
+        },
+        "q-long-capture": {
+          "cases": 2,
+          "outcomes": {
+            "match": 2
+          }
+        },
+        "q-2-capture": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          }
+        },
+        "r-long-capture": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          }
+        }
+      },
+      "divergences": {
+        "05-castling/false-refusal/resource-limit": {
+          "first": {
+            "case": {
+              "id": "black-short-clear-1-0-2",
+              "fen": "kr6/4Q3/8/8/8/1Q6/8/4K2R w K -",
+              "uci": "e1g1",
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "kr6/4Q3/8/8/8/1Q6/8/5RK1 b - -",
+              "outcome": "playing",
+              "replyCount": 11
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          },
+          "minimized": {
+            "beforePieces": 6,
+            "afterPieces": 5,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "b3"
+            ],
+            "positionsTried": 10,
+            "case": {
+              "id": "black-short-clear-1-0-2",
+              "fen": "kr6/4Q3/8/8/8/8/8/4K2R w K -",
+              "uci": "e1g1",
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "kr6/4Q3/8/8/8/8/8/5RK1 b - -",
+              "outcome": "playing",
+              "replyCount": 13
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          }
+        },
+        "07-terminal/false-refusal/resource-limit": {
+          "first": {
+            "case": {
+              "id": "one-rook-reply-correct-0-1-2",
+              "fen": "k7/3Q3r/1K6/8/1Q6/8/1r6/8 w - -",
+              "uci": "d7b7",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "k7/1Q5r/1K6/8/1Q6/8/1r6/8 b - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          },
+          "minimized": {
+            "beforePieces": 6,
+            "afterPieces": 6,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [],
+            "positionsTried": 6,
+            "case": {
+              "id": "one-rook-reply-correct-0-1-2",
+              "fen": "k7/3Q3r/1K6/8/1Q6/8/1r6/8 w - -",
+              "uci": "d7b7",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "k7/1Q5r/1K6/8/1Q6/8/1r6/8 b - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          }
+        },
+        "07-terminal/false-allow": {
+          "first": {
+            "case": {
+              "id": "one-rook-reply-correct-0-1-6",
+              "fen": "k2N4/3Q2nr/1K5N/5r2/3Q4/1Q2b3/3P3n/1R2Qq2 w - -",
+              "uci": "d7b7",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "k2N4/1Q4nr/1K5N/5r2/3Q4/1Q2b3/3P3n/1R2Qq2 b - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 656
+            }
+          },
+          "minimized": {
+            "beforePieces": 8,
+            "afterPieces": 6,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "d7",
+              "e6"
+            ],
+            "positionsTried": 11,
+            "case": {
+              "id": "one-rook-reply-correct-1-1-4",
+              "fen": "8/8/8/8/8/1k6/3q1P1R/K1R5 b - -",
+              "uci": "d2b2",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "8/8/8/8/8/1k6/1q3P1R/K1R5 w - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 676
+            }
+          }
+        }
+      }
+    },
+    "replies-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "55076ee1dcd7ef64356574110aaea65f77d8a9c8548b30cfa46393dd8cd4226b",
+      "caseCount": 378,
+      "scoreSha256": "d9bbf9b1cc0d4b183dffcb04d26cf819ec141762f8e5c55951e5e411f6769dba",
+      "groups": {
+        "only-k-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 796
+        },
+        "mate": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 951
+        },
+        "only-k-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 782
+        },
+        "only-k-move-unchecked": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 809
+        },
+        "only-r-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 927
+        },
+        "only-p-move-unchecked": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 917
+        },
+        "only-b-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 934
+        },
+        "only-n-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 21,
+            "false-allow": 3
+          },
+          "peakExpressions": 880
+        },
+        "only-q-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 940
+        },
+        "only-q-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 945
+        },
+        "only-r-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 936
+        },
+        "stalemate": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 925
+        },
+        "only-b-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 943
+        },
+        "stalemate-pinned-defender": {
+          "cases": 18,
+          "outcomes": {
+            "match": 18
+          },
+          "peakExpressions": 964
+        },
+        "only-p-capture-in-check": {
+          "cases": 14,
+          "outcomes": {
+            "match": 14
+          },
+          "peakExpressions": 972
+        },
+        "only-q-capture-unchecked": {
+          "cases": 4,
+          "outcomes": {
+            "match": 4
+          },
+          "peakExpressions": 940
+        },
+        "only-n-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 892
+        },
+        "only-p-capture-unchecked": {
+          "cases": 2,
+          "outcomes": {
+            "match": 2
+          },
+          "peakExpressions": 886
+        },
+        "only-b-capture-unchecked": {
+          "cases": 4,
+          "outcomes": {
+            "match": 4
+          },
+          "peakExpressions": 938
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {
+        "only-n-move-in-check/false-allow": {
+          "first": {
+            "case": {
+              "id": "only-n-move-in-check-6-false",
+              "fen": "k7/8/Kn6/4Q3/8/4p3/8/8 w - -",
+              "uci": "e5e8",
+              "claim": {
+                "status": "won",
+                "winner": "host"
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "k3Q3/8/Kn6/8/8/4p3/8/8 b - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 826
+            }
+          },
+          "minimized": {
+            "beforePieces": 5,
+            "afterPieces": 5,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [],
+            "positionsTried": 4,
+            "case": {
+              "id": "only-n-move-in-check-6-false",
+              "fen": "k7/8/Kn6/4Q3/8/4p3/8/8 w - -",
+              "uci": "e5e8",
+              "claim": {
+                "status": "won",
+                "winner": "host"
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "k3Q3/8/Kn6/8/8/4p3/8/8 b - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 826
+            }
+          }
+        }
+      }
+    },
+    "rights-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "f9575a83cda9bdb89d17d2245b213b966801416ac72867f259a227c952773feb",
+      "caseCount": 1736,
+      "scoreSha256": "cede7ae6bc02e6dadc804c9346897c091ef0fea157b21979dbb0e54a0074751f",
+      "groups": {
+        "departure-straight-sparse": {
+          "cases": 288,
+          "outcomes": {
+            "match": 288
+          },
+          "peakExpressions": 830
+        },
+        "departure-straight-dense": {
+          "cases": 232,
+          "outcomes": {
+            "match": 232
+          },
+          "peakExpressions": 776
+        },
+        "capture-diagonal-sparse": {
+          "cases": 352,
+          "outcomes": {
+            "match": 352
+          },
+          "peakExpressions": 872
+        },
+        "capture-straight-sparse": {
+          "cases": 384,
+          "outcomes": {
+            "match": 384
+          },
+          "peakExpressions": 815
+        },
+        "capture-straight-dense": {
+          "cases": 312,
+          "outcomes": {
+            "match": 312
+          },
+          "peakExpressions": 791
+        },
+        "capture-diagonal-dense": {
+          "cases": 168,
+          "outcomes": {
+            "match": 168
+          },
+          "peakExpressions": 818
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {}
+    },
+    "promotions-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "5a89f4a8a42778ef9d25fd4c91e7d6d9e4354f71c5ffe9028b4d60c8bbad1ebf",
+      "caseCount": 904,
+      "scoreSha256": "6031ad3e8446b68313e204f02888a8ce4794120d5877903a662f12e3359cfd10",
+      "groups": {
+        "b/capture/q": {
+          "cases": 52,
+          "outcomes": {
+            "match": 52
+          },
+          "peakExpressions": 921
+        },
+        "b/capture/r": {
+          "cases": 52,
+          "outcomes": {
+            "match": 52
+          },
+          "peakExpressions": 921
+        },
+        "b/capture/b": {
+          "cases": 52,
+          "outcomes": {
+            "match": 52
+          },
+          "peakExpressions": 917
+        },
+        "b/capture/n": {
+          "cases": 52,
+          "outcomes": {
+            "match": 52
+          },
+          "peakExpressions": 917
+        },
+        "b/quiet/q": {
+          "cases": 38,
+          "outcomes": {
+            "match": 38
+          },
+          "peakExpressions": 897
+        },
+        "b/quiet/r": {
+          "cases": 38,
+          "outcomes": {
+            "match": 38
+          },
+          "peakExpressions": 897
+        },
+        "b/quiet/b": {
+          "cases": 38,
+          "outcomes": {
+            "match": 38
+          },
+          "peakExpressions": 893
+        },
+        "b/quiet/n": {
+          "cases": 38,
+          "outcomes": {
+            "match": 38
+          },
+          "peakExpressions": 826
+        },
+        "w/capture/q": {
+          "cases": 46,
+          "outcomes": {
+            "match": 46
+          },
+          "peakExpressions": 903
+        },
+        "w/capture/r": {
+          "cases": 46,
+          "outcomes": {
+            "match": 46
+          },
+          "peakExpressions": 903
+        },
+        "w/capture/b": {
+          "cases": 46,
+          "outcomes": {
+            "match": 46
+          },
+          "peakExpressions": 899
+        },
+        "w/capture/n": {
+          "cases": 46,
+          "outcomes": {
+            "match": 46
+          },
+          "peakExpressions": 899
+        },
+        "w/corner-expired/q": {
+          "cases": 16,
+          "outcomes": {
+            "match": 16
+          },
+          "peakExpressions": 902
+        },
+        "w/corner-expired/r": {
+          "cases": 16,
+          "outcomes": {
+            "match": 16
+          },
+          "peakExpressions": 902
+        },
+        "w/corner-expired/b": {
+          "cases": 16,
+          "outcomes": {
+            "match": 16
+          },
+          "peakExpressions": 828
+        },
+        "w/corner-expired/n": {
+          "cases": 16,
+          "outcomes": {
+            "match": 16
+          },
+          "peakExpressions": 828
+        },
+        "w/quiet/q": {
+          "cases": 36,
+          "outcomes": {
+            "match": 36
+          },
+          "peakExpressions": 879
+        },
+        "w/quiet/r": {
+          "cases": 36,
+          "outcomes": {
+            "match": 36
+          },
+          "peakExpressions": 879
+        },
+        "w/quiet/b": {
+          "cases": 36,
+          "outcomes": {
+            "match": 36
+          },
+          "peakExpressions": 875
+        },
+        "w/quiet/n": {
+          "cases": 36,
+          "outcomes": {
+            "match": 36
+          },
+          "peakExpressions": 804
+        },
+        "b/corner-held/q": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 982
+        },
+        "b/corner-held/r": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 982
+        },
+        "b/corner-held/b": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 912
+        },
+        "b/corner-held/n": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 912
+        },
+        "w/corner-held/q": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 964
+        },
+        "w/corner-held/r": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 964
+        },
+        "w/corner-held/b": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 890
+        },
+        "w/corner-held/n": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 890
+        },
+        "b/corner-expired/q": {
+          "cases": 14,
+          "outcomes": {
+            "match": 14
+          },
+          "peakExpressions": 920
+        },
+        "b/corner-expired/r": {
+          "cases": 14,
+          "outcomes": {
+            "match": 14
+          },
+          "peakExpressions": 920
+        },
+        "b/corner-expired/b": {
+          "cases": 14,
+          "outcomes": {
+            "match": 14
+          },
+          "peakExpressions": 850
+        },
+        "b/corner-expired/n": {
+          "cases": 14,
+          "outcomes": {
+            "match": 14
+          },
+          "peakExpressions": 850
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {}
+    },
+    "interior-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "3ae826772af378f5234a6f7d7911b78839e4e9c406d8882033c355e94bd2b5fc",
+      "caseCount": 384,
+      "scoreSha256": "65978d601bcf2ece544a3b86f85e3b3afffec0b5ef5c138baaa7ec2bf9fd2279",
+      "groups": {
+        "b/stalemate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 816
+        },
+        "w/king-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 779
+        },
+        "b/king-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 742
+        },
+        "b/mate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 992
+        },
+        "b/king-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 765
+        },
+        "w/king-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 792
+        },
+        "w/mate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 31,
+            "false-refusal/resource-limit": 1
+          },
+          "peakExpressions": 1000
+        },
+        "b/nonking-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 914
+        },
+        "w/nonking-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 923
+        },
+        "w/nonking-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 30,
+            "false-allow": 1,
+            "false-refusal/resource-limit": 1
+          },
+          "peakExpressions": 1000
+        },
+        "w/stalemate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 899
+        },
+        "b/nonking-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 988
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {
+        "w/mate/false-refusal/resource-limit": {
+          "first": {
+            "case": {
+              "id": "interior-189",
+              "fen": "6r1/2q2qk1/8/1K6/8/3N4/3R4/8 b - -",
+              "uci": "f7c4",
+              "claim": {
+                "status": "won",
+                "winner": "guest"
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "6r1/2q3k1/8/1K6/2q5/3N4/3R4/8 w - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          },
+          "minimized": {
+            "beforePieces": 7,
+            "afterPieces": 6,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "g8"
+            ],
+            "positionsTried": 10,
+            "case": {
+              "id": "interior-189",
+              "fen": "8/2q2qk1/8/1K6/8/3N4/3R4/8 b - -",
+              "uci": "f7c4",
+              "claim": {
+                "status": "won",
+                "winner": "guest"
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "8/2q3k1/8/1K6/2q5/3N4/3R4/8 w - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          }
+        },
+        "w/nonking-checked/false-allow": {
+          "first": {
+            "case": {
+              "id": "interior-282",
+              "fen": "k3r1N1/2K5/7r/8/8/b5P1/8/4q3 b - -",
+              "uci": "e1e7",
+              "claim": {
+                "status": "won",
+                "winner": "guest"
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "k3r1N1/2K1q3/7r/8/8/b5P1/8/8 w - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 834
+            }
+          },
+          "minimized": {
+            "beforePieces": 8,
+            "afterPieces": 7,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "a3"
+            ],
+            "positionsTried": 13,
+            "case": {
+              "id": "interior-282",
+              "fen": "k3r1N1/2K5/7r/8/8/6P1/8/4q3 b - -",
+              "uci": "e1e7",
+              "claim": {
+                "status": "won",
+                "winner": "guest"
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "k3r1N1/2K1q3/7r/8/8/6P1/8/8 w - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 834
+            }
+          }
+        },
+        "w/nonking-checked/false-refusal/resource-limit": {
+          "first": {
+            "case": {
+              "id": "interior-333",
+              "fen": "1k6/2R5/8/8/7q/3K1R2/8/2q5 b - -",
+              "uci": "h4c4",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "1k6/2R5/8/8/2q5/3K1R2/8/2q5 w - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          },
+          "minimized": {
+            "beforePieces": 6,
+            "afterPieces": 6,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [],
+            "positionsTried": 6,
+            "case": {
+              "id": "interior-333",
+              "fen": "1k6/2R5/8/8/7q/3K1R2/8/2q5 b - -",
+              "uci": "h4c4",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": true,
+              "successor": "1k6/2R5/8/8/2q5/3K1R2/8/2q5 w - -",
+              "outcome": "playing",
+              "replyCount": 1
+            },
+            "result": {
+              "actual": "DENY",
+              "status": "false-refusal",
+              "cause": "resource-limit",
+              "kind": "false-refusal/resource-limit",
+              "expressions": 1000
+            }
+          }
+        }
+      }
+    },
+    "rights-claims-v1": {
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "69ea989bf775b9d6419a4cd86a5f5c7ae6b29d641c7e23fa10c9afb44919cd51",
+      "moves": 128,
+      "writes": 2048,
+      "scoreSha256": "b59842306a78f771058db07e99855b532bd8c3cfcfde1f8d5c6449cb1494ef5f",
+      "groups": {
+        "corner-to-corner-drop-0": {
+          "cases": 256,
+          "outcomes": {
+            "match": 256
+          },
+          "peakExpressions": 815
+        },
+        "king-step-drop-0": {
+          "cases": 128,
+          "outcomes": {
+            "match": 128
+          },
+          "peakExpressions": 855
+        },
+        "corner-to-corner-drop-1": {
+          "cases": 512,
+          "outcomes": {
+            "match": 512
+          },
+          "peakExpressions": 815
+        },
+        "king-step-drop-1": {
+          "cases": 256,
+          "outcomes": {
+            "match": 256
+          },
+          "peakExpressions": 855
+        },
+        "castle-drop-1": {
+          "cases": 256,
+          "outcomes": {
+            "match": 256
+          },
+          "peakExpressions": 963
+        },
+        "king-step-drop-2": {
+          "cases": 128,
+          "outcomes": {
+            "match": 128
+          },
+          "peakExpressions": 855
+        },
+        "castle-drop-2": {
+          "cases": 256,
+          "outcomes": {
+            "match": 256
+          },
+          "peakExpressions": 963
+        },
+        "corner-to-corner-drop-2": {
+          "cases": 256,
+          "outcomes": {
+            "match": 256
+          },
+          "peakExpressions": 815
+        }
+      },
+      "first": {}
+    },
+    "self-check-v1": {
+      "authority": "pinned local evaluator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "inputsSha256": "0f5c9fdfaf6ff7201922bf77190cd0098268e1c5af8b5b8bbedd101da1a34750",
+      "groups": {
+        "king-destination": {
+          "match": 1124
+        },
+        "legal-control": {
+          "match": 1042
+        },
+        "unanswered-check": {
+          "match": 1726
+        },
+        "newly-exposed": {
+          "match": 369
+        },
+        "castle-safety": {
+          "match": 179
+        }
+      },
+      "stats": {
+        "match": 4440
+      },
+      "first": {},
+      "decisionsSha256": "6d5e7dace00252732d07d9984cd243709e1ef8f157ee70a7afbae2a08fc79f41"
+    },
+    "king-last-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "822a6e32aa04626cfd1c0bd6a280803fd9add01064ea7d3212c328504aa0d58a",
+      "caseCount": 288,
+      "scoreSha256": "16c49bed1b49236044c10fc0940acc563a6431ffaec8f4a07cc64234b55719b0",
+      "groups": {
+        "w/q/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/q/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/q/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 816
+        },
+        "b/q/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 824
+        },
+        "w/q/playing-checked": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/q/playing-checked": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/r/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/r/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/r/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 816
+        },
+        "b/r/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 824
+        },
+        "w/r/playing-checked": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/r/playing-checked": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/b/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 812
+        },
+        "b/b/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 820
+        },
+        "w/b/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/b/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/b/playing-checked": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/b/playing-checked": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/n/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 741
+        },
+        "b/n/playing": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 753
+        },
+        "w/n/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 812
+        },
+        "b/n/stalemate": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 820
+        },
+        "w/castle/kingside/held": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 876
+        },
+        "b/castle/kingside/held": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 898
+        },
+        "w/castle/kingside/expired": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 353
+        },
+        "b/castle/kingside/expired": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 359
+        },
+        "w/castle/queenside/held": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 899
+        },
+        "b/castle/queenside/held": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 921
+        },
+        "w/castle/queenside/expired": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 361
+        },
+        "b/castle/queenside/expired": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 367
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {}
+    },
+    "successor-claims-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "3fb5540d87ca87a4b18e99624a1265b09bd58722b0bae586294c721f38de7566",
+      "caseCount": 762,
+      "scoreSha256": "1222f64322927dffaf7230b3c70ab454a0e564467200ef3fc39f72c80251879a",
+      "groups": {
+        "replies-v1/only-k-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 631
+        },
+        "replies-v1/mate": {
+          "cases": 24,
+          "outcomes": {
+            "match": 23,
+            "false-allow": 1
+          },
+          "peakExpressions": 841
+        },
+        "replies-v1/only-k-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 617
+        },
+        "replies-v1/only-k-move-unchecked": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 714
+        },
+        "replies-v1/only-r-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 614
+        },
+        "replies-v1/only-p-move-unchecked": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 822
+        },
+        "replies-v1/only-b-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 614
+        },
+        "replies-v1/only-n-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 599
+        },
+        "replies-v1/only-q-move-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 611
+        },
+        "replies-v1/only-q-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 607
+        },
+        "replies-v1/only-r-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 614
+        },
+        "replies-v1/stalemate": {
+          "cases": 24,
+          "outcomes": {
+            "match": 23,
+            "false-allow": 1
+          },
+          "peakExpressions": 814
+        },
+        "replies-v1/only-b-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 611
+        },
+        "replies-v1/stalemate-pinned-defender": {
+          "cases": 18,
+          "outcomes": {
+            "match": 18
+          },
+          "peakExpressions": 853
+        },
+        "replies-v1/only-p-capture-in-check": {
+          "cases": 14,
+          "outcomes": {
+            "match": 14
+          },
+          "peakExpressions": 616
+        },
+        "replies-v1/only-q-capture-unchecked": {
+          "cases": 4,
+          "outcomes": {
+            "match": 4
+          },
+          "peakExpressions": 845
+        },
+        "replies-v1/only-n-capture-in-check": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 611
+        },
+        "replies-v1/only-p-capture-unchecked": {
+          "cases": 2,
+          "outcomes": {
+            "match": 2
+          },
+          "peakExpressions": 791
+        },
+        "replies-v1/only-b-capture-unchecked": {
+          "cases": 4,
+          "outcomes": {
+            "match": 4
+          },
+          "peakExpressions": 843
+        },
+        "interior-v1/b/stalemate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 642
+        },
+        "interior-v1/w/king-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 614
+        },
+        "interior-v1/b/king-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 697
+        },
+        "interior-v1/b/mate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 30,
+            "false-allow": 2
+          },
+          "peakExpressions": 882
+        },
+        "interior-v1/b/king-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 607
+        },
+        "interior-v1/w/king-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 695
+        },
+        "interior-v1/w/mate": {
+          "cases": 32,
+          "outcomes": {
+            "false-allow": 2,
+            "match": 30
+          },
+          "peakExpressions": 907
+        },
+        "interior-v1/b/nonking-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 819
+        },
+        "interior-v1/w/nonking-unchecked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 826
+        },
+        "interior-v1/w/nonking-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 619
+        },
+        "interior-v1/w/stalemate": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 786
+        },
+        "interior-v1/b/nonking-checked": {
+          "cases": 32,
+          "outcomes": {
+            "match": 32
+          },
+          "peakExpressions": 598
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {
+        "replies-v1/mate/false-allow": {
+          "first": {
+            "case": {
+              "id": "remaining-claim-057",
+              "fen": "6k1/3Q4/7K/8/8/5p2/1n6/8 w - -",
+              "uci": "d7e8",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "4Q1k1/8/7K/8/8/5p2/1n6/8 b - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 655
+            }
+          },
+          "minimized": {
+            "beforePieces": 5,
+            "afterPieces": 5,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [],
+            "positionsTried": 4,
+            "case": {
+              "id": "remaining-claim-057",
+              "fen": "6k1/3Q4/7K/8/8/5p2/1n6/8 w - -",
+              "uci": "d7e8",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "4Q1k1/8/7K/8/8/5p2/1n6/8 b - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 655
+            }
+          }
+        },
+        "replies-v1/stalemate/false-allow": {
+          "first": {
+            "case": {
+              "id": "remaining-claim-297",
+              "fen": "7k/7p/4Q2p/7K/8/8/6B1/8 w - -",
+              "uci": "e6g4",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "7k/7p/7p/7K/6Q1/8/6B1/8 b - -",
+              "outcome": "stalemate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 726
+            }
+          },
+          "minimized": {
+            "beforePieces": 6,
+            "afterPieces": 5,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "g2"
+            ],
+            "positionsTried": 7,
+            "case": {
+              "id": "remaining-claim-297",
+              "fen": "7k/7p/4Q2p/7K/8/8/8/8 w - -",
+              "uci": "e6g4",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "7k/7p/7p/7K/6Q1/8/8/8 b - -",
+              "outcome": "stalemate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 726
+            }
+          }
+        },
+        "interior-v1/b/mate/false-allow": {
+          "first": {
+            "case": {
+              "id": "remaining-claim-397",
+              "fen": "8/2pQ4/8/4k3/6Q1/5Q2/p1K5/8 w - -",
+              "uci": "d7d5",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "8/2p5/8/3Qk3/6Q1/5Q2/p1K5/8 b - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 699
+            }
+          },
+          "minimized": {
+            "beforePieces": 7,
+            "afterPieces": 6,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "g4"
+            ],
+            "positionsTried": 10,
+            "case": {
+              "id": "remaining-claim-397",
+              "fen": "8/2pQ4/8/4k3/8/5Q2/p1K5/8 w - -",
+              "uci": "d7d5",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "8/2p5/8/3Qk3/8/5Q2/p1K5/8 b - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 699
+            }
+          }
+        },
+        "interior-v1/w/mate/false-allow": {
+          "first": {
+            "case": {
+              "id": "remaining-claim-409",
+              "fen": "1B1r3q/3k1K2/8/5b1R/7r/8/8/8 b - -",
+              "uci": "h8f8",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "1B1r1q2/3k1K2/8/5b1R/7r/8/8/8 w - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 676
+            }
+          },
+          "minimized": {
+            "beforePieces": 8,
+            "afterPieces": 7,
+            "criterion": "no single unprotected piece removable preserving side, move, victim, rights, source check, native safety, admissibility, legal outcome, lone reply identity and local failure class",
+            "removedSquares": [
+              "h4"
+            ],
+            "positionsTried": 13,
+            "case": {
+              "id": "remaining-claim-409",
+              "fen": "1B1r3q/3k1K2/8/5b1R/8/8/8/8 b - -",
+              "uci": "h8f8",
+              "claim": {
+                "status": "playing",
+                "winner": ""
+              },
+              "nativeLegal": true,
+              "kingSafe": true,
+              "nativeAdmission": false,
+              "successor": "1B1r1q2/3k1K2/8/5b1R/8/8/8/8 w - -",
+              "outcome": "checkmate",
+              "replyCount": 0
+            },
+            "result": {
+              "actual": "ALLOW",
+              "status": "false-allow",
+              "cause": null,
+              "kind": "false-allow",
+              "expressions": 676
+            }
+          }
+        }
+      }
+    },
+    "bare-defender-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "daad023b62917d4ccce4e758268bfea82b97c3ba525bf2d12f987dc10d5bb0e6",
+      "caseCount": 1992,
+      "scoreSha256": "aa2e59bcb17de09db2b1b69c8e56eb0ea9173cebd865e3f3005169226329092f",
+      "groups": {
+        "w/quiet/2/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/2/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/2/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/2/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/2/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 718
+        },
+        "b/quiet/2/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/3/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "b/quiet/3/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/3/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 690
+        },
+        "b/quiet/3/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 703
+        },
+        "w/quiet/5/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 816
+        },
+        "b/quiet/5/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 817
+        },
+        "w/quiet/5/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 789
+        },
+        "b/quiet/5/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 801
+        },
+        "w/quiet/5/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 839
+        },
+        "b/quiet/5/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 855
+        },
+        "w/quiet/5/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 789
+        },
+        "b/quiet/5/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 798
+        },
+        "w/quiet/5/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/5/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 820
+        },
+        "w/quiet/8/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/8/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/8/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/8/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/8/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "b/quiet/8/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/8/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/8/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/12/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 713
+        },
+        "b/quiet/12/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 729
+        },
+        "w/quiet/15/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 745
+        },
+        "b/quiet/15/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 750
+        },
+        "w/quiet/2/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "b/quiet/2/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/3/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 745
+        },
+        "b/quiet/3/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 750
+        },
+        "w/quiet/3/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/3/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/3/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/3/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/5/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 718
+        },
+        "b/quiet/5/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 731
+        },
+        "w/quiet/8/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/8/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/15/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 737
+        },
+        "b/quiet/15/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 758
+        },
+        "w/quiet/15/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/15/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/15/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/15/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/15/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 715
+        },
+        "b/quiet/15/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/15/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/15/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/15/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/15/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 758
+        },
+        "w/quiet/2/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "b/quiet/2/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/5/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 745
+        },
+        "b/quiet/5/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/5/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/5/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/12/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/12/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/12/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/12/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/12/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/12/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/12/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/12/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/2/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/2/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/5/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/5/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/5/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 715
+        },
+        "b/quiet/5/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/5/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/5/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/5/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/5/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/5/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/5/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/15/p/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 838
+        },
+        "b/quiet/15/p/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 854
+        },
+        "w/quiet/3/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 714
+        },
+        "b/quiet/3/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 730
+        },
+        "w/quiet/5/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/5/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/8/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/8/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/8/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 718
+        },
+        "b/quiet/8/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 731
+        },
+        "w/quiet/15/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/15/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/3/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 718
+        },
+        "b/quiet/3/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/15/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 756
+        },
+        "b/quiet/15/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "w/quiet/15/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "b/quiet/15/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/15/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 839
+        },
+        "b/quiet/15/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 855
+        },
+        "w/quiet/15/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 816
+        },
+        "b/quiet/15/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 817
+        },
+        "w/quiet/15/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/15/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 820
+        },
+        "w/quiet/15/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 765
+        },
+        "b/quiet/15/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/8/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 685
+        },
+        "b/quiet/8/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 701
+        },
+        "w/quiet/12/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/12/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/12/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 745
+        },
+        "b/quiet/12/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 750
+        },
+        "w/quiet/12/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/12/p/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/12/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 737
+        },
+        "b/quiet/12/q/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 758
+        },
+        "w/quiet/12/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 715
+        },
+        "b/quiet/12/r/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/12/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/12/k/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/15/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 745
+        },
+        "b/quiet/15/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 758
+        },
+        "w/quiet/3/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/3/n/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/15/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/15/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/15/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 715
+        },
+        "b/quiet/15/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/3/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/3/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/8/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/8/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/2/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/2/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/3/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/3/b/playing": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/8/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "b/quiet/8/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 733
+        },
+        "w/quiet/5/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/5/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/8/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "b/quiet/8/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/8/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 765
+        },
+        "b/quiet/8/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/8/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 839
+        },
+        "b/quiet/8/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 855
+        },
+        "w/quiet/8/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 789
+        },
+        "b/quiet/8/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 798
+        },
+        "w/quiet/8/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/8/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 820
+        },
+        "w/quiet/15/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/15/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/8/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 742
+        },
+        "b/quiet/8/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/2/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 808
+        },
+        "b/quiet/2/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 825
+        },
+        "w/quiet/2/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/2/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 820
+        },
+        "w/quiet/2/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "b/quiet/2/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/3/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/3/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/12/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 783
+        },
+        "b/quiet/12/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 795
+        },
+        "w/quiet/12/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 745
+        },
+        "b/quiet/12/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 750
+        },
+        "w/quiet/15/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 815
+        },
+        "b/quiet/15/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 819
+        },
+        "w/quiet/2/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 718
+        },
+        "b/quiet/2/r/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 731
+        },
+        "w/quiet/5/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 715
+        },
+        "b/quiet/5/q/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "w/quiet/12/p/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 838
+        },
+        "b/quiet/12/p/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 854
+        },
+        "w/quiet/15/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 785
+        },
+        "b/quiet/15/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 800
+        },
+        "w/quiet/15/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 764
+        },
+        "b/quiet/15/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 772
+        },
+        "w/quiet/12/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 784
+        },
+        "b/quiet/12/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 796
+        },
+        "w/quiet/12/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 764
+        },
+        "b/quiet/12/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 772
+        },
+        "w/quiet/8/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/8/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/2/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 694
+        },
+        "b/quiet/2/n/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 706
+        },
+        "w/quiet/8/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 757
+        },
+        "b/quiet/8/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 772
+        },
+        "w/quiet/15/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/15/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 819
+        },
+        "w/quiet/8/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 816
+        },
+        "b/quiet/8/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 828
+        },
+        "w/quiet/2/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 734
+        },
+        "b/quiet/2/b/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "w/quiet/5/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "b/quiet/5/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 797
+        },
+        "w/quiet/5/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/5/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 819
+        },
+        "w/quiet/3/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 758
+        },
+        "b/quiet/3/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/3/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/3/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 820
+        },
+        "w/quiet/3/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 765
+        },
+        "b/quiet/3/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/3/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 785
+        },
+        "b/quiet/3/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 792
+        },
+        "w/quiet/12/k/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 811
+        },
+        "b/quiet/12/k/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 819
+        },
+        "w/quiet/5/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 768
+        },
+        "b/quiet/5/p/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "w/quiet/5/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 765
+        },
+        "b/quiet/5/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/3/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 839
+        },
+        "b/quiet/3/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 855
+        },
+        "w/quiet/3/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 805
+        },
+        "b/quiet/3/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 828
+        },
+        "w/quiet/2/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/2/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/3/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 741
+        },
+        "b/quiet/3/k/playing-checked": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 753
+        },
+        "w/quiet/12/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/12/k/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 820
+        },
+        "w/quiet/12/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 780
+        },
+        "b/quiet/12/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 797
+        },
+        "w/quiet/12/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 816
+        },
+        "b/quiet/12/b/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 817
+        },
+        "w/quiet/12/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 765
+        },
+        "b/quiet/12/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/12/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 839
+        },
+        "b/quiet/12/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 855
+        },
+        "w/quiet/12/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 761
+        },
+        "b/quiet/12/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/3/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 812
+        },
+        "b/quiet/3/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 819
+        },
+        "w/quiet/12/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "b/quiet/12/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 797
+        },
+        "w/quiet/3/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 788
+        },
+        "b/quiet/3/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 797
+        },
+        "w/quiet/5/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 784
+        },
+        "b/quiet/5/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 796
+        },
+        "w/quiet/8/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 804
+        },
+        "b/quiet/8/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 827
+        },
+        "w/quiet/2/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 789
+        },
+        "b/quiet/2/r/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 798
+        },
+        "w/quiet/2/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 839
+        },
+        "b/quiet/2/p/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 855
+        },
+        "w/quiet/2/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 787
+        },
+        "b/quiet/2/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 800
+        },
+        "w/quiet/2/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 785
+        },
+        "b/quiet/2/r/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 800
+        },
+        "w/quiet/3/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 784
+        },
+        "b/quiet/3/q/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 791
+        },
+        "w/quiet/8/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 784
+        },
+        "b/quiet/8/b/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 796
+        },
+        "w/quiet/15/k/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 811
+        },
+        "b/quiet/15/k/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 819
+        },
+        "w/quiet/2/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 805
+        },
+        "b/quiet/2/q/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 828
+        },
+        "w/quiet/8/p/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 838
+        },
+        "b/quiet/8/p/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 854
+        },
+        "w/quiet/5/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 764
+        },
+        "b/quiet/5/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 772
+        },
+        "w/quiet/3/n/checkmate": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 764
+        },
+        "b/quiet/3/n/checkmate": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 772
+        },
+        "w/quiet/8/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 764
+        },
+        "b/quiet/8/n/checkmate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 772
+        },
+        "w/quiet/2/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 765
+        },
+        "b/quiet/2/n/stalemate": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 773
+        },
+        "w/quiet/5/p/checkmate": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 838
+        },
+        "b/quiet/5/p/checkmate": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 854
+        },
+        "w/nonbare/stalemate/one-p-reply": {
+          "cases": 18,
+          "outcomes": {
+            "match": 18
+          },
+          "peakExpressions": 940
+        },
+        "b/nonbare/stalemate/one-p-reply": {
+          "cases": 18,
+          "outcomes": {
+            "match": 18
+          },
+          "peakExpressions": 950
+        },
+        "w/nonbare/checkmate/one-n-reply": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 939
+        },
+        "b/nonbare/checkmate/one-n-reply": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 947
+        },
+        "w/nonbare/stalemate/one-b-reply": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 910
+        },
+        "b/nonbare/stalemate/one-b-reply": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 913
+        },
+        "w/nonbare/checkmate/one-b-reply": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 953
+        },
+        "b/nonbare/checkmate/one-b-reply": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 968
+        },
+        "w/nonbare/checkmate/one-r-reply": {
+          "cases": 15,
+          "outcomes": {
+            "match": 15
+          },
+          "peakExpressions": 981
+        },
+        "b/nonbare/checkmate/one-r-reply": {
+          "cases": 15,
+          "outcomes": {
+            "match": 15
+          },
+          "peakExpressions": 991
+        },
+        "w/capture-last-defender/n": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 709
+        },
+        "b/capture-last-defender/n": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 721
+        },
+        "w/capture-last-defender/k": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 827
+        },
+        "b/capture-last-defender/k": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 835
+        },
+        "w/capture-last-defender/r": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 804
+        },
+        "b/capture-last-defender/r": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 813
+        },
+        "w/capture-last-defender/b": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 831
+        },
+        "b/capture-last-defender/b": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 832
+        },
+        "w/capture-last-defender/q": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 804
+        },
+        "b/capture-last-defender/q": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 813
+        },
+        "w/castle": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 899
+        },
+        "b/castle": {
+          "cases": 6,
+          "outcomes": {
+            "match": 6
+          },
+          "peakExpressions": 921
+        },
+        "w/promote/q": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 804
+        },
+        "b/promote/q": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 826
+        },
+        "w/promote/r": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 804
+        },
+        "b/promote/r": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 826
+        },
+        "w/promote/b": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 804
+        },
+        "b/promote/b": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 826
+        },
+        "w/promote/n": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 804
+        },
+        "b/promote/n": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 826
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {}
+    },
+    "knight-replies-v1": {
+      "authority": "pinned local full Firestore Rules simulator",
+      "rulesSha256": "f99158eb7764235e3984655fb2220e2821133a52370e875fba7fc9a8c5918f04",
+      "corpusSha256": "d86a76e978fda19b225777cef344d937ecb7d9edaa21920ed160fe4c4ecb90fc",
+      "caseCount": 492,
+      "scoreSha256": "dd046e09ed800edfb132232f484585f264c1197eab0145665ccd4957caf1b885",
+      "groups": {
+        "b/2/unchecked-quiet-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 749
+        },
+        "w/2/unchecked-quiet-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 756
+        },
+        "b/1/unchecked-quiet-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 918
+        },
+        "w/1/unchecked-quiet-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 914
+        },
+        "b/1/mate-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 899
+        },
+        "w/1/mate-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 898
+        },
+        "b/2/mate-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 878
+        },
+        "w/2/mate-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 887
+        },
+        "b/1/stalemate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 926
+        },
+        "w/1/stalemate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 922
+        },
+        "b/1/removed-pinner": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 914
+        },
+        "w/1/removed-pinner": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 914
+        },
+        "b/1/mate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 891
+        },
+        "w/1/mate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 906
+        },
+        "b/2/check-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 775
+        },
+        "w/2/check-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 777
+        },
+        "b/2/unchecked-quiet-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 776
+        },
+        "w/2/unchecked-quiet-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 778
+        },
+        "b/2/unchecked-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 776
+        },
+        "w/2/unchecked-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 778
+        },
+        "b/2/check-interpose-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 775
+        },
+        "w/2/check-interpose-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 777
+        },
+        "b/2/unchecked-capture-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 749
+        },
+        "w/2/unchecked-capture-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 756
+        },
+        "b/1/check-interpose-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 901
+        },
+        "w/1/check-interpose-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 903
+        },
+        "b/2/check-interpose-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 764
+        },
+        "w/2/check-interpose-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 785
+        },
+        "b/2/mate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 875
+        },
+        "w/2/mate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 882
+        },
+        "b/2/removed-pinner": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 772
+        },
+        "w/2/removed-pinner": {
+          "cases": 24,
+          "outcomes": {
+            "match": 24
+          },
+          "peakExpressions": 778
+        },
+        "b/1/unchecked-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 891
+        },
+        "w/1/unchecked-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 892
+        },
+        "b/2/check-capture-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 745
+        },
+        "w/2/check-capture-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 758
+        },
+        "b/1/check-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 870
+        },
+        "w/1/check-capture-free": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 881
+        },
+        "b/2/stalemate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 875
+        },
+        "w/2/stalemate-pinned": {
+          "cases": 12,
+          "outcomes": {
+            "match": 12
+          },
+          "peakExpressions": 883
+        },
+        "w/3/only-middle-knight": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 756
+        },
+        "b/3/only-middle-knight": {
+          "cases": 3,
+          "outcomes": {
+            "match": 3
+          },
+          "peakExpressions": 750
+        }
+      },
+      "reachableByMove": {},
+      "divergences": {}
+    }
+  }
+}

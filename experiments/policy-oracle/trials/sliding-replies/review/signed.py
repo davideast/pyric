@@ -177,15 +177,18 @@ def release(rules,private,release_root=None,first_window=False):
         if not (release/'plan.json').exists(): return {},[]
         plan=read(release/'plan.json')
         assert digest((release/'firestore.rules').read_bytes())==rules==plan['rulesSha256']
-        assert plan['version'] in (1,2,3,4) and plan['previousRulesSha256']==PREVIOUS
+        assert plan['version'] in (1,2,3,4,5) and plan['previousRulesSha256']==PREVIOUS
         names=(('sliding-queen-bishop',)+NEW_PLANS) if plan['version']==2 else NEW_PLANS
         sizes=([4,120,118] if plan['version']==2 else [120,118])
         if plan['version']>=3:
             names=('two-knights','sliding-queen-bishop',*NEW_PLANS)
             sizes=[9,4,118,118]
-        if plan['version']==4:
+        if plan['version']>=4:
             names=('lone-pawn',*names)
             sizes=[9,*sizes]
+        if plan['version']>=5:
+            names=('mixed-slider',*names)
+            sizes=[15,*sizes]
         planned={c['name']:c['ids'] for c in plan['chunks']}
         assert list(planned)==list(names) and list(map(len,planned.values()))==sizes
         assert len({key for ids in planned.values() for key in ids})==sum(sizes)==plan['expectedCases']
@@ -266,6 +269,13 @@ def compare(rules,private,archive,release_root=None,first_window=False):
             native[key]=row['nativeAdmission']
             focused[key]=row
         assert len(native)==258
+    if version>=5:
+        for row in read(TRIAL/'native/mixed-slider/native.json')['cases']:
+            key=row['id']
+            assert key not in native
+            native[key]=row['nativeAdmission']
+            focused[key]=row
+        assert len(native)==273
     assert set(current)<=native.keys()
     changes={'repaired':[],'regressed':[],'stillDisagree':[]}
     adjudications={}

@@ -10,7 +10,11 @@ import {twoKnightSources,linkTwoKnights} from './compiler/two-knights.mjs';
 
 import {lonePawnSources,linkLonePawn} from './compiler/lone-pawn.mjs';
 
+import {mixedSliderSources,linkMixedSlider} from './compiler/mixed-slider.mjs';
+
 function options(variant) {
+  const mixedSlider=variant==='all-mixed-replies-v20-dense3-lean';
+  if(mixedSlider) variant='all-lone-pawn-v19-dense3-lean';
   const lonePawn=variant==='all-lone-pawn-v19-dense3-lean';
   if(lonePawn) variant='all-two-knights-v18-dense3-lean';
   const twoKnights=variant==='all-two-knights-v18-dense3-lean';
@@ -27,16 +31,16 @@ function options(variant) {
   // The earlier -targets experiment omitted the projection exports. Its saved
   // evaluation errors are retained for the revision-history replay.
   const target=['-targets','-mask'].find(suffix=>middle.endsWith(suffix));
-  return {lonePawn,twoKnights,base:target?middle.slice(0,-target.length):middle,dense:base!==null,once,leanProtocol,target,boxed,cut};
+  return {mixedSlider,lonePawn,twoKnights,base:target?middle.slice(0,-target.length):middle,dense:base!==null,once,leanProtocol,target,boxed,cut};
 }
 export function sources(variant) {
-  const {lonePawn,twoKnights,base,dense,target,boxed,cut}=options(variant);
+  const {mixedSlider,lonePawn,twoKnights,base,dense,target,boxed,cut}=options(variant);
   const src=target==='-mask'?targetSources():baseSources(base);
-  return {...src,...(lonePawn?lonePawnSources:{}),...(twoKnights?twoKnightSources:{}),...(dense?denseSources(boxed):{}),...(cut?fileCheckSources:{})};
+  return {...src,...(mixedSlider?mixedSliderSources:{}),...(lonePawn?lonePawnSources:{}),...(twoKnights?twoKnightSources:{}),...(dense?denseSources(boxed):{}),...(cut?fileCheckSources:{})};
 }
 
 export function link(modules,variant) {
-  const {lonePawn,twoKnights,base,dense,once,leanProtocol,target,boxed,cut}=options(variant);
+  const {mixedSlider,lonePawn,twoKnights,base,dense,once,leanProtocol,target,boxed,cut}=options(variant);
   let source;
   if(dense) {
     const extra=Object.fromEntries(Object.keys(denseSources(boxed)).map(k=>[k,modules[k]]));
@@ -45,6 +49,7 @@ export function link(modules,variant) {
   } else source=baseLink(modules,base);
   if(twoKnights) source=linkTwoKnights(source);
   if(lonePawn) source=linkLonePawn(source);
+  if(mixedSlider) source=linkMixedSlider(source);
   if(target) source=targetLink(source);
   if(once) source=linkSharedStatus(source,dense);
   if(cut) source=skipImpossibleSecondRook(source);
