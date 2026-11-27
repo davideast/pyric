@@ -1,0 +1,11 @@
+// Standalone extension to the pinned chess.policy bounded module.
+// All coordinates come from the successor. movesAt checks piece shape and
+// ray clearance, applies each move and tests the mover's king on that board.
+export function slidingReplies(position) {
+  let origins = bounded.select(range(64), from =>
+    belongs(position.board[from], position.turn)
+      && locate('rbq', position.board[from][1]) >= 0, 64);
+  return validPosition(position)
+    ? sorted(bounded.flatMap(origins, from => movesAt(position, from), 64))
+    : fail('invalidPosition');
+}
