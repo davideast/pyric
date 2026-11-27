@@ -9,6 +9,7 @@ class DartIoFunctionsHttpTransport implements FunctionsHttpTransport {
     required Uri uri,
     required Map<String, String> headers,
     required String body,
+    Future<void>? abortSignal,
   }) {
     throw UnsupportedError(
       'DartIoFunctionsHttpTransport requires dart:io; provide a custom FunctionsHttpTransport on Web.',

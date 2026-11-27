@@ -103,7 +103,7 @@ class FirebaseFunctionsException : FirebaseException {
                         resolvedCode = Code.INTERNAL
                         description = Code.INTERNAL.name
                         statusValid = false
-                    } else {
+                    } else if (mapped != Code.OK || defaultCode == Code.OK) {
                         resolvedCode = mapped
                         description = resolvedCode.name
                     }

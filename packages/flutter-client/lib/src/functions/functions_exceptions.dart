@@ -88,7 +88,8 @@ FirebaseFunctionsException? errorForCallableResponse(
   Object? bodyJson, {
   String? url,
 }) {
-  String code = codeForHttpStatus(httpStatus);
+  final defaultCode = codeForHttpStatus(httpStatus);
+  String code = defaultCode;
   String description = code;
   Object? details;
 
@@ -104,8 +105,10 @@ FirebaseFunctionsException? errorForCallableResponse(
             message: 'internal',
           );
         }
-        code = mapped;
-        description = rawStatus;
+        if (mapped != 'ok' || defaultCode == 'ok') {
+          code = mapped;
+          description = rawStatus;
+        }
       }
 
       final rawMessage = rawError['message'];

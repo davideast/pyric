@@ -16,6 +16,15 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         return auth(app: FirebaseApp.app())
     }
 
+    package static func existingInstance(app: FirebaseApp) -> Auth? {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        guard let existing = instances[app.name], existing.app === app else {
+            return nil
+        }
+        return existing
+    }
+
     public static func auth(app: FirebaseApp) -> Auth {
         FirebaseAuthBootstrap.initialize()
         var evicted: Auth?

@@ -122,14 +122,34 @@ package enum FunctionsContextProvider {
     }
 
     private static func resolveAuthIDToken(app: FirebaseApp) async -> String? {
-        guard let activeUser = Auth.auth(app: app).currentUser else {
+        guard let auth = Auth.existingInstance(app: app) else {
             return nil
         }
-        guard let token = try? await activeUser.getIDToken(forcingRefresh: false),
-              !token.isEmpty else {
+        switch auth.currentAuthLens() {
+        case .anon, .admin, .custom:
             return nil
+        case .asUser(let uid, let tenant, _):
+            guard let activeUser = auth.currentUser, activeUser.uid == uid else {
+                return nil
+            }
+            if let tenant, activeUser.tenantID != tenant {
+                return nil
+            }
+            guard let token = try? await activeUser.getIDToken(forcingRefresh: false),
+                  !token.isEmpty else {
+                return nil
+            }
+            return token
+        case .appSession:
+            guard let activeUser = auth.currentUser else {
+                return nil
+            }
+            guard let token = try? await activeUser.getIDToken(forcingRefresh: false),
+                  !token.isEmpty else {
+                return nil
+            }
+            return token
         }
-        return token
     }
 
     private static func resolveAppCheckToken(
