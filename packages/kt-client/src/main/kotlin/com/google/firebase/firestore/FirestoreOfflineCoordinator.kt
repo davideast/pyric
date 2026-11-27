@@ -25,8 +25,9 @@ internal class FirestoreOfflineCoordinator(
     private class PendingWriteEntry(
         val id: Long,
         val authScope: String,
-        val mutation: OfflineDocMutation,
+        val mutations: List<OfflineDocMutation>,
         val sendOnline: suspend () -> Unit,
+        val stagedOffline: Boolean,
         val tcs: TaskCompletionSource<Void?> = TaskCompletionSource(),
         val barrier: CompletableDeferred<Unit> = CompletableDeferred(),
         val startedFlush: AtomicBoolean = AtomicBoolean(false)
@@ -105,7 +106,7 @@ internal class FirestoreOfflineCoordinator(
         val (base, mutations) = synchronized(lock) {
             backingStore(authScope)[path] to stagedWrites.values
                 .filter { it.authScope == authScope }
-                .map { it.mutation }
+                .flatMap { it.mutations }
         }
         return FirestoreOfflineProjection.projectDocument(
             path = path,
@@ -119,46 +120,91 @@ internal class FirestoreOfflineCoordinator(
         mutation: OfflineDocMutation,
         authScope: String = currentAuthScope(),
         sendOnline: suspend () -> Unit
+    ): Task<Void?> = submitBatchWrite(
+        mutations = listOf(mutation),
+        authScope = authScope,
+        stageWhenOnline = true,
+        sendOnline = sendOnline
+    )
+
+    fun submitBatchWrite(
+        mutations: List<OfflineDocMutation>,
+        authScope: String = currentAuthScope(),
+        stageWhenOnline: Boolean = true,
+        sendOnline: suspend () -> Unit
     ): Task<Void?> {
-        val entry = PendingWriteEntry(
-            id = nextWriteId.getAndIncrement(),
-            authScope = authScope,
-            mutation = mutation,
-            sendOnline = sendOnline
-        )
-        val sendNow = synchronized(lock) {
-            stagedWrites[entry.id] = entry
-            pendingWrites[entry.id] = entry
-            _cacheVersionFlow.value += 1L
-            isNetworkEnabled
+        val (entry, sendNow, staged) = synchronized(lock) {
+            val onlineNow = isNetworkEnabled
+            val created = PendingWriteEntry(
+                id = nextWriteId.getAndIncrement(),
+                authScope = authScope,
+                mutations = mutations,
+                sendOnline = sendOnline,
+                stagedOffline = !onlineNow
+            )
+            pendingWrites[created.id] = created
+            val shouldStage = !onlineNow || stageWhenOnline
+            if (shouldStage) {
+                stagedWrites[created.id] = created
+                _cacheVersionFlow.value += 1L
+            }
+            Triple(created, onlineNow, shouldStage)
         }
 
         if (sendNow) {
             // Undispatched so back-to-back online writes enqueue onto the bridge socket
             // on the caller's thread in exact call order (#1032).
-            launchFlushUndispatched(entry)
+            launchFlushUndispatched(entry, applyToCacheOnCommit = staged)
         } else {
             notifyInSyncIfAllListenersSynced()
         }
         return entry.tcs.task
     }
 
-    private fun launchFlushUndispatched(entry: PendingWriteEntry) {
+    private fun crossScopeAbortException(): FirebaseFirestoreException =
+        FirebaseFirestoreException(
+            "Staged offline write aborted because the active auth session changed before flush.",
+            FirebaseFirestoreException.Code.PERMISSION_DENIED
+        )
+
+    private fun launchFlushUndispatched(entry: PendingWriteEntry, applyToCacheOnCommit: Boolean = true) {
         if (!entry.startedFlush.compareAndSet(false, true)) return
+        if (entry.stagedOffline && currentAuthScope() != entry.authScope) {
+            synchronized(lock) {
+                val removedStaged = stagedWrites.remove(entry.id) != null
+                pendingWrites.remove(entry.id)
+                if (removedStaged) {
+                    _cacheVersionFlow.value += 1L
+                }
+                if (isNetworkEnabled && stagedWrites.isEmpty() && !firestore.isTerminated) {
+                    _listenerNetworkEnabledFlow.value = true
+                }
+            }
+            entry.tcs.trySetException(crossScopeAbortException())
+            entry.barrier.complete(Unit)
+            notifyInSyncIfAllListenersSynced()
+            return
+        }
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 entry.sendOnline()
                 synchronized(lock) {
-                    stagedWrites.remove(entry.id)
+                    val removedStaged = stagedWrites.remove(entry.id) != null
                     pendingWrites.remove(entry.id)
-                    val store = backingStore(entry.authScope)
-                    val updated = FirestoreOfflineProjection.applyCommittedMutation(
-                        base = store[entry.mutation.path],
-                        mutation = entry.mutation,
-                        resolveRef = { p -> firestore.unvalidatedDocumentRef(p) }
-                    )
-                    store[entry.mutation.path] = updated
-                    _cacheVersionFlow.value += 1L
+                    if (applyToCacheOnCommit) {
+                        val store = backingStore(entry.authScope)
+                        for (mutation in entry.mutations) {
+                            val updated = FirestoreOfflineProjection.applyCommittedMutation(
+                                base = store[mutation.path],
+                                mutation = mutation,
+                                resolveRef = { p -> firestore.unvalidatedDocumentRef(p) }
+                            )
+                            store[mutation.path] = updated
+                        }
+                    }
+                    if (removedStaged || applyToCacheOnCommit) {
+                        _cacheVersionFlow.value += 1L
+                    }
                     if (isNetworkEnabled && stagedWrites.isEmpty() && !firestore.isTerminated) {
                         _listenerNetworkEnabledFlow.value = true
                     }
@@ -168,9 +214,11 @@ internal class FirestoreOfflineCoordinator(
                 notifyInSyncIfAllListenersSynced()
             } catch (e: Exception) {
                 synchronized(lock) {
-                    stagedWrites.remove(entry.id)
+                    val removedStaged = stagedWrites.remove(entry.id) != null
                     pendingWrites.remove(entry.id)
-                    _cacheVersionFlow.value += 1L
+                    if (removedStaged) {
+                        _cacheVersionFlow.value += 1L
+                    }
                     if (isNetworkEnabled && stagedWrites.isEmpty() && !firestore.isTerminated) {
                         _listenerNetworkEnabledFlow.value = true
                     }
@@ -193,12 +241,35 @@ internal class FirestoreOfflineCoordinator(
 
     fun enableNetwork(): Task<Void?> {
         firestore.ensureClientActive()
-        val toFlush = synchronized(lock) {
+        val activeScope = currentAuthScope()
+        val (toFlush, crossScopeAborted) = synchronized(lock) {
             isNetworkEnabled = true
+            val allStaged = stagedWrites.values.toList()
+            val matching = mutableListOf<PendingWriteEntry>()
+            val mismatched = mutableListOf<PendingWriteEntry>()
+            for (entry in allStaged) {
+                if (!entry.stagedOffline || entry.authScope == activeScope) {
+                    matching.add(entry)
+                } else if (entry.startedFlush.compareAndSet(false, true)) {
+                    stagedWrites.remove(entry.id)
+                    pendingWrites.remove(entry.id)
+                    mismatched.add(entry)
+                }
+            }
+            if (mismatched.isNotEmpty()) {
+                _cacheVersionFlow.value += 1L
+            }
             if (stagedWrites.isEmpty()) {
                 _listenerNetworkEnabledFlow.value = true
             }
-            stagedWrites.values.toList()
+            matching to mismatched
+        }
+        if (crossScopeAborted.isNotEmpty()) {
+            val abortEx = crossScopeAbortException()
+            for (entry in crossScopeAborted) {
+                entry.tcs.trySetException(abortEx)
+                entry.barrier.complete(Unit)
+            }
         }
         if (toFlush.isEmpty()) {
             notifyInSyncIfAllListenersSynced()
@@ -229,8 +300,9 @@ internal class FirestoreOfflineCoordinator(
 
     fun waitForPendingWrites(): Task<Void?> {
         firestore.ensureClientActive()
+        val activeScope = currentAuthScope()
         val barriers = synchronized(lock) {
-            pendingWrites.values.map { it.barrier }
+            pendingWrites.values.filter { it.authScope == activeScope }.map { it.barrier }
         }
         if (barriers.isEmpty()) {
             return Tasks.forResult(null)
