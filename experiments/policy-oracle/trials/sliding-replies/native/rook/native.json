@@ -1,0 +1,169 @@
+{
+  "engine": "1f321bbb70128936c00283d22cfe03ad84b8907a00f0dacf3363b694d6534d5e",
+  "policy": "97dda7add77cb18d132ba1c730bbef24a48870404198d6677cdf0f961a30d212",
+  "standaloneAgrees": true,
+  "cases": [
+    {
+      "id": "rook-c5-after-queen-playing",
+      "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/8/K7/2r5/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": [
+        "c5c8"
+      ]
+    },
+    {
+      "id": "rook-c5-after-queen-draw",
+      "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K7/2r5/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": [
+        "c5c8"
+      ]
+    },
+    {
+      "id": "rook-c5-after-queen-won",
+      "fen": "k7/8/K7/2r5/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K7/2r5/8/8/8/8 b - -",
+      "outcome": "playing",
+      "expected": {
+        "status": "playing",
+        "winner": ""
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": [
+        "c5c8"
+      ]
+    },
+    {
+      "id": "rook-h5-after-queen-playing",
+      "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "playing",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K7/7r/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "playing",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "rook-h5-after-queen-draw",
+      "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "draw",
+        "winner": ""
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": false,
+      "successor": "k5Q1/8/K7/7r/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "draw",
+        "winner": ""
+      },
+      "replies": []
+    },
+    {
+      "id": "rook-h5-after-queen-won",
+      "fen": "k7/8/K7/7r/6Q1/8/8/8 w - -",
+      "uci": "g4g8",
+      "claim": {
+        "status": "won",
+        "winner": "host"
+      },
+      "beforeCheck": false,
+      "transitCheck": null,
+      "afterCheck": false,
+      "kingSafe": true,
+      "nativeLegal": true,
+      "nativeAdmission": true,
+      "successor": "k5Q1/8/K7/7r/8/8/8/8 b - -",
+      "outcome": "checkmate",
+      "expected": {
+        "status": "won",
+        "winner": "host"
+      },
+      "submitted": {
+        "status": "won",
+        "winner": "host"
+      },
+      "replies": []
+    }
+  ]
+}
