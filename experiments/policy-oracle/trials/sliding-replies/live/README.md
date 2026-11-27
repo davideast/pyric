@@ -42,5 +42,12 @@ These were separate Google static tests for the complete v11 dense source `2e5c7
 | `boardTransition` | `0f0f339b` | 503 |
 | `orderedSliderTransition` | `d20c29cd` | 503 |
 | `sliderStatus` | `69a421df` | 200, compiled |
+| `slideTypedw,slideTypedb` | `81320490` | 503 |
+| `slideKingw,slideKingb` | `23f5c895` | 503 |
+| `slideChooseq,slideChooseb` (rook route) | `6cd302dc` | 503 |
+| `slideChooser,slideChooseq` (bishop route) | `b9d87e5b` | 503 |
+| `slideChooser,slideChooseb` (queen route) | `70f678b3` | 503 |
 
 The earlier v2 control `30694279…` passed the same source test again. Inserting `// Current compile-control observation for the sliding replies trial.` after its first source line produced the previously unseen digest `40a78a9b…`, which also compiled. The observations point to a dependence on the solver's structure. Google reported only UNAVAILABLE for the failed calls, so the service's internal limit is unknown.
+
+The v12 source `5ba5838e…` shares four ray projection bodies across all three piece families. It returned HTTP 200 on the same Google source test. Its complete request and response are pinned by `1401e370…`. The signed game outcome count at this diagnostic stage was zero.
