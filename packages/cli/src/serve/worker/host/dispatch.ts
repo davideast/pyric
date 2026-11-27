@@ -82,6 +82,7 @@ import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
 import { configConflictError, forgetConfigPort, handleAppConfig, refusalBaseline } from './app-config-lock.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
+import { handleStorageUpdateMetadata } from './storage-update-metadata.js';
 import { isConnectionOp, handleConnectionOp } from './connection.js';
 import { isStudioOp, handleStudioOp } from './studio.js';
 import {
@@ -139,6 +140,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   if (isRulesOp(msg.method)) return handleRulesOp(ctx, port, msg, db);
   if (isAdminFirestoreOp(msg.method)) return handleAdminFirestoreOp(ctx, port, msg);
   if (isRtdbOp(msg.method)) return handleRtdbOp(ctx, port, msg);
+  if (msg.method === 'storage.updateMetadata') return handleStorageUpdateMetadata(ctx, port, msg);
   if (isStorageOp(msg.method)) return handleStorageOp(ctx, port, msg);
   if (isConnectionOp(msg.method)) return handleConnectionOp(ctx, port, msg);
   if (isStudioOp(msg.method)) return handleStudioOp(ctx, port, msg);

@@ -176,38 +176,20 @@ class PyricReferencePlatform extends ReferencePlatform {
     _guardNonRoot('updateMetadata');
     final bucketParams = _pyricStorage.bucketWireParams();
     try {
-      Map<String, String>? adminExistingCustom;
-      if (_pyricStorage.usesAdminLens && metadata.customMetadata != null) {
-        final current = await getMetadata();
-        adminExistingCustom = current.customMetadata;
-      }
-      try {
-        final directRaw = await _pyricStorage.dispatchStorageOp(
-          'storage.setMetadata',
-          <String, dynamic>{
-            'path': _wirePath,
-            ...bucketParams,
-            'patch': encodeWireMetadataPatch(
-              metadata,
-              existingCustomMetadata: adminExistingCustom,
-            ),
-          },
-        );
-        return decodeWireFullMetadata(
-          directRaw,
-          fallbackBucket: bucket,
-          fallbackPath: _wirePath,
-        );
-      } on PyricBridgeException catch (error) {
-        final requiresAdminPlaneFallback =
-            normalizeStorageErrorCode(error.code) == 'unauthorized' &&
-                error.message.contains('admin plane');
-        if (!requiresAdminPlaneFallback) {
-          rethrow;
-        }
-      }
-
-      return await _updateMetadataWithRulesCheck(metadata, bucketParams);
+      final raw = await _pyricStorage.dispatchStorageOp(
+        'storage.updateMetadata',
+        <String, dynamic>{
+          'path': _wirePath,
+          ...bucketParams,
+          'patch': encodeWireMetadataPatch(metadata),
+          if (metadata.customMetadata != null) 'replaceCustomMetadata': true,
+        },
+      );
+      return decodeWireFullMetadata(
+        raw,
+        fallbackBucket: bucket,
+        fallbackPath: _wirePath,
+      );
     } catch (error, stackTrace) {
       throw mapToStorageFirebaseException(error, stackTrace);
     }
@@ -406,106 +388,6 @@ class PyricReferencePlatform extends ReferencePlatform {
           chunkSize: _pyricStorage.taskChunkSize,
         );
       },
-    );
-  }
-
-  Future<FullMetadata> _updateMetadataWithRulesCheck(
-    SettableMetadata metadata,
-    Map<String, dynamic> bucketParams,
-  ) async {
-    const adminActAs = <String, dynamic>{'mode': 'admin'};
-    FullMetadata? existing;
-    try {
-      final existingRaw = await _pyricStorage.dispatchStorageOp(
-        'storage.getMetadata',
-        <String, dynamic>{
-          'path': _wirePath,
-          ...bucketParams,
-        },
-        actAsOverride: adminActAs,
-      );
-      existing = decodeWireFullMetadata(
-        existingRaw,
-        fallbackBucket: bucket,
-        fallbackPath: _wirePath,
-      );
-    } on PyricBridgeException catch (error) {
-      if (normalizeStorageErrorCode(error.code) != 'object-not-found') {
-        rethrow;
-      }
-    }
-
-    String? mergeHeader(String? updated, String? current) {
-      if (updated == null) {
-        return current;
-      }
-      return updated.isEmpty ? null : updated;
-    }
-
-    final mergedContentType = mergeHeader(metadata.contentType, existing?.contentType);
-    final mergedCustomMetadata =
-        metadata.customMetadata ?? existing?.customMetadata;
-    final wireSettable = encodeWireSettableMetadata(
-      SettableMetadata(
-        contentType: mergedContentType,
-        cacheControl: mergeHeader(metadata.cacheControl, existing?.cacheControl),
-        contentDisposition: mergeHeader(
-          metadata.contentDisposition,
-          existing?.contentDisposition,
-        ),
-        contentEncoding: mergeHeader(
-          metadata.contentEncoding,
-          existing?.contentEncoding,
-        ),
-        contentLanguage: mergeHeader(
-          metadata.contentLanguage,
-          existing?.contentLanguage,
-        ),
-        customMetadata: mergedCustomMetadata,
-      ),
-    );
-
-    // Evaluate Storage write rules under the caller's actual session/lens via beginUpload,
-    // then immediately abort the zero-byte staging handle before applying the metadata patch.
-    final beginRaw = await _pyricStorage.dispatchStorageOp(
-      'storage.beginUpload',
-      <String, dynamic>{
-        'path': _wirePath,
-        ...bucketParams,
-        'size': existing?.size ?? 0,
-        if (mergedContentType != null && mergedContentType.isNotEmpty)
-          'contentType': mergedContentType,
-        if (wireSettable != null) 'metadata': wireSettable,
-      },
-    );
-    if (beginRaw is Map && beginRaw['uploadId'] is String) {
-      final uploadId = beginRaw['uploadId'] as String;
-      if (uploadId.isNotEmpty) {
-        try {
-          await _pyricStorage.dispatchStorageOp(
-            'storage.abortUpload',
-            <String, dynamic>{'uploadId': uploadId},
-          );
-        } catch (_) {}
-      }
-    }
-
-    final patchedRaw = await _pyricStorage.dispatchStorageOp(
-      'storage.setMetadata',
-      <String, dynamic>{
-        'path': _wirePath,
-        ...bucketParams,
-        'patch': encodeWireMetadataPatch(
-          metadata,
-          existingCustomMetadata: existing?.customMetadata,
-        ),
-      },
-      actAsOverride: adminActAs,
-    );
-    return decodeWireFullMetadata(
-      patchedRaw,
-      fallbackBucket: bucket,
-      fallbackPath: _wirePath,
     );
   }
 

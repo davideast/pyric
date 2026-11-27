@@ -556,9 +556,9 @@ describe('native Flutter Cloud Storage live-host conformance', () => {
 
         expect(host.observedStorageMethods).toContain('storage.beginUpload');
         expect(host.observedStorageMethods).toContain('storage.finishUpload');
-        expect(host.observedStorageMethods).toContain('storage.abortUpload');
         expect(host.observedStorageMethods).toContain('storage.getMetadata');
-        expect(host.observedStorageMethods).toContain('storage.setMetadata');
+        expect(host.observedStorageMethods).toContain('storage.updateMetadata');
+        expect(host.observedStorageMethods).not.toContain('storage.setMetadata');
         expect(host.observedStorageMethods).toContain('storage.getDownloadURL');
         expect(host.observedStorageMethods).toContain('storage.listAll');
         expect(host.observedStorageMethods).toContain('storage.deleteObject');

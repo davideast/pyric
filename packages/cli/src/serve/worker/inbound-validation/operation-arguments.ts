@@ -37,7 +37,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.get': case 'rtdb.set': case 'rtdb.setPriority': case 'rtdb.setWithPriority':
     case 'rtdb.update': case 'rtdb.remove': case 'rtdb.push': case 'rtdb.transactionCommit':
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
-    case 'storage.list': case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata':
+    case 'storage.list': case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata': case 'storage.updateMetadata':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
     case 'storage.beginUpload': case 'storage.copyObject': case 'storage.createUploadSession':
       requireString(message.path, 'path');
@@ -212,6 +212,10 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     }
     case 'storage.setMetadata':
       assertMetadataPatch(message.patch);
+      return;
+    case 'storage.updateMetadata':
+      assertMetadataPatch(message.patch);
+      requireOptionalBoolean(message.replaceCustomMetadata, 'replaceCustomMetadata');
       return;
     case 'storage.copyObject': {
       requireString(message.destinationPath, 'destinationPath');
