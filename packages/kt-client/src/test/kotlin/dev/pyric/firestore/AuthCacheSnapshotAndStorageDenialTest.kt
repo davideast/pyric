@@ -8,8 +8,10 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.EventListener
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.QueryCacheStore
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.firestore.Source
 import dev.pyric.auth.AuthLens
 import dev.pyric.bridge.InMemoryBridgeTransport
@@ -26,6 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class AuthCacheSnapshotAndStorageDenialTest {
 
@@ -36,10 +39,12 @@ class AuthCacheSnapshotAndStorageDenialTest {
     private lateinit var firestore: FirebaseFirestore
 
     private val subRecords = CopyOnWriteArrayList<Pair<String, Map<String, Any?>>>()
+    private val itemStep = AtomicLong(1L)
 
     @BeforeEach
     fun setUp() {
         subRecords.clear()
+        itemStep.set(1L)
         FirebaseAuth.clearInstancesForTest()
         FirebaseFirestore.clearInstancesForTest()
         FirebaseApp.clearInstancesForTest()
@@ -155,6 +160,21 @@ class AuthCacheSnapshotAndStorageDenialTest {
                                 )
                             )
                         }
+                        "updateDoc" -> {
+                            if (op["path"] == "users/alice-uid/items/item-1") {
+                                @Suppress("UNCHECKED_CAST")
+                                val data = op["data"] as? Map<String, Any?>
+                                val nextStep = (data?.get("step") as? Number)?.toLong()
+                                if (nextStep != null) {
+                                    itemStep.set(nextStep)
+                                }
+                            }
+                            transport.sendToClient(
+                                JsonCodec.encodeToString(
+                                    mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to emptyMap<String, Any?>())
+                                )
+                            )
+                        }
                         else -> {
                             transport.sendToClient(
                                 JsonCodec.encodeToString(
@@ -184,12 +204,21 @@ class AuthCacheSnapshotAndStorageDenialTest {
                         @Suppress("UNCHECKED_CAST")
                         val targetMap = target as? Map<String, Any?>
                         val value = if (targetMap?.get("__ref") == "doc") {
-                            mapOf(
-                                "id" to "pl-alice-commute",
-                                "path" to "playlists/pl-alice-commute",
-                                "exists" to true,
-                                "data" to mapOf("title" to "Morning Commute", "ownerUid" to "alice-uid")
-                            )
+                            if (targetMap["path"] == "users/alice-uid/items/item-1") {
+                                mapOf(
+                                    "id" to "item-1",
+                                    "path" to "users/alice-uid/items/item-1",
+                                    "exists" to true,
+                                    "data" to mapOf("step" to itemStep.get())
+                                )
+                            } else {
+                                mapOf(
+                                    "id" to "pl-alice-commute",
+                                    "path" to "playlists/pl-alice-commute",
+                                    "exists" to true,
+                                    "data" to mapOf("title" to "Morning Commute", "ownerUid" to "alice-uid")
+                                )
+                            }
                         } else {
                             mapOf(
                                 "docs" to listOf(
@@ -384,6 +413,70 @@ class AuthCacheSnapshotAndStorageDenialTest {
         } finally {
             docReg.remove()
             queryReg.remove()
+        }
+    }
+
+    @Test
+    fun excludeMetadataDocumentListenerSuppressesReconnectDuplicateAndRecoversAfterDenial() {
+        auth.setAuthLens(AuthLens.AsUser(uid = "alice-uid"))
+        val docRef = firestore.document("users/alice-uid/items/item-1")
+
+        val initialReady = CountDownLatch(1)
+        val offlineWriteReady = CountDownLatch(1)
+        val deniedReady = CountDownLatch(1)
+        val recoveredReady = CountDownLatch(1)
+        val delivered = CopyOnWriteArrayList<Pair<Long?, SnapshotMetadata>>()
+        var sawDenial = false
+
+        val reg = docRef.addSnapshotListener(MetadataChanges.EXCLUDE) { snap, err ->
+            if (err != null) {
+                if (err.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                    sawDenial = true
+                    deniedReady.countDown()
+                }
+                return@addSnapshotListener
+            }
+            if (snap != null) {
+                delivered.add(snap.getLong("step") to snap.metadata)
+                when {
+                    delivered.size == 1 -> initialReady.countDown()
+                    snap.getLong("step") == 2L && snap.metadata.hasPendingWrites -> offlineWriteReady.countDown()
+                    sawDenial -> recoveredReady.countDown()
+                }
+            }
+        }
+
+        try {
+            assertTrue(initialReady.await(3, TimeUnit.SECONDS))
+            assertEquals(1, delivered.size)
+            assertEquals(1L to SnapshotMetadata(hasPendingWrites = false, isFromCache = false), delivered[0])
+
+            Tasks.await(firestore.disableNetwork())
+            val writeTask = docRef.update("step", 2L)
+            assertTrue(offlineWriteReady.await(3, TimeUnit.SECONDS))
+            assertEquals(2, delivered.size)
+            assertEquals(2L to SnapshotMetadata(hasPendingWrites = true, isFromCache = true), delivered[1])
+
+            val inSyncReady = CountDownLatch(1)
+            val inSyncReg = firestore.addSnapshotsInSyncListener { inSyncReady.countDown() }
+            try {
+                Tasks.await(firestore.enableNetwork())
+                Tasks.await(writeTask)
+                assertTrue(inSyncReady.await(3, TimeUnit.SECONDS))
+            } finally {
+                inSyncReg.remove()
+            }
+            assertEquals(2, delivered.size, "MetadataChanges.EXCLUDE must suppress metadata-only server ack on reconnect")
+
+            auth.setAuthLens(AuthLens.Anon)
+            assertTrue(deniedReady.await(3, TimeUnit.SECONDS))
+
+            auth.setAuthLens(AuthLens.Admin)
+            assertTrue(recoveredReady.await(3, TimeUnit.SECONDS))
+            assertEquals(3, delivered.size)
+            assertEquals(2L to SnapshotMetadata(hasPendingWrites = false, isFromCache = false), delivered[2])
+        } finally {
+            reg.remove()
         }
     }
 }

@@ -467,10 +467,7 @@ class FirestoreLifecycleAndDocsLiveHostConformanceTest {
         assertThrows(IllegalArgumentException::class.java) { docRef.update("count", 3L, "danglingKey") }
         Tasks.await(docRef.update(mapOf("count" to 5L, "meta.tier" to "platinum")), 10, TimeUnit.SECONDS)
         Tasks.await(docRef.update("views", 30L, "meta.region", "us-central1"), 10, TimeUnit.SECONDS)
-        Tasks.await(
-            docRef.update(FieldPath.of("literal.dot", "leaf"), "kept-intact", FieldPath.of("count"), 8L),
-            10, TimeUnit.SECONDS
-        )
+        Tasks.await(docRef.update(FieldPath.of("literal.dot", "leaf"), "kept-intact", FieldPath.of("count"), 8L), 10, TimeUnit.SECONDS)
         val updatedSnap = Tasks.await(docRef.get(), 10, TimeUnit.SECONDS)
         assertEquals(8L, updatedSnap.getLong("count"))
         assertEquals(30L, updatedSnap.getLong("views"))
@@ -554,9 +551,16 @@ class FirestoreLifecycleAndDocsLiveHostConformanceTest {
             assertTrue(excludeEvents[1].second.hasPendingWrites)
 
             // Reconnecting commits step=2L on host: INCLUDE emits clean server metadata, EXCLUDE suppresses duplicate
-            Tasks.await(firestore.enableNetwork(), 10, TimeUnit.SECONDS)
-            Tasks.await(offlineWriteTask, 10, TimeUnit.SECONDS)
-            assertTrue(onlineAckReady.await(10, TimeUnit.SECONDS))
+            val inSyncReady = CountDownLatch(1)
+            val inSyncReg = firestore.addSnapshotsInSyncListener { inSyncReady.countDown() }
+            try {
+                Tasks.await(firestore.enableNetwork(), 10, TimeUnit.SECONDS)
+                Tasks.await(offlineWriteTask, 10, TimeUnit.SECONDS)
+                assertTrue(onlineAckReady.await(10, TimeUnit.SECONDS))
+                assertTrue(inSyncReady.await(10, TimeUnit.SECONDS))
+            } finally {
+                inSyncReg.remove()
+            }
             assertEquals(2, excludeEvents.size)
 
             Tasks.await(docRef.delete(), 10, TimeUnit.SECONDS)
@@ -570,10 +574,7 @@ class FirestoreLifecycleAndDocsLiveHostConformanceTest {
         // Security Rules denial surfaces FirebaseFirestoreException(PERMISSION_DENIED) on snapshots() Flow
         val capturedError = AtomicReference<Throwable?>(null)
         runBlocking {
-            firestore.document("users/another-user/items/denied-stream")
-                .snapshots()
-                .catch { e -> capturedError.set(e) }
-                .collect { }
+            firestore.document("users/another-user/items/denied-stream").snapshots().catch { e -> capturedError.set(e) }.collect { }
         }
         val fse = capturedError.get() as? FirebaseFirestoreException
             ?: fail("Expected FirebaseFirestoreException on denied snapshots(), got: ${capturedError.get()}")

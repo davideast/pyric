@@ -50,12 +50,14 @@ internal class DocumentSnapshotRegistration(
 
     // Mutated exclusively on deliveryQueue.
     private var lastDelivered: DocumentSnapshot? = null
+    private var activeAuthScope: String = ""
     private var rawGeneration: Long = -1L
     private var lastRaw: Any? = null
     private var offlineMode: Boolean = false
 
     init {
         val initialLens = firestore.getEffectiveAuthLens()
+        activeAuthScope = FirestoreOfflineCoordinator.authScopeForLens(initialLens)
         val initialTerminated = firestore.isTerminated
         val initialNetwork = firestore.offlineCoordinator.listenerNetworkEnabledFlow.value
         val initialCacheVersion = firestore.offlineCoordinator.cacheVersionFlow.value
@@ -66,7 +68,7 @@ internal class DocumentSnapshotRegistration(
             if (initialNetwork) {
                 switchToOnline(initialLens)
             } else {
-                switchToOffline()
+                switchToOffline(initialLens)
             }
             startMonitors(initialLens, initialTerminated, initialNetwork, initialCacheVersion)
         }
@@ -97,7 +99,7 @@ internal class DocumentSnapshotRegistration(
                 } else if (networkEnabled) {
                     switchToOnline(lens)
                 } else {
-                    switchToOffline()
+                    switchToOffline(lens)
                 }
             }
         }
@@ -110,10 +112,10 @@ internal class DocumentSnapshotRegistration(
                 deliveryQueue.enqueue {
                     if (!active || generation.get() != gen) return@enqueue
                     val candidate = if (offlineMode) {
-                        val proj = firestore.offlineCoordinator.projectDocument(docRef.path)
+                        val proj = firestore.offlineCoordinator.projectDocument(docRef.path, activeAuthScope)
                         docRef.snapshotFromProjection(proj, isFromCache = true)
                     } else if (rawGeneration == gen) {
-                        val proj = firestore.offlineCoordinator.projectDocument(docRef.path)
+                        val proj = firestore.offlineCoordinator.projectDocument(docRef.path, activeAuthScope)
                         if (proj.known) docRef.snapshotFromProjection(proj, isFromCache = false) else null
                     } else {
                         null
@@ -140,8 +142,9 @@ internal class DocumentSnapshotRegistration(
         }
     }
 
-    private fun switchToOffline() {
+    private fun switchToOffline(lens: AuthLens) {
         val gen = generation.incrementAndGet()
+        val authScope = FirestoreOfflineCoordinator.authScopeForLens(lens)
         val previous = synchronized(lock) {
             if (!active) return
             currentHandle.also { currentHandle = null }
@@ -149,10 +152,11 @@ internal class DocumentSnapshotRegistration(
         previous?.cancel()
         deliveryQueue.enqueue {
             if (!active || generation.get() != gen) return@enqueue
+            activeAuthScope = authScope
             offlineMode = true
             rawGeneration = -1L
             lastRaw = null
-            val proj = firestore.offlineCoordinator.projectDocument(docRef.path)
+            val proj = firestore.offlineCoordinator.projectDocument(docRef.path, authScope)
             maybeEmitOnQueue(docRef.snapshotFromProjection(proj, isFromCache = true))
         }
     }
@@ -168,8 +172,8 @@ internal class DocumentSnapshotRegistration(
         firestore.offlineCoordinator.markListenerOutOfSync(listenerId)
         deliveryQueue.enqueue {
             if (!active || generation.get() != gen) return@enqueue
+            activeAuthScope = authScope
             offlineMode = false
-            lastDelivered = null
             rawGeneration = -1L
             lastRaw = null
         }
