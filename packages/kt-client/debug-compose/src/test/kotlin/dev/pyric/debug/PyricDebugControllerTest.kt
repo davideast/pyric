@@ -422,4 +422,55 @@ class PyricDebugControllerTest {
         assertEquals("audio/alice/narr-1.wav", record.context.request?.path)
         assertEquals("storage/unauthorized", record.context.errorCode)
     }
+
+    @Test
+    fun testClearsDenialsOnAuthUserChangeButPreservesAcrossDebugLensSwitches() = runTest(testDispatcher) {
+        bridgeClient.connect()
+        advanceUntilIdle()
+
+        // Push signed-in user alice-1 via authState snapshot.
+        transport.onServerReceive { json ->
+            val msg = JsonCodec.decodeMap(json)
+            if (msg["type"] == "worker-op") {
+                val id = msg["id"] as String
+                @Suppress("UNCHECKED_CAST")
+                val op = msg["op"] as Map<String, Any?>
+                val value: Any? = when (op["method"]) {
+                    "auth.signInEmail" -> mapOf(
+                        "user" to mapOf("uid" to "alice-1", "email" to "alice@example.com")
+                    )
+                    "auth.signOut" -> null
+                    "auth.listUsers" -> sandboxUsersFixture
+                    else -> emptyMap<String, Any?>()
+                }
+                transport.sendToClient(
+                    JsonCodec.encodeToString(mapOf("type" to "worker-res", "id" to id, "ok" to true, "value" to value))
+                )
+            }
+        }
+
+        com.google.android.gms.tasks.Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "pw"))
+        advanceUntilIdle()
+
+        firestore.notifyRulesDenial(
+            FirebaseFirestoreException(
+                "storage/unauthorized: Get \"audio/alice/narr-1.wav\" denied by rules.",
+                FirebaseFirestoreException.Code.UNKNOWN,
+                wireCode = "storage/unauthorized"
+            )
+        )
+        advanceUntilIdle()
+        assertEquals(1, controller.denials.value.size)
+
+        // Toggling Admin Bypass preserves denials for debugging.
+        controller.toggleAdminBypass(true)
+        advanceUntilIdle()
+        assertEquals(1, controller.denials.value.size)
+
+        // Explicit signOut clears denials so the next user starts clean.
+        auth.signOut()
+        advanceUntilIdle()
+        assertTrue(controller.denials.value.isEmpty())
+        assertEquals(0, controller.unviewedDenialsCount.value)
+    }
 }

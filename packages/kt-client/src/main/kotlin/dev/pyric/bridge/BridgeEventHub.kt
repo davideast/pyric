@@ -99,8 +99,16 @@ internal class BridgeEventHub(
         }
     }
 
+    private fun isRulesDenial(exception: FirebaseFirestoreException): Boolean {
+        if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) return true
+        if (exception.denialContext != null) return true
+        val wire = exception.wireCode
+        return wire.equals("storage/unauthorized", ignoreCase = true) ||
+            wire.equals("unauthorized", ignoreCase = true)
+    }
+
     fun dispatchDenial(exception: FirebaseFirestoreException) {
-        if (exception.code != FirebaseFirestoreException.Code.PERMISSION_DENIED) return
+        if (!isRulesDenial(exception)) return
         synchronized(denialLock) {
             _denialEvents.tryEmit(exception)
             val snapshot = denialObservers.toList()

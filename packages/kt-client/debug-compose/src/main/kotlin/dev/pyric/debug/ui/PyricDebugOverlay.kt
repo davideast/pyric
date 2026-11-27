@@ -27,8 +27,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.pyric.auth.AuthLens
@@ -44,20 +47,45 @@ fun PyricDebugOverlay(
     val activeLens by controller.activeLens.collectAsState()
     val unviewedCount by controller.unviewedDenialsCount.collectAsState()
     val isSheetVisible by controller.isSheetVisible.collectAsState()
+    val isConnected by controller.bridgeClient.connectionStateFlow.collectAsState()
+    val pillOuterPx = with(LocalDensity.current) { 70.dp.toPx() }
 
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var offsetX by remember { mutableStateOf(20f) }
     var offsetY by remember { mutableStateOf(100f) }
 
     PyricDebugTheme {
-        Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    containerSize = size
+                    if (size.width > 0 && size.height > 0) {
+                        val maxX = (size.width - pillOuterPx).coerceAtLeast(0f)
+                        val maxY = (size.height - pillOuterPx).coerceAtLeast(0f)
+                        offsetX = offsetX.coerceIn(0f, maxX)
+                        offsetY = offsetY.coerceIn(0f, maxY)
+                    }
+                }
+        ) {
             Box(
                 modifier = Modifier
                     .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                    .pointerInput(Unit) {
+                    .pointerInput(containerSize, pillOuterPx) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
-                            offsetX += dragAmount.x
-                            offsetY += dragAmount.y
+                            val maxX = if (containerSize.width > 0) {
+                                (containerSize.width - pillOuterPx).coerceAtLeast(0f)
+                            } else {
+                                Float.MAX_VALUE
+                            }
+                            val maxY = if (containerSize.height > 0) {
+                                (containerSize.height - pillOuterPx).coerceAtLeast(0f)
+                            } else {
+                                Float.MAX_VALUE
+                            }
+                            offsetX = (offsetX + dragAmount.x).coerceIn(0f, maxX)
+                            offsetY = (offsetY + dragAmount.y).coerceIn(0f, maxY)
                         }
                     }
                     .padding(8.dp)
@@ -107,7 +135,6 @@ fun PyricDebugOverlay(
                             )
 
                             // Status dot (connected vs disconnected)
-                            val isConnected = controller.bridgeClient.isConnected
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)

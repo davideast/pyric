@@ -96,6 +96,19 @@ class PyricDebugController(
             }
         }
 
+        controllerScope.launch {
+            var initialized = false
+            var lastSessionUid: String? = null
+            auth.authStateFlow().collect { user ->
+                val nextUid = user?.uid
+                if (initialized && nextUid != lastSessionUid) {
+                    clearDenials()
+                }
+                lastSessionUid = nextUid
+                initialized = true
+            }
+        }
+
         if (firestore != null) {
             denialListenerRegistration = firestore.addRulesDenialListener { exception, contextMap ->
                 recordDenial(exception, contextMap)
