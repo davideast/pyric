@@ -1,0 +1,433 @@
+{
+  "runId": "3788c461-7757-44ce-a080-6d5d5600d523",
+  "target": {
+    "project": "digame-mas",
+    "database": "arcade-counter-261125-5cbab1e4",
+    "uid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "closedRuleset": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+    "sdk": "12.19.0"
+  },
+  "sdk": "12.19.0",
+  "digest": "feb6e104d74382548b826395986949eda6d3f885423551efb4acd9d3c4730b45",
+  "identities": {
+    "writer": {
+      "uid": "Spoo9dWKSNWhey39dur2cgxeOe13",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    },
+    "reader": {
+      "uid": "FIGzz1TWo6bic64AhOKplMov4YP2",
+      "audience": "digame-mas",
+      "issuer": "https://securetoken.google.com/digame-mas",
+      "provider": "anonymous"
+    }
+  },
+  "phases": {
+    "initially-closed": {
+      "phase": "initially-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "3788c461-7757-44ce-a080-6d5d5600d523",
+        "lockVersion": "2026-11-27T19:40:15.317976Z",
+        "releaseUpdateTime": "2026-11-27T19:29:40.986740Z",
+        "verifiedAt": "2026-11-27T19:40:17.716Z"
+      },
+      "read": "DENY",
+      "write": "DENY"
+    },
+    "open": {
+      "phase": "open",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/3ccb1f9b-73f3-4ab9-bcd1-738e59b985d7",
+        "rulesSha256": "feb6e104d74382548b826395986949eda6d3f885423551efb4acd9d3c4730b45",
+        "lockRunId": "3788c461-7757-44ce-a080-6d5d5600d523",
+        "lockVersion": "2026-11-27T19:40:15.317976Z",
+        "releaseUpdateTime": "2026-11-27T19:40:25.628184Z",
+        "verifiedAt": "2026-11-27T19:40:31.194Z"
+      },
+      "read": "ALLOW",
+      "write": "ALLOW"
+    },
+    "restored-closed": {
+      "phase": "restored-closed",
+      "proof": {
+        "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+        "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+        "rulesetName": "projects/digame-mas/rulesets/9df02e6e-6f71-4dcf-9786-aec7eb444982",
+        "rulesSha256": "27c604999402b1f2a08d44ceed3b8ac67355e85c6a8261a0c74a1fed85ac922d",
+        "lockRunId": "3788c461-7757-44ce-a080-6d5d5600d523",
+        "lockVersion": "2026-11-27T19:40:15.317976Z",
+        "releaseUpdateTime": "2026-11-27T19:42:29.485902Z",
+        "verifiedAt": "2026-11-27T19:42:42.753Z"
+      },
+      "read": "DENY",
+      "write": "DENY"
+    }
+  },
+  "rows": {
+    "valid-90": {
+      "path": "tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-valid-90",
+      "before": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-valid-90",
+          "fields": {
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "tally": {
+              "integerValue": "89"
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "moves": {
+              "arrayValue": {}
+            }
+          },
+          "createTime": "2026-11-27T19:42:24.240119Z",
+          "updateTime": "2026-11-27T19:42:24.240119Z"
+        }
+      },
+      "submitted": {
+        "tally": 90,
+        "moves": [
+          {
+            "kind": "strike",
+            "at": 0,
+            "strength": 0.5
+          },
+          {
+            "kind": "strike",
+            "at": 0.1,
+            "strength": 0.5
+          }
+        ]
+      },
+      "decision": "ALLOW",
+      "after": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "moves": [
+            {
+              "kind": "strike",
+              "at": 0,
+              "strength": 0.5
+            },
+            {
+              "kind": "strike",
+              "at": 0.1,
+              "strength": 0.5
+            }
+          ],
+          "tally": 90
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-valid-90",
+          "fields": {
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "tally": {
+              "integerValue": "90"
+            },
+            "moves": {
+              "arrayValue": {
+                "values": [
+                  {
+                    "mapValue": {
+                      "fields": {
+                        "kind": {
+                          "stringValue": "strike"
+                        },
+                        "at": {
+                          "integerValue": "0"
+                        },
+                        "strength": {
+                          "doubleValue": 0.5
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "mapValue": {
+                      "fields": {
+                        "kind": {
+                          "stringValue": "strike"
+                        },
+                        "at": {
+                          "doubleValue": 0.1
+                        },
+                        "strength": {
+                          "doubleValue": 0.5
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "createTime": "2026-11-27T19:42:24.240119Z",
+          "updateTime": "2026-11-27T19:42:24.545013Z"
+        }
+      }
+    },
+    "invalid-first": {
+      "path": "tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-invalid-first",
+      "before": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-invalid-first",
+          "fields": {
+            "moves": {
+              "arrayValue": {}
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "tally": {
+              "integerValue": "89"
+            }
+          },
+          "createTime": "2026-11-27T19:42:24.696064Z",
+          "updateTime": "2026-11-27T19:42:24.696064Z"
+        }
+      },
+      "submitted": {
+        "tally": 90,
+        "moves": [
+          {
+            "kind": "strike",
+            "at": 0,
+            "strength": 1.5
+          },
+          {
+            "kind": "strike",
+            "at": 0.1,
+            "strength": 0.5
+          }
+        ]
+      },
+      "decision": "DENY",
+      "after": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-invalid-first",
+          "fields": {
+            "moves": {
+              "arrayValue": {}
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "tally": {
+              "integerValue": "89"
+            },
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            }
+          },
+          "createTime": "2026-11-27T19:42:24.696064Z",
+          "updateTime": "2026-11-27T19:42:24.696064Z"
+        }
+      }
+    },
+    "invalid-second": {
+      "path": "tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-invalid-second",
+      "before": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-invalid-second",
+          "fields": {
+            "moves": {
+              "arrayValue": {}
+            },
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "tally": {
+              "integerValue": "89"
+            }
+          },
+          "createTime": "2026-11-27T19:42:25.042421Z",
+          "updateTime": "2026-11-27T19:42:25.042421Z"
+        }
+      },
+      "submitted": {
+        "tally": 90,
+        "moves": [
+          {
+            "kind": "strike",
+            "at": 0,
+            "strength": 0.5
+          },
+          {
+            "kind": "strike",
+            "at": 0.1,
+            "strength": 1.5
+          }
+        ]
+      },
+      "decision": "DENY",
+      "after": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-invalid-second",
+          "fields": {
+            "moves": {
+              "arrayValue": {}
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "tally": {
+              "integerValue": "89"
+            }
+          },
+          "createTime": "2026-11-27T19:42:25.042421Z",
+          "updateTime": "2026-11-27T19:42:25.042421Z"
+        }
+      }
+    },
+    "valid-89": {
+      "path": "tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-valid-89",
+      "before": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-valid-89",
+          "fields": {
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "moves": {
+              "arrayValue": {}
+            },
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "tally": {
+              "integerValue": "89"
+            }
+          },
+          "createTime": "2026-11-27T19:42:25.396078Z",
+          "updateTime": "2026-11-27T19:42:25.396078Z"
+        }
+      },
+      "submitted": {
+        "tally": 89,
+        "moves": [
+          {
+            "kind": "strike",
+            "at": 0,
+            "strength": 0.5
+          },
+          {
+            "kind": "strike",
+            "at": 0.1,
+            "strength": 0.5
+          }
+        ]
+      },
+      "decision": "DENY",
+      "after": {
+        "data": {
+          "owner": "Spoo9dWKSNWhey39dur2cgxeOe13",
+          "reader": "FIGzz1TWo6bic64AhOKplMov4YP2",
+          "tally": 89,
+          "moves": []
+        },
+        "document": {
+          "name": "projects/digame-mas/databases/arcade-counter-261125-5cbab1e4/documents/tallyFolds/3788c461-7757-44ce-a080-6d5d5600d523-valid-89",
+          "fields": {
+            "owner": {
+              "stringValue": "Spoo9dWKSNWhey39dur2cgxeOe13"
+            },
+            "tally": {
+              "integerValue": "89"
+            },
+            "reader": {
+              "stringValue": "FIGzz1TWo6bic64AhOKplMov4YP2"
+            },
+            "moves": {
+              "arrayValue": {}
+            }
+          },
+          "createTime": "2026-11-27T19:42:25.396078Z",
+          "updateTime": "2026-11-27T19:42:25.396078Z"
+        }
+      }
+    }
+  },
+  "beforeProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/3ccb1f9b-73f3-4ab9-bcd1-738e59b985d7",
+    "rulesSha256": "feb6e104d74382548b826395986949eda6d3f885423551efb4acd9d3c4730b45",
+    "lockRunId": "3788c461-7757-44ce-a080-6d5d5600d523",
+    "lockVersion": "2026-11-27T19:40:15.317976Z",
+    "releaseUpdateTime": "2026-11-27T19:40:25.628184Z",
+    "verifiedAt": "2026-11-27T19:42:32.256Z",
+    "propagationReceiptSha256": "4b1365585150261a88b7d5ef3863cedf20c165d08de55da417ba48c43ac891ab"
+  },
+  "afterProof": {
+    "databaseUid": "76332f7d-25a5-4eb6-bcad-95da023c6a3f",
+    "releaseName": "projects/digame-mas/releases/cloud.firestore/arcade-counter-261125-5cbab1e4",
+    "rulesetName": "projects/digame-mas/rulesets/3ccb1f9b-73f3-4ab9-bcd1-738e59b985d7",
+    "rulesSha256": "feb6e104d74382548b826395986949eda6d3f885423551efb4acd9d3c4730b45",
+    "lockRunId": "3788c461-7757-44ce-a080-6d5d5600d523",
+    "lockVersion": "2026-11-27T19:40:15.317976Z",
+    "releaseUpdateTime": "2026-11-27T19:40:25.628184Z",
+    "verifiedAt": "2026-11-27T19:42:35.997Z",
+    "propagationReceiptSha256": "4b1365585150261a88b7d5ef3863cedf20c165d08de55da417ba48c43ac891ab"
+  }
+}

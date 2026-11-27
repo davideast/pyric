@@ -1,0 +1,20 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "fec5ad54aa9d13d017b67b90d98b082e345e4e7ee3daf7f4f7a4156c69f584af",
+  "results": {
+    "valid-90": "ALLOW",
+    "invalid-first": "DENY",
+    "invalid-second": "DENY",
+    "valid-89": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/3788c461-7757-44ce-a080-6d5d5600d523.json",
+    "sha256": "010c7edb1e0a21c62043ec03515e36f33bd8316c242ce6e77d5c62d42546df79",
+    "pointers": {
+      "valid-90": "/rows/valid-90/decision",
+      "invalid-first": "/rows/invalid-first/decision",
+      "invalid-second": "/rows/invalid-second/decision",
+      "valid-89": "/rows/valid-89/decision"
+    }
+  }
+}

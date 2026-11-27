@@ -1,0 +1,36 @@
+{
+  "authority": "native-model",
+  "inputDigest": "fdd4a825fe7192e5de8584fefc076948f10f834ab33b689c77b0ac7648d9b935",
+  "results": {
+    "valid-90": {
+      "validStrikes": true,
+      "total": 90,
+      "accepted": true
+    },
+    "invalid-first": {
+      "validStrikes": false,
+      "total": null,
+      "accepted": false
+    },
+    "invalid-second": {
+      "validStrikes": false,
+      "total": null,
+      "accepted": false
+    },
+    "valid-89": {
+      "validStrikes": true,
+      "total": 90,
+      "accepted": false
+    }
+  },
+  "evidence": {
+    "path": "evidence/native.json",
+    "sha256": "f02c387b5c08f860bbb04fb8b4d35a49f6e2b59fa97396496fdd8046f0d8b71d",
+    "pointers": {
+      "valid-90": "/rows/valid-90/result",
+      "invalid-first": "/rows/invalid-first/result",
+      "invalid-second": "/rows/invalid-second/result",
+      "valid-89": "/rows/valid-89/result"
+    }
+  }
+}

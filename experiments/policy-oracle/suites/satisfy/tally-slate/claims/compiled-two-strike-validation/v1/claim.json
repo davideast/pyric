@@ -1,0 +1,5 @@
+{
+  "description": "Verify signed updates using the generated two-strike validator and Tally fold in a named production database.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

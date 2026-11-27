@@ -1,0 +1,33 @@
+{
+  "source": {
+    "repo": "https://github.com/davideast/satisfy.md",
+    "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+    "path": "playground/src/demos/tally-slate/moves.ts"
+  },
+  "cases": [
+    "valid-90",
+    "invalid-first",
+    "invalid-second",
+    "valid-89"
+  ],
+  "pins": {
+    "replay.mjs": "e7cfbbf57509010411da428af312e7f0cfef1ee1db629e6eb80d801929ae7c63",
+    "@oracle/adapters/tally-strikes/v1/score.mjs": "d7d181bee54bfa0c09c85e45b1289997a5ee95b0972bcc795edc9ac60681cf3e",
+    "@oracle/adapters/tally-strikes/v1/fixture.mjs": "863b870ddb7f960e92a1f4f99c47caf78454ec375673ba497c97a0e7c66a3c78",
+    "@oracle/adapters/tally-strikes/v1/cases.json": "a859d5fb10dca6d0a170a45714d061a5b0c988cf5845e4dce3b65f3c90324dc4",
+    "@oracle/adapters/tally-strikes/v1/valid-strikes.policy": "adcffa2edfff3a519e25fbc97ec2e40191fc7fa1c42dc80d0c261d5f9c738a04",
+    "@oracle/adapters/tally-strikes/v1/binding.rules": "e2335d0b72a343618bfed8feee46cf80bb557c9205701a1254410020b780de8b",
+    "@oracle/adapters/tally-strikes/v1/generated.rules": "feb6e104d74382548b826395986949eda6d3f885423551efb4acd9d3c4730b45",
+    "@oracle/adapters/tally-strikes/v1/verify.mjs": "724523e768488865e168657b0db7938614726604c6f258dc738cfb78d42cd791",
+    "@oracle/adapters/ai-jrpg-campaign/v1/values.mjs": "93ab0e979b3ea1cb93f267e57a7464117e69ee3f6c88b64449974764126c12aa",
+    "@oracle/adapters/arcade-sdk/v1/evidence.mjs": "d3a954cdd9406373a802757149e48bfb98283f2fe6af9b03c88e64e91bc49471",
+    "@oracle/adapters/tally-fold/v1/tally.policy": "45ef67d6c48493e05f7aeb35a33ac479bb23f72b472d015a47d984c2bc6c2b75",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377"
+  },
+  "replay": "replay.mjs",
+  "verifyEvidence": "@oracle/adapters/tally-strikes/v1/verify.mjs"
+}

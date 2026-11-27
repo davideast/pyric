@@ -31,6 +31,7 @@ CAMPAIGN_PROBES = {
     "blockingfun": {"blocking": ("session-access", "lobby-transitions")},
 }
 SDK_VERIFIERS = {
+    "suites/satisfy/tally-slate/claims/compiled-two-strike-validation/v1/probes/turns/v1": "@oracle/adapters/tally-strikes/v1/verify.mjs",
     "suites/satisfy/tally-slate/claims/compiled-two-action-fold/v1/probes/turns/v1": "@oracle/adapters/tally-fold/v1/verify.mjs",
     "suites/ai-jrpg/genkit/claims/conversation-queries/v1/probes/genkit/v1": "@oracle/adapters/conversation-queries/v1/verify.mjs",
     **{f"suites/ai-jrpg/{suite}/claims/{family}/v1/probes/{variant}/v1": CAMPAIGN_VERIFIER

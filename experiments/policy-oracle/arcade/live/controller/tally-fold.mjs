@@ -9,9 +9,13 @@ import {withRelease} from './release.mjs';
 import {startJournal,withMonotonicEvidenceClock} from './archive.mjs';
 import {wireFields} from '../../../adapters/arcade-sdk/v1/evidence.mjs';
 import {fields} from '../../../adapters/ai-jrpg-campaign/v1/values.mjs';
-import {cases,moves} from '../../../adapters/tally-fold/v1/fixture.mjs';
+const profile = process.argv[4] ?? 'tally-fold';
+assert.ok(['tally-fold','tally-strikes'].includes(profile));
+const directory = new URL('../../../adapters/'+profile+'/v1/',import.meta.url);
+const {cases,moves} = await import(new URL('fixture.mjs',directory));
+const start = profile === 'tally-strikes' ? 89 : 90;
 
-const source = readFileSync(new URL('../../../adapters/tally-fold/v1/generated.rules',import.meta.url),'utf8');
+const source = readFileSync(new URL('generated.rules',directory),'utf8');
 const digest = sha(source);
 assert.equal(digest,process.argv[3], 'review the generated rules before activation');
 const runId = randomUUID(), journal = startJournal(process.argv[2],runId);
@@ -76,7 +80,7 @@ async function capture(verify) {
   for (const c of cases) {
     checkStop();
     const path = 'tallyFolds/'+runId+'-'+c.id;
-    const seed = {owner:writer.identity.uid,reader:reader.identity.uid,tally:90,moves:[]};
+    const seed = {owner:writer.identity.uid,reader:reader.identity.uid,tally:start,moves:[]};
     const submitted = {tally:c.claim,moves:moves(c)};
     await createDocument(path,wireFields(seed));
     owned.add(path);

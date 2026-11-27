@@ -93,8 +93,9 @@ class CandidateTest(unittest.TestCase):
         # Without the controller archive only the native Tally cases are admitted.
         # The frozen compiler predates for-of. Its parser refusal is a measured gap.
         unsupported = [(r["claim"], r["case"]) for r in stock["cases"] if r["outcome"] == "unsupported"]
-        self.assertEqual({claim for claim, _ in unsupported}, {"satisfy/tally-slate/two-action-fold/v1"})
-        self.assertEqual(len(unsupported), 5)
+        self.assertEqual({claim for claim, _ in unsupported}, {"satisfy/tally-slate/two-action-fold/v1",
+                                                               "satisfy/tally-slate/two-strike-validation/v1"})
+        self.assertEqual(len(unsupported), 9)
         self.assertTrue(stock["artifacts"]["arcade/tictactoe"]["sameBytes"])
         with tempfile.NamedTemporaryFile(suffix=".tgz") as altered:
             path = Path(altered.name)

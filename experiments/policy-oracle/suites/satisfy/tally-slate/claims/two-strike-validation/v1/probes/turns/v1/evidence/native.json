@@ -1,0 +1,45 @@
+{
+  "revision": "f8c555be49482ebb10f9a6a438270c7e83fa8d1f",
+  "rows": {
+    "valid-90": {
+      "result": {
+        "validStrikes": true,
+        "total": 90,
+        "accepted": true
+      }
+    },
+    "invalid-first": {
+      "issues": [
+        {
+          "path": "moves.0.strength",
+          "message": "Too big: expected number to be <=1"
+        }
+      ],
+      "result": {
+        "validStrikes": false,
+        "total": null,
+        "accepted": false
+      }
+    },
+    "invalid-second": {
+      "issues": [
+        {
+          "path": "moves.1.strength",
+          "message": "Too big: expected number to be <=1"
+        }
+      ],
+      "result": {
+        "validStrikes": false,
+        "total": null,
+        "accepted": false
+      }
+    },
+    "valid-89": {
+      "result": {
+        "validStrikes": true,
+        "total": 90,
+        "accepted": false
+      }
+    }
+  }
+}

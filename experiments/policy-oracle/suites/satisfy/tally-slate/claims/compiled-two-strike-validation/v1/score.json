@@ -1,0 +1,107 @@
+{
+  "counts": {
+    "native": 4,
+    "standalone": 4,
+    "generatedRules": 4
+  },
+  "rows": [
+    {
+      "id": "valid-90",
+      "native": {
+        "result": {
+          "validStrikes": true,
+          "total": 90,
+          "accepted": true
+        }
+      },
+      "standalone": {
+        "accepted": true,
+        "total": 90,
+        "validStrikes": true
+      },
+      "generated": "ALLOW",
+      "live": "ALLOW"
+    },
+    {
+      "id": "invalid-first",
+      "native": {
+        "issues": [
+          {
+            "path": "moves.0.strength",
+            "message": "Too big: expected number to be <=1"
+          }
+        ],
+        "result": {
+          "validStrikes": false,
+          "total": null,
+          "accepted": false
+        }
+      },
+      "standalone": {
+        "accepted": false,
+        "total": null,
+        "validStrikes": false
+      },
+      "generated": "DENY",
+      "live": "DENY"
+    },
+    {
+      "id": "invalid-second",
+      "native": {
+        "issues": [
+          {
+            "path": "moves.1.strength",
+            "message": "Too big: expected number to be <=1"
+          }
+        ],
+        "result": {
+          "validStrikes": false,
+          "total": null,
+          "accepted": false
+        }
+      },
+      "standalone": {
+        "accepted": false,
+        "total": null,
+        "validStrikes": false
+      },
+      "generated": "DENY",
+      "live": "DENY"
+    },
+    {
+      "id": "valid-89",
+      "native": {
+        "result": {
+          "validStrikes": true,
+          "total": 90,
+          "accepted": false
+        }
+      },
+      "standalone": {
+        "accepted": false,
+        "total": 90,
+        "validStrikes": true
+      },
+      "generated": "DENY",
+      "live": "DENY"
+    }
+  ],
+  "liveDigest": "feb6e104d74382548b826395986949eda6d3f885423551efb4acd9d3c4730b45",
+  "candidateEmittedLiveBytes": true,
+  "candidateSha256": "a4cff5b39e981158b28c29dd21a3555bc606284fcc91a35af264308e0b933587",
+  "evidenceSha256": "5760fb30c14fa90500d1b73ee97faedfd1763e88c8ea7d45ff3de40f6860e768",
+  "summary": {
+    "disputed": 0,
+    "falseAllows": 0,
+    "falseDenials": 0,
+    "firstFalseAllow": null,
+    "firstFalseDenial": null,
+    "firstRegression": null,
+    "matches": 1528,
+    "otherMismatches": 0,
+    "pending": 0,
+    "regressions": 0,
+    "scored": 1528,
+    "unsupported": 0
+  }
+}

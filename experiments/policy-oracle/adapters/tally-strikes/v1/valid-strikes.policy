@@ -1,0 +1,12 @@
+use extension loops;
+function validStrikes(moves) {
+  for (const strike of bounded(moves, 2)) {
+    if (!(strike is map)) return false;
+    if (strike.size() != 3) return false;
+    if (!('at' in strike && 'kind' in strike && 'strength' in strike)) return false;
+    if (strike.kind != 'strike') return false;
+    if (!(strike.at is number && strike.at >= 0 && strike.at <= 120)) return false;
+    if (!(strike.strength is number && strike.strength >= 0 && strike.strength <= 1)) return false;
+  }
+  return moves.size() == 2;
+}

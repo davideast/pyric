@@ -1,0 +1,17 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    /* compiled helpers */
+    match /tallyFoldControls/{owner} {
+      allow get, create, update: if request.auth != null && request.auth.uid == owner;
+    }
+    match /tallyFolds/{id} {
+      allow get: if request.auth != null && request.auth.uid == resource.data.reader;
+      allow update: if request.auth != null && request.auth.uid == resource.data.owner
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tally', 'moves'])
+        && request.resource.data.tally is int
+        && validStrikes(request.resource.data.moves)
+        && request.resource.data.tally == tally(resource.data.tally, request.resource.data.moves);
+    }
+  }
+}

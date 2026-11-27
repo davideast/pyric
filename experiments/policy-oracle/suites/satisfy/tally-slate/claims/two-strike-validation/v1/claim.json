@@ -1,0 +1,4 @@
+{
+  "description": "Validate both strikes with the native turn parser and compare accepted turns with the native tally.",
+  "authority": "native-model"
+}
