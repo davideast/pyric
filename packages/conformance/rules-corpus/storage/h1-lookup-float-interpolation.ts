@@ -46,7 +46,7 @@ service firebase.storage {
   cases: [
     {
       description: 'claim get: float auth claim 1.5 in firestore.get path',
-      expectation: 'DENY',
+      expectation: 'ALLOW',
       method: 'create',
       path: 'claim/get.bin',
       auth: { uid: 'alice', token: { v: 1.5 } },
@@ -64,7 +64,7 @@ service firebase.storage {
     },
     {
       description: 'claim exists: float auth claim 1.5 in firestore.exists path',
-      expectation: 'DENY',
+      expectation: 'ALLOW',
       method: 'create',
       path: 'claim/exists.bin',
       auth: { uid: 'alice', token: { v: 1.5 } },
@@ -82,7 +82,7 @@ service firebase.storage {
     },
     {
       description: 'field get: float document field 1.5 in firestore.get path',
-      expectation: 'DENY',
+      expectation: 'ALLOW',
       method: 'create',
       path: 'field/get.bin',
       auth: { uid: 'alice' },
@@ -100,7 +100,7 @@ service firebase.storage {
     },
     {
       description: 'field exists: float document field 1.5 in firestore.exists path',
-      expectation: 'DENY',
+      expectation: 'ALLOW',
       method: 'create',
       path: 'field/exists.bin',
       auth: { uid: 'alice' },

@@ -36,6 +36,12 @@ type Verdict = 'ALLOW' | 'DENY';
 const KNOWN_EXCEPTIONS = loadStorageRulesExceptions();
 
 function decodeMockWireValue(val: unknown): unknown {
+  if (typeof val === 'number') {
+    if (!Object.is(val, -0) && Number.isInteger(val) && val >= -(2 ** 63) && val < 2 ** 63) {
+      return BigInt(val);
+    }
+    return val;
+  }
   if (typeof val === 'string' && val.startsWith('/databases/')) {
     return { __type: 'path', path: val };
   }
