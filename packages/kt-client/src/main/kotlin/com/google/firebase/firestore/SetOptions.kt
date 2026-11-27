@@ -6,7 +6,7 @@ class SetOptions private constructor(
 ) {
     internal fun toWireOptions(): Map<String, Any>? {
         if (mergeFields != null) {
-            return mapOf("mergeFields" to mergeFields.map { it.canonicalString })
+            return mapOf("mergeFields" to mergeFields.map { encodeFieldPathKey(it.segments) })
         }
         if (isMerge) {
             return mapOf("merge" to true)
@@ -17,6 +17,20 @@ class SetOptions private constructor(
     companion object {
         private val OVERWRITE = SetOptions(false)
         private val MERGE_ALL = SetOptions(true)
+
+        internal fun encodeFieldPathKey(segments: List<String>): String =
+            segments.joinToString(".") { segment ->
+                val needsQuoting = segment.isEmpty() ||
+                    segment.contains('.') ||
+                    segment.contains('`') ||
+                    segment.contains('\\')
+                if (!needsQuoting) {
+                    segment
+                } else {
+                    val escaped = segment.replace("\\", "\\\\").replace("`", "\\`")
+                    "`$escaped`"
+                }
+            }
 
         @JvmStatic
         fun overwrite(): SetOptions = OVERWRITE
