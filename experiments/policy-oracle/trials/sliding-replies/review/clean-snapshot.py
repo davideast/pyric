@@ -119,6 +119,13 @@ def run(args):
                                     'unqualifiedGeometries':geometry['boards'],'incorrectTriggers':geometry['incorrectTriggers']}
         signed=check(sys.executable,'-B','review/signed.py',sha,live,referee)
         assert signed['distinctWrites']==snapshot['signedCases'] and signed['nativeVersusFirestore'].get('match',0)==snapshot['signedAgreements']
+        public=check('bun','--no-install','live/run.mjs','lookup',sha)
+        assert not public['archiveAuthenticated'] and main['live']['archiveAuthenticated']
+        for key in ('rulesSha256','status','expectedCases','distinctCases','captures','rows'):
+            assert public[key]==main['live'][key],key
+        snapshot['portableReceiptQualification']={'privateArchiveUsed':public['archiveAuthenticated'],
+            'distinctCases':public['distinctCases'],'status':public['status'],'captureHashes':[r['receipt'] for r in public['captures']],
+            'allVerdictsAndServerVersionsMatchRawBackedLookup':True}
         final_pin=evidence/'signed.json'
         if final_pin.exists(): assert retained_fields(signed,read(final_pin))
         snapshot['independentSignedAudit']=signed
