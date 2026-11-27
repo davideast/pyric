@@ -20,11 +20,11 @@
 // rejection block must both read `API key ***`.
 //
 // A third model answers a 200 stream that carries an error event
-// mid-response, quoting the key in plain text (#1660). On every plane the
-// page must see that event with `***` in place of the key: the dev server's
-// gemini proxy masks it for the SharedWorker and in-page engines, and the
-// engine masks it on `hosted: true`. The SharedWorker refuses the plain-text
-// key through the proxy too, not only a key quoted in the URL.
+// mid-response, quoting the key in plain text (#1660, #1753). The dev server's
+// gemini proxy masks the key on the raw SSE wire for the SharedWorker and
+// in-page engines, the engine masks it on `hosted: true`, and the SDK stream
+// drops candidate-less mid-stream error chunks on every plane (matching real
+// `@firebase/ai`) so the page sees only the answer chunk and never the key.
 //
 // A dev server with no key in its environment takes an ADC token from a
 // stand-in `gcloud` on its PATH. The token has a second line, so Node's fetch
@@ -186,13 +186,16 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[];
  * Send the request the SharedWorker sends for the echo model, from the page's
  * origin, and return what the dev server answers it.
  */
-async function workerRouteAnswer(host: DevServer): Promise<{ status: number; text: string }> {
+async function workerRouteAnswer(
+  host: DevServer,
+  routePath = `/__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`,
+): Promise<{ status: number; text: string }> {
   const boot = await fetch(host.url);
   await boot.text();
   // The page's session cookie, named for the dev server's port (`__pyric_session_<port>`).
   const cookie = boot.headers.getSetCookie().find((entry) => /^__pyric_session(_\d+)?=/.test(entry))?.split(';', 1)[0];
   assert.ok(cookie !== undefined, 'the dev server set no session cookie on the page');
-  const response = await fetch(new URL(`/__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`, host.url), {
+  const response = await fetch(new URL(routePath, host.url), {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -216,14 +219,18 @@ function assertMaskedRefusal(result: { ok: boolean; status?: number; message?: s
 interface StreamErrorResult { chunks: string[]; settled: { ok: boolean; text?: string; message?: string } }
 
 /**
- * The page iterated the stream's error event with the key masked, and the
- * stand-in sent that event with the key the server attached.
+ * The stand-in streamed an error event quoting the key, and the page saw only
+ * the answer chunk: mid-stream error chunks are dropped before reaching the
+ * app (matching `@firebase/ai`, #1753) and the key never reaches the page.
  */
 function assertMaskedStreamError(result: StreamErrorResult, streamed: Array<string | null>): void {
   assert.equal(streamed.at(-1), SERVER_KEY, 'the stand-in streamed an error quoting the key');
   const seen = JSON.stringify(result);
   assert.ok(!seen.includes(SERVER_KEY), seen);
-  assert.match(seen, /Quota check failed for API key \*\*\*\./);
+  assert.ok(!seen.includes('Quota check failed'), seen);
+  assert.equal(result.chunks.length, 1, seen);
+  assert.equal(result.settled.ok, true, seen);
+  assert.ok((result.settled.text ?? '').includes(ANSWER), seen);
 }
 
 /** Every body the browser received, so the scenario can look for the key in them. */
@@ -394,8 +401,15 @@ export default scenario(async (app) => {
       assert.match(result.message ?? '', /API key \*\*\* not valid/);
     });
 
-    await app.step('SharedWorker: an error event mid-stream reaches the browser with the key masked', async () => {
+    await app.step('SharedWorker: an error event mid-stream is masked on the proxy wire and dropped before reaching the app', async () => {
       assertMaskedStreamError(await page.evaluate(() => runGeminiStreamError('stream-error')), standIn.streamed);
+      const sseAnswer = await workerRouteAnswer(
+        host,
+        `/__pyric/ai-proxy/gemini/v1beta/models/${STREAM_ERROR_MODEL}:streamGenerateContent?alt=sse`,
+      );
+      assert.equal(sseAnswer.status, 200);
+      assert.ok(!sseAnswer.text.includes(SERVER_KEY), sseAnswer.text);
+      assert.match(sseAnswer.text, /Quota check failed for API key \*\*\*\./);
     });
 
     const hostedServer = await app.step('start the dev server with hosted: true', () =>
