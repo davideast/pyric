@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 
 TRIAL = Path(__file__).resolve().parents[1]
 PREVIOUS = TRIAL.parent / 'chess-safety'
+PRIOR_RULES = PREVIOUS/'artefacts/knight-endgame-paired-pawn-combined-bare-fixed-comma-packed-v5.rules'
 REFEREE = runpy.run_path(str(TRIAL.parent / 'chess/reference/generate.py'))
 
 
@@ -31,7 +32,7 @@ def score(rules, digest, reference, fixtures):
     return rows
 
 
-def measure(chess, reduction, rules, digest, reference):
+def measure(chess, reduction, rules, digest, prior_digest, reference):
     start = reduction['start']
     assert start['nativeLegal'] and start['kingSafe']
     original = chess.Board(start['fen'] + ' 0 1')
@@ -66,7 +67,8 @@ def measure(chess, reduction, rules, digest, reference):
             native[key] = {'fen':fen, 'replies':replies, 'pieces':pieces, 'successor':REFEREE['fen'](board)}
     assert examined == 2**len(optional)
     failures = []
-    for row in score(rules, digest, reference, fixtures):
+    scored = score(rules, digest, reference, fixtures)
+    for row in scored:
         if (row['decision'], row.get('error')) == (start['decision'], start['diagnostic']):
             failures.append(native[row['id']] | {'decision':row['decision'], 'diagnostic':row.get('error'), 'expressions':row['cost']})
     smallest = reduction['smallest']
@@ -75,12 +77,32 @@ def measure(chess, reduction, rules, digest, reference):
     all_counts = Counter(row['pieces'] for row in failures)
     exact_counts = Counter(row['pieces'] for row in same_replies)
     minimum, exact_minimum = min(all_counts), min(exact_counts)
+    # Include only neighbors that pass the same independent chess checks as the parent.
+    parent = chess.Board(smallest['fen'] + ' 0 1')
+    removed_square = {smallest['fen']: None}
+    for square in set(parent.piece_map()).difference(fixed):
+        child = parent.copy(stack=False)
+        child.remove_piece_at(square)
+        if child.is_valid():
+            removed_square[REFEREE['fen'](child)] = chess.square_name(square)
+    neighbors = [item for item in fixtures if item['fen'] in removed_square]
+    neighbors.sort(key=lambda item: removed_square[item['fen']] or '')
+    selected_by_id = {row['id']:row for row in scored}
+    comparisons = []
+    for item, prior_row in zip(neighbors, score(PRIOR_RULES, prior_digest, reference, neighbors), strict=True):
+        key = item['id']
+        selected_row = selected_by_id[key]
+        comparisons.append({'removedSquare':removed_square[item['fen']], 'fen':item['fen'],
+                            'nativeReplies':native[key]['replies'], 'nativeVerdict':start['native'],
+                            'prior':{field:value for field,value in prior_row.items() if field!='id'},
+                            'selected':{field:value for field,value in selected_row.items() if field!='id'}})
     return {'id':reduction['id'], 'source':start['fen'], 'uci':start['uci'], 'claim':start['claim'],
             'optionalSquares':[chess.square_name(i) for i in optional], 'subsets':examined, 'chessQualified':len(fixtures),
             'failuresByPieceCount':dict(all_counts), 'minimumPieces':minimum,
             'minimumWitnesses':[row for row in failures if row['pieces'] == minimum],
             'matchingReducedReplyListByPieceCount':dict(exact_counts), 'minimumWithExactReplyList':exact_minimum,
-            'minimumExactReplyWitnesses':[row for row in same_replies if row['pieces'] == exact_minimum]}
+            'minimumExactReplyWitnesses':[row for row in same_replies if row['pieces'] == exact_minimum],
+            'publishedMinimumAndSingleDeletions':comparisons}
 
 
 def main():
@@ -94,11 +116,13 @@ def main():
     prior = json.loads((TRIAL/'supplemental/selected.json').read_bytes())
     digest = prior['rulesSha256']
     rules = TRIAL/'live/releases'/digest/'firestore.rules'
+    prior_digest = prior['minimizedReleaseComparison']['priorRulesSha256']
+    assert sha256(PRIOR_RULES.read_bytes()).hexdigest() == prior_digest
     assert sha256(rules.read_bytes()).hexdigest() == digest
     with TemporaryDirectory(prefix='sliding-subsets-') as temp:
         chess = REFEREE['load_chess'](args.python_chess_archive, Path(temp))
-        rows = [measure(chess, reduction, rules, digest, reference) for reduction in prior['reductions']['reductions']]
-    evidence = {'candidateRulesSha256':digest, 'refereeSourceSha256':REFEREE['PIN'],
+        rows = [measure(chess, reduction, rules, digest, prior_digest, reference) for reduction in prior['reductions']['reductions']]
+    evidence = {'candidateRulesSha256':digest, 'priorRulesSha256':prior_digest, 'refereeSourceSha256':REFEREE['PIN'],
                 'scope':'All subsets of pieces on the original starting squares. Both kings, mover, destination occupant, castling and en passant rights are held fixed. Compare only positions with the original legality, predecessor and successor check, native outcome, claim and same Rules failure class.',
                 'reductions':rows}
     args.output.write_text(json.dumps(evidence, indent=2)+'\n')

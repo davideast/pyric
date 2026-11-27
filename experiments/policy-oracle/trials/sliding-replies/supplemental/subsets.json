@@ -1,5 +1,6 @@
 {
   "candidateRulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "priorRulesSha256": "5365dc5183a2ef4d8a9af8443e4d35323fd7a4794e602c7a6fff36220a7e8380",
   "refereeSourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
   "scope": "All subsets of pieces on the original starting squares. Both kings, mover, destination occupant, castling and en passant rights are held fixed. Compare only positions with the original legality, predecessor and successor check, native outcome, claim and same Rules failure class.",
   "reductions": [
@@ -76,6 +77,83 @@
           "decision": "DENY",
           "diagnostic": "resource-limit",
           "expressions": 1000
+        }
+      ],
+      "publishedMinimumAndSingleDeletions": [
+        {
+          "removedSquare": null,
+          "fen": "kr6/4Q3/8/8/8/8/8/4K2R w K -",
+          "nativeReplies": [
+            "b8b1",
+            "b8b2",
+            "b8b3",
+            "b8b4",
+            "b8b5",
+            "b8b6",
+            "b8b7",
+            "b8c8",
+            "b8d8",
+            "b8e8",
+            "b8f8",
+            "b8g8",
+            "b8h8"
+          ],
+          "nativeVerdict": "ALLOW",
+          "prior": {
+            "decision": "ALLOW",
+            "cost": 839
+          },
+          "selected": {
+            "decision": "DENY",
+            "cost": 1000,
+            "error": "resource-limit"
+          }
+        },
+        {
+          "removedSquare": "b8",
+          "fen": "k7/4Q3/8/8/8/8/8/4K2R w K -",
+          "nativeReplies": [
+            "a8b8"
+          ],
+          "nativeVerdict": "ALLOW",
+          "prior": {
+            "decision": "ALLOW",
+            "cost": 893
+          },
+          "selected": {
+            "decision": "ALLOW",
+            "cost": 864
+          }
+        },
+        {
+          "removedSquare": "e7",
+          "fen": "kr6/8/8/8/8/8/8/4K2R w K -",
+          "nativeReplies": [
+            "a8a7",
+            "a8b7",
+            "b8b1",
+            "b8b2",
+            "b8b3",
+            "b8b4",
+            "b8b5",
+            "b8b6",
+            "b8b7",
+            "b8c8",
+            "b8d8",
+            "b8e8",
+            "b8f8",
+            "b8g8",
+            "b8h8"
+          ],
+          "nativeVerdict": "ALLOW",
+          "prior": {
+            "decision": "ALLOW",
+            "cost": 839
+          },
+          "selected": {
+            "decision": "ALLOW",
+            "cost": 924
+          }
         }
       ]
     },
@@ -277,6 +355,58 @@
           "decision": "ALLOW",
           "diagnostic": null,
           "expressions": 764
+        }
+      ],
+      "publishedMinimumAndSingleDeletions": [
+        {
+          "removedSquare": null,
+          "fen": "8/8/1p6/8/8/1kB5/3q4/KQ6 b - -",
+          "nativeReplies": [
+            "b1b2",
+            "c3b2"
+          ],
+          "nativeVerdict": "DENY",
+          "prior": {
+            "decision": "ALLOW",
+            "cost": 889
+          },
+          "selected": {
+            "decision": "ALLOW",
+            "cost": 764
+          }
+        },
+        {
+          "removedSquare": "b6",
+          "fen": "8/8/8/8/8/1kB5/3q4/KQ6 b - -",
+          "nativeReplies": [
+            "b1b2",
+            "c3b2"
+          ],
+          "nativeVerdict": "DENY",
+          "prior": {
+            "decision": "DENY",
+            "cost": 668
+          },
+          "selected": {
+            "decision": "DENY",
+            "cost": 576
+          }
+        },
+        {
+          "removedSquare": "c3",
+          "fen": "8/8/1p6/8/8/1k6/3q4/KQ6 b - -",
+          "nativeReplies": [
+            "b1b2"
+          ],
+          "nativeVerdict": "DENY",
+          "prior": {
+            "decision": "ALLOW",
+            "cost": 889
+          },
+          "selected": {
+            "decision": "DENY",
+            "cost": 836
+          }
         }
       ]
     }
