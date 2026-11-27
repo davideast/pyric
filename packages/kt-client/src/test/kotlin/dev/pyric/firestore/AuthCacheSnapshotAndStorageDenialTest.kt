@@ -516,4 +516,57 @@ class AuthCacheSnapshotAndStorageDenialTest {
             }
         }
     }
+
+    @Test
+    fun wireSnapshotArrivingAfterDisableNetworkAndOfflineWriteMarksIsFromCacheTrue() {
+        auth.setAuthLens(AuthLens.AsUser(uid = "alice-uid"))
+        val docRef = firestore.document("users/alice-uid/items/item-1")
+        val initialReady = CountDownLatch(1)
+        val offlineReady = CountDownLatch(1)
+        val observed = CopyOnWriteArrayList<Pair<Long?, SnapshotMetadata>>()
+
+        val reg = docRef.addSnapshotListener(MetadataChanges.INCLUDE) { snap, err ->
+            if (err == null && snap != null) {
+                val step = snap.getLong("step")
+                observed.add(step to snap.metadata)
+                if (observed.size == 1) initialReady.countDown()
+                if (step == 42L && snap.metadata.hasPendingWrites) offlineReady.countDown()
+            }
+        }
+        try {
+            assertTrue(initialReady.await(3, TimeUnit.SECONDS))
+            val activeSubId = subRecords.last { (_, sub) ->
+                (sub["target"] as? Map<*, *>)?.get("path") == "users/alice-uid/items/item-1"
+            }.first
+
+            Tasks.await(firestore.disableNetwork())
+            val writeTask = docRef.update("step", 42L)
+            // Simulate an in-flight wire frame arriving before the listener cancels its subscription.
+            transport.sendToClient(
+                JsonCodec.encodeToString(
+                    mapOf(
+                        "type" to "worker-snap",
+                        "subId" to activeSubId,
+                        "value" to mapOf(
+                            "id" to "item-1",
+                            "path" to "users/alice-uid/items/item-1",
+                            "exists" to true,
+                            "data" to mapOf("step" to 1L)
+                        )
+                    )
+                )
+            )
+            assertTrue(offlineReady.await(3, TimeUnit.SECONDS), "Expected offline pending write snapshot, observed=$observed")
+            val pendingSnapshots = observed.filter { it.first == 42L && it.second.hasPendingWrites }
+            assertTrue(pendingSnapshots.isNotEmpty(), "Expected offline pending write snapshot, observed=$observed")
+            assertTrue(
+                pendingSnapshots.all { it.second.isFromCache },
+                "Every offline pending write snapshot must have isFromCache=true, observed=$observed"
+            )
+            Tasks.await(firestore.enableNetwork())
+            Tasks.await(writeTask)
+        } finally {
+            reg.remove()
+        }
+    }
 }
