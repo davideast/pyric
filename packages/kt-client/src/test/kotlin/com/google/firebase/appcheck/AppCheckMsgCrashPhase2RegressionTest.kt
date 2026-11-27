@@ -195,6 +195,26 @@ class AppCheckMsgCrashPhase2RegressionTest {
         assertThrows(ExecutionException::class.java) {
             Tasks.await(crash.getState(), 2, TimeUnit.SECONDS)
         }
+
+        // Immediate same-thread close before Dispatchers.IO enters launch must settle all tasks.
+        bridge.onFrame = {}
+        repeat(15) { i ->
+            val racingApp = testApp("crash-race-$i-${System.nanoTime()}")
+            val racing = FirebaseCrashlytics.getInstance(racingApp, client)
+            val tCheck = racing.checkForUnsentReports()
+            val tFlush = racing.flush()
+            val tState = racing.getState()
+            racing.close()
+            assertThrows(ExecutionException::class.java) {
+                Tasks.await(tCheck, 2, TimeUnit.SECONDS)
+            }
+            assertThrows(ExecutionException::class.java) {
+                Tasks.await(tFlush, 2, TimeUnit.SECONDS)
+            }
+            assertThrows(ExecutionException::class.java) {
+                Tasks.await(tState, 2, TimeUnit.SECONDS)
+            }
+        }
         client.disconnect()
         bridge.shutdown()
     }

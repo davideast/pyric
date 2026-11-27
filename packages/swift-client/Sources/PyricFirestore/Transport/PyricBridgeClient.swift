@@ -195,8 +195,13 @@ public actor PyricBridgeClient {
         get { localStreams.appCheckTokenProvider }
     }
 
-    package nonisolated func setAppCheckTokenProvider(_ provider: BridgeAppCheckTokenProvider?) {
-        localStreams.appCheckTokenProvider = provider
+    @discardableResult
+    package nonisolated func setAppCheckTokenProvider(_ provider: BridgeAppCheckTokenProvider?) -> UUID? {
+        localStreams.setAppCheckTokenProvider(provider)
+    }
+
+    package nonisolated func clearAppCheckTokenProvider(id: UUID) {
+        localStreams.clearAppCheckTokenProvider(id: id)
     }
 
     /// Synchronous snapshot of the latest connection state.
@@ -419,46 +424,7 @@ public actor PyricBridgeClient {
         setState(.attached)
         startHeartbeat(generation: generation)
 
-        while isCurrent(generation), isConnected, !socketRefusing {
-            drainPendingSubscriptions()
-            let batch = activeSubs
-                .filter { $0.value.sentInGeneration != generation }
-                .sorted { $0.value.sequence < $1.value.sequence }
-            guard !batch.isEmpty else { break }
-            var refused = false
-            for (subId, sub) in batch {
-                guard isCurrent(generation), isConnected, !socketRefusing else { break }
-                if pendingSubs.isCancelled(id: subId) {
-                    activeSubs.removeValue(forKey: subId)
-                    continue
-                }
-                guard var current = activeSubs[subId], current.sentInGeneration != generation else { continue }
-                current.sentInGeneration = generation
-                activeSubs[subId] = current
-                let wirePayload = await BridgeAppCheckAttachment.attachToSubPayload(
-                    sub.payload,
-                    tokenProvider: localStreams.appCheckTokenProvider
-                )
-                guard isCurrent(generation), isConnected, !socketRefusing, !pendingSubs.isCancelled(id: subId) else { break }
-                do {
-                    try await sendRaw(WorkerSubFrame(subId: subId, sub: wirePayload))
-                } catch is WebSocketSendRefusedError where canReopen {
-                    if activeSubs[subId]?.sentInGeneration == generation {
-                        activeSubs[subId]?.sentInGeneration = nil
-                    }
-                    if isCurrent(generation) {
-                        socketRefusing = true
-                    }
-                    refused = true
-                    break
-                } catch {
-                    // Keep `sentInGeneration = generation` so a non-refusal error
-                    // cannot spin the restore loop on this generation; the next
-                    // attach resets `sentInGeneration` for every live subscription.
-                }
-            }
-            if refused { break }
-        }
+        await restoreSubscriptions(generation: generation)
         if isCurrent(generation) {
             restoringSubscriptions = false
         }

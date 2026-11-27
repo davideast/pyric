@@ -223,6 +223,50 @@ extension PyricBridgeClient {
         }
     }
 
+    func restoreSubscriptions(generation: Int) async {
+        while isCurrent(generation), isConnected, !socketRefusing {
+            drainPendingSubscriptions()
+            let batch = activeSubs
+                .filter { $0.value.sentInGeneration != generation }
+                .sorted { $0.value.sequence < $1.value.sequence }
+            guard !batch.isEmpty else { break }
+            var refused = false
+            for (subId, _) in batch {
+                guard isCurrent(generation), isConnected, !socketRefusing else { break }
+                if pendingSubs.isCancelled(id: subId) {
+                    activeSubs.removeValue(forKey: subId)
+                    continue
+                }
+                guard let before = activeSubs[subId], before.sentInGeneration != generation else { continue }
+                let wirePayload = await BridgeAppCheckAttachment.attachToSubPayload(
+                    before.payload,
+                    tokenProvider: localStreams.appCheckTokenProvider
+                )
+                guard isCurrent(generation), isConnected, !socketRefusing else { break }
+                if pendingSubs.isCancelled(id: subId) {
+                    activeSubs.removeValue(forKey: subId)
+                    continue
+                }
+                guard var current = activeSubs[subId], current.sentInGeneration != generation else { continue }
+                current.sentInGeneration = generation
+                activeSubs[subId] = current
+                do {
+                    try await sendRaw(WorkerSubFrame(subId: subId, sub: wirePayload))
+                } catch is WebSocketSendRefusedError where canReopen {
+                    if activeSubs[subId]?.sentInGeneration == generation {
+                        activeSubs[subId]?.sentInGeneration = nil
+                    }
+                    if isCurrent(generation) { socketRefusing = true }
+                    refused = true
+                    break
+                } catch {
+                    // Non-refusal error keeps `sentInGeneration = generation` until next attach.
+                }
+            }
+            if refused { break }
+        }
+    }
+
     func sendSubFrame(id subId: String, generation: Int) async {
         guard isCurrent(generation), isConnected, !restoringSubscriptions, !socketRefusing else {
             return
@@ -231,25 +275,25 @@ extension PyricBridgeClient {
             activeSubs.removeValue(forKey: subId)
             return
         }
-        guard var sub = activeSubs[subId], sub.sentInGeneration != generation else {
+        guard let sub = activeSubs[subId], sub.sentInGeneration != generation else {
             return
         }
-        sub.sentInGeneration = generation
-        activeSubs[subId] = sub
         let wirePayload = await BridgeAppCheckAttachment.attachToSubPayload(
             sub.payload,
             tokenProvider: localStreams.appCheckTokenProvider
         )
         guard isCurrent(generation), isConnected, !restoringSubscriptions, !socketRefusing else {
-            if activeSubs[subId]?.sentInGeneration == generation {
-                activeSubs[subId]?.sentInGeneration = nil
-            }
             return
         }
         if pendingSubs.isCancelled(id: subId) {
             activeSubs.removeValue(forKey: subId)
             return
         }
+        guard var current = activeSubs[subId], current.sentInGeneration != generation else {
+            return
+        }
+        current.sentInGeneration = generation
+        activeSubs[subId] = current
         do {
             try await sendRaw(WorkerSubFrame(subId: subId, sub: wirePayload))
         } catch is WebSocketSendRefusedError where canReopen {

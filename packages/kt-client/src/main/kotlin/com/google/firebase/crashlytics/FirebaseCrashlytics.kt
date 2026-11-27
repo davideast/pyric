@@ -220,24 +220,10 @@ class FirebaseCrashlytics internal constructor(
         }
     }
 
-    fun checkForUnsentReports(): Task<Boolean> {
-        if (closed.get()) {
-            return Tasks.forException(IllegalStateException(CLOSED_MESSAGE))
-        }
-        val tcs = TaskCompletionSource<Boolean>()
-        scope.launch {
-            try {
-                val raw = bridgeClient.op("crashlytics.checkForUnsentReports", baseParams()) as? Map<*, *>
-                val hasUnsent = (raw?.get("hasUnsentReports") as? Boolean)
-                    ?: (((raw?.get("count") as? Number)?.toInt() ?: 0) > 0)
-                tcs.setResult(hasUnsent)
-            } catch (e: CancellationException) {
-                tcs.setException(IllegalStateException(CLOSED_MESSAGE, e))
-            } catch (e: Exception) {
-                tcs.setException(e)
-            }
-        }
-        return tcs.task
+    fun checkForUnsentReports(): Task<Boolean> = launchTask {
+        val raw = bridgeClient.op("crashlytics.checkForUnsentReports", baseParams()) as? Map<*, *>
+        (raw?.get("hasUnsentReports") as? Boolean)
+            ?: (((raw?.get("count") as? Number)?.toInt() ?: 0) > 0)
     }
 
     fun sendUnsentReports() {
@@ -262,43 +248,41 @@ class FirebaseCrashlytics internal constructor(
         previousExecutionCrashed = didCrash
     }
 
-    fun flush(): Task<Void?> {
-        if (closed.get()) {
-            return Tasks.forException(IllegalStateException(CLOSED_MESSAGE))
-        }
-        val tcs = TaskCompletionSource<Void?>()
-        scope.launch {
-            try {
-                bridgeClient.op("crashlytics.flush", baseParams())
-                tcs.setResult(null)
-            } catch (e: CancellationException) {
-                tcs.setException(IllegalStateException(CLOSED_MESSAGE, e))
-            } catch (e: Exception) {
-                tcs.setException(e)
-            }
-        }
-        return tcs.task
+    fun flush(): Task<Void?> = launchTask {
+        bridgeClient.op("crashlytics.flush", baseParams())
+        null
     }
 
-    fun getState(): Task<Map<String, Any?>> {
+    fun getState(): Task<Map<String, Any?>> = launchTask {
+        @Suppress("UNCHECKED_CAST")
+        val raw = (bridgeClient.op("crashlytics.getState", baseParams()) as? Map<String, Any?>)
+            ?: emptyMap()
+        val remoteDidCrash = raw["didCrashOnPreviousExecution"] as? Boolean
+        if (remoteDidCrash != null) {
+            previousExecutionCrashed = remoteDidCrash
+        }
+        raw
+    }
+
+    private fun <T> launchTask(block: suspend () -> T): Task<T> {
         if (closed.get()) {
             return Tasks.forException(IllegalStateException(CLOSED_MESSAGE))
         }
-        val tcs = TaskCompletionSource<Map<String, Any?>>()
-        scope.launch {
+        val tcs = TaskCompletionSource<T>()
+        val job = scope.launch {
             try {
-                @Suppress("UNCHECKED_CAST")
-                val raw = (bridgeClient.op("crashlytics.getState", baseParams()) as? Map<String, Any?>)
-                    ?: emptyMap()
-                val remoteDidCrash = raw["didCrashOnPreviousExecution"] as? Boolean
-                if (remoteDidCrash != null) {
-                    previousExecutionCrashed = remoteDidCrash
-                }
-                tcs.setResult(raw)
+                tcs.trySetResult(block())
             } catch (e: CancellationException) {
-                tcs.setException(IllegalStateException(CLOSED_MESSAGE, e))
+                tcs.trySetException(IllegalStateException(CLOSED_MESSAGE, e))
             } catch (e: Exception) {
-                tcs.setException(e)
+                tcs.trySetException(e)
+            }
+        }
+        job.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                tcs.trySetException(IllegalStateException(CLOSED_MESSAGE, cause))
+            } else if (cause != null) {
+                tcs.trySetException((cause as? Exception) ?: RuntimeException(cause))
             }
         }
         return tcs.task

@@ -111,6 +111,18 @@ private final class GateProviderFactory: AppCheckProviderFactory, @unchecked Sen
     func createProvider(with app: FirebaseApp) -> (any AppCheckProvider)? { provider }
 }
 
+private final class StaticProvider: AppCheckProvider, AppCheckProviderFactory, @unchecked Sendable {
+    let token: String
+    init(_ token: String) { self.token = token }
+    func createProvider(with app: FirebaseApp) -> (any AppCheckProvider)? { self }
+    func getToken() async throws -> AppCheckToken {
+        AppCheckToken(token: token, expirationDate: Date.distantFuture)
+    }
+    func getToken(completion handler: @escaping @Sendable (AppCheckToken?, Error?) -> Void) {
+        handler(AppCheckToken(token: token, expirationDate: Date.distantFuture), nil)
+    }
+}
+
 @Suite("PyricAppCheck Phase 2 Parity Regression Suite")
 struct AppCheckPhase2RegressionTests {
     @Test("P2-S12a/b/c: auto-attaches appCheckToken on ops/subs/HTTP headers, guards stale mint, and clamps distantFuture refresh")
@@ -161,6 +173,77 @@ struct AppCheckPhase2RegressionTests {
                 tokenProvider: client.appCheckTokenProvider
             )
             #expect(headers["X-Firebase-AppCheck"] == "tok-fresh")
+            await client.disconnect()
+        }
+    }
+
+    @Test("AppCheck eviction on same PyricBridgeClient preserves new instance provider")
+    func evictionPreservesNewBridgeTokenProvider() async throws {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let channel = StubAppCheckChannel { frame, ch in
+                let type = frame["type"] as? String
+                if type == "attach" {
+                    ch.pushServer([
+                        "type": "attach-ack",
+                        "protocol": 1,
+                        "peerConnected": true,
+                        "clientSessionId": "sess-evict",
+                    ])
+                } else if type == "worker-op", let id = frame["id"] as? String {
+                    ch.pushServer(["type": "worker-res", "id": id, "ok": true, "value": [:]])
+                }
+            }
+            let client = PyricBridgeClient(channel: channel)
+            try await client.connect()
+            let sharedName = "ac-evict-\(UUID().uuidString)"
+            AppCheck.setAppCheckProviderFactory(StaticProvider("tok-evict"))
+            let appA = FirebaseApp(name: sharedName)
+            let appB = FirebaseApp(name: sharedName)
+            let acA = AppCheck.appCheck(app: appA, bridgeClient: client)
+            let acB = AppCheck.appCheck(app: appB, bridgeClient: client)
+            #expect(acA !== acB)
+            #expect(client.appCheckTokenProvider != nil)
+            _ = try await client.op(method: "firestore.get", params: ["path": .string("items/2")])
+            let opFrame = channel.sentFrames.last { ($0["op"] as? [String: Any])?["method"] as? String == "firestore.get" }
+            #expect((opFrame?["op"] as? [String: Any])?["appCheckToken"] as? String == "tok-evict")
+            AppCheck.reset()
+            await client.disconnect()
+        }
+    }
+
+    @Test("Cancelling subscription while appCheckTokenProvider suspends emits neither unsub nor zombie sub")
+    func cancelDuringSubTokenFetchEmitsNoZombieFrames() async throws {
+        try await FirebaseGlobalTestGate.shared.withExclusiveAccess {
+            let channel = StubAppCheckChannel { frame, ch in
+                if frame["type"] as? String == "attach" {
+                    ch.pushServer([
+                        "type": "attach-ack",
+                        "protocol": 1,
+                        "peerConnected": true,
+                        "clientSessionId": "sess-zsub",
+                    ])
+                }
+            }
+            let client = PyricBridgeClient(channel: channel)
+            try await client.connect()
+            let gate = GateProvider()
+            client.setAppCheckTokenProvider {
+                try? await gate.getToken().token
+            }
+            let subTask = Task {
+                let stream = client.subscribe(target: ["kind": "doc", "path": "items/z"])
+                for try await _ in stream {}
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+            subTask.cancel()
+            try await Task.sleep(nanoseconds: 25_000_000)
+            gate.releaseFirst(AppCheckToken(token: "tok-late", expirationDate: Date.distantFuture))
+            try await Task.sleep(nanoseconds: 25_000_000)
+            let subFrames = channel.sentFrames.filter {
+                let t = $0["type"] as? String
+                return t == "worker-sub" || t == "worker-unsub"
+            }
+            #expect(subFrames.isEmpty)
             await client.disconnect()
         }
     }

@@ -55,6 +55,7 @@ public final class AppCheck: NSObject, @unchecked Sendable {
     private var _bridgeClient: PyricBridgeClient
     private let explicitBridgeClient: PyricBridgeClient?
     private var bridgeObserverId: UUID?
+    private var bridgeTokenProviderId: UUID?
     private let notificationCenter: NotificationCenter
     private let clockNow: @Sendable () -> Date
 
@@ -492,7 +493,7 @@ public final class AppCheck: NSObject, @unchecked Sendable {
     }
 
     private func installBridgeTokenProvider(on client: PyricBridgeClient) {
-        client.setAppCheckTokenProvider { [weak self] in
+        let regId = client.setAppCheckTokenProvider { [weak self] in
             guard let self, self.hasInstalledProvider else { return nil }
             do {
                 return try await self.token(forcingRefresh: false).token
@@ -500,26 +501,30 @@ public final class AppCheck: NSObject, @unchecked Sendable {
                 return Self.placeholderToken
             }
         }
+        stateLock.lock()
+        let keep = (_bridgeClient === client && installedProvider != nil)
+        if keep { bridgeTokenProviderId = regId }
+        stateLock.unlock()
+        if !keep, let regId { client.clearAppCheckTokenProvider(id: regId) }
     }
 
     private func applySharedBridgeClient(_ nextClient: PyricBridgeClient) {
-        let (prev, shouldInstall): (PyricBridgeClient, Bool) = {
+        let (prev, prevTokenId, shouldInstall): (PyricBridgeClient, UUID?, Bool) = {
             stateLock.lock()
             defer { stateLock.unlock() }
             let previous = _bridgeClient
+            let changed = previous !== nextClient
+            let tokenId = changed ? bridgeTokenProviderId : nil
+            if changed { bridgeTokenProviderId = nil }
             _bridgeClient = nextClient
-            return (previous, installedProvider != nil)
+            return (previous, tokenId, installedProvider != nil && (changed || bridgeTokenProviderId == nil))
         }()
-        if prev !== nextClient {
-            prev.setAppCheckTokenProvider(nil)
-        }
-        if shouldInstall {
-            installBridgeTokenProvider(on: nextClient)
-        }
+        if let prevTokenId { prev.clearAppCheckTokenProvider(id: prevTokenId) }
+        if shouldInstall { installBridgeTokenProvider(on: nextClient) }
     }
 
     private func dispose() {
-        let (observerId, currentClient): (UUID?, PyricBridgeClient) = {
+        let (observerId, tokenId, currentClient): (UUID?, UUID?, PyricBridgeClient) = {
             stateLock.lock()
             defer { stateLock.unlock() }
             mintGeneration &+= 1
@@ -532,12 +537,12 @@ public final class AppCheck: NSObject, @unchecked Sendable {
             installedProvider = nil
             let id = bridgeObserverId
             bridgeObserverId = nil
-            return (id, _bridgeClient)
+            let tokId = bridgeTokenProviderId
+            bridgeTokenProviderId = nil
+            return (id, tokId, _bridgeClient)
         }()
-        currentClient.setAppCheckTokenProvider(nil)
-        if let observerId {
-            app.removeBridgeObserver(observerId)
-        }
+        if let tokenId { currentClient.clearAppCheckTokenProvider(id: tokenId) }
+        if let observerId { app.removeBridgeObserver(observerId) }
     }
 
     private static func getOrCreateUnconfiguredDefault(app: FirebaseApp) -> AppCheck {
