@@ -1,0 +1,61 @@
+{
+  "receipt": "eda0227b3bb2de430a527b1ff1dada0b235bcf34cd2115d0bfb3369f8bd6ebe1",
+  "authority": "Google Rules Test API synthetic get",
+  "sourceSha256": "f3881561d70fdc7346107b5f729f9a844dbe31ea2ef6a6ff26ace74ea8774843",
+  "httpStatus": 200,
+  "results": [
+    {
+      "group": "two",
+      "expected": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "two",
+      "expected": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "eight",
+      "expected": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "eight",
+      "expected": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "twelve",
+      "expected": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "twelve",
+      "expected": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "left",
+      "expected": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "left",
+      "expected": "DENY",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "right",
+      "expected": "ALLOW",
+      "state": "SUCCESS"
+    },
+    {
+      "group": "right",
+      "expected": "DENY",
+      "state": "SUCCESS"
+    }
+  ],
+  "compileErrors": [],
+  "caseWrites": 0,
+  "releasesActivated": 0
+}
