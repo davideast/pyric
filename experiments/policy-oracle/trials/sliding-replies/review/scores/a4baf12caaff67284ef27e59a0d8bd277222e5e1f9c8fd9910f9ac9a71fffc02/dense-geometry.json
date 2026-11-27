@@ -1,0 +1,22 @@
+{
+  "authority": "independent native attack geometry and the pinned local Rules evaluator",
+  "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "positiveParentInputsSha256": "a8d8224222c21ff04fc22ebc07a9090b922f3957d8a5a13dda96f54f463dfea3",
+  "geometryFamilies": {
+    "friendly-blocker-1": 2137,
+    "friendly-blocker-2": 2141,
+    "rook-replaces-diagonal-checker": 2389,
+    "checker-at-distance-1": 2376,
+    "checker-at-distance-2": 2376,
+    "checker-at-distance-4": 1350,
+    "checker-at-distance-5": 779
+  },
+  "nativeInCheck": 7869,
+  "rulesSha256": "a4baf12caaff67284ef27e59a0d8bd277222e5e1f9c8fd9910f9ac9a71fffc02",
+  "inputsSha256": "df0144e95375ac03e0729c6a9a9c72acddd4b05f1efb96b56ff0af7eb0460a4d",
+  "boards": 13548,
+  "incorrectTriggers": 0,
+  "evaluationErrors": 0,
+  "firstIncorrect": null,
+  "firstError": null
+}

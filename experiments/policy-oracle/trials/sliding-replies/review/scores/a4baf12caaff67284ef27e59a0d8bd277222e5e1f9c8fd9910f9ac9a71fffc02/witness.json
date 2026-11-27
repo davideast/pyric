@@ -1,0 +1,3187 @@
+{
+  "authority": "pinned independent local Rules evaluator on the emitted helper and original write paths",
+  "rulesSha256": "a4baf12caaff67284ef27e59a0d8bd277222e5e1f9c8fd9910f9ac9a71fffc02",
+  "diagnosticRulesSha256": "595a62d21653c1b11eb362e6f2e8f6b070d69e1428150a79cc0cf922bbdd96a5",
+  "interface": {
+    "status": "present",
+    "missing": []
+  },
+  "focused": [
+    {
+      "id": "rook-c5-after-queen",
+      "supported": true,
+      "code": 3432,
+      "move": "c5c8",
+      "expected": [
+        "c5c8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 160
+    },
+    {
+      "id": "rook-h5-after-queen",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 151
+    },
+    {
+      "id": "bishop-e5-clear",
+      "supported": true,
+      "code": 3591,
+      "move": "e5b8",
+      "expected": [
+        "e5b8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 164
+    },
+    {
+      "id": "bishop-e5-d6-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 155
+    },
+    {
+      "id": "bishop-b6-clear",
+      "supported": true,
+      "code": 4153,
+      "move": "b6d8",
+      "expected": [
+        "b6d8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 164
+    },
+    {
+      "id": "bishop-b6-c7-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 155
+    },
+    {
+      "id": "bishop-b7-free",
+      "supported": true,
+      "code": 4952,
+      "move": "b7c8",
+      "expected": [
+        "b7c8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 164
+    },
+    {
+      "id": "bishop-b7-pinned",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 155
+    },
+    {
+      "id": "queen-rank-clear",
+      "supported": true,
+      "code": 232,
+      "move": "c1c8",
+      "expected": [
+        "c1c8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 172
+    },
+    {
+      "id": "queen-rank-c4-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 163
+    },
+    {
+      "id": "queen-file-clear",
+      "supported": true,
+      "code": 1627,
+      "move": "a3h3",
+      "expected": [
+        "a3h3"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 188
+    },
+    {
+      "id": "queen-file-d3-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 179
+    },
+    {
+      "id": "queen-diagonal-clear",
+      "supported": true,
+      "code": 5243,
+      "move": "f7d5",
+      "expected": [
+        "f7d5"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 232
+    },
+    {
+      "id": "queen-diagonal-e6-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 223
+    },
+    {
+      "id": "queen-capture-clear",
+      "supported": true,
+      "code": 1356,
+      "move": "g2g8",
+      "expected": [
+        "g2g8"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 172
+    },
+    {
+      "id": "queen-capture-g3-blocker",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 163
+    },
+    {
+      "id": "queen-captures-only-checker",
+      "supported": true,
+      "code": 5243,
+      "move": "f7d5",
+      "expected": [
+        "f7d5"
+      ],
+      "outcome": "legal-witness",
+      "expressions": 232
+    },
+    {
+      "id": "queen-capture-leaves-rook-check",
+      "supported": true,
+      "code": -1,
+      "move": null,
+      "expected": [],
+      "outcome": "correct-absence",
+      "expressions": 181
+    }
+  ],
+  "routes": [
+    {
+      "id": "rook-c5-after-queen-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 833,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3432,
+          "move": "c5c8"
+        }
+      ]
+    },
+    {
+      "id": "rook-c5-after-queen-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "rook-c5-after-queen-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 712,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3432,
+          "move": "c5c8"
+        }
+      ]
+    },
+    {
+      "id": "rook-h5-after-queen-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 744,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "rook-h5-after-queen-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "rook-h5-after-queen-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 879,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 837,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3591,
+          "move": "e5b8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-e5-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 716,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 3591,
+          "move": "e5b8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-d6-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 782,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-e5-d6-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-e5-d6-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 917,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 837,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4153,
+          "move": "b6d8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b6-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 716,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4153,
+          "move": "b6d8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-c7-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 782,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b6-c7-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b6-c7-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 917,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-free-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 837,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4952,
+          "move": "b7c8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-free-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b7-free-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 716,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 4952,
+          "move": "b7c8"
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-pinned-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 748,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "bishop-b7-pinned-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "bishop-b7-pinned-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 883,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 845,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 232,
+          "move": "c1c8"
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-rank-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 724,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 232,
+          "move": "c1c8"
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-c4-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 790,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-rank-c4-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-rank-c4-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 925,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-file-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 856,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1627,
+          "move": "a3h3"
+        }
+      ]
+    },
+    {
+      "id": "queen-file-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 582,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-file-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 735,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1627,
+          "move": "a3h3"
+        }
+      ]
+    },
+    {
+      "id": "queen-file-d3-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 801,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-file-d3-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 582,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-file-d3-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 936,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 905,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 601,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-diagonal-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 784,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-e6-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 850,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-diagonal-e6-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 601,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-diagonal-e6-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 985,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-clear-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 845,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1356,
+          "move": "g2g8"
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-clear-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-capture-clear-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 724,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 1356,
+          "move": "g2g8"
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-g3-blocker-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 790,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-g3-blocker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 580,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-capture-g3-blocker-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 925,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-captures-only-checker-playing",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 924,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-captures-only-checker-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 620,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-captures-only-checker-won",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 803,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": 5243,
+          "move": "f7d5"
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-leaves-rook-check-playing",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 793,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    },
+    {
+      "id": "queen-capture-leaves-rook-check-draw",
+      "expected": "DENY",
+      "local": "DENY",
+      "error": null,
+      "expressions": 606,
+      "branch": "slider-status-short-circuit",
+      "guard": [
+        true
+      ],
+      "actualWitness": []
+    },
+    {
+      "id": "queen-capture-leaves-rook-check-won",
+      "expected": "ALLOW",
+      "local": "ALLOW",
+      "error": null,
+      "expressions": 928,
+      "branch": "witness-called",
+      "guard": [
+        true
+      ],
+      "actualWitness": [
+        {
+          "callee": "slideTypedb",
+          "code": -1,
+          "move": null
+        }
+      ]
+    }
+  ],
+  "materialAudit": {
+    "focused": {
+      "promises": {
+        "rook": {
+          "included": 2,
+          "overincluded": 16
+        },
+        "bishop": {
+          "included": 8,
+          "overincluded": 10
+        },
+        "queen": {
+          "included": 18
+        },
+        "queen-with-knight-or-rooks": {
+          "included": 18
+        },
+        "including-sole-knight": {
+          "included": 18
+        }
+      },
+      "firstMismatch": {
+        "rook": {
+          "overincluded": {
+            "id": "bishop-e5-clear",
+            "successor": "k5Q1/8/K7/4b3/8/8/8/8 b - -"
+          }
+        },
+        "bishop": {
+          "overincluded": {
+            "id": "queen-rank-clear",
+            "successor": "k5Q1/8/K7/8/8/8/8/2q5 b - -"
+          }
+        }
+      },
+      "qualification": {
+        "rook": {
+          "boards": 18,
+          "eligible": 2,
+          "verifiedWitnesses": 2,
+          "guardDisagreements": 16,
+          "passes": false
+        },
+        "bishop": {
+          "boards": 18,
+          "eligible": 8,
+          "verifiedWitnesses": 8,
+          "guardDisagreements": 10,
+          "passes": false
+        },
+        "queen": {
+          "boards": 18,
+          "eligible": 18,
+          "verifiedWitnesses": 18,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "queen-with-knight-or-rooks": {
+          "boards": 18,
+          "eligible": 18,
+          "verifiedWitnesses": 18,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "including-sole-knight": {
+          "boards": 18,
+          "eligible": 18,
+          "verifiedWitnesses": 18,
+          "guardDisagreements": 0,
+          "passes": true
+        }
+      }
+    },
+    "panel": {
+      "promises": {
+        "rook": {
+          "included": 464,
+          "overincluded": 1438,
+          "excluded": 330
+        },
+        "bishop": {
+          "included": 1064,
+          "overincluded": 838,
+          "excluded": 330
+        },
+        "queen": {
+          "included": 1700,
+          "overincluded": 202,
+          "excluded": 330
+        },
+        "queen-with-knight-or-rooks": {
+          "included": 1902,
+          "excluded": 330
+        },
+        "including-sole-knight": {
+          "included": 1902,
+          "excluded": 330
+        }
+      },
+      "firstMismatch": {
+        "rook": {
+          "overincluded": {
+            "id": "bishop-e5-clear-t0-swap0",
+            "successor": "k5Q1/8/K7/4b3/8/8/8/8 b - -"
+          }
+        },
+        "bishop": {
+          "overincluded": {
+            "id": "queen-rank-clear-t0-swap0",
+            "successor": "k5Q1/8/K7/8/8/8/8/2q5 b - -"
+          }
+        },
+        "queen": {
+          "overincluded": {
+            "id": "sample-w-corner-r-r-defender-1-0",
+            "successor": "K6r/8/3R4/8/5N2/8/7k/8 w - -"
+          }
+        }
+      },
+      "qualification": {
+        "rook": {
+          "boards": 2232,
+          "eligible": 464,
+          "verifiedWitnesses": 464,
+          "guardDisagreements": 1438,
+          "passes": false
+        },
+        "bishop": {
+          "boards": 2232,
+          "eligible": 1064,
+          "verifiedWitnesses": 1064,
+          "guardDisagreements": 838,
+          "passes": false
+        },
+        "queen": {
+          "boards": 2232,
+          "eligible": 1700,
+          "verifiedWitnesses": 1700,
+          "guardDisagreements": 202,
+          "passes": false
+        },
+        "queen-with-knight-or-rooks": {
+          "boards": 2232,
+          "eligible": 1902,
+          "verifiedWitnesses": 1902,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "including-sole-knight": {
+          "boards": 2232,
+          "eligible": 1902,
+          "verifiedWitnesses": 1902,
+          "guardDisagreements": 0,
+          "passes": true
+        }
+      }
+    },
+    "otherTurns": {
+      "promises": {
+        "rook": {
+          "included": 128,
+          "overincluded": 364,
+          "excluded": 72
+        },
+        "bishop": {
+          "included": 332,
+          "overincluded": 160,
+          "excluded": 72
+        },
+        "queen": {
+          "included": 492,
+          "excluded": 72
+        },
+        "queen-with-knight-or-rooks": {
+          "included": 492,
+          "excluded": 72
+        },
+        "including-sole-knight": {
+          "included": 492,
+          "excluded": 72
+        }
+      },
+      "firstMismatch": {
+        "rook": {
+          "overincluded": {
+            "id": "other-quiet-w-r-defender-pawn-1-0",
+            "successor": "2b5/8/8/5k2/1K6/P7/6R1/8 w - -"
+          }
+        },
+        "bishop": {
+          "overincluded": {
+            "id": "other-quiet-w-q-none-1-0",
+            "successor": "8/3K4/k7/4Q3/8/4b3/8/8 w - -"
+          }
+        }
+      },
+      "qualification": {
+        "rook": {
+          "boards": 564,
+          "eligible": 128,
+          "verifiedWitnesses": 128,
+          "guardDisagreements": 364,
+          "passes": false
+        },
+        "bishop": {
+          "boards": 564,
+          "eligible": 332,
+          "verifiedWitnesses": 332,
+          "guardDisagreements": 160,
+          "passes": false
+        },
+        "queen": {
+          "boards": 564,
+          "eligible": 492,
+          "verifiedWitnesses": 492,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "queen-with-knight-or-rooks": {
+          "boards": 564,
+          "eligible": 492,
+          "verifiedWitnesses": 492,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "including-sole-knight": {
+          "boards": 564,
+          "eligible": 492,
+          "verifiedWitnesses": 492,
+          "guardDisagreements": 0,
+          "passes": true
+        }
+      }
+    }
+  },
+  "fullWriteDerivation": {
+    "counts": {
+      "witness-used": 36,
+      "draw-short-circuit": 18
+    },
+    "firstFailure": {},
+    "byBoard": {
+      "rook-c5-after-queen": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "rook-h5-after-queen": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "bishop-e5-clear": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "bishop-e5-d6-blocker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "bishop-b6-clear": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "bishop-b6-c7-blocker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "bishop-b7-free": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "bishop-b7-pinned": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-rank-clear": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-rank-c4-blocker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-file-clear": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-file-d3-blocker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-diagonal-clear": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-diagonal-e6-blocker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-capture-clear": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-capture-g3-blocker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-captures-only-checker": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      },
+      "queen-capture-leaves-rook-check": {
+        "required": 2,
+        "verified": 2,
+        "claims": {
+          "playing": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "DENY",
+                "error": null
+              },
+              "present": {
+                "decision": "ALLOW",
+                "error": null
+              }
+            }
+          },
+          "draw": {
+            "category": "draw-short-circuit"
+          },
+          "won": {
+            "category": "witness-used",
+            "forced": {
+              "absent": {
+                "decision": "ALLOW",
+                "error": null
+              },
+              "present": {
+                "decision": "DENY",
+                "error": null
+              }
+            }
+          }
+        }
+      }
+    },
+    "forcedAbsenceRulesSha256": "2e987c4f4c9b748030feaf3a58d0ce7f8f5ca36ccceff6895b51ae067b563f6f",
+    "forcedPresenceRulesSha256": "588b9a8a939bd2318caa7c5523adb8d199c3ac5369e847fc6cd07d736a45d5ef"
+  },
+  "rosterControls": {
+    "inputsAndRepliesSha256": "5bf06c886b734fd66d374f03581a16aa857c6bd7b2a0b55ae999cfc8388df21c",
+    "scores": [
+      {
+        "id": "slider-and-knight-only-evasion",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 151
+      },
+      {
+        "id": "slider-and-knight-only-evasion-mirrored",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 151
+      },
+      {
+        "id": "sole-knight-only-evasion",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 80
+      },
+      {
+        "id": "sole-knight-only-evasion-mirrored",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 78
+      },
+      {
+        "id": "sole-knight-stalemate",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 110
+      },
+      {
+        "id": "sole-knight-stalemate-mirrored",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 108
+      },
+      {
+        "id": "sole-knight-quiet-escape",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 110
+      },
+      {
+        "id": "sole-knight-quiet-escape-mirrored",
+        "supported": true,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 108
+      },
+      {
+        "id": "extra-knight-excluded",
+        "supported": false,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 151
+      },
+      {
+        "id": "extra-knight-excluded-mirrored",
+        "supported": false,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 151
+      },
+      {
+        "id": "only-second-rook",
+        "supported": true,
+        "code": 2676,
+        "move": "d4g4",
+        "expected": [
+          "d4g4"
+        ],
+        "outcome": "legal-witness",
+        "expressions": 366
+      },
+      {
+        "id": "only-second-rook-mirrored",
+        "supported": true,
+        "code": 3486,
+        "move": "d5g5",
+        "expected": [
+          "d5g5"
+        ],
+        "outcome": "legal-witness",
+        "expressions": 351
+      },
+      {
+        "id": "two-rook-origins",
+        "supported": true,
+        "code": 1346,
+        "move": "g2g7",
+        "expected": [
+          "c7c3",
+          "c7g7",
+          "g2g7"
+        ],
+        "outcome": "legal-witness",
+        "expressions": 224
+      },
+      {
+        "id": "two-rook-origins-mirrored",
+        "supported": true,
+        "code": 976,
+        "move": "c2g2",
+        "expected": [
+          "c2c6",
+          "c2g2",
+          "g7g2"
+        ],
+        "outcome": "legal-witness",
+        "expressions": 238
+      }
+    ],
+    "materialAudit": {
+      "promises": {
+        "rook": {
+          "overincluded": 12,
+          "excluded": 2
+        },
+        "bishop": {
+          "overincluded": 12,
+          "excluded": 2
+        },
+        "queen": {
+          "overincluded": 12,
+          "excluded": 2
+        },
+        "queen-with-knight-or-rooks": {
+          "included": 6,
+          "overincluded": 6,
+          "excluded": 2
+        },
+        "including-sole-knight": {
+          "included": 12,
+          "excluded": 2
+        }
+      },
+      "firstMismatch": {
+        "rook": {
+          "overincluded": {
+            "id": "slider-and-knight-only-evasion",
+            "successor": "k5Q1/8/Kn6/7r/8/8/8/8 b - -"
+          }
+        },
+        "bishop": {
+          "overincluded": {
+            "id": "slider-and-knight-only-evasion",
+            "successor": "k5Q1/8/Kn6/7r/8/8/8/8 b - -"
+          }
+        },
+        "queen": {
+          "overincluded": {
+            "id": "slider-and-knight-only-evasion",
+            "successor": "k5Q1/8/Kn6/7r/8/8/8/8 b - -"
+          }
+        },
+        "queen-with-knight-or-rooks": {
+          "overincluded": {
+            "id": "sole-knight-only-evasion",
+            "successor": "k5Q1/8/Kn6/8/8/8/8/8 b - -"
+          }
+        }
+      },
+      "qualification": {
+        "rook": {
+          "boards": 14,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 12,
+          "passes": false
+        },
+        "bishop": {
+          "boards": 14,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 12,
+          "passes": false
+        },
+        "queen": {
+          "boards": 14,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 12,
+          "passes": false
+        },
+        "queen-with-knight-or-rooks": {
+          "boards": 14,
+          "eligible": 6,
+          "verifiedWitnesses": 6,
+          "guardDisagreements": 6,
+          "passes": false
+        },
+        "including-sole-knight": {
+          "boards": 14,
+          "eligible": 12,
+          "verifiedWitnesses": 12,
+          "guardDisagreements": 0,
+          "passes": true
+        }
+      }
+    },
+    "routes": [
+      {
+        "id": "slider-and-knight-only-evasion-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 924,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "slider-and-knight-only-evasion-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 580,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "slider-and-knight-only-evasion-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 803,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "slider-and-knight-only-evasion-mirrored-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 935,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "slider-and-knight-only-evasion-mirrored-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 587,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "slider-and-knight-only-evasion-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 812,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-only-evasion-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 853,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-only-evasion-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 580,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sole-knight-only-evasion-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 732,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-only-evasion-mirrored-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 862,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-only-evasion-mirrored-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 587,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sole-knight-only-evasion-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 739,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-stalemate-playing",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 725,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-stalemate-draw",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 861,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-stalemate-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 581,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sole-knight-stalemate-mirrored-playing",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 732,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-stalemate-mirrored-draw",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 870,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-stalemate-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 588,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sole-knight-quiet-escape-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 850,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-quiet-escape-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 730,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-quiet-escape-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 578,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sole-knight-quiet-escape-mirrored-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 865,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-quiet-escape-mirrored-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 743,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": -1,
+            "move": null
+          }
+        ]
+      },
+      {
+        "id": "sole-knight-quiet-escape-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 591,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "extra-knight-excluded-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 668,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "extra-knight-excluded-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 558,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "extra-knight-excluded-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 575,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "extra-knight-excluded-mirrored-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 681,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "extra-knight-excluded-mirrored-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 565,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "extra-knight-excluded-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 584,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "only-second-rook-playing",
+        "expected": "ALLOW",
+        "local": "DENY",
+        "error": "resource-limit",
+        "expressions": 1000,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": 2676,
+            "move": "d4g4"
+          }
+        ]
+      },
+      {
+        "id": "only-second-rook-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 608,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "only-second-rook-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 927,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": 2676,
+            "move": "d4g4"
+          }
+        ]
+      },
+      {
+        "id": "only-second-rook-mirrored-playing",
+        "expected": "ALLOW",
+        "local": "DENY",
+        "error": "resource-limit",
+        "expressions": 1000,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": 3486,
+            "move": "d5g5"
+          }
+        ]
+      },
+      {
+        "id": "only-second-rook-mirrored-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 594,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "only-second-rook-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 903,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": 3486,
+            "move": "d5g5"
+          }
+        ]
+      },
+      {
+        "id": "two-rook-origins-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 910,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": 1346,
+            "move": "g2g7"
+          }
+        ]
+      },
+      {
+        "id": "two-rook-origins-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 603,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "two-rook-origins-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 787,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedw",
+            "code": 1346,
+            "move": "g2g7"
+          }
+        ]
+      },
+      {
+        "id": "two-rook-origins-mirrored-playing",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 899,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": 976,
+            "move": "c2g2"
+          }
+        ]
+      },
+      {
+        "id": "two-rook-origins-mirrored-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 589,
+        "branch": "slider-status-short-circuit",
+        "guard": [
+          true
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "two-rook-origins-mirrored-won",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 778,
+        "branch": "witness-called",
+        "guard": [
+          true
+        ],
+        "actualWitness": [
+          {
+            "callee": "slideTypedb",
+            "code": 976,
+            "move": "c2g2"
+          }
+        ]
+      }
+    ]
+  },
+  "panel": {
+    "inputsAndRepliesSha256": "5c4e2de98be4c3663c88ecbb05324b18d7e2373033c6c9d8a0d090a3db2e1167",
+    "boards": 2232,
+    "scopes": {
+      "guard-true": {
+        "legal-witness": 919,
+        "correct-absence": 983
+      },
+      "guard-false": {
+        "missed-reply": 145,
+        "illegal-witness": 14,
+        "correct-absence": 131,
+        "legal-witness": 40
+      }
+    },
+    "byFamily": {
+      "transformed-rook": {
+        "guard-true/legal-witness": 16,
+        "guard-true/correct-absence": 16
+      },
+      "transformed-bishop": {
+        "guard-true/legal-witness": 48,
+        "guard-true/correct-absence": 48
+      },
+      "transformed-queen": {
+        "guard-true/legal-witness": 80,
+        "guard-true/correct-absence": 80
+      },
+      "stratified-none": {
+        "guard-true/legal-witness": 324,
+        "guard-true/correct-absence": 324
+      },
+      "stratified-attacker": {
+        "guard-true/legal-witness": 324,
+        "guard-true/correct-absence": 324
+      },
+      "stratified-defender": {
+        "guard-true/correct-absence": 191,
+        "guard-true/legal-witness": 127,
+        "guard-false/missed-reply": 145,
+        "guard-false/illegal-witness": 14,
+        "guard-false/correct-absence": 131,
+        "guard-false/legal-witness": 40
+      }
+    },
+    "byDefendingMaterial": {
+      "r": {
+        "guard-true/legal-witness": 232,
+        "guard-true/correct-absence": 232
+      },
+      "b": {
+        "guard-true/legal-witness": 264,
+        "guard-true/correct-absence": 232
+      },
+      "bp": {
+        "guard-true/correct-absence": 51,
+        "guard-true/legal-witness": 11
+      },
+      "q": {
+        "guard-true/legal-witness": 296,
+        "guard-true/correct-absence": 232
+      },
+      "pq": {
+        "guard-true/correct-absence": 90,
+        "guard-true/legal-witness": 18
+      },
+      "pr": {
+        "guard-true/correct-absence": 28,
+        "guard-true/legal-witness": 14
+      },
+      "nr": {
+        "guard-true/legal-witness": 17,
+        "guard-true/correct-absence": 30
+      },
+      "br": {
+        "guard-false/missed-reply": 43,
+        "guard-false/illegal-witness": 4,
+        "guard-false/correct-absence": 44,
+        "guard-false/legal-witness": 3
+      },
+      "qr": {
+        "guard-false/missed-reply": 27,
+        "guard-false/legal-witness": 12,
+        "guard-false/correct-absence": 24,
+        "guard-false/illegal-witness": 2
+      },
+      "bb": {
+        "guard-false/correct-absence": 27,
+        "guard-false/missed-reply": 19,
+        "guard-false/legal-witness": 9
+      },
+      "bq": {
+        "guard-false/missed-reply": 39,
+        "guard-false/correct-absence": 28,
+        "guard-false/legal-witness": 9,
+        "guard-false/illegal-witness": 8
+      },
+      "bn": {
+        "guard-true/legal-witness": 11,
+        "guard-true/correct-absence": 34
+      },
+      "nq": {
+        "guard-true/legal-witness": 26,
+        "guard-true/correct-absence": 35
+      },
+      "qq": {
+        "guard-false/correct-absence": 8,
+        "guard-false/missed-reply": 17,
+        "guard-false/legal-witness": 7
+      },
+      "rr": {
+        "guard-true/legal-witness": 30,
+        "guard-true/correct-absence": 19
+      }
+    },
+    "byFeature": {
+      "defender-b": {
+        "guard-true/legal-witness": 457,
+        "guard-true/correct-absence": 491,
+        "guard-false/missed-reply": 75,
+        "guard-false/correct-absence": 66,
+        "guard-false/illegal-witness": 8,
+        "guard-false/legal-witness": 19
+      },
+      "corner": {
+        "guard-true/legal-witness": 412,
+        "guard-true/correct-absence": 427,
+        "guard-false/missed-reply": 42,
+        "guard-false/illegal-witness": 5,
+        "guard-false/correct-absence": 39,
+        "guard-false/legal-witness": 11
+      },
+      "legal-interposition": {
+        "guard-true/legal-witness": 588,
+        "guard-false/missed-reply": 100,
+        "guard-false/legal-witness": 34,
+        "guard-false/illegal-witness": 9
+      },
+      "defender-w": {
+        "guard-true/legal-witness": 462,
+        "guard-true/correct-absence": 492,
+        "guard-false/missed-reply": 70,
+        "guard-false/illegal-witness": 6,
+        "guard-false/correct-absence": 65,
+        "guard-false/legal-witness": 21
+      },
+      "mate": {
+        "guard-true/correct-absence": 156,
+        "guard-false/correct-absence": 2
+      },
+      "pinned-slider": {
+        "guard-true/correct-absence": 21
+      },
+      "legal-capture": {
+        "guard-true/legal-witness": 396,
+        "guard-false/missed-reply": 70,
+        "guard-false/legal-witness": 22,
+        "guard-false/illegal-witness": 5
+      },
+      "double-check": {
+        "guard-true/correct-absence": 26
+      },
+      "king-reply": {
+        "guard-true/legal-witness": 764,
+        "guard-true/correct-absence": 823,
+        "guard-false/missed-reply": 144,
+        "guard-false/illegal-witness": 14,
+        "guard-false/correct-absence": 129,
+        "guard-false/legal-witness": 39
+      },
+      "multiple-slider-replies": {
+        "guard-false/missed-reply": 55,
+        "guard-true/legal-witness": 128,
+        "guard-false/legal-witness": 28,
+        "guard-false/illegal-witness": 7
+      },
+      "edge": {
+        "guard-true/legal-witness": 251,
+        "guard-true/correct-absence": 273,
+        "guard-false/legal-witness": 18,
+        "guard-false/missed-reply": 52,
+        "guard-false/correct-absence": 51,
+        "guard-false/illegal-witness": 3
+      },
+      "interior": {
+        "guard-true/legal-witness": 256,
+        "guard-true/correct-absence": 283,
+        "guard-false/missed-reply": 51,
+        "guard-false/correct-absence": 41,
+        "guard-false/legal-witness": 11,
+        "guard-false/illegal-witness": 6
+      }
+    },
+    "firstDivergences": {
+      "guard-false/missed-reply": {
+        "id": "sample-w-corner-r-r-defender-1-1",
+        "supported": false,
+        "code": -1,
+        "move": null,
+        "expected": [
+          "d7a4",
+          "e5a5"
+        ],
+        "outcome": "missed-reply",
+        "expressions": 169,
+        "source": "K7/3B4/5k2/4R3/8/8/8/1r6 b - -",
+        "uci": "b1a1",
+        "successor": "K7/3B4/5k2/4R3/8/8/8/r7 w - -",
+        "allReplies": [
+          "a8b7",
+          "a8b8",
+          "d7a4",
+          "e5a5"
+        ]
+      },
+      "guard-false/illegal-witness": {
+        "id": "sample-w-corner-r-r-defender-0-3",
+        "supported": false,
+        "code": 427,
+        "move": "f1h3",
+        "expected": [],
+        "outcome": "illegal-witness",
+        "expressions": 178,
+        "source": "8/8/8/2B1k3/8/6r1/8/5R1K b - -",
+        "uci": "g3h3",
+        "successor": "8/8/8/2B1k3/8/7r/8/5R1K w - -",
+        "allReplies": [
+          "h1g1",
+          "h1g2"
+        ]
+      }
+    },
+    "smallestSupportedDivergences": {},
+    "decisionsSha256": "ae30931024044638533be684415e3e593da2af14f00075086cf1c8bd0a58b3a4"
+  },
+  "otherTurns": {
+    "inputsAndRepliesSha256": "15441c2844502945ac90d07d9404ff9102a9f332c7da1339f33f7e1a5582326c",
+    "boards": 564,
+    "scopes": {
+      "guard-true": {
+        "legal-witness": 296,
+        "correct-absence": 196
+      },
+      "guard-false": {
+        "correct-absence": 36,
+        "legal-witness": 36
+      }
+    },
+    "byFamily": {
+      "quiet": {
+        "guard-true/legal-witness": 108
+      },
+      "pawn": {
+        "guard-true/correct-absence": 72,
+        "guard-true/legal-witness": 72,
+        "guard-false/correct-absence": 36,
+        "guard-false/legal-witness": 36
+      },
+      "knight": {
+        "guard-true/legal-witness": 108,
+        "guard-true/correct-absence": 108
+      },
+      "quiet-targeted": {
+        "guard-true/correct-absence": 16,
+        "guard-true/legal-witness": 8
+      }
+    },
+    "byDefendingMaterial": {
+      "r": {
+        "guard-true/legal-witness": 76,
+        "guard-true/correct-absence": 52
+      },
+      "pr": {
+        "guard-true/legal-witness": 24,
+        "guard-false/correct-absence": 12,
+        "guard-false/legal-witness": 12,
+        "guard-true/correct-absence": 16
+      },
+      "b": {
+        "guard-true/legal-witness": 72,
+        "guard-true/correct-absence": 52
+      },
+      "bp": {
+        "guard-true/legal-witness": 24,
+        "guard-false/correct-absence": 12,
+        "guard-false/legal-witness": 12,
+        "guard-true/correct-absence": 16
+      },
+      "q": {
+        "guard-true/legal-witness": 76,
+        "guard-true/correct-absence": 48
+      },
+      "pq": {
+        "guard-true/legal-witness": 24,
+        "guard-false/legal-witness": 12,
+        "guard-false/correct-absence": 12,
+        "guard-true/correct-absence": 12
+      }
+    },
+    "byFeature": {
+      "defender-w": {
+        "guard-true/legal-witness": 148,
+        "guard-true/correct-absence": 98,
+        "guard-false/correct-absence": 18,
+        "guard-false/legal-witness": 18
+      },
+      "interior": {
+        "guard-true/legal-witness": 167,
+        "guard-true/correct-absence": 100,
+        "guard-false/correct-absence": 21,
+        "guard-false/legal-witness": 22
+      },
+      "quiet-slide": {
+        "guard-true/legal-witness": 116
+      },
+      "king-reply": {
+        "guard-true/legal-witness": 296,
+        "guard-true/correct-absence": 196,
+        "guard-false/correct-absence": 36,
+        "guard-false/legal-witness": 36
+      },
+      "multiple-slider-replies": {
+        "guard-true/legal-witness": 115
+      },
+      "quiet": {
+        "guard-true/legal-witness": 116,
+        "guard-true/correct-absence": 16
+      },
+      "edge": {
+        "guard-true/legal-witness": 101,
+        "guard-true/correct-absence": 79,
+        "guard-false/correct-absence": 14,
+        "guard-false/legal-witness": 12
+      },
+      "legal-capture": {
+        "guard-true/legal-witness": 224,
+        "guard-false/legal-witness": 36
+      },
+      "corner": {
+        "guard-true/legal-witness": 28,
+        "guard-true/correct-absence": 17,
+        "guard-false/legal-witness": 2,
+        "guard-false/correct-absence": 1
+      },
+      "defender-b": {
+        "guard-true/legal-witness": 148,
+        "guard-true/correct-absence": 98,
+        "guard-false/legal-witness": 18,
+        "guard-false/correct-absence": 18
+      },
+      "pawn": {
+        "guard-true/correct-absence": 72,
+        "guard-true/legal-witness": 72,
+        "guard-false/correct-absence": 36,
+        "guard-false/legal-witness": 36
+      },
+      "knight": {
+        "guard-true/legal-witness": 108,
+        "guard-true/correct-absence": 108
+      },
+      "pinned-slider": {
+        "guard-true/correct-absence": 9,
+        "guard-true/legal-witness": 8
+      },
+      "targeted": {
+        "guard-true/correct-absence": 16,
+        "guard-true/legal-witness": 8
+      }
+    },
+    "firstDivergences": {},
+    "smallestSupportedDivergences": {},
+    "decisionsSha256": "36f020c0d4ca1067e594bc4394efb00c6e7c656c74866b11c39f475471c36c3f"
+  }
+}

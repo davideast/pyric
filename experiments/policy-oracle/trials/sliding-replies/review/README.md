@@ -42,3 +42,9 @@ python3 -B review/roster/generate.py "$CHESS_SOURCE"
 bun --no-install review/panel/arcade.mjs --roster
 bun --no-install review/witness.mjs "$PINNED_RULES_SDK" "$COMPLETE_RULES" --roster
 ```
+
+For a ruleset using the dense diagonal shortcut, the independent geometry challenge inserts a friendly blocker on either intervening square, substitutes a rook for the diagonal checker, and moves the checker to distances one, two, four and five. It retains native-valid positions in which no enemy bishop or queen delivers the exact three-step diagonal check, including positions still in a different kind of check. The emitted sufficient predicate must decline each of them.
+
+```sh
+python3 -B review/dense-geometry.py "$PINNED_RULES_SDK" "$COMPLETE_RULES" "$CHESS_SOURCE"
+```
