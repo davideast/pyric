@@ -34,6 +34,36 @@ def read(path):
 def timestamp(stamp):
     return datetime.fromisoformat(stamp.replace('Z','+00:00'))
 
+def same_json(left,right):
+    return json.dumps(left,sort_keys=True,separators=(',',':'))==json.dumps(right,sort_keys=True,separators=(',',':'))
+
+
+def exact_judgment(chess,actor,before,patch):
+    """Build the complete native document before comparing field presence and JSON values."""
+    board=SIGNED['board_from_doc'](chess,before)
+    valid=board.is_valid()
+    last=patch['lastMove']
+    move=chess.Move.from_uci(last['from']+last['to']+last['promotion'])
+    if not board.is_legal(move):
+        return False,valid,['illegal-move']
+    board.push(move)
+    squares=dict.fromkeys(chess.SQUARE_NAMES,'')
+    for sq,piece in board.piece_map().items():
+        squares[chess.square_name(sq)]=('w' if piece.color else 'b')+piece.symbol().lower()
+    extra=sorted(sq for sq in squares if squares[sq]!=before['board'][sq] and sq not in (last['from'],last['to']))
+    status='won' if board.is_checkmate() else 'draw' if board.is_stalemate() else 'playing'
+    expected={**before,'board':squares,'prevBoard':before['board'],'castling':board.castling_xfen().replace('-',''),
+              'prevCastling':before['castling'],'enPassant':chess.square_name(board.ep_square) if board.ep_square is not None else '',
+              'prevEnPassant':before['enPassant'],'currentTurn':'host' if board.turn else 'guest',
+              'winner':before['currentTurn'] if status=='won' else '','status':status,'moveCount':before['moveCount']+1,
+              'lastMove':{'from':chess.square_name(move.from_square),'to':chess.square_name(move.to_square),
+                          'promotion':chess.piece_symbol(move.promotion) if move.promotion else '','extra':extra}}
+    proposed=before|patch
+    different=sorted(key for key in expected.keys()|proposed.keys()
+                     if key not in expected or key not in proposed or not same_json(expected[key],proposed[key]))
+    if actor!=before[before['currentTurn']]: different.append('actor')
+    return not different,valid,different
+
 
 def public_form(value, roles, run):
     if isinstance(value,dict):
@@ -99,9 +129,9 @@ def read_capture(folder,name,rules,private):
         assert before['path']==after['path']==update['path'] and update['op']=='update',label
         assert before['created']==after['created'],label
         if raw['observed']=='ALLOW':
-            assert after['data']==(before['data']|update['data']) and timestamp(after['version'])>timestamp(before['version']),label
+            assert same_json(after['data'],before['data']|update['data']) and timestamp(after['version'])>timestamp(before['version']),label
         else:
-            assert raw['observed']=='DENY' and after==before,label
+            assert raw['observed']=='DENY' and same_json(after,before),label
     return evidence,{'capture':name,'caseCount':len(original['rows']),'controllerSha256':receipt,
                      'journalSha256':evidence['journalSha256'],'snapshotAndVersionVerified':True,
                      'restoredAndReleased':True}
@@ -160,10 +190,15 @@ def compare(rules,private,archive):
     checked=Counter()
     with tempfile.TemporaryDirectory(prefix='slide-signed-audit-') as tmp:
         engine=REF['load_chess'](archive,Path(tmp))
+        canary=prior['rook-safe']
+        actor=canary['actor'];old=canary['before'][0]['data'];proposal=canary['submitted'][0]['data']
+        assert exact_judgment(engine,actor,old,proposal)==(True,True,[])
+        amended=proposal|{'unexpectedNullField':None}
+        assert exact_judgment(engine,actor,old,amended)==(False,True,['unexpectedNullField'])
         for key,row in current.items():
             before=row['before'][0]['data']
             proposed=row['submitted'][0]['data']
-            accepted,valid,diffs=SIGNED['adjudicate'](engine,row['actor'],before,proposed)
+            accepted,valid,diffs=exact_judgment(engine,row['actor'],before,proposed)
             assert accepted==native[key],(key,diffs)
             if not valid: invalid.append(key)
             if key in focused:
@@ -185,7 +220,7 @@ def compare(rules,private,archive):
                                 'signedInputSha256':SIGNED['hash_json'](input_shape(row))}
             if not agree: mismatches[key]={'native':want,'observed':actual}
             if key in prior:
-                assert input_shape(prior[key])==input_shape(row),key
+                assert same_json(input_shape(prior[key]),input_shape(row)),key
                 before_matches=prior[key]['observed']==want
                 if before_matches!=agree: changes['repaired' if agree else 'regressed'].append(key)
                 elif not agree: changes['stillDisagree'].append(key)
@@ -194,6 +229,8 @@ def compare(rules,private,archive):
             'distinctWrites':len(current),'nativeRefereeSha256':REF['PIN'],'nativeComparedOnActualDocuments':len(adjudications),
             'priorIdenticalSignedOperands':len(set(prior)&set(current)),'focusCasesWithExactSuccessorAndCompleteReplies':len(set(focused)&set(current)),
             'nativeVersusFirestore':dict(checked),'captures':sources,'mismatches':mismatches,'oldCorpusChanges':changes,
+            'shapeSensitivityControl':{'source':'rook-safe','addedField':'unexpectedNullField','value':None,
+                                       'originalNative':'ALLOW','amendedNative':'DENY'},
             'invalidSourcePositions':invalid,'perCaseAdjudicationsSha256':SIGNED['hash_json'](adjudications)}
 
 
