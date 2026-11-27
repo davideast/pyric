@@ -228,56 +228,18 @@ void main() {
   });
 
   group('PyricReferencePlatform metadata, list pagination, and delete', () {
-    test('enforces caller write rules via beginUpload/abortUpload when storage.setMetadata requires admin plane', () async {
+    test('dispatches client-plane storage.updateMetadata without admin escalation or beginUpload probe', () async {
       final recordedOps = <Map<String, dynamic>>[];
-      var denyCallerWrite = false;
+      var denyCallerUpdate = false;
 
       fakeBridge.onFrame = (frame) {
         if (frame['type'] != 'worker-op') return;
         final op = Map<String, dynamic>.from(frame['op'] as Map);
         recordedOps.add(op);
         final method = op['method'];
-        final isAdmin = op['actAs'] is Map && (op['actAs'] as Map)['mode'] == 'admin';
 
-        if (method == 'storage.setMetadata' && !isAdmin) {
-          scheduleMicrotask(() {
-            fakeBridge.current.deliver(<String, dynamic>{
-              'type': 'worker-res',
-              'id': frame['id'],
-              'ok': false,
-              'error': <String, dynamic>{
-                'code': 'storage/unauthorized',
-                'message':
-                    'storage.setMetadata is the admin plane (firebase-admin File.setMetadata) and runs only on the admin lens.',
-              },
-            });
-          });
-          return;
-        }
-
-        if (method == 'storage.getMetadata' && isAdmin) {
-          scheduleMicrotask(() {
-            fakeBridge.current.deliver(<String, dynamic>{
-              'type': 'worker-res',
-              'id': frame['id'],
-              'ok': true,
-              'value': <String, dynamic>{
-                'bucket': 'demo-ref-bucket.appspot.com',
-                'fullPath': 'users/u1/doc.txt',
-                'name': 'doc.txt',
-                'size': 42,
-                'generation': '1',
-                'metageneration': '1',
-                'contentType': 'text/plain',
-                'customMetadata': <String, String>{'oldKey': 'oldVal', 'keepKey': 'v1'},
-              },
-            });
-          });
-          return;
-        }
-
-        if (method == 'storage.beginUpload') {
-          if (denyCallerWrite) {
+        if (method == 'storage.updateMetadata') {
+          if (denyCallerUpdate) {
             scheduleMicrotask(() {
               fakeBridge.current.deliver(<String, dynamic>{
                 'type': 'worker-res',
@@ -285,36 +247,12 @@ void main() {
                 'ok': false,
                 'error': <String, dynamic>{
                   'code': 'storage/unauthorized',
-                  'message': 'Write denied by Storage Rules.',
+                  'message': 'Update denied by Storage Rules.',
                 },
               });
             });
             return;
           }
-          scheduleMicrotask(() {
-            fakeBridge.current.deliver(<String, dynamic>{
-              'type': 'worker-res',
-              'id': frame['id'],
-              'ok': true,
-              'value': <String, dynamic>{'uploadId': 'stage-1'},
-            });
-          });
-          return;
-        }
-
-        if (method == 'storage.abortUpload') {
-          scheduleMicrotask(() {
-            fakeBridge.current.deliver(<String, dynamic>{
-              'type': 'worker-res',
-              'id': frame['id'],
-              'ok': true,
-              'value': null,
-            });
-          });
-          return;
-        }
-
-        if (method == 'storage.setMetadata' && isAdmin) {
           scheduleMicrotask(() {
             fakeBridge.current.deliver(<String, dynamic>{
               'type': 'worker-res',
@@ -350,20 +288,17 @@ void main() {
 
       expect(
         recordedOps.map((op) => op['method']).toList(),
-        equals(<String>[
-          'storage.setMetadata',
-          'storage.getMetadata',
-          'storage.beginUpload',
-          'storage.abortUpload',
-          'storage.setMetadata',
-        ]),
+        equals(<String>['storage.updateMetadata']),
       );
-      final adminPatch = (recordedOps.last['patch'] as Map)['customMetadata'] as Map;
-      expect(adminPatch, equals(<String, Object?>{'oldKey': null, 'keepKey': 'v2'}));
+      expect(recordedOps.single['replaceCustomMetadata'], isTrue);
+      final actAs = recordedOps.single['actAs'] as Map?;
+      expect(actAs?['mode'], isNot(equals('admin')));
+      final sentPatch = (recordedOps.single['patch'] as Map)['customMetadata'] as Map;
+      expect(sentPatch, equals(<String, Object?>{'keepKey': 'v2'}));
 
-      // When caller's session is denied by Storage Rules, beginUpload fails with unauthorized and admin setMetadata never runs.
+      // When caller's session is denied by Storage Rules, updateMetadata throws unauthorized immediately with zero fallback ops.
       recordedOps.clear();
-      denyCallerWrite = true;
+      denyCallerUpdate = true;
       await expectLater(
         ref.updateMetadata(SettableMetadata(contentType: 'text/csv')),
         throwsA(
@@ -374,7 +309,7 @@ void main() {
       );
       expect(
         recordedOps.map((op) => op['method']).toList(),
-        equals(<String>['storage.setMetadata', 'storage.getMetadata', 'storage.beginUpload']),
+        equals(<String>['storage.updateMetadata']),
       );
     });
 

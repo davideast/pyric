@@ -123,6 +123,7 @@ class _StatefulStorageFakeServer {
         _ok(id, meta);
         return;
 
+      case 'storage.updateMetadata':
       case 'storage.setMetadata':
         final path = op['path'] as String;
         final existing = metaByPath['$bucket|$path'];
@@ -130,16 +131,19 @@ class _StatefulStorageFakeServer {
           _fail(id, 'storage/object-not-found', 'Missing "$path".');
           return;
         }
-        final actAs = op['actAs'] as Map?;
-        if (actAs == null || actAs['mode'] != 'admin') {
-          _fail(
-            id,
-            'storage/unauthorized',
-            'storage.setMetadata is the admin plane (firebase-admin File.setMetadata) and runs only on the admin lens.',
-          );
-          return;
+        if (method == 'storage.setMetadata') {
+          final actAs = op['actAs'] as Map?;
+          if (actAs == null || actAs['mode'] != 'admin') {
+            _fail(
+              id,
+              'storage/unauthorized',
+              'storage.setMetadata is the admin plane (firebase-admin File.setMetadata) and runs only on the admin lens.',
+            );
+            return;
+          }
         }
         final patch = Map<String, dynamic>.from(op['patch'] as Map);
+        final replaceCustom = op['replaceCustomMetadata'] == true;
         final updated = Map<String, dynamic>.from(existing);
         final settable = patch['settable'] as Map?;
         if (settable != null) {
@@ -154,7 +158,7 @@ class _StatefulStorageFakeServer {
         }
         final customPatch = patch['customMetadata'] as Map?;
         if (customPatch != null) {
-          final mergedCustom = updated['customMetadata'] is Map
+          final mergedCustom = !replaceCustom && updated['customMetadata'] is Map
               ? Map<String, String>.from(updated['customMetadata'] as Map)
               : <String, String>{};
           customPatch.forEach((Object? k, Object? v) {

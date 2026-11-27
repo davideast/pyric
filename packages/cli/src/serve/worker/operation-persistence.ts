@@ -95,6 +95,7 @@ export const operationPersistence = {
   'storage.getDownloadURL': true,
   'storage.getBlob': false,
   'storage.setMetadata': true,
+  'storage.updateMetadata': true,
   'storage.putBytes': true,
   'storage.getBytes': false,
   'storage.beginUpload': true,

@@ -270,6 +270,28 @@ internal object BridgeStorageOperations {
         try {
             val raw = executeStorageOp(
                 reference,
+                "storage.updateMetadata",
+                mapOf("path" to reference.wirePath, "patch" to patchWire),
+                timeoutMs
+            )
+            return parseMetadataReply(raw, reference)
+        } catch (t: Throwable) {
+            val msg = t.message?.lowercase() ?: ""
+            val wireCode = (t as? com.google.firebase.firestore.FirebaseFirestoreException)
+                ?.wireCode
+                ?.lowercase() ?: ""
+            val unsupportedOp = wireCode == "unimplemented" ||
+                msg.contains("unknown method") ||
+                msg.contains("unknown op") ||
+                msg.contains("unsupported")
+            if (!unsupportedOp) {
+                throw StorageException.fromWireException(t)
+            }
+        }
+
+        try {
+            val raw = executeStorageOp(
+                reference,
                 "storage.setMetadata",
                 mapOf("path" to reference.wirePath, "patch" to patchWire),
                 timeoutMs

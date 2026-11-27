@@ -59,7 +59,7 @@ import type {
   ClientVisibilityState,
 } from 'pyric/messaging/internal';
 
-// ─── One-shot op messages (client → worker) ───────────────────────────────
+// --- One-shot op messages (client -> worker) -------------------------------
 
 /**
  * All one-shot operation messages share the `t:'op'` discriminator and a
@@ -162,7 +162,7 @@ export type OpMessage = (
     }
   | { t: 'op'; id: string; method: 'listRootCollections'; databaseId?: string }
   | { t: 'op'; id: string; method: 'listSubcollections'; docPath: string; databaseId?: string }
-  // ── Auth ops (surface: 'auth') ──────────────────────────────────────────
+  // -- Auth ops (surface: 'auth') ------------------------------------------
   // `tenantId` on the sign-in ops carries the calling port's `Auth.tenantId`
   // (absent or null means the project-level pool). Sessions are per-port, so
   // the tenant travels with each request rather than being worker state: two
@@ -272,6 +272,8 @@ export type OpMessage = (
   | ({ t: 'op'; id: string; method: 'storage.getBlob'; path: string } & StorageBucketWire)
   /** firebase-admin's `File.setMetadata`, on the admin lens only: custom keys merge, `null` removes one. */
   | ({ t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire } & StorageBucketWire)
+  /** Client-plane `updateMetadata`: evaluates Storage `update` rules under the caller's lens; rejects `downloadTokens`. */
+  | ({ t: 'op'; id: string; method: 'storage.updateMetadata'; path: string; patch: StorageMetadataPatchWire; replaceCustomMetadata?: boolean } & StorageBucketWire)
   /**
    * An upload. `downloadTokens`, as firebase-admin's `save` sets them, is taken on the admin lens only.
    * With `rollback`, the reply's metadata carries a `rollbackToken` for `storage.rollbackUpload`,
@@ -506,7 +508,7 @@ export type InboundMessage = (
   relaySource?: 'remote';
 };
 
-// ─── Worker → client messages ─────────────────────────────────────────────
+// --- Worker -> client messages ---------------------------------------------
 
 export type ResMessage =
   | { t: 'res'; id: string; ok: true; value: unknown }
