@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pyric_firestore/pyric_auth.dart';
 import 'package:pyric_firestore/pyric_database.dart';
-import 'package:pyric_firestore/pyric_firestore.dart'
-    hide AuthLens, PyricAuthCredentialsProvider;
 
 import 'auth/mock_bridge_helper.dart';
 
@@ -19,7 +17,6 @@ class _MutableLensProvider implements PyricAuthCredentialsProvider {
   @override
   Stream<AuthLens> get authLensChanges => _controller.stream;
 
-  @override
   Future<String?> getIdToken({bool forceRefresh = false}) async => null;
 
   void setLens(AuthLens next) {
@@ -206,6 +203,18 @@ void main() {
     expect(errors.length, 1);
     expect(done, isFalse);
 
+    // A second listener joining the parked denied view under the same lens
+    // must receive the cached denial rather than hanging silently.
+    final errors2 = <Object>[];
+    final values2 = <Object?>[];
+    final sub2 = lazyDb.ref('private/doc').onValue.listen(
+      (ev) => values2.add(ev.snapshot.value),
+      onError: errors2.add,
+    );
+    await pumpEventQueue();
+    expect(errors2.length, 1);
+    expect(values2, isEmpty);
+
     final lateProvider = _MutableLensProvider();
     lateProvider.setLens(AuthLens.asUser(uid: 'alice'));
     lazyDb.credentialsProvider = lateProvider;
@@ -220,7 +229,9 @@ void main() {
     });
     await pumpEventQueue();
     expect(values, ['unlocked']);
+    expect(values2, ['unlocked']);
 
+    await sub2.cancel();
     await sub.cancel();
     await lateProvider.dispose();
   });

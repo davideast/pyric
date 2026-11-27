@@ -138,7 +138,7 @@ public class Firestore: @unchecked Sendable {
             nonisolated(unsafe) var bound = false
             nonisolated(unsafe) var registryObsID: UUID?
             let waiterID = UUID()
-            let bindProvider: @Sendable (any AuthCredentialProvider) -> Void = { provider in
+            let bindProvider: @Sendable (any AuthCredentialProvider) -> Void = { [weak self] provider in
                 forwardLock.lock()
                 if bound {
                     forwardLock.unlock()
@@ -157,17 +157,35 @@ public class Firestore: @unchecked Sendable {
                 if let obsToRemove {
                     AuthCredentialProviderRegistry.removeRegistrationObserver(obsToRemove)
                 }
+                if let self {
+                    self.instanceLock.lock()
+                    self.lazyLensWaiters.removeValue(forKey: waiterID)
+                    self.instanceLock.unlock()
+                }
             }
             let obsID = AuthCredentialProviderRegistry.addRegistrationObserver { [weak self] appName in
                 guard appName == nil || appName == targetAppName else { return }
                 guard let self, let resolved = self.credentialProvider else { return }
                 bindProvider(resolved)
             }
+            var removeImmediately = false
             forwardLock.lock()
-            registryObsID = obsID
+            if bound {
+                removeImmediately = true
+            } else {
+                registryObsID = obsID
+            }
             forwardLock.unlock()
+            if removeImmediately {
+                AuthCredentialProviderRegistry.removeRegistrationObserver(obsID)
+            }
             self.instanceLock.lock()
-            self.lazyLensWaiters[waiterID] = bindProvider
+            forwardLock.lock()
+            let alreadyBound = bound
+            forwardLock.unlock()
+            if !alreadyBound {
+                self.lazyLensWaiters[waiterID] = bindProvider
+            }
             self.instanceLock.unlock()
             if let immediate = self.credentialProvider {
                 bindProvider(immediate)

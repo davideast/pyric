@@ -46,6 +46,21 @@ public final class AuthCredentialProviderRegistry: @unchecked Sendable {
         notifyObservers(appName: nil)
     }
 
+    @discardableResult
+    public static func registerFactoryIfAbsent(
+        _ factory: @escaping @Sendable (FirebaseApp) -> (any AuthCredentialProvider)?
+    ) -> Bool {
+        lock.lock()
+        if self.factory != nil {
+            lock.unlock()
+            return false
+        }
+        self.factory = factory
+        lock.unlock()
+        notifyObservers(appName: nil)
+        return true
+    }
+
     public static func register(app: FirebaseApp, provider: any AuthCredentialProvider) {
         lock.lock()
         instances[app.name] = provider

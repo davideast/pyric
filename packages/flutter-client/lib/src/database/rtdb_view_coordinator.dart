@@ -294,6 +294,9 @@ class _ActiveRtdbView {
   StreamSubscription<dynamic>? _sub;
   PyricDataSnapshot? _latestSnapshot;
   AuthLens? _latestSnapshotLens;
+  Object? _latestError;
+  StackTrace? _latestErrorStack;
+  AuthLens? _latestErrorLens;
   AuthLens? _activeLens;
 
   _ActiveRtdbView({
@@ -309,11 +312,20 @@ class _ActiveRtdbView {
     _latestSnapshotLens = null;
   }
 
+  void _clearCachedError() {
+    _latestError = null;
+    _latestErrorStack = null;
+    _latestErrorLens = null;
+  }
+
   void addRegistration(_ObserverRegistration reg) {
     _registrations.add(reg);
     final currentLens = database.effectiveLens;
     if (_latestSnapshot != null && _latestSnapshotLens != currentLens) {
       _clearCachedSnapshot();
+    }
+    if (_latestError != null && _latestErrorLens != currentLens) {
+      _clearCachedError();
     }
     final cached = _latestSnapshot;
     if (cached != null) {
@@ -330,6 +342,15 @@ class _ActiveRtdbView {
           reg.flushPending();
         });
       }
+    } else if (_latestError != null && _latestErrorLens == currentLens) {
+      final err = _latestError!;
+      final st = _latestErrorStack;
+      final errLens = currentLens;
+      scheduleMicrotask(() {
+        if (!reg.active || reg.controller.isClosed) return;
+        if (_latestError == null || _latestErrorLens != errLens) return;
+        reg.controller.addError(err, st);
+      });
     }
     _sub ??= database
         .subscribeRtdb(
@@ -338,6 +359,7 @@ class _ActiveRtdbView {
           onLensChange: (nextLens) {
             if (_activeLens != nextLens) {
               _clearCachedSnapshot();
+              _clearCachedError();
             }
             _activeLens = nextLens;
           },
@@ -356,6 +378,7 @@ class _ActiveRtdbView {
     _registrations.remove(reg);
     if (_registrations.isEmpty) {
       _clearCachedSnapshot();
+      _clearCachedError();
       _activeLens = null;
       final sub = _sub;
       _sub = null;
@@ -368,6 +391,7 @@ class _ActiveRtdbView {
   }
 
   void _handleRawEvent(dynamic rawEvent) {
+    _clearCachedError();
     final snap = rawEvent is Map
         ? PyricDataSnapshot.fromWire(ref, Map<String, dynamic>.from(rawEvent))
         : PyricDataSnapshot(
@@ -405,6 +429,9 @@ class _ActiveRtdbView {
 
   void _handleError(Object error, StackTrace stackTrace) {
     _clearCachedSnapshot();
+    _latestError = error;
+    _latestErrorStack = stackTrace;
+    _latestErrorLens = _activeLens ?? database.effectiveLens;
     final snapshotRegs = List<_ObserverRegistration>.from(_registrations);
     for (final reg in snapshotRegs) {
       if (reg.active && !reg.controller.isClosed) {
@@ -420,6 +447,7 @@ class _ActiveRtdbView {
 
   void _handleDone() {
     _clearCachedSnapshot();
+    _clearCachedError();
     _activeLens = null;
     _sub = null;
     onEmpty(key, this);

@@ -310,6 +310,99 @@ struct RtdbPhase2ParityRegressionTests {
             dbTask.cancel()
             #expect(fsLenses.values.contains(.asUser(uid: "alice")))
             #expect(dbLenses.values.contains(.asUser(uid: "alice")))
+
+            // Calling Auth.auth(app:) directly after Database and Firestore.authLensStream
+            // registered observers must not deadlock re-entrantly inside FirebaseAuthBootstrap.
+            AuthCredentialProviderRegistry.reset()
+            let bootstrapApp = FirebaseApp(
+                name: "bootstrap-order-app-\(UUID().uuidString)",
+                options: FirebaseOptions(projectID: "lazy-proj", apiKey: "key", googleAppID: "1:1:ios:xyz")
+            )
+            let bootstrapFirestore = Firestore(bridgeClient: client, app: bootstrapApp)
+            let bootstrapDb = Database(
+                app: bootstrapApp,
+                url: "https://lazy-proj-default-rtdb.firebaseio.com",
+                bridgeClient: client
+            )
+            let bootFsTask = Task {
+                for await _ in bootstrapFirestore.authLensStream { break }
+            }
+            let bootDbTask = Task {
+                for await _ in bootstrapDb.authLensStream { break }
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+            let authInstance = Auth.auth(app: bootstrapApp)
+            #expect(authInstance.app.name == bootstrapApp.name)
+            bootFsTask.cancel()
+            bootDbTask.cancel()
+            await client.disconnect()
         }
+    }
+
+    @Test("P2-F12: second observer joining a parked denied ActiveView receives cached denial and recovers on lens switch")
+    func parkedDeniedViewReplaysCancelToSecondObserver() async throws {
+        let subIDs = ValueCollector<String>()
+        let (_, client, db, _) = try await makeConnectedDatabase(name: "parked-denial-\(UUID().uuidString)") { frame, ch in
+            if frame["type"]?.stringValue == "worker-sub",
+               let subId = frame["subId"]?.stringValue {
+                subIDs.append(subId)
+                let mode = frame["sub"]?["actAs"]?["mode"]?.stringValue
+                if mode == "anon" {
+                    ch.sendFromServer([
+                        "type": "worker-snap",
+                        "subId": subId,
+                        "value": [
+                            "__error": ["code": "PERMISSION_DENIED", "message": "denied"]
+                        ],
+                    ])
+                } else {
+                    ch.sendFromServer([
+                        "type": "worker-snap",
+                        "subId": subId,
+                        "value": ["key": "doc", "exists": true, "value": "unlocked"],
+                    ])
+                }
+            }
+        }
+        let provider = MutableTestAuthProvider()
+        db.credentialProvider = provider
+        let ref = db.reference(withPath: "private/doc")
+        let cancels1 = ValueCollector<String>()
+        let vals1 = ValueCollector<String>()
+        let h1 = ref.observe(.value, with: { snap in
+            if let s = snap.value as? String { vals1.append(s) }
+        }, withCancel: { err in
+            cancels1.append(err.localizedDescription)
+        })
+        for _ in 0..<50 where cancels1.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(cancels1.values.count == 1)
+
+        // Second observer joining under the same denied lens receives cached cancel immediately.
+        let cancels2 = ValueCollector<String>()
+        let vals2 = ValueCollector<String>()
+        let h2 = ref.observe(.value, with: { snap in
+            if let s = snap.value as? String { vals2.append(s) }
+        }, withCancel: { err in
+            cancels2.append(err.localizedDescription)
+        })
+        for _ in 0..<50 where cancels2.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(cancels2.values.count == 1)
+        #expect(vals2.values.isEmpty)
+
+        // Switching to alice recovers both observers.
+        provider.setLens(.asUser(uid: "alice"))
+        for _ in 0..<50 where vals1.values.isEmpty || vals2.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(vals1.values == ["unlocked"])
+        #expect(vals2.values == ["unlocked"])
+
+        ref.removeObserver(withHandle: h2)
+        ref.removeObserver(withHandle: h1)
+        await client.disconnect()
     }
 }

@@ -302,9 +302,10 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     private func startAuthLensSync() {
-        let provider = credentialProvider
+        var provider = credentialProvider
         if provider == nil {
             ensureAuthRegistryObserver()
+            provider = credentialProvider
         }
         let nextStream = provider?.authLensStream
         let nextTask: Task<Void, Never>? = nextStream.map { stream in
@@ -330,19 +331,26 @@ public final class Database: NSObject, @unchecked Sendable {
         }
     }
 
-    private func currentAuthLensLocked() -> AuthLens {
-        if let overrideLens = _impersonatedLens {
+    private func resolveEffectiveAuthLens() -> AuthLens {
+        stateLock.lock()
+        let overrideLens = _impersonatedLens
+        let explicitProvider = _credentialProvider
+        stateLock.unlock()
+        if let overrideLens {
             return overrideLens
         }
-        if let provider = _credentialProvider ?? AuthCredentialProviderRegistry.resolve(app: app) {
+        if let provider = explicitProvider ?? AuthCredentialProviderRegistry.resolve(app: app) {
             return provider.currentAuthLens()
         }
         return .anon
     }
 
-    private func yieldCurrentLensLocked() {
-        let current = currentAuthLensLocked()
-        for cont in lensContinuations.values {
+    private func yieldCurrentLens() {
+        let current = resolveEffectiveAuthLens()
+        stateLock.lock()
+        let continuations = Array(lensContinuations.values)
+        stateLock.unlock()
+        for cont in continuations {
             cont.yield(current)
         }
     }
@@ -350,20 +358,16 @@ public final class Database: NSObject, @unchecked Sendable {
     public func switchLens(_ lens: AuthLens?) {
         stateLock.lock()
         _impersonatedLens = lens
-        yieldCurrentLensLocked()
         stateLock.unlock()
+        yieldCurrentLens()
     }
 
     private func notifyLensChanged() {
-        stateLock.lock()
-        yieldCurrentLensLocked()
-        stateLock.unlock()
+        yieldCurrentLens()
     }
 
     public func currentAuthLens() -> AuthLens {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return currentAuthLensLocked()
+        return resolveEffectiveAuthLens()
     }
 
     public var authLensStream: AsyncStream<AuthLens> {
@@ -377,10 +381,11 @@ public final class Database: NSObject, @unchecked Sendable {
         }
         return AsyncStream { continuation in
             let id = UUID()
+            let initialLens = resolveEffectiveAuthLens()
             stateLock.lock()
             lensContinuations[id] = continuation
-            continuation.yield(currentAuthLensLocked())
             stateLock.unlock()
+            continuation.yield(initialLens)
 
             continuation.onTermination = { [weak self] _ in
                 guard let self else { return }
