@@ -1,0 +1,220 @@
+{
+  "sourceCommit": "2984e77431a4367443db4814660d37c3bdb5e322",
+  "oracleTreeGitObject": "43a77d2c808a05aee7408b3de0398c2e4064be22",
+  "sourceArchiveSha256": "dc6bbc47494842af55776d9def1eeccdbec7cda68cd336e64cba64d6b445c981",
+  "startUtc": "2026-11-27T03:51:22.385753+00:00",
+  "variant": "all-paired-records-v16-dense3-lean",
+  "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "packageSha256": "98995632ebf810afa49c3e03ee7fc0bac31e3c8ff841327ffa8a3eddda2a9356",
+  "requestSha256": "7697cc154bc03a3104650718c75d041bd1733f20ef96c0dbe7b7a06d64470815",
+  "nativeSha256": "8145289b0628d9ad47b38850670eb565cb04f645120c9f7899f29335f2db9a55",
+  "standalone": {
+    "match": 104
+  },
+  "requestCount": 238,
+  "localGroups": {
+    "original-190": {
+      "cases": 190,
+      "outcomes": {
+        "match": 190
+      },
+      "diagnostics": {}
+    },
+    "rook": {
+      "cases": 6,
+      "outcomes": {
+        "match": 6
+      },
+      "diagnostics": {}
+    },
+    "bishop": {
+      "cases": 18,
+      "outcomes": {
+        "match": 18
+      },
+      "diagnostics": {}
+    },
+    "queen": {
+      "cases": 30,
+      "outcomes": {
+        "match": 30
+      },
+      "diagnostics": {}
+    }
+  },
+  "localConforms": true,
+  "overallConforms": true,
+  "signedStatus": "measured",
+  "signedCases": 238,
+  "signedAgreements": 238,
+  "signedLocalDifferences": [],
+  "focusWitnesses": {
+    "required": 18,
+    "verified": 18
+  },
+  "focusedDerivationCounts": {
+    "witness-used": 36,
+    "draw-short-circuit": 18
+  },
+  "rayPanel": {
+    "guard-true": {
+      "legal-witness": 919,
+      "correct-absence": 983
+    },
+    "guard-false": {
+      "legal-witness": 107,
+      "correct-absence": 87,
+      "illegal-witness": 96,
+      "missed-reply": 40
+    }
+  },
+  "otherTurnsPanel": {
+    "guard-true": {
+      "legal-witness": 296,
+      "correct-absence": 196
+    },
+    "guard-false": {
+      "correct-absence": 36,
+      "legal-witness": 36
+    }
+  },
+  "refereeSourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "roster": {
+    "boards": 14,
+    "fullWrites": 42,
+    "disagreements": []
+  },
+  "recordedWitnessReproduced": true,
+  "outsideMaterialLocal": {
+    "writes": 6,
+    "disagreements": [
+      {
+        "id": "sample-w-edge-r-b-defender-0-3-playing",
+        "expected": "DENY",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 623
+      },
+      {
+        "id": "sample-b-edge-q-q-defender-0-4-playing",
+        "expected": "DENY",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 640
+      }
+    ]
+  },
+  "signPreservingWrongDestination": {
+    "authority": "pinned independent local evaluator; diagnostic control only",
+    "originalRulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+    "faultyRulesSha256": "a0bbb030541b92668f3986188ce28859d6d2e09e1a6b8fb6d761e1791d407ac0",
+    "destinationEncodersChanged": 1,
+    "fullClaimRoutesCompared": 54,
+    "changedFullClaimDecisionErrorOrCost": [],
+    "wronglyEncodedLegalWitnesses": 9,
+    "focusedFaultyOutcomes": {
+      "illegal-witness": 9,
+      "correct-absence": 9
+    },
+    "firstDivergence": {
+      "id": "rook-c5-after-queen",
+      "original": "c5c8",
+      "faulty": "c5d8",
+      "native": [
+        "c5c8"
+      ]
+    }
+  },
+  "denseProof": {
+    "boards": 2400,
+    "outcomes": {
+      "legal-nonking-reply": 813,
+      "proved-no-nonking-reply": 1297,
+      "inconclusive": 290
+    },
+    "unqualifiedGeometries": 13548,
+    "incorrectTriggers": 0
+  },
+  "portableReceiptQualification": {
+    "privateArchiveUsed": false,
+    "distinctCases": 238,
+    "status": "measured",
+    "captureHashes": [
+      "d3ef593d5a4023e0bf7400342b058199344b3047458a51a0f6e1b86ae4e30560",
+      "0bdea0418a964fadf1387eb91054e84e78a4e9927840258e5b9cd8e8075c5ed9"
+    ],
+    "allVerdictsAndServerVersionsMatchRawBackedLookup": true
+  },
+  "independentSignedAudit": {
+    "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+    "source": "private authenticated controller journals; independent chess rules on exact signed operands",
+    "status": "measured",
+    "distinctWrites": 238,
+    "nativeRefereeSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+    "nativeComparedOnActualDocuments": 238,
+    "priorIdenticalSignedOperands": 190,
+    "focusCasesWithExactSuccessorAndCompleteReplies": 54,
+    "nativeDecisions": {
+      "ALLOW": 108,
+      "DENY": 130
+    },
+    "firestoreDecisions": {
+      "ALLOW": 108,
+      "DENY": 130
+    },
+    "nativeVersusFirestore": {
+      "match": 238
+    },
+    "captures": [
+      {
+        "capture": "sliding-part-1",
+        "caseCount": 120,
+        "controllerSha256": "d3ef593d5a4023e0bf7400342b058199344b3047458a51a0f6e1b86ae4e30560",
+        "journalSha256": "6fadb633cbd622c6fbeeff8a675e5d4def1fb36013236aac710f798d2bb86d16",
+        "snapshotAndVersionVerified": true,
+        "restoredAndReleased": true,
+        "phaseProofsVerified": 3,
+        "attemptProofPairsVerified": 120,
+        "openReleaseUpdateTime": "2026-11-27T01:05:56.842008Z"
+      },
+      {
+        "capture": "sliding-part-2",
+        "caseCount": 118,
+        "controllerSha256": "0bdea0418a964fadf1387eb91054e84e78a4e9927840258e5b9cd8e8075c5ed9",
+        "journalSha256": "d4244c50e39bb5833625c129b8c901803890f25c066e27c4e1003c8e5fb8906c",
+        "snapshotAndVersionVerified": true,
+        "restoredAndReleased": true,
+        "phaseProofsVerified": 3,
+        "attemptProofPairsVerified": 118,
+        "openReleaseUpdateTime": "2026-11-27T01:21:34.578732Z"
+      }
+    ],
+    "mismatches": {},
+    "oldCorpusChanges": {
+      "repaired": [
+        "rook-c5-after-queen-won",
+        "rook-h5-after-queen-playing",
+        "holdout-interior-v1-b-mate-playing",
+        "holdout-interior-v1-w-nonking-checked-won",
+        "holdout-replies-v1-stalemate-pinned-defender-playing",
+        "holdout-replies-v1-only-b-move-in-check-won",
+        "actual-fourth-ply-playing",
+        "promote-capturing-rook-right-held"
+      ],
+      "regressed": [],
+      "stillDisagree": []
+    },
+    "shapeSensitivityControl": {
+      "source": "rook-safe",
+      "addedField": "unexpectedNullField",
+      "value": null,
+      "originalNative": "ALLOW",
+      "amendedNative": "DENY"
+    },
+    "invalidSourcePositions": [],
+    "perCaseAdjudicationsSha256": "1bdceebb0cc484259001e7bd30fb2a90f16c71d563abea9821c1ab9af27fd08d"
+  },
+  "firstClosedWindowReproduced": 120,
+  "previousPrivateJournalsVerified": 190,
+  "finishedUtc": "2026-11-27T03:52:50.861396+00:00"
+}

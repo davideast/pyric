@@ -1,0 +1,14 @@
+{
+  "sourceCommit": "2984e77431a4367443db4814660d37c3bdb5e322",
+  "trackedProgram": "experiments/policy-oracle/trials/sliding-replies/review/clean-snapshot.py",
+  "programSha256": "8d9e834b2661e5fca5586e652695268a9938bc7e38558e65429eb12197748c1e",
+  "reportSha256": "98f8e7b6997ce585ccec7d3d64d1cf845b50022d6bac8dca691b7f765dc3086b",
+  "nice": 10,
+  "machineAtStart": [
+    "threads: 32",
+    "load 1/5/15 min: 2.54 / 4.34 / 8.60  (per thread, 1 min: 0.08)",
+    "memory: 82 GB available of 94 GB; swap used 0.0 GB",
+    "pressure, avg60 (% of time some task stalled): cpu 0.00, memory 0.00, io 0.00",
+    "verdict: idle"
+  ]
+}
