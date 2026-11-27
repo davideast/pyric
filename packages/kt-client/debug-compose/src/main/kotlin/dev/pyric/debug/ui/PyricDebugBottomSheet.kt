@@ -38,6 +38,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,7 +52,8 @@ import dev.pyric.debug.PyricDebugController
 fun PyricDebugBottomSheet(
     controller: PyricDebugController,
     onDismissRequest: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCopyCitation: ((String) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val selectedTab by controller.selectedTab.collectAsState()
@@ -118,7 +121,10 @@ fun PyricDebugBottomSheet(
                         IdentityTabContent(controller = controller)
                     }
                     DebugTab.RULES_DENIALS -> {
-                        RulesDenialsTabContent(controller = controller)
+                        RulesDenialsTabContent(
+                            controller = controller,
+                            onCopyCitation = onCopyCitation
+                        )
                     }
                 }
             }
@@ -270,8 +276,15 @@ private fun IdentityTabContent(controller: PyricDebugController) {
 }
 
 @Composable
-private fun RulesDenialsTabContent(controller: PyricDebugController) {
+private fun RulesDenialsTabContent(
+    controller: PyricDebugController,
+    onCopyCitation: ((String) -> Unit)? = null
+) {
     val denials by controller.denials.collectAsState()
+    val clipboardManager = LocalClipboardManager.current
+    val copyCitationHandler: (String) -> Unit = onCopyCitation ?: { citation ->
+        runCatching { clipboardManager.setText(AnnotatedString(citation)) }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -325,7 +338,8 @@ private fun RulesDenialsTabContent(controller: PyricDebugController) {
                         },
                         onImpersonateOwner = { ownerUid ->
                             controller.impersonateUid(ownerUid)
-                        }
+                        },
+                        onCopyCitation = copyCitationHandler
                     )
                 }
             }

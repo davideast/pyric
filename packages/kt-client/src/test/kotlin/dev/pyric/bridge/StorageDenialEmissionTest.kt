@@ -77,4 +77,51 @@ class StorageDenialEmissionTest {
 
         assertTrue(recorded.isEmpty())
     }
+
+    @Test
+    fun mergesTopLevelQueryProofAndReproIntoDenialContext() = runTest {
+        val recorded = mutableListOf<FirebaseFirestoreException>()
+        val dispatcher = BridgeOperationDispatcher(
+            scope = this,
+            onDenial = { recorded.add(it) }
+        )
+        val sentFrames = mutableListOf<String>()
+        dispatcher.startOp(
+            method = "getDocs",
+            params = mapOf("path" to "publicItems"),
+            timeoutMs = 5_000L,
+            sendJson = { frame -> sentFrames.add(frame) },
+            jsonSerializer = { JsonCodec.encodeToString(it) }
+        )
+        val opId = Regex("\"id\"\\s*:\\s*\"([^\"]+)\"").find(sentFrames.single())!!.groupValues[1]
+
+        dispatcher.handleWorkerRes(
+            mapOf(
+                "type" to "worker-res",
+                "id" to opId,
+                "ok" to false,
+                "error" to mapOf(
+                    "code" to "permission-denied",
+                    "message" to "list publicItems denied by rules",
+                    "denialContext" to mapOf(
+                        "reasons" to listOf("unprovable query")
+                    ),
+                    "queryProof" to mapOf(
+                        "kind" to "constraints-not-satisfied",
+                        "failures" to listOf(mapOf("kind" to "constraints-not-satisfied", "reason" to "missing filter"))
+                    ),
+                    "repro" to mapOf(
+                        "command" to "pyric rules test --method list publicItems"
+                    )
+                )
+            ),
+            wireSeq = 3L
+        )
+
+        assertEquals(1, recorded.size)
+        @Suppress("UNCHECKED_CAST")
+        val ctx = recorded.single().denialContext as Map<String, Any?>
+        assertTrue(ctx.containsKey("queryProof"))
+        assertTrue(ctx.containsKey("repro"))
+    }
 }

@@ -219,7 +219,7 @@ class BridgeOperationDispatcher(
             val errorMap = msg["error"] as? Map<String, Any?> ?: emptyMap()
             val codeStr = errorMap["code"] as? String ?: "unknown"
             val messageStr = errorMap["message"] as? String ?: "Unknown sandbox error"
-            val denialContext = errorMap["denialContext"]
+            val denialContext = mergeDenialExtras(errorMap)
 
             val firestoreCode = FirebaseFirestoreException.Code.fromWireCode(codeStr)
             val exception = FirebaseFirestoreException(
@@ -239,6 +239,25 @@ class BridgeOperationDispatcher(
             }
             pending.deferred.completeExceptionally(exception)
         }
+    }
+
+    private fun mergeDenialExtras(errorMap: Map<String, Any?>): Any? {
+        val rawContext = errorMap["denialContext"]
+        val topQueryProof = errorMap["queryProof"]
+        val topRepro = errorMap["repro"]
+        val topRemediation = errorMap["remediation"]
+        if (rawContext is Map<*, *>) {
+            val needsQueryProof = topQueryProof != null && !rawContext.containsKey("queryProof")
+            val needsRepro = topRepro != null && !rawContext.containsKey("repro")
+            val needsRemediation = topRemediation != null && !rawContext.containsKey("remediation")
+            if (!needsQueryProof && !needsRepro && !needsRemediation) return rawContext
+            val merged = LinkedHashMap<Any?, Any?>(rawContext)
+            if (needsQueryProof) merged["queryProof"] = topQueryProof
+            if (needsRepro) merged["repro"] = topRepro
+            if (needsRemediation) merged["remediation"] = topRemediation
+            return merged
+        }
+        return rawContext
     }
 
     /**

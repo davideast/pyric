@@ -1,8 +1,12 @@
 package dev.pyric.debug
 
+import com.google.firebase.firestore.FirebaseFirestoreException
+import dev.pyric.auth.AuthLens
 import dev.pyric.debug.model.FieldDiffKind
 import dev.pyric.debug.model.RuleCitation
 import dev.pyric.debug.model.RulesDenialContext
+import dev.pyric.debug.ui.PyricDebugColors
+import androidx.compose.ui.graphics.luminance
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -162,5 +166,120 @@ class RulesDenialContextTest {
         val diffs = context.computeDataDiff()
         assertEquals(2, diffs.size)
         assertTrue(diffs.all { it.kind == FieldDiffKind.ADDED })
+    }
+
+    @Test
+    fun testReadAndDeleteDenialsDoNotMarkExistingFieldsAsRemoved() {
+        val existing = mapOf("title" to "Private", "ownerUid" to "bob-uid")
+        for (method in listOf("get", "GET", "list", "listen", "query", "delete", "remove")) {
+            val context = RulesDenialContext.fromMap(
+                mapOf(
+                    "request" to mapOf("method" to method, "path" to "playlists/pl-bob"),
+                    "resource" to mapOf("exists" to true, "data" to existing)
+                )
+            )
+            assertTrue(
+                context.computeDataDiff().isEmpty(),
+                "Expected empty diff for $method denial without proposed write payload"
+            )
+        }
+
+        // Explicit write with empty map should still compute REMOVED fields.
+        val emptyWrite = RulesDenialContext.fromMap(
+            mapOf(
+                "request" to mapOf(
+                    "method" to "set",
+                    "path" to "playlists/pl-bob",
+                    "resourceData" to emptyMap<String, Any?>()
+                ),
+                "resource" to mapOf("exists" to true, "data" to existing)
+            )
+        )
+        assertEquals(2, emptyWrite.computeDataDiff().size)
+        assertTrue(emptyWrite.computeDataDiff().all { it.kind == FieldDiffKind.REMOVED })
+    }
+
+    @Test
+    fun testParsesQueryProofAndReproFields() {
+        val payload = mapOf<String, Any?>(
+            "request" to mapOf("method" to "list", "path" to "items"),
+            "reasons" to listOf("list items denied by rules"),
+            "remediation" to "Add where('visibility', '==', 'public')",
+            "queryProof" to mapOf(
+                "kind" to "constraints-not-satisfied",
+                "verdict" to "UNPROVABLE",
+                "provable" to false,
+                "reason" to "Query does not constrain visibility == 'public'",
+                "failures" to listOf(
+                    mapOf(
+                        "kind" to "constraints-not-satisfied",
+                        "reason" to "missing equality on visibility",
+                        "residual" to mapOf("missingEqualities" to listOf("visibility")),
+                        "rule" to mapOf("file" to "firestore.rules", "line" to 42, "col" to 7)
+                    )
+                )
+            ),
+            "repro" to mapOf(
+                "command" to "pyric rules simulate --method list items",
+                "testCase" to mapOf(
+                    "description" to "repro unprovable list",
+                    "expectation" to "ALLOW",
+                    "method" to "list",
+                    "path" to "items"
+                )
+            )
+        )
+
+        val context = RulesDenialContext.fromMap(payload)
+        assertNotNull(context.queryProof)
+        assertEquals("constraints-not-satisfied", context.queryProof?.kind)
+        assertEquals("UNPROVABLE", context.queryProof?.verdict)
+        assertEquals(false, context.queryProof?.provable)
+        assertEquals(1, context.queryProof?.failures?.size)
+        assertEquals("firestore.rules:42:7", context.queryProof?.failures?.first()?.rule?.formattedCitation)
+        assertNotNull(context.queryProof?.failures?.first()?.residual)
+        assertNotNull(context.repro)
+        assertEquals("pyric rules simulate --method list items", context.repro?.command)
+        assertEquals("list", context.repro?.testCase?.get("method"))
+        assertEquals("Add where('visibility', '==', 'public')", context.remediation)
+    }
+
+    @Test
+    fun testSynthesizesStorageDenialContextFromException() {
+        val ex = FirebaseFirestoreException(
+            "storage/unauthorized: Get \"audio/alice/narr-1.wav\" in bucket \"demo.appspot.com\" denied by rules - no matching allow.",
+            FirebaseFirestoreException.Code.UNKNOWN,
+            denialContext = null,
+            wireCode = "storage/unauthorized"
+        )
+        val lens = AuthLens.AsUser(
+            uid = "bob-uid",
+            token = mapOf("email" to "bob@example.com"),
+            tenant = "tenant-1"
+        )
+
+        val ctx = RulesDenialContext.fromException(ex, emptyMap(), lens)
+        assertEquals("storage", ctx.engine)
+        assertTrue(ctx.isStorage)
+        assertEquals("storage.rules", ctx.rule?.formattedCitation)
+        assertEquals("get", ctx.request?.method)
+        assertEquals("audio/alice/narr-1.wav", ctx.request?.path)
+        assertEquals("storage/unauthorized", ctx.errorCode)
+        assertEquals("bob-uid", ctx.auth?.uid)
+        assertEquals("bob@example.com", ctx.auth?.token?.get("email"))
+        assertEquals("tenant-1", ctx.auth?.tenant)
+        assertEquals(1, ctx.reasons.size)
+        assertTrue(ctx.reasons[0].contains("denied by rules"))
+    }
+
+    @Test
+    fun testMonospaceForegroundHasHighContrastOnMonospaceBackground() {
+        val bgLum = PyricDebugColors.MonospaceBackground.luminance()
+        val fgLum = PyricDebugColors.MonospaceForeground.luminance()
+        val mutedLum = PyricDebugColors.MonospaceForegroundMuted.luminance()
+        val fgContrast = (fgLum + 0.05f) / (bgLum + 0.05f)
+        val mutedContrast = (mutedLum + 0.05f) / (bgLum + 0.05f)
+        assertTrue(fgContrast >= 7.0f, "Expected >= 7:1 contrast for primary monospace text, got $fgContrast")
+        assertTrue(mutedContrast >= 7.0f, "Expected >= 7:1 contrast for muted monospace text, got $mutedContrast")
     }
 }

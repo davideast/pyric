@@ -209,4 +209,33 @@ class RulesDenialListenerTest {
         assertEquals(1, denials.size)
         assertEquals("secretKey", (denials[0].second["failedFields"] as? List<*>)?.get(0))
     }
+
+    @Test
+    fun testRulesDenialListenerReceivesStorageUnauthorizedAndIgnoresNotFound() {
+        val denials = CopyOnWriteArrayList<Pair<FirebaseFirestoreException, Map<String, Any?>>>()
+        firestore.addRulesDenialListener { exception, context ->
+            denials.add(exception to context)
+        }
+
+        val storageDenial = FirebaseFirestoreException(
+            "storage/unauthorized: Get \"audio/alice/clip.wav\" denied by rules.",
+            FirebaseFirestoreException.Code.UNKNOWN,
+            denialContext = null,
+            wireCode = "storage/unauthorized"
+        )
+        val unrelated = FirebaseFirestoreException(
+            "storage/object-not-found: missing.",
+            FirebaseFirestoreException.Code.UNKNOWN,
+            denialContext = null,
+            wireCode = "storage/object-not-found"
+        )
+
+        firestore.notifyRulesDenial(unrelated)
+        assertEquals(0, denials.size)
+
+        firestore.notifyRulesDenial(storageDenial)
+        assertEquals(1, denials.size)
+        assertEquals("storage/unauthorized", denials[0].first.wireCode)
+        assertTrue(denials[0].second.isEmpty())
+    }
 }

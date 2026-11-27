@@ -9,7 +9,9 @@ data class SandboxUser(
     val customClaims: Map<String, Any?> = emptyMap(),
     val createdAt: String? = null,
     val lastLoginAt: String? = null,
-    val disabled: Boolean = false
+    val disabled: Boolean = false,
+    val emailVerified: Boolean = false,
+    private val rawTenantId: String? = null
 ) {
     val displayInitials: String
         get() {
@@ -29,6 +31,7 @@ data class SandboxUser(
 
     val tenantId: String?
         get() {
+            if (!rawTenantId.isNullOrEmpty()) return rawTenantId
             val direct = customClaims["tenant"] as? String
             if (!direct.isNullOrEmpty()) return direct
             @Suppress("UNCHECKED_CAST")
@@ -48,6 +51,8 @@ data class SandboxUser(
             val photoUrl = (map["photoUrl"] ?: map["photoURL"]) as? String
             val isAnonymous = map["isAnonymous"] == true
             val disabled = map["disabled"] == true
+            val emailVerified = (map["emailVerified"] ?: map["email_verified"]) == true
+            val rawTenantId = (map["tenantId"] ?: map["tenant"]) as? String
             val createdAt = map["createdAt"] as? String
             val lastLoginAt = map["lastLoginAt"] as? String
             @Suppress("UNCHECKED_CAST")
@@ -64,7 +69,9 @@ data class SandboxUser(
                 customClaims = claims,
                 createdAt = createdAt,
                 lastLoginAt = lastLoginAt,
-                disabled = disabled
+                disabled = disabled,
+                emailVerified = emailVerified,
+                rawTenantId = rawTenantId
             )
         }
     }
