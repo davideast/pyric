@@ -1,0 +1,5 @@
+{
+  "description": "Compare host-authored full and missing-frame guest wins from 6\u20136 under stock and match-level generated Air Hockey rules.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

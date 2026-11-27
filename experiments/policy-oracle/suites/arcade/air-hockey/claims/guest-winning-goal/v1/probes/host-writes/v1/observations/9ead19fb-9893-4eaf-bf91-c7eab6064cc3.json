@@ -1,0 +1,20 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "5ed4127e966c45297b016469451610e928e6750914a15d0d17d5c4cf91383e99",
+  "results": {
+    "stock-guest-win": "ALLOW",
+    "stock-guest-win-missing-frame": "ALLOW",
+    "generated-guest-win": "ALLOW",
+    "generated-guest-win-missing-frame": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/9ead19fb-9893-4eaf-bf91-c7eab6064cc3.json",
+    "sha256": "2342d5030f1f07f9a24f99650f94de6096074b0462087b22ff758dc804e5b6f9",
+    "pointers": {
+      "stock-guest-win": "/rows/stock-guest-win/decision",
+      "stock-guest-win-missing-frame": "/rows/stock-guest-win-missing-frame/decision",
+      "generated-guest-win": "/rows/generated-guest-win/decision",
+      "generated-guest-win-missing-frame": "/rows/generated-guest-win-missing-frame/decision"
+    }
+  }
+}

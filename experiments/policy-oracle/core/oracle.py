@@ -32,6 +32,7 @@ CAMPAIGN_PROBES = {
 }
 AIR_HOCKEY_PROBE = "suites/arcade/air-hockey/claims/frame-plausibility/v1/probes/host-writes/v1"
 RTDB_VERIFIERS = {
+    "suites/arcade/air-hockey/claims/guest-winning-goal/v1/probes/host-writes/v1": "@oracle/adapters/air-hockey-guest-win/v1/verify.mjs",
     "suites/arcade/air-hockey/claims/match-level-winning-goal/v1/probes/host-writes/v1": "@oracle/adapters/air-hockey-match-win/v1/verify.mjs",
     "suites/arcade/air-hockey/claims/winning-goal-missing-frame/v1/probes/host-writes/v1": "@oracle/adapters/air-hockey-missing-frame/v1/verify.mjs",
     AIR_HOCKEY_PROBE: "@oracle/adapters/air-hockey/v1/verify.mjs",

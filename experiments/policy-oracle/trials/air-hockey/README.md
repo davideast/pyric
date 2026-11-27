@@ -74,3 +74,14 @@ The [four signed readbacks](../../suites/arcade/air-hockey/claims/match-level-wi
 | Same win omitting the frame | Allow · 7–6, over, host wins, tick 0 | Deny · 6–6, playing, no winner, tick 0, same full match and ETag |
 
 Run `node arcade/live/controller/air-hockey.mjs "$trusted_archive" match-win` from the oracle directory to capture a fresh secondary instance. Admit the resulting receipt with `node adapters/air-hockey-match-win/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`. The offline scorer recompiles both predicates from the candidate package and records the generated rules digest.
+
+## Guest winning goal from 6–6
+
+The [native guest fixture](../../adapters/air-hockey-guest-win/v1/native.mjs) starts the puck at (38,121) moving toward the host’s end. On tick 3, Arcade awards the guest a goal and serves a stationary puck to the host at (48,96). The authenticated host submitted the resulting 6–7 match update, then tried the same closure without the frame from a fresh copy of the initial match.
+
+| Host write | Stock verdict and stored match | Match-level generated verdict and stored match |
+|---|---|---|
+| Full guest win | Allow · 6–7, over, guest wins, tick 3 | Allow · 6–7, over, guest wins, tick 3 |
+| Guest win omitting the frame | Allow · 6–7, over, guest wins, original puck at tick 0 | Deny · 6–6, playing, no winner, identical full match and ETag |
+
+The [four signed readbacks](../../suites/arcade/air-hockey/claims/guest-winning-goal/v1/probes/host-writes/v1/evidence/9ead19fb-9893-4eaf-bf91-c7eab6064cc3.json) used the same stock and generated rules digests as the host-win capture. To repeat from the oracle directory, run `node arcade/live/controller/air-hockey.mjs "$trusted_archive" guest-win`, then `node adapters/air-hockey-guest-win/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
