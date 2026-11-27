@@ -1,0 +1,82 @@
+{
+  "rulesSha256": "c5543604497ff698ee864b7ffbb120ffa3ec82dfff84182234cd0c44605ae9ca",
+  "criterion": "One-piece deletion preserving the actor, move, victim, castling and en-passant state, prior check, legality, mover safety, result, admission, sole reply identity when unique, and local diagnostic.",
+  "reductions": [
+    {
+      "group": "original-190",
+      "id": "holdout-interior-v1-b-mate-playing",
+      "start": {
+        "fen": "4Q3/8/5K2/8/6k1/8/7Q/2rr1Q2 w - -",
+        "uci": "f1g2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "successor": "4Q3/8/5K2/8/6k1/8/6QQ/2rr4 b - -",
+        "replies": [],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "DENY",
+        "outcome": "checkmate",
+        "decision": "ALLOW",
+        "diagnostic": null,
+        "expressions": 635
+      },
+      "smallest": {
+        "fen": "8/8/5K2/8/6k1/8/7Q/2rr1Q2 w - -",
+        "uci": "f1g2",
+        "claim": {
+          "status": "playing",
+          "winner": ""
+        },
+        "successor": "8/8/5K2/8/6k1/8/6QQ/2rr4 b - -",
+        "replies": [],
+        "nativeLegal": true,
+        "kingSafe": true,
+        "native": "DENY",
+        "outcome": "checkmate",
+        "decision": "ALLOW",
+        "diagnostic": null,
+        "expressions": 635
+      },
+      "removed": [
+        "e8"
+      ],
+      "fixedSquares": [
+        "f1",
+        "g2",
+        "f6",
+        "g4"
+      ],
+      "trials": [
+        {
+          "removed": [
+            "e8"
+          ],
+          "preservesFailure": true
+        },
+        {
+          "removed": [
+            "e8",
+            "h2"
+          ],
+          "preservesFailure": false
+        },
+        {
+          "removed": [
+            "e8",
+            "c1"
+          ],
+          "preservesFailure": false
+        },
+        {
+          "removed": [
+            "e8",
+            "d1"
+          ],
+          "preservesFailure": false
+        }
+      ]
+    }
+  ]
+}

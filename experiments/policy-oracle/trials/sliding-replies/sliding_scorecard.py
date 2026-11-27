@@ -33,6 +33,21 @@ def render(result):
                        sum(observed[k]['verdict']=='DENY' and local[k]['native']=='ALLOW' for k in measured)))
     output.extend(['## Complete writes', table(['Batch','Cases','Local matches','Local false approvals','Local false refusals','Local limit hits¹','Live matches','Live measured','Live false approvals','Live false refusals'],scores),
                    '¹ Limit hits can also count as false refusals. The SDK exposes an admission verdict. Expression costs come from the pinned local evaluator.'])
+    diagnostics=live.get('compileDiagnostics',[])
+    if diagnostics:
+        output.append(table(['Official source check','HTTP','Errors','Warnings','Game writes'],[
+            (item['state'],item['httpStatus'],sum(i['severity']=='ERROR' for i in item['issues']),
+             sum(i['severity']=='WARNING' for i in item['issues']),item['caseWrites']) for item in diagnostics]))
+    if 'revisionHistory' in result:
+        history=[]
+        for row in result['revisionHistory']:
+            scores=row.get('local') or {}
+            def batch(key):
+                group=scores.get(key)
+                return '—' if group is None else f"{group['outcomes'].get('match',0)}/{group['cases']}"
+            history.append([row['variant'],row['compile']['status'],*(batch(g) for g in ('original-190',*FAMILIES)),
+                            row.get('witnesses','—'),row['live']['distinctCases']])
+        output.extend(['## Every saved revision',table(['Policy','Compiler result','Original','Rook','Bishop','Queen','Verified witness boards','Live measured'],history)])
     if compiled['status']!='emitted':
         output.append(f"Compilation failed. `{compiled['status']}`")
     output.append('## Same move and successor under three claims')

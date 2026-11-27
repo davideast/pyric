@@ -1,9 +1,11 @@
 """Score a Pyric compiler on immutable reply and full Arcade write inputs."""
 import argparse
+import copy
 import base64
 from collections import Counter
 import json
 from pathlib import Path
+import re
 import runpy
 import subprocess
 import sys
@@ -40,7 +42,7 @@ def candidate_outputs(package,variant,positions):
         manifest=read(HERE/'compiler/inputs.json')
         files.update(manifest)
         files.update(file.relative_to(ROOT).as_posix() for file in (HERE/'compiler').glob('*') if file.suffix in ('.mjs','.policy'))
-        files.add(REL+'/emit-worker.mjs')
+        files.update(REL+'/'+file for file in ('emit-worker.mjs','policy-variant.mjs','protocol/dense.mjs'))
         jobs['emit']=task('emit-worker.mjs',[PKG,variant])
     with package.open('rb') as stream:
         data=stream.read(MAX_PACKAGE+1)
@@ -119,6 +121,15 @@ def difference(before,after,ids):
     return {'repaired':[k for k in ids if before[k]['status']!='match' and after[k]['status']=='match'],
             'regressed':[k for k in ids if before[k]['status']=='match' and after[k]['status']!='match'],
             'remaining':[k for k in ids if before[k]['status']!='match' and after[k]['status']!='match']}
+
+
+def material_profile(variant):
+    if variant=='prior': return None
+    if variant.startswith('rook-'): return 'rook'
+    if variant.startswith('bishop-'): return 'bishop'
+    if variant.startswith('all-two-defenders-'): return 'queen-with-knight-or-rooks'
+    if variant.startswith(('all-minors-','all-shared-')): return 'queen-with-knight-or-rooks-or-lone-knight'
+    return 'queen'
 
 
 def replay(args,scratch):
@@ -208,8 +219,31 @@ def replay(args,scratch):
     assert len(scored)==len(selected)
     witness['verifiedFocused']=sum(r['supported'] is True and r['outcome'] in ('legal-witness','correct-absence') for r in scored)
     witness['requiredFocused']=len(scored)
+    use=witness.get('fullWriteDerivation',{}).get('byBoard',{})
+    witness['requiredWritePaths']=2*len(scored)
+    witness['verifiedWritePaths']=sum(use.get(board,{}).get('verified',0) for board in selected)
+    profile=material_profile(args.variant)
+    witness['materialProfile']=profile
+    witness['uncertainScope']={}
+    scopes=('focused','panel','otherTurns') if args.witness_panel else ('focused',)
+    if profile:
+        for cohort in scopes:
+            counts=witness.get('materialAudit',{}).get(cohort,{}).get('promises',{}).get(profile)
+            if counts is None: witness['uncertainScope'][cohort]={'unverified':1}
+            else:
+                errors={k:v for k,v in counts.items() if k not in ('included','excluded') and v}
+                if errors: witness['uncertainScope'][cohort]=errors
+    witness['panelErrors']={}
+    if args.witness_panel:
+        for cohort in ('panel','otherTurns'):
+            statuses=witness.get(cohort,{}).get('scopes',{})
+            errors={k:v for k,v in statuses.get('guard-true',{}).items() if k not in ('legal-witness','correct-absence') and v}
+            if statuses.get('guard-error'): errors['guard-error']=sum(statuses['guard-error'].values())
+            if errors: witness['panelErrors'][cohort]=errors
     result['compiledWitness']=witness
-    result['localConforms']=witness['verifiedFocused']==len(scored) and all(r['status']=='match' for r in local.values()) and all(
+    result['localConforms']=(witness['verifiedFocused']==len(scored)
+                             and witness['verifiedWritePaths']==witness['requiredWritePaths']
+                             and not witness['uncertainScope'] and not witness['panelErrors']) and all(r['status']=='match' for r in local.values()) and all(
         r['status']=='match' for r in standalone['positions'].values())
     result['passes']=result['localConforms'] and len(joined)==len(answers) and all(
         row['status']=='match' for row in joined.values())
@@ -229,6 +263,7 @@ def main():
     p.add_argument('--scorecard',type=Path,help='write a Markdown table with independent, local and live verdicts')
     p.add_argument('--record',action='store_true',help='retain an immutable local revision observation')
     p.add_argument('--summary',action='store_true')
+    p.add_argument('--with-history',action='store_true',help='also rebuild and regrade every archived compiler revision on all 238 writes')
     p.add_argument('--witness-panel',action='store_true',help='add 2,796 independent reply positions to the focused witness audit')
     args=p.parse_args()
     if args.variant is None: args.variant=(HERE/'selected-variant.txt').read_text().strip()
@@ -237,7 +272,36 @@ def main():
         args.candidate_package=args.candidate_package.resolve(strict=True)
     if args.python_chess_archive: args.python_chess_archive=args.python_chess_archive.resolve(strict=True)
     with tempfile.TemporaryDirectory(prefix='sliding-reply-replay-') as name:
-        r=replay(args,Path(name))
+        scratch=Path(name)
+        r=replay(args,scratch)
+        if args.with_history:
+            if args.through!='queen': p.error('--with-history requires the full corpus')
+            entries=[]
+            def order(path):
+                version=re.search(r'-v(\d+)(?:-dense3)?$',path.stem)
+                return (int(version[1]) if version else 0,path.stem.endswith('-dense3'),path.stem)
+            for file in sorted((HERE/'revisions').glob('*.json'),key=order):
+                frozen=read(file)
+                if file.stem==args.variant:
+                    scored=r
+                else:
+                    old=copy.copy(args)
+                    old.variant=file.stem
+                    old.emit=old.example_dir=None
+                    old.witness_panel=False
+                    # The prior row is the archived reference release.
+                    if file.stem=='prior': old.candidate_package=None
+                    directory=scratch/file.stem
+                    directory.mkdir()
+                    scored=replay(old,directory)
+                if (not args.candidate_package or file.stem=='prior') and projection(scored)!=frozen:
+                    raise ValueError(f'Archived local revision changed: {file.stem}')
+                entries.append({'variant':file.stem,'compile':scored['compile'],
+                                'local':scored.get('local',{}).get('groups'),
+                                'standalone':scored['standalone']['outcomes'],
+                                'witnesses':scored.get('compiledWitness',{}).get('verifiedFocused'),
+                                'live':{k:scored['live'][k] for k in ('status','distinctCases')}})
+            r['revisionHistory']=entries
     if args.record:
         if args.candidate_package: raise ValueError('Recorded revision packages are rebuilt from the pinned source')
         record(r,HERE/'revisions')

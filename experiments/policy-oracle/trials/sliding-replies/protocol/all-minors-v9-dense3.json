@@ -1,0 +1,75 @@
+{
+  "rulesSha256": "a4baf12caaff67284ef27e59a0d8bd277222e5e1f9c8fd9910f9ac9a71fffc02",
+  "boards": 2400,
+  "nativeInputsSha256": "a8d8224222c21ff04fc22ebc07a9090b922f3957d8a5a13dda96f54f463dfea3",
+  "decisionSha256": "ac7c0fc631349d155b3ec19d2fd7ba0e5b4636957c02713d880e3c631d92095c",
+  "outcomes": {
+    "legal-nonking-reply": 813,
+    "proved-no-nonking-reply": 1297,
+    "inconclusive": 290
+  },
+  "perSide": {
+    "w": {
+      "legal-nonking-reply": 418,
+      "proved-no-nonking-reply": 629,
+      "inconclusive": 143
+    },
+    "b": {
+      "proved-no-nonking-reply": 668,
+      "inconclusive": 147,
+      "legal-nonking-reply": 395
+    }
+  },
+  "replyKinds": {
+    "n": 161,
+    "p": 305,
+    "q": 227,
+    "r": 251,
+    "b": 114
+  },
+  "examples": {
+    "legal-nonking-reply": {
+      "fen": "8/1q3P2/1P3k2/K2b3r/8/4Pb2/Np1b4/8 w - -",
+      "checker": "d2",
+      "replies": [
+        "a2b4",
+        "a2c3",
+        "a5a4",
+        "a5b5"
+      ],
+      "nonking": [
+        "a2b4",
+        "a2c3"
+      ],
+      "proof": false
+    },
+    "proved-no-nonking-reply": {
+      "fen": "8/p3k3/8/8/1Q6/K7/6p1/8 b - -",
+      "checker": "b4",
+      "replies": [
+        "e7d7",
+        "e7d8",
+        "e7e6",
+        "e7e8",
+        "e7f6",
+        "e7f7"
+      ],
+      "nonking": [],
+      "proof": true
+    },
+    "inconclusive": {
+      "fen": "8/8/8/1Q2Q3/1b2pK2/8/1k2p3/8 b - -",
+      "checker": "e5",
+      "replies": [
+        "b2a2",
+        "b2a3",
+        "b2b1",
+        "b2b3",
+        "b2c1",
+        "b2c2"
+      ],
+      "nonking": [],
+      "proof": false
+    }
+  }
+}
