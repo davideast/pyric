@@ -1,0 +1,5 @@
+{
+  "description": "Compare a single atomic invite claim and named profile create with two separately committed writes by the same caller from the same initial state.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

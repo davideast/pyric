@@ -1,0 +1,18 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "26243d7212e4adb48d660904e8fc525d27185cf4d77f111616aacea0ea3576c2",
+  "results": {
+    "atomic-signup": "DENY",
+    "sequential-claim": "ALLOW",
+    "sequential-profile": "ALLOW"
+  },
+  "evidence": {
+    "path": "evidence/61b9d5bd-1276-47b7-acbf-90166f033340.json",
+    "sha256": "ec029b72c884a40d09079b0dedeb2b422bb4d572d243bb455c0f9e2478d593c9",
+    "pointers": {
+      "atomic-signup": "/rows/atomic-signup/decision",
+      "sequential-claim": "/rows/sequential-claim/decision",
+      "sequential-profile": "/rows/sequential-profile/decision"
+    }
+  }
+}
