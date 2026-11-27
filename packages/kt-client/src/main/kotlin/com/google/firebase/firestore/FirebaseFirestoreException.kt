@@ -63,10 +63,8 @@ open class FirebaseFirestoreException @JvmOverloads constructor(
     }
 
     override fun toString(): String {
-        return if (denialContext != null) {
-            "FirebaseFirestoreException($code): $message [denialContext: $denialContext]"
-        } else {
-            "FirebaseFirestoreException($code): $message"
-        }
+        // Keep structured denialContext on the property rather than dumping the
+        // full expression trace into user-facing exception strings.
+        return "FirebaseFirestoreException($code): $message"
     }
 }

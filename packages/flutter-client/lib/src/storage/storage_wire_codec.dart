@@ -126,19 +126,21 @@ FirebaseException mapHttpStatusToStorageException(
 }
 
 /// Wraps bridge or decoding failures into a canonical `firebase_storage` [FirebaseException].
+///
+/// Leaves [FirebaseException.stackTrace] unset so `FirebaseException.toString()`
+/// stays concise instead of appending multi-kilobyte internal transport traces.
 FirebaseException mapToStorageFirebaseException(
   Object error, [
   StackTrace? stackTrace,
 ]) {
   if (error is FirebaseException) {
-    if (error.plugin == 'firebase_storage') {
+    if (error.plugin == 'firebase_storage' && error.stackTrace == null) {
       return error;
     }
     return FirebaseException(
       plugin: 'firebase_storage',
       code: normalizeStorageErrorCode(error.code),
       message: error.message,
-      stackTrace: stackTrace ?? error.stackTrace,
     );
   }
   if (error is PyricBridgeException) {
@@ -146,14 +148,12 @@ FirebaseException mapToStorageFirebaseException(
       plugin: 'firebase_storage',
       code: normalizeStorageErrorCode(error.code),
       message: error.message,
-      stackTrace: stackTrace,
     );
   }
   return FirebaseException(
     plugin: 'firebase_storage',
     code: 'unknown',
     message: error.toString(),
-    stackTrace: stackTrace,
   );
 }
 

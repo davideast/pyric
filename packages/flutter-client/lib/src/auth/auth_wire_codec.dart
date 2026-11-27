@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 
 import '../transport/bridge_client.dart';
@@ -40,6 +42,51 @@ bool isAccountInvalidatingAuthCode(String normalizedCode) {
       normalizedCode == 'user-not-found';
 }
 
+const Map<String, String> _blockingStatusToAuthCode = <String, String>{
+  'PERMISSION_DENIED': 'permission-denied',
+  'UNAUTHENTICATED': 'unauthenticated',
+  'INVALID_ARGUMENT': 'invalid-argument',
+  'FAILED_PRECONDITION': 'failed-precondition',
+  'RESOURCE_EXHAUSTED': 'resource-exhausted',
+  'ALREADY_EXISTS': 'already-exists',
+  'NOT_FOUND': 'not-found',
+  'UNAVAILABLE': 'unavailable',
+  'DEADLINE_EXCEEDED': 'deadline-exceeded',
+  'CANCELLED': 'cancelled',
+  'CANCELED': 'cancelled',
+  'ABORTED': 'aborted',
+  'INTERNAL': 'internal-error',
+};
+
+({String? message, String? status}) _parseStructuredAuthErrorBody(String raw) {
+  final start = raw.indexOf('{');
+  final end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    return (message: null, status: null);
+  }
+  try {
+    final decoded = jsonDecode(raw.substring(start, end + 1));
+    if (decoded is! Map) {
+      return (message: null, status: null);
+    }
+    final inner = decoded['error'];
+    if (inner is! Map) {
+      return (message: null, status: null);
+    }
+    final rawMessage = inner['message'];
+    final rawStatus = inner['status'];
+    final message = rawMessage is String && rawMessage.trim().isNotEmpty
+        ? rawMessage.trim()
+        : null;
+    final status = rawStatus is String && rawStatus.trim().isNotEmpty
+        ? rawStatus.trim().toUpperCase()
+        : null;
+    return (message: message, status: status);
+  } on FormatException {
+    return (message: null, status: null);
+  }
+}
+
 /// Maps a [PyricBridgeException] to a [FirebaseAuthException] with a
 /// normalized FlutterFire error code.
 Object mapBridgeAuthError(Object error) {
@@ -47,9 +94,20 @@ Object mapBridgeAuthError(Object error) {
     return error;
   }
   if (error is PyricBridgeException) {
+    var code = normalizeAuthErrorCode(error.code);
+    final parsed = _parseStructuredAuthErrorBody(error.message);
+    final message = parsed.message ?? error.message;
+    final isGenericCode =
+        code.isEmpty || code == 'internal-error' || code == 'internal' || code == 'unknown';
+    if (isGenericCode && parsed.status != null) {
+      final mappedStatus = _blockingStatusToAuthCode[parsed.status!];
+      if (mappedStatus != null) {
+        code = mappedStatus;
+      }
+    }
     return FirebaseAuthException(
-      code: normalizeAuthErrorCode(error.code),
-      message: error.message,
+      code: code,
+      message: message,
     );
   }
   return error;
