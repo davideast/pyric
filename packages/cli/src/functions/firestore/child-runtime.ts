@@ -59,7 +59,8 @@ export function startFirestoreChildRuntime(
 
   let bridgeReady = Promise.resolve();
   if (discovered.length > 0) {
-    bridgeReady = installChildFirestoreSnapshotBridge(entry, projectId, sandbox);
+    const databases = new Set(discovered.map((trigger) => trigger.database));
+    bridgeReady = installChildFirestoreSnapshotBridge(entry, projectId, sandbox, databases);
   }
 
   const executionHost = startFirestoreTriggerExecution({
