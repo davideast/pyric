@@ -1,0 +1,272 @@
+[
+  {
+    "id": "queen-rank-clear-playing",
+    "fen": "k7/8/K7/8/6Q1/8/8/2q5 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-rank-clear-draw",
+    "fen": "k7/8/K7/8/6Q1/8/8/2q5 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-rank-clear-won",
+    "fen": "k7/8/K7/8/6Q1/8/8/2q5 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-rank-c4-blocker-playing",
+    "fen": "k7/8/K7/8/2p3Q1/8/8/2q5 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-rank-c4-blocker-draw",
+    "fen": "k7/8/K7/8/2p3Q1/8/8/2q5 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-rank-c4-blocker-won",
+    "fen": "k7/8/K7/8/2p3Q1/8/8/2q5 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-file-clear-playing",
+    "fen": "8/3Q4/8/8/8/q7/8/5K1k w - -",
+    "uci": "d7h7",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-file-clear-draw",
+    "fen": "8/3Q4/8/8/8/q7/8/5K1k w - -",
+    "uci": "d7h7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-file-clear-won",
+    "fen": "8/3Q4/8/8/8/q7/8/5K1k w - -",
+    "uci": "d7h7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-file-d3-blocker-playing",
+    "fen": "8/3Q4/8/8/8/q2p4/8/5K1k w - -",
+    "uci": "d7h7",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-file-d3-blocker-draw",
+    "fen": "8/3Q4/8/8/8/q2p4/8/5K1k w - -",
+    "uci": "d7h7",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-file-d3-blocker-won",
+    "fen": "8/3Q4/8/8/8/q2p4/8/5K1k w - -",
+    "uci": "d7h7",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-diagonal-clear-playing",
+    "fen": "k7/2B2q2/1K6/8/8/8/8/4Q3 w - -",
+    "uci": "e1e4",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-diagonal-clear-draw",
+    "fen": "k7/2B2q2/1K6/8/8/8/8/4Q3 w - -",
+    "uci": "e1e4",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-diagonal-clear-won",
+    "fen": "k7/2B2q2/1K6/8/8/8/8/4Q3 w - -",
+    "uci": "e1e4",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-diagonal-e6-blocker-playing",
+    "fen": "k7/2B2q2/1K2p3/8/8/8/8/4Q3 w - -",
+    "uci": "e1e4",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-diagonal-e6-blocker-draw",
+    "fen": "k7/2B2q2/1K2p3/8/8/8/8/4Q3 w - -",
+    "uci": "e1e4",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-diagonal-e6-blocker-won",
+    "fen": "k7/2B2q2/1K2p3/8/8/8/8/4Q3 w - -",
+    "uci": "e1e4",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-capture-clear-playing",
+    "fen": "k7/8/K7/8/6Q1/8/6q1/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-capture-clear-draw",
+    "fen": "k7/8/K7/8/6Q1/8/6q1/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-capture-clear-won",
+    "fen": "k7/8/K7/8/6Q1/8/6q1/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-capture-g3-blocker-playing",
+    "fen": "k7/8/K7/8/6Q1/6p1/6q1/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-capture-g3-blocker-draw",
+    "fen": "k7/8/K7/8/6Q1/6p1/6q1/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-capture-g3-blocker-won",
+    "fen": "k7/8/K7/8/6Q1/6p1/6q1/8 w - -",
+    "uci": "g4g8",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-captures-only-checker-playing",
+    "fen": "k7/2B2q2/1K6/8/8/8/B7/8 w - -",
+    "uci": "a2d5",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-captures-only-checker-draw",
+    "fen": "k7/2B2q2/1K6/8/8/8/B7/8 w - -",
+    "uci": "a2d5",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-captures-only-checker-won",
+    "fen": "k7/2B2q2/1K6/8/8/8/B7/8 w - -",
+    "uci": "a2d5",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  },
+  {
+    "id": "queen-capture-leaves-rook-check-playing",
+    "fen": "k7/2B2q2/1K6/8/8/8/B7/R7 w - -",
+    "uci": "a2d5",
+    "claim": {
+      "status": "playing",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-capture-leaves-rook-check-draw",
+    "fen": "k7/2B2q2/1K6/8/8/8/B7/R7 w - -",
+    "uci": "a2d5",
+    "claim": {
+      "status": "draw",
+      "winner": ""
+    }
+  },
+  {
+    "id": "queen-capture-leaves-rook-check-won",
+    "fen": "k7/2B2q2/1K6/8/8/8/B7/R7 w - -",
+    "uci": "a2d5",
+    "claim": {
+      "status": "won",
+      "winner": "host"
+    }
+  }
+]
