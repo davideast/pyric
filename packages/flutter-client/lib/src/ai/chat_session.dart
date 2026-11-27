@@ -75,7 +75,7 @@ Content? _aggregateStreamedModelTurn(List<GenerateContentResponse> chunks) {
             previous.text + part.text,
             thoughtSignature: part.thoughtSignature ?? previous.thoughtSignature,
           );
-        } else if (part.text.isNotEmpty) {
+        } else if (part.text.isNotEmpty || part.thoughtSignature != null) {
           mergedParts.add(part);
         }
       } else if (part is ThoughtPart) {
@@ -85,7 +85,7 @@ Content? _aggregateStreamedModelTurn(List<GenerateContentResponse> chunks) {
             previous.text + part.text,
             thoughtSignature: part.thoughtSignature ?? previous.thoughtSignature,
           );
-        } else if (part.text.isNotEmpty) {
+        } else if (part.text.isNotEmpty || part.thoughtSignature != null) {
           mergedParts.add(part);
         }
       } else {

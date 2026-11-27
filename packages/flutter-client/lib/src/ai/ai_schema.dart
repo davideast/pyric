@@ -33,13 +33,16 @@ class Schema {
   final Schema? items;
   final int? minItems;
   final int? maxItems;
-  final double? minimum;
-  final double? maximum;
+  final num? _rawMinimum;
+  final num? _rawMaximum;
   final Map<String, Schema>? properties;
   final List<String>? optionalProperties;
   final List<String>? propertyOrdering;
   final List<Schema>? anyOf;
   final Map<String, dynamic>? _rawJsonOverride;
+
+  double? get minimum => _rawMinimum?.toDouble();
+  double? get maximum => _rawMaximum?.toDouble();
 
   /// Creates a [Schema] from a pre-serialized wire JSON map.
   Schema.fromJsonMap(Map<String, dynamic> json)
@@ -53,8 +56,8 @@ class Schema {
         items = null,
         minItems = null,
         maxItems = null,
-        minimum = null,
-        maximum = null,
+        _rawMinimum = null,
+        _rawMaximum = null,
         properties = null,
         optionalProperties = null,
         propertyOrdering = null,
@@ -82,8 +85,8 @@ class Schema {
   })  : _rawJsonOverride = null,
         enumValues =
             enumValues != null ? List<String>.unmodifiable(enumValues) : null,
-        minimum = minimum?.toDouble(),
-        maximum = maximum?.toDouble(),
+        _rawMinimum = minimum,
+        _rawMaximum = maximum,
         properties = properties != null
             ? Map<String, Schema>.unmodifiable(properties)
             : null,
@@ -94,6 +97,12 @@ class Schema {
             ? List<String>.unmodifiable(propertyOrdering)
             : null,
         anyOf = anyOf != null ? List<Schema>.unmodifiable(anyOf) : null {
+    if (_rawMinimum is double && !_rawMinimum.isFinite) {
+      throw ArgumentError('Schema minimum must be finite, got $_rawMinimum.');
+    }
+    if (_rawMaximum is double && !_rawMaximum.isFinite) {
+      throw ArgumentError('Schema maximum must be finite, got $_rawMaximum.');
+    }
     final hasAnyOf = this.anyOf != null && this.anyOf!.isNotEmpty;
     if (type == null && !hasAnyOf) {
       throw ArgumentError(
@@ -306,18 +315,18 @@ class Schema {
     if (maxItems != null) {
       json['maxItems'] = maxItems;
     }
-    if (minimum != null) {
+    if (_rawMinimum != null) {
       if (type == SchemaType.integer) {
-        json['minimum'] = minimum!.toInt();
+        json['minimum'] = _rawMinimum is int ? _rawMinimum : _rawMinimum.toInt();
       } else {
-        json['minimum'] = minimum;
+        json['minimum'] = _rawMinimum.toDouble();
       }
     }
-    if (maximum != null) {
+    if (_rawMaximum != null) {
       if (type == SchemaType.integer) {
-        json['maximum'] = maximum!.toInt();
+        json['maximum'] = _rawMaximum is int ? _rawMaximum : _rawMaximum.toInt();
       } else {
-        json['maximum'] = maximum;
+        json['maximum'] = _rawMaximum.toDouble();
       }
     }
     if (properties != null) {

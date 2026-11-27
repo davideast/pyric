@@ -34,15 +34,19 @@ final class GenerativeModel {
   final Content? systemInstruction;
 
   final PyricBridgeClient _bridgeClient;
+  final PyricBridgeClient Function()? _bridgeClientProvider;
   final AiAppCheckWireResolver _appCheckResolver;
   final Map<String, dynamic>? _engineWire;
+  final Duration? _requestTimeout;
 
   GenerativeModel({
     required String modelName,
     required bool isVertexAI,
     required PyricBridgeClient bridgeClient,
+    PyricBridgeClient Function()? bridgeClientProvider,
     required AiAppCheckWireResolver appCheckResolver,
     Map<String, dynamic>? engineWire,
+    Duration? requestTimeout,
     this.generationConfig,
     List<SafetySetting>? safetySettings,
     List<Tool>? tools,
@@ -54,7 +58,9 @@ final class GenerativeModel {
             : List<SafetySetting>.unmodifiable(safetySettings),
         tools = tools == null ? null : List<Tool>.unmodifiable(tools),
         _bridgeClient = bridgeClient,
+        _bridgeClientProvider = bridgeClientProvider,
         _appCheckResolver = appCheckResolver,
+        _requestTimeout = requestTimeout,
         _engineWire = engineWire == null
             ? null
             : Map<String, dynamic>.unmodifiable(engineWire) {
@@ -62,7 +68,8 @@ final class GenerativeModel {
   }
 
   /// Underlying Pyric WebSocket bridge client used by unary and streaming ops.
-  PyricBridgeClient get bridgeClient => _bridgeClient;
+  PyricBridgeClient get bridgeClient =>
+      _bridgeClientProvider?.call() ?? _bridgeClient;
 
   /// Optional first-op engine configuration wire payload, if configured.
   Map<String, dynamic>? get engineWire => _engineWire;
@@ -112,7 +119,7 @@ final class GenerativeModel {
         if (_engineWire != null) 'engine': _engineWire,
         if (appCheckClaim != null) 'appCheck': appCheckClaim,
       };
-      final raw = await _bridgeClient.op('ai.generateContent', params);
+      final raw = await bridgeClient.op('ai.generateContent', params);
       return decodeGenerateContentResponse(raw);
     } catch (error) {
       throw mapBridgeErrorToFirebaseAIException(error);
@@ -129,7 +136,8 @@ final class GenerativeModel {
     ToolConfig? toolConfig,
   }) {
     return streamAiGenerateContent<GenerateContentResponse>(
-      bridgeClient: _bridgeClient,
+      bridgeClient: bridgeClient,
+      timeout: _requestTimeout,
       buildSubPayload: () async {
         final requestJson = buildGenerateContentWireRequest(
           prompt,
@@ -198,7 +206,7 @@ final class GenerativeModel {
         if (_engineWire != null) 'engine': _engineWire,
         if (appCheckClaim != null) 'appCheck': appCheckClaim,
       };
-      final raw = await _bridgeClient.op('ai.countTokens', params);
+      final raw = await bridgeClient.op('ai.countTokens', params);
       return decodeCountTokensResponse(raw);
     } catch (error) {
       throw mapBridgeErrorToFirebaseAIException(error);
@@ -206,8 +214,9 @@ final class GenerativeModel {
   }
 
   Future<void> _ensureBridgeConnected() async {
-    if (!_bridgeClient.isConnected) {
-      await _bridgeClient.connect();
+    final active = bridgeClient;
+    if (!active.isConnected) {
+      await active.connect();
     }
   }
 }

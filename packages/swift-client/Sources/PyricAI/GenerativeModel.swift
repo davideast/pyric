@@ -144,34 +144,124 @@ public final class GenerativeModel: Sendable {
         )
         let ai = firebaseAI
         let modelRes = modelResourceName
+        let rawTimeout = requestOptions.timeout
+        let clampedTimeout = rawTimeout.isFinite ? min(max(0.1, rawTimeout), 86_400.0) : 86_400.0
+        let timeoutNanos = UInt64((clampedTimeout * 1_000_000_000.0).rounded())
 
         return AsyncThrowingStream { continuation in
             let (rawStream, rawContinuation) = AsyncThrowingStream<AnySendable, any Error>.makeStream()
             let stateBox = StreamRegistrationBox(session: ai.session)
+            final class HandleSlot: @unchecked Sendable {
+                private let lock = NSLock()
+                private var cancelFn: (@Sendable () -> Void)?
+                private var cancelled = false
+                func store(_ fn: @escaping @Sendable () -> Void) {
+                    lock.lock()
+                    if cancelled {
+                        lock.unlock()
+                        fn()
+                        return
+                    }
+                    cancelFn = fn
+                    lock.unlock()
+                }
+                func cancel() {
+                    lock.lock()
+                    cancelled = true
+                    let fn = cancelFn
+                    cancelFn = nil
+                    lock.unlock()
+                    fn?()
+                }
+            }
+            let injectedHandleSlot = HandleSlot()
+
+            let timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: timeoutNanos)
+                guard !Task.isCancelled else { return }
+                let timeoutErr = BackendError(
+                    httpResponseCode: 504,
+                    message: "AI stream timed out after \(Int(clampedTimeout * 1000))ms.",
+                    status: .deadlineExceeded
+                )
+                rawContinuation.finish(throwing: timeoutErr)
+                injectedHandleSlot.cancel()
+                await stateBox.cancelIfRegistered()
+            }
 
             let pumpTask = Task {
+                defer { timeoutTask.cancel() }
                 do {
                     let appCheck = try await AiAppCheckResolver.resolve(
                         app: ai.app,
                         useLimitedUseTokens: ai.useLimitedUseAppCheckTokens,
                         enforceAppCheck: ai.enforceAppCheck
                     )
-                    let bridge = ai.activeBridgeClient()
-                    let endpoint = await bridge.endpoint
-                    let headers = await bridge.headers
+                    if let explicitBridge = ai.explicitBridgeClient,
+                       explicitBridge.hasInjectedChannel {
+                        var subTarget: [String: AnySendable] = [
+                            "service": .string("ai"),
+                            "op": .string("streamGenerateContent"),
+                            "model": .string(modelRes),
+                            "request": requestWire,
+                        ]
+                        if let engine = ai.engineConfig {
+                            subTarget["engine"] = engine.toAnySendable()
+                        }
+                        if let claim = appCheck.claimObject {
+                            subTarget["appCheck"] = claim
+                        }
+                        if let token = appCheck.attachedToken {
+                            subTarget["appCheckToken"] = .string(token)
+                        }
+                        let handle = explicitBridge.openOrderedSubscription(
+                            target: .dictionary(subTarget),
+                            dispatchOnDeliveryQueue: false,
+                            onEvent: { event in
+                                guard case .value(let frame) = event else { return }
+                                if let errObj = frame["__error"] {
+                                    rawContinuation.finish(throwing: AiBridgeSession.decodeWireError(errObj))
+                                    return
+                                }
+                                if frame["done"]?.boolValue == true {
+                                    rawContinuation.finish()
+                                    return
+                                }
+                                rawContinuation.yield(frame["chunk"] ?? frame)
+                            },
+                            onFinish: { error in
+                                if let error {
+                                    rawContinuation.finish(throwing: error)
+                                } else {
+                                    rawContinuation.finish(
+                                        throwing: BackendError(
+                                            httpResponseCode: 503,
+                                            message: "AI stream closed before terminal done frame.",
+                                            status: .unavailable
+                                        )
+                                    )
+                                }
+                            }
+                        )
+                        injectedHandleSlot.store { handle.cancel() }
+                    } else {
+                        let bridge = ai.activeBridgeClient()
+                        let endpoint = await bridge.endpoint
+                        let headers = await bridge.headers
 
-                    let subId = try await ai.session.openStream(
-                        endpoint: endpoint,
-                        headers: headers,
-                        model: modelRes,
-                        request: requestWire,
-                        engine: ai.engineConfig,
-                        appCheck: appCheck,
-                        continuation: rawContinuation
-                    )
-                    if stateBox.recordOrNeedsCancel(subId: subId) {
-                        await ai.session.cancelStream(subId: subId)
-                        return
+                        let subId = try await ai.session.openStream(
+                            endpoint: endpoint,
+                            headers: headers,
+                            model: modelRes,
+                            request: requestWire,
+                            engine: ai.engineConfig,
+                            appCheck: appCheck,
+                            continuation: rawContinuation
+                        )
+                        if stateBox.recordOrNeedsCancel(subId: subId) {
+                            await ai.session.cancelStream(subId: subId)
+                            return
+                        }
                     }
 
                     var didYieldCandidate = false
@@ -184,6 +274,7 @@ public final class GenerativeModel: Sendable {
                         }
                     }
 
+                    injectedHandleSlot.cancel()
                     if didYieldCandidate {
                         continuation.finish()
                     } else {
@@ -192,16 +283,20 @@ public final class GenerativeModel: Sendable {
                         )
                     }
                 } catch is CancellationError {
+                    injectedHandleSlot.cancel()
                     await stateBox.cancelIfRegistered()
                     continuation.finish(throwing: CancellationError())
                 } catch {
+                    injectedHandleSlot.cancel()
                     await stateBox.cancelIfRegistered()
                     continuation.finish(throwing: GenerateContentError.wrap(error))
                 }
             }
 
             continuation.onTermination = { @Sendable _ in
+                timeoutTask.cancel()
                 pumpTask.cancel()
+                injectedHandleSlot.cancel()
                 Task {
                     await stateBox.cancelIfRegistered()
                 }

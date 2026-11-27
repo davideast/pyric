@@ -16,11 +16,21 @@ class Schema internal constructor(
     val title: String? = null,
     val minItems: Int? = null,
     val maxItems: Int? = null,
-    val minimum: Double? = null,
-    val maximum: Double? = null,
+    private val exactMinimum: Number? = null,
+    private val exactMaximum: Number? = null,
     val anyOf: List<Schema>? = null,
     val propertyOrdering: List<String>? = null
 ) {
+    val minimum: Double?
+        get() = exactMinimum?.toDouble()
+
+    val maximum: Double?
+        get() = exactMaximum?.toDouble()
+
+    init {
+        validateFiniteBound("minimum", exactMinimum)
+        validateFiniteBound("maximum", exactMaximum)
+    }
     internal fun toWireMap(): Map<String, Any?> {
         val out = LinkedHashMap<String, Any?>()
         if (type != TYPE_ANY_OF) {
@@ -63,11 +73,11 @@ class Schema internal constructor(
         if (maxItems != null) {
             out["maxItems"] = maxItems
         }
-        if (minimum != null) {
-            out["minimum"] = minimum
+        if (exactMinimum != null) {
+            out["minimum"] = exactMinimum
         }
-        if (maximum != null) {
-            out["maximum"] = maximum
+        if (exactMaximum != null) {
+            out["maximum"] = exactMaximum
         }
         if (anyOf != null) {
             out["anyOf"] = anyOf.map { it.toWireMap() }
@@ -97,6 +107,13 @@ class Schema internal constructor(
             title = title
         )
 
+        private fun validateFiniteBound(name: String, bound: Number?) {
+            when (bound) {
+                is Double -> require(bound.isFinite()) { "Schema $name must be finite, got $bound." }
+                is Float -> require(bound.isFinite()) { "Schema $name must be finite, got $bound." }
+            }
+        }
+
         @JvmStatic
         @JvmName("numInt")
         @JvmOverloads
@@ -104,16 +121,16 @@ class Schema internal constructor(
             description: String? = null,
             nullable: Boolean = false,
             title: String? = null,
-            minimum: Double? = null,
-            maximum: Double? = null
+            minimum: Number? = null,
+            maximum: Number? = null
         ): Schema = Schema(
             type = TYPE_INTEGER,
             description = description,
             format = "int32",
             nullable = nullable,
             title = title,
-            minimum = minimum,
-            maximum = maximum
+            exactMinimum = minimum,
+            exactMaximum = maximum
         )
 
         @JvmStatic
@@ -123,15 +140,15 @@ class Schema internal constructor(
             description: String? = null,
             nullable: Boolean = false,
             title: String? = null,
-            minimum: Double? = null,
-            maximum: Double? = null
+            minimum: Number? = null,
+            maximum: Number? = null
         ): Schema = Schema(
             type = TYPE_INTEGER,
             description = description,
             nullable = nullable,
             title = title,
-            minimum = minimum,
-            maximum = maximum
+            exactMinimum = minimum,
+            exactMaximum = maximum
         )
 
         @JvmStatic
@@ -149,8 +166,8 @@ class Schema internal constructor(
             format = "float",
             nullable = nullable,
             title = title,
-            minimum = minimum,
-            maximum = maximum
+            exactMinimum = minimum,
+            exactMaximum = maximum
         )
 
         @JvmStatic
@@ -167,8 +184,8 @@ class Schema internal constructor(
             description = description,
             nullable = nullable,
             title = title,
-            minimum = minimum,
-            maximum = maximum
+            exactMinimum = minimum,
+            exactMaximum = maximum
         )
 
         @JvmStatic

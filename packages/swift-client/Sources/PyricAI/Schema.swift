@@ -64,27 +64,31 @@ public final class Schema: Sendable, Encodable, Equatable {
     public let maxItems: Int?
     public let minimum: Double?
     public let maximum: Double?
+    private let exactIntMinimum: Int?
+    private let exactIntMaximum: Int?
     public let properties: [String: Schema]?
     public let anyOf: [Schema]?
     public let requiredProperties: [String]?
     public let propertyOrdering: [String]?
 
-    public required init(
+    private init(
         type: DataType?,
-        format: String? = nil,
-        description: String? = nil,
-        title: String? = nil,
-        nullable: Bool? = nil,
-        enumValues: [String]? = nil,
-        items: Schema? = nil,
-        minItems: Int? = nil,
-        maxItems: Int? = nil,
-        minimum: Double? = nil,
-        maximum: Double? = nil,
-        anyOf: [Schema]? = nil,
-        properties: [String: Schema]? = nil,
-        requiredProperties: [String]? = nil,
-        propertyOrdering: [String]? = nil
+        format: String?,
+        description: String?,
+        title: String?,
+        nullable: Bool?,
+        enumValues: [String]?,
+        items: Schema?,
+        minItems: Int?,
+        maxItems: Int?,
+        minimum: Double?,
+        maximum: Double?,
+        exactIntMinimum: Int?,
+        exactIntMaximum: Int?,
+        anyOf: [Schema]?,
+        properties: [String: Schema]?,
+        requiredProperties: [String]?,
+        propertyOrdering: [String]?
     ) {
         precondition(
             type != nil || anyOf != nil,
@@ -101,10 +105,50 @@ public final class Schema: Sendable, Encodable, Equatable {
         self.maxItems = maxItems
         self.minimum = minimum
         self.maximum = maximum
+        self.exactIntMinimum = exactIntMinimum
+        self.exactIntMaximum = exactIntMaximum
         self.anyOf = anyOf
         self.properties = properties
         self.requiredProperties = requiredProperties
         self.propertyOrdering = propertyOrdering
+    }
+
+    public required convenience init(
+        type: DataType?,
+        format: String? = nil,
+        description: String? = nil,
+        title: String? = nil,
+        nullable: Bool? = nil,
+        enumValues: [String]? = nil,
+        items: Schema? = nil,
+        minItems: Int? = nil,
+        maxItems: Int? = nil,
+        minimum: Double? = nil,
+        maximum: Double? = nil,
+        anyOf: [Schema]? = nil,
+        properties: [String: Schema]? = nil,
+        requiredProperties: [String]? = nil,
+        propertyOrdering: [String]? = nil
+    ) {
+        self.init(
+            type: type,
+            format: format,
+            description: description,
+            title: title,
+            nullable: nullable,
+            enumValues: enumValues,
+            items: items,
+            minItems: minItems,
+            maxItems: maxItems,
+            minimum: minimum,
+            maximum: maximum,
+            exactIntMinimum: nil,
+            exactIntMaximum: nil,
+            anyOf: anyOf,
+            properties: properties,
+            requiredProperties: requiredProperties,
+            propertyOrdering: propertyOrdering
+        )
     }
 
     // MARK: - Static Schema Builders
@@ -189,8 +233,18 @@ public final class Schema: Sendable, Encodable, Equatable {
             description: description,
             title: title,
             nullable: nullable,
+            enumValues: nil,
+            items: nil,
+            minItems: nil,
+            maxItems: nil,
             minimum: minimum.map { Double($0) },
-            maximum: maximum.map { Double($0) }
+            maximum: maximum.map { Double($0) },
+            exactIntMinimum: minimum,
+            exactIntMaximum: maximum,
+            anyOf: nil,
+            properties: nil,
+            requiredProperties: nil,
+            propertyOrdering: nil
         )
     }
 
@@ -272,6 +326,51 @@ public final class Schema: Sendable, Encodable, Equatable {
         case propertyOrdering
     }
 
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(dataType, forKey: .dataType)
+        try container.encodeIfPresent(format, forKey: .format)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(nullable, forKey: .nullable)
+        try container.encodeIfPresent(enumValues, forKey: .enumValues)
+        try container.encodeIfPresent(items, forKey: .items)
+        try container.encodeIfPresent(minItems, forKey: .minItems)
+        try container.encodeIfPresent(maxItems, forKey: .maxItems)
+        if let exactIntMinimum {
+            try container.encode(exactIntMinimum, forKey: .minimum)
+        } else if let minimum {
+            guard minimum.isFinite else {
+                throw EncodingError.invalidValue(
+                    minimum,
+                    EncodingError.Context(
+                        codingPath: container.codingPath + [CodingKeys.minimum],
+                        debugDescription: "Schema minimum must be finite."
+                    )
+                )
+            }
+            try container.encode(minimum, forKey: .minimum)
+        }
+        if let exactIntMaximum {
+            try container.encode(exactIntMaximum, forKey: .maximum)
+        } else if let maximum {
+            guard maximum.isFinite else {
+                throw EncodingError.invalidValue(
+                    maximum,
+                    EncodingError.Context(
+                        codingPath: container.codingPath + [CodingKeys.maximum],
+                        debugDescription: "Schema maximum must be finite."
+                    )
+                )
+            }
+            try container.encode(maximum, forKey: .maximum)
+        }
+        try container.encodeIfPresent(anyOf, forKey: .anyOf)
+        try container.encodeIfPresent(properties, forKey: .properties)
+        try container.encodeIfPresent(requiredProperties, forKey: .requiredProperties)
+        try container.encodeIfPresent(propertyOrdering, forKey: .propertyOrdering)
+    }
+
     /// Converts this `Schema` to Gemini JSON Schema representation (`JSONObject`).
     public func toJSONSchema() -> JSONObject {
         var json: JSONObject = [:]
@@ -328,6 +427,8 @@ public final class Schema: Sendable, Encodable, Equatable {
             lhs.maxItems == rhs.maxItems &&
             lhs.minimum == rhs.minimum &&
             lhs.maximum == rhs.maximum &&
+            lhs.exactIntMinimum == rhs.exactIntMinimum &&
+            lhs.exactIntMaximum == rhs.exactIntMaximum &&
             lhs.properties == rhs.properties &&
             lhs.anyOf == rhs.anyOf &&
             lhs.requiredProperties == rhs.requiredProperties &&
