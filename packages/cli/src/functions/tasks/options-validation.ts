@@ -3,7 +3,17 @@
  * (`onTaskDispatched`): unwraps `RESET_VALUE` sentinels and validates
  * `retryConfig`, `rateLimits`, `invoker`, `region`, and `timeoutSeconds`.
  */
+import {
+  resolveEndpointRegionsOption,
+  resolveInvokerOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
 import { isResetValueObject } from '../endpoints.js';
+import {
+  isParamExpression,
+  resolveParamExpression,
+  type ParamsEnvMap,
+} from '../params-resolver.js';
 
 export interface TasksRetryConfig {
   maxAttempts?: number;
@@ -31,116 +41,110 @@ const MAX_TASK_TIMEOUT_SECONDS = 1800;
 export function parseTaskEndpointRegions(
   region: unknown,
   defaultRegion: string,
+  env?: ParamsEnvMap,
 ): { ok: true; regions: string[]; location?: string } | { ok: false } {
-  if (region === undefined || region === null || isResetValueObject(region)) {
-    return { ok: true, regions: [defaultRegion] };
+  const resolved = resolveEndpointRegionsOption(region, defaultRegion, env);
+  if (!resolved.ok) return { ok: false };
+  const result: { ok: true; regions: string[]; location?: string } = {
+    ok: true,
+    regions: resolved.regions,
+  };
+  if (resolved.location !== undefined) {
+    result.location = resolved.location;
   }
-  if (typeof region === 'string') {
-    if (region.length === 0) return { ok: false };
-    return { ok: true, regions: [region], location: region };
-  }
-  if (Array.isArray(region)) {
-    if (region.length === 0) {
-      return { ok: true, regions: [defaultRegion] };
-    }
-    const allStrings = region.every((item) => typeof item === 'string' && item.length > 0);
-    if (!allStrings) return { ok: false };
-    const regions = region as string[];
-    const first = regions[0];
-    if (typeof first === 'string') {
-      return { ok: true, regions, location: first };
-    }
-    return { ok: true, regions: [defaultRegion] };
-  }
-  return { ok: false };
+  return result;
 }
 
 export function parseTaskTimeoutSeconds(
   rawTimeout: unknown,
+  env?: ParamsEnvMap,
 ): { ok: true; timeoutSeconds?: number } | { ok: false; kind: 'dynamic' | 'invalid' } {
-  if (rawTimeout === undefined || rawTimeout === null || isResetValueObject(rawTimeout)) {
-    return { ok: true };
+  const resolved = resolveTimeoutSecondsOption(rawTimeout, env, {
+    maxSeconds: MAX_TASK_TIMEOUT_SECONDS,
+  });
+  if (!resolved.ok) return resolved;
+  const result: { ok: true; timeoutSeconds?: number } = { ok: true };
+  if (resolved.timeoutSeconds !== undefined) {
+    result.timeoutSeconds = resolved.timeoutSeconds;
   }
-  if (typeof rawTimeout === 'object') {
-    return { ok: false, kind: 'dynamic' };
-  }
-  if (
-    typeof rawTimeout !== 'number' ||
-    !Number.isFinite(rawTimeout) ||
-    rawTimeout <= 0 ||
-    rawTimeout > MAX_TASK_TIMEOUT_SECONDS
-  ) {
-    return { ok: false, kind: 'invalid' };
-  }
-  return { ok: true, timeoutSeconds: rawTimeout };
+  return result;
 }
 
 export function parseTaskInvokerField(
   rawInvoker: unknown,
+  env?: ParamsEnvMap,
 ): { ok: true; invoker?: string[] } | { ok: false; kind: 'dynamic' | 'invalid' } {
-  if (rawInvoker === undefined || rawInvoker === null || isResetValueObject(rawInvoker)) {
-    return { ok: true };
-  }
-  if (typeof rawInvoker === 'string') {
-    if (rawInvoker.length === 0) return { ok: false, kind: 'invalid' };
-    return { ok: true, invoker: [rawInvoker] };
-  }
-  if (Array.isArray(rawInvoker)) {
-    const valid = rawInvoker.every((entry) => typeof entry === 'string' && entry.length > 0);
-    if (!valid) return { ok: false, kind: 'invalid' };
-    return { ok: true, invoker: [...(rawInvoker as string[])] };
-  }
-  if (typeof rawInvoker === 'object') {
-    return { ok: false, kind: 'dynamic' };
-  }
-  return { ok: false, kind: 'invalid' };
+  return resolveInvokerOption(rawInvoker, env);
 }
 
 function parseIntegerField(
   rawValue: unknown,
   fieldName: string,
   minAllowed: number,
+  env: ParamsEnvMap | undefined,
 ): { ok: true; value?: number } | { ok: false; kind: 'dynamic' | 'invalid'; reason: string } {
   if (rawValue === undefined || rawValue === null || isResetValueObject(rawValue)) {
     return { ok: true };
   }
-  if (typeof rawValue === 'object') {
+  let candidate: unknown = rawValue;
+  if (isParamExpression(rawValue)) {
+    const resolved = resolveParamExpression(rawValue, env);
+    if (!resolved.ok) {
+      return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
+    }
+    candidate = resolved.value;
+    if (candidate === undefined || candidate === null || isResetValueObject(candidate)) {
+      return { ok: true };
+    }
+  } else if (typeof rawValue === 'object') {
     return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
   }
-  if (typeof rawValue !== 'number' || !Number.isSafeInteger(rawValue) || rawValue < minAllowed) {
+  if (typeof candidate !== 'number' || !Number.isSafeInteger(candidate) || candidate < minAllowed) {
     return {
       ok: false,
       kind: 'invalid',
       reason: `${fieldName} must be an integer >= ${minAllowed}`,
     };
   }
-  return { ok: true, value: rawValue };
+  return { ok: true, value: candidate };
 }
 
 function parseDurationSecondsField(
   rawValue: unknown,
   fieldName: string,
+  env: ParamsEnvMap | undefined,
 ): { ok: true; value?: number } | { ok: false; kind: 'dynamic' | 'invalid'; reason: string } {
   if (rawValue === undefined || rawValue === null || isResetValueObject(rawValue)) {
     return { ok: true };
   }
-  if (typeof rawValue === 'object') {
+  let candidate: unknown = rawValue;
+  let containsSecret = false;
+  if (isParamExpression(rawValue)) {
+    const resolved = resolveParamExpression(rawValue, env);
+    if (!resolved.ok) {
+      return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
+    }
+    candidate = resolved.value;
+    containsSecret = resolved.containsSecret;
+    if (candidate === undefined || candidate === null || isResetValueObject(candidate)) {
+      return { ok: true };
+    }
+  } else if (typeof rawValue === 'object') {
     return { ok: false, kind: 'dynamic', reason: `dynamic ${fieldName}` };
   }
-  if (typeof rawValue === 'number') {
-    if (!Number.isFinite(rawValue) || rawValue < 0) {
+  if (typeof candidate === 'number') {
+    if (!Number.isFinite(candidate) || candidate < 0) {
       return { ok: false, kind: 'invalid', reason: `${fieldName} must be a non-negative number` };
     }
-    return { ok: true, value: rawValue };
+    return { ok: true, value: candidate };
   }
-  if (typeof rawValue === 'string') {
-    const match = /^(\d+(?:\.\d+)?)s$/.exec(rawValue.trim());
+  if (typeof candidate === 'string') {
+    const match = /^(\d+(?:\.\d+)?)s$/.exec(candidate.trim());
     if (!match) {
-      return {
-        ok: false,
-        kind: 'invalid',
-        reason: `${fieldName} duration string '${rawValue}' is invalid`,
-      };
+      const reason = containsSecret
+        ? `${fieldName} duration string is invalid`
+        : `${fieldName} duration string '${candidate}' is invalid`;
+      return { ok: false, kind: 'invalid', reason };
     }
     const parsed = Number(match[1]);
     if (!Number.isFinite(parsed) || parsed < 0) {
@@ -152,7 +156,10 @@ function parseDurationSecondsField(
 }
 
 /** Validate `taskQueueTrigger.retryConfig` against `firebase-functions/v2/tasks` shapes. */
-export function validateTasksRetryConfig(rawRetryConfig: unknown): TasksRetryValidationResult {
+export function validateTasksRetryConfig(
+  rawRetryConfig: unknown,
+  env?: ParamsEnvMap,
+): TasksRetryValidationResult {
   if (
     rawRetryConfig === undefined ||
     rawRetryConfig === null ||
@@ -165,24 +172,26 @@ export function validateTasksRetryConfig(rawRetryConfig: unknown): TasksRetryVal
   }
 
   const record = rawRetryConfig as Record<string, unknown>;
-  const maxAttempts = parseIntegerField(record.maxAttempts, 'maxAttempts', -1);
+  const maxAttempts = parseIntegerField(record.maxAttempts, 'maxAttempts', -1, env);
   if (!maxAttempts.ok) return maxAttempts;
 
-  const maxDoublings = parseIntegerField(record.maxDoublings, 'maxDoublings', 0);
+  const maxDoublings = parseIntegerField(record.maxDoublings, 'maxDoublings', 0, env);
   if (!maxDoublings.ok) return maxDoublings;
 
-  const maxRetrySeconds = parseDurationSecondsField(record.maxRetrySeconds, 'maxRetrySeconds');
+  const maxRetrySeconds = parseDurationSecondsField(record.maxRetrySeconds, 'maxRetrySeconds', env);
   if (!maxRetrySeconds.ok) return maxRetrySeconds;
 
   const minBackoffSeconds = parseDurationSecondsField(
     record.minBackoffSeconds,
     'minBackoffSeconds',
+    env,
   );
   if (!minBackoffSeconds.ok) return minBackoffSeconds;
 
   const maxBackoffSeconds = parseDurationSecondsField(
     record.maxBackoffSeconds,
     'maxBackoffSeconds',
+    env,
   );
   if (!maxBackoffSeconds.ok) return maxBackoffSeconds;
 
@@ -212,7 +221,10 @@ export function validateTasksRetryConfig(rawRetryConfig: unknown): TasksRetryVal
 }
 
 /** Validate `taskQueueTrigger.rateLimits` against `firebase-functions/v2/tasks` shapes. */
-export function validateTasksRateLimits(rawRateLimits: unknown): TasksRateLimitsValidationResult {
+export function validateTasksRateLimits(
+  rawRateLimits: unknown,
+  env?: ParamsEnvMap,
+): TasksRateLimitsValidationResult {
   if (rawRateLimits === undefined || rawRateLimits === null || isResetValueObject(rawRateLimits)) {
     return { ok: true, rateLimits: {} };
   }
@@ -225,23 +237,33 @@ export function validateTasksRateLimits(rawRateLimits: unknown): TasksRateLimits
     record.maxConcurrentDispatches,
     'maxConcurrentDispatches',
     1,
+    env,
   );
   if (!maxConcurrentDispatches.ok) return maxConcurrentDispatches;
 
   let maxDispatchesPerSecond: number | undefined;
   const rawRate = record.maxDispatchesPerSecond;
   if (rawRate !== undefined && rawRate !== null && !isResetValueObject(rawRate)) {
-    if (typeof rawRate === 'object') {
+    let candidate: unknown = rawRate;
+    if (isParamExpression(rawRate)) {
+      const resolved = resolveParamExpression(rawRate, env);
+      if (!resolved.ok) {
+        return { ok: false, kind: 'dynamic', reason: 'dynamic maxDispatchesPerSecond' };
+      }
+      candidate = resolved.value;
+    } else if (typeof rawRate === 'object') {
       return { ok: false, kind: 'dynamic', reason: 'dynamic maxDispatchesPerSecond' };
     }
-    if (typeof rawRate !== 'number' || !Number.isFinite(rawRate) || rawRate <= 0) {
-      return {
-        ok: false,
-        kind: 'invalid',
-        reason: 'maxDispatchesPerSecond must be a positive number',
-      };
+    if (candidate !== undefined && candidate !== null && !isResetValueObject(candidate)) {
+      if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate <= 0) {
+        return {
+          ok: false,
+          kind: 'invalid',
+          reason: 'maxDispatchesPerSecond must be a positive number',
+        };
+      }
+      maxDispatchesPerSecond = candidate;
     }
-    maxDispatchesPerSecond = rawRate;
   }
 
   const rateLimits: TasksRateLimits = {};

@@ -3,12 +3,18 @@
  * Auth blocking triggers (`providers/cloud.auth/eventTypes/user.*`).
  */
 import {
+  resolveBooleanOption,
+  resolveEndpointRegionsOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
   endpointTriggerLabel,
-  isResetValueObject,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
+import { DEFAULT_REGION } from '../http/discovery.js';
+import { isParamExpression, type ParamsEnvMap } from '../params-resolver.js';
 import type { FunctionsTriggerFamily, UnsupportedFunctionsTrigger } from '../unsupported.js';
 
 export const BEFORE_CREATE_EVENT_TYPE = 'providers/cloud.auth/eventTypes/user.beforeCreate';
@@ -82,6 +88,7 @@ export interface IdentityTriggerInspection {
 export interface InspectIdentityTriggersOptions {
   activeEventTypes?: ReadonlySet<IdentityBlockingEventType>;
   defaultTimeoutSeconds?: number;
+  env?: ParamsEnvMap;
 }
 
 export function isIdentityBlockingEventType(
@@ -101,46 +108,9 @@ function isBlockingEndpoint(endpoint: FirebaseEndpoint): boolean {
   return typeof trigger === 'object' && trigger !== null;
 }
 
-function parseEndpointLocation(
-  region: unknown,
-): { ok: true; location?: string } | { ok: false } {
-  if (region === undefined || region === null || isResetValueObject(region)) {
-    return { ok: true };
-  }
-  if (typeof region === 'string') {
-    if (region.length === 0) return { ok: false };
-    return { ok: true, location: region };
-  }
-  if (Array.isArray(region)) {
-    if (region.length === 0) return { ok: true };
-    const allStrings = region.every((item) => typeof item === 'string' && item.length > 0);
-    if (!allStrings) return { ok: false };
-    const first = region[0];
-    if (typeof first === 'string') {
-      return { ok: true, location: first };
-    }
-    return { ok: true };
-  }
-  return { ok: false };
-}
-
-function parseEndpointTimeout(
-  timeoutSeconds: unknown,
-): { ok: true; timeoutSeconds?: number; reset?: boolean } | { ok: false } {
-  if (timeoutSeconds === undefined) {
-    return { ok: true };
-  }
-  if (timeoutSeconds === null || isResetValueObject(timeoutSeconds)) {
-    return { ok: true, reset: true };
-  }
-  if (typeof timeoutSeconds === 'number' && Number.isFinite(timeoutSeconds) && timeoutSeconds > 0) {
-    return { ok: true, timeoutSeconds };
-  }
-  return { ok: false };
-}
-
 function parseBlockingOptions(
   rawOptions: Record<string, unknown> | undefined,
+  env: ParamsEnvMap | undefined,
 ): { ok: true; options: IdentityBlockingOptions } | { ok: false } {
   if (rawOptions === undefined) {
     return {
@@ -148,20 +118,29 @@ function parseBlockingOptions(
       options: { idToken: false, accessToken: false, refreshToken: false },
     };
   }
+  const resolvedFlags: IdentityBlockingOptions = {
+    idToken: false,
+    accessToken: false,
+    refreshToken: false,
+  };
   for (const flag of ['idToken', 'accessToken', 'refreshToken'] as const) {
     const rawValue = rawOptions[flag];
-    if (rawValue !== undefined && typeof rawValue !== 'boolean') {
-      return { ok: false };
+    if (rawValue === undefined) {
+      continue;
     }
+    if (typeof rawValue === 'boolean') {
+      resolvedFlags[flag] = rawValue;
+      continue;
+    }
+    if (isParamExpression(rawValue)) {
+      const parsed = resolveBooleanOption(rawValue, env);
+      if (!parsed.ok) return { ok: false };
+      resolvedFlags[flag] = parsed.value;
+      continue;
+    }
+    return { ok: false };
   }
-  return {
-    ok: true,
-    options: {
-      idToken: rawOptions.idToken === true,
-      accessToken: rawOptions.accessToken === true,
-      refreshToken: rawOptions.refreshToken === true,
-    },
-  };
+  return { ok: true, options: resolvedFlags };
 }
 
 /**
@@ -176,6 +155,7 @@ export function inspectIdentityTriggers(
   exported: Record<string, unknown>,
   options: InspectIdentityTriggersOptions = {},
 ): IdentityTriggerInspection {
+  const env = options.env;
   const candidates: DiscoveredIdentityTrigger[] = [];
   const unsupported: UnsupportedFunctionsTrigger[] = [];
 
@@ -184,7 +164,7 @@ export function inspectIdentityTriggers(
     if (!endpoint || !isBlockingEndpoint(endpoint)) continue;
 
     const label = endpointTriggerLabel(endpoint);
-    const omitState = classifyEndpointOmit(endpoint.omit);
+    const omitState = classifyEndpointOmit(endpoint.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({
         exportName,
@@ -217,7 +197,7 @@ export function inspectIdentityTriggers(
       continue;
     }
 
-    const parsedRegion = parseEndpointLocation(endpoint.region);
+    const parsedRegion = resolveEndpointRegionsOption(endpoint.region, DEFAULT_REGION, env);
     if (!parsedRegion.ok) {
       unsupported.push({
         exportName,
@@ -226,7 +206,7 @@ export function inspectIdentityTriggers(
       continue;
     }
 
-    const parsedTimeout = parseEndpointTimeout(endpoint.timeoutSeconds);
+    const parsedTimeout = resolveTimeoutSecondsOption(endpoint.timeoutSeconds, env);
     if (!parsedTimeout.ok) {
       unsupported.push({
         exportName,
@@ -235,7 +215,7 @@ export function inspectIdentityTriggers(
       continue;
     }
 
-    const parsedBlockingOptions = parseBlockingOptions(endpoint.blockingTrigger?.options);
+    const parsedBlockingOptions = parseBlockingOptions(endpoint.blockingTrigger?.options, env);
     if (!parsedBlockingOptions.ok) {
       unsupported.push({
         exportName,
@@ -309,12 +289,18 @@ export function discoverIdentityTriggers(
   if (options.defaultTimeoutSeconds !== undefined) {
     inspectOpts.defaultTimeoutSeconds = options.defaultTimeoutSeconds;
   }
+  if (options.env !== undefined) {
+    inspectOpts.env = options.env;
+  }
   return inspectIdentityTriggers(exported, inspectOpts).triggers;
 }
 
 /** The v2 Identity Platform blocking trigger family (`providers/cloud.auth/eventTypes/user.*`). */
 export const identityBlockingFamily: FunctionsTriggerFamily = {
   claims: isBlockingEndpoint,
-  unsupported: (exported: Record<string, unknown>) =>
-    inspectIdentityTriggers(exported, { activeEventTypes: ACTIVE_IDENTITY_EVENT_TYPES }).unsupported,
+  unsupported: (exported: Record<string, unknown>, env?: ParamsEnvMap) =>
+    inspectIdentityTriggers(exported, {
+      activeEventTypes: ACTIVE_IDENTITY_EVENT_TYPES,
+      ...(env === undefined ? {} : { env }),
+    }).unsupported,
 };

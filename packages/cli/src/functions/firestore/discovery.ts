@@ -3,10 +3,18 @@
  * exports across all 8 `google.cloud.firestore.document.v1.*` event types.
  */
 import {
+  resolveBooleanOption,
+  resolveEndpointRegionsOption,
+  resolveStringOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
+import { DEFAULT_REGION } from '../http/discovery.js';
+import type { ParamsEnvMap } from '../params-resolver.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 import {
   normalizeFirestoreDocumentPath,
@@ -78,6 +86,7 @@ export interface FirestoreTriggerInspection {
 
 export interface InspectFirestoreTriggersOptions {
   admittedEventTypes?: ReadonlySet<FirestoreTriggerEventType>;
+  env?: ParamsEnvMap;
 }
 
 /** Whether an Eventarc `eventType` belongs to `firebase-functions/v2/firestore`. */
@@ -113,27 +122,25 @@ function classifyOperation(eventType: FirestoreTriggerEventType): {
   return { operation: 'written', withAuthContext };
 }
 
-function resolveEndpointLocation(region: unknown): string | undefined {
-  if (typeof region === 'string' && region.length > 0) {
-    return region;
-  }
-  if (Array.isArray(region) && typeof region[0] === 'string' && region[0].length > 0) {
-    return region[0];
-  }
-  return undefined;
-}
-
 function resolveDocumentFilter(
   eventFilters: Record<string, unknown> | undefined,
   eventFilterPathPatterns: Record<string, unknown> | undefined,
-): { ok: true; document: string } | { ok: false; reason: string } {
+  env: ParamsEnvMap | undefined,
+): { ok: true; document: string; containsSecret: boolean } | { ok: false; reason: string } {
   const patternDoc = eventFilterPathPatterns?.document;
-  const literalDoc = eventFilters?.document;
-  if (typeof patternDoc === 'string') {
-    return { ok: true, document: patternDoc };
+  if (patternDoc !== undefined) {
+    const resolved = resolveStringOption(patternDoc, env);
+    if (resolved.ok && resolved.value.length > 0) {
+      return { ok: true, document: resolved.value, containsSecret: resolved.containsSecret };
+    }
+    return { ok: false, reason: 'unsupported dynamic document option' };
   }
-  if (typeof literalDoc === 'string') {
-    return { ok: true, document: literalDoc };
+  const literalDoc = eventFilters?.document;
+  if (literalDoc !== undefined) {
+    const resolved = resolveStringOption(literalDoc, env);
+    if (resolved.ok && resolved.value.length > 0) {
+      return { ok: true, document: resolved.value, containsSecret: resolved.containsSecret };
+    }
   }
   return { ok: false, reason: 'unsupported dynamic document option' };
 }
@@ -143,18 +150,27 @@ function resolveStringFilter(
   patternValue: unknown,
   fallback: string,
   fieldLabel: string,
+  env: ParamsEnvMap | undefined,
 ): { ok: true; value: string } | { ok: false; reason: string } {
   if (patternValue !== undefined) {
-    if (typeof patternValue === 'string') {
-      return { ok: false, reason: `unsupported ${fieldLabel} pattern: ${patternValue}` };
+    const resolvedPattern = resolveStringOption(patternValue, env);
+    if (resolvedPattern.ok) {
+      if (resolvedPattern.containsSecret) {
+        return { ok: false, reason: `unsupported ${fieldLabel} pattern` };
+      }
+      return {
+        ok: false,
+        reason: `unsupported ${fieldLabel} pattern: ${resolvedPattern.value}`,
+      };
     }
     return { ok: false, reason: `unsupported dynamic ${fieldLabel} option` };
   }
   if (exactValue === undefined) {
     return { ok: true, value: fallback };
   }
-  if (typeof exactValue === 'string' && exactValue.length > 0) {
-    return { ok: true, value: exactValue };
+  const resolvedExact = resolveStringOption(exactValue, env);
+  if (resolvedExact.ok && resolvedExact.value.length > 0) {
+    return { ok: true, value: resolvedExact.value };
   }
   return { ok: false, reason: `unsupported dynamic ${fieldLabel} option` };
 }
@@ -170,6 +186,7 @@ export function inspectFirestoreTriggers(
   const triggers: DiscoveredFirestoreTrigger[] = [];
   const unsupported: UnsupportedFirestoreTrigger[] = [];
   const admitted = options.admittedEventTypes;
+  const env = options.env;
 
   for (const { exportName, callable } of listFirebaseEndpoints<FirestoreTriggerCallable>(exported)) {
     const endpoint = callable.__endpoint;
@@ -177,7 +194,7 @@ export function inspectFirestoreTriggers(
     const eventType = trigger?.eventType;
     if (!isFirestoreTriggerEventType(eventType)) continue;
 
-    const omitState = classifyEndpointOmit(endpoint?.omit);
+    const omitState = classifyEndpointOmit(endpoint?.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({
         exportName,
@@ -200,6 +217,7 @@ export function inspectFirestoreTriggers(
     const docFilter = resolveDocumentFilter(
       trigger?.eventFilters,
       trigger?.eventFilterPathPatterns,
+      env,
     );
     if (!docFilter.ok) {
       unsupported.push({
@@ -214,6 +232,7 @@ export function inspectFirestoreTriggers(
       trigger?.eventFilterPathPatterns?.database,
       DEFAULT_FIRESTORE_DATABASE,
       'database',
+      env,
     );
     if (!databaseFilter.ok) {
       unsupported.push({
@@ -228,6 +247,7 @@ export function inspectFirestoreTriggers(
       trigger?.eventFilterPathPatterns?.namespace,
       DEFAULT_FIRESTORE_NAMESPACE,
       'namespace',
+      env,
     );
     if (!namespaceFilter.ok) {
       unsupported.push({
@@ -238,15 +258,42 @@ export function inspectFirestoreTriggers(
     }
 
     if (!supportsFirestoreDocumentPattern(docFilter.document)) {
+      const patternReason = docFilter.containsSecret
+        ? 'unsupported document pattern'
+        : `unsupported document pattern: ${docFilter.document}`;
       unsupported.push({
         exportName,
-        eventType: `${eventType} (unsupported document pattern: ${docFilter.document})`,
+        eventType: `${eventType} (${patternReason})`,
+      });
+      continue;
+    }
+
+    const parsedRegion = resolveEndpointRegionsOption(endpoint?.region, DEFAULT_REGION, env);
+    if (!parsedRegion.ok) {
+      unsupported.push({
+        exportName,
+        eventType: `${eventType} (unsupported dynamic region option)`,
+      });
+      continue;
+    }
+
+    if (!resolveBooleanOption(trigger?.retry, env).ok) {
+      unsupported.push({
+        exportName,
+        eventType: `${eventType} (unsupported dynamic retry option)`,
+      });
+      continue;
+    }
+
+    if (!resolveTimeoutSecondsOption(endpoint?.timeoutSeconds, env, { allowZero: true }).ok) {
+      unsupported.push({
+        exportName,
+        eventType: `${eventType} (unsupported dynamic timeoutSeconds option)`,
       });
       continue;
     }
 
     const { operation, withAuthContext } = classifyOperation(eventType);
-    const location = resolveEndpointLocation(endpoint?.region);
     const discovered: DiscoveredFirestoreTrigger = {
       exportName,
       eventType,
@@ -257,8 +304,8 @@ export function inspectFirestoreTriggers(
       namespace: namespaceFilter.value,
       callable,
     };
-    if (location !== undefined) {
-      discovered.location = location;
+    if (parsedRegion.location !== undefined) {
+      discovered.location = parsedRegion.location;
     }
     triggers.push(discovered);
   }
@@ -278,7 +325,9 @@ export function discoverFirestoreTriggers(
 export const firestoreTriggersFamily: FunctionsTriggerFamily = {
   claims: (endpoint: FirebaseEndpoint) =>
     isFirestoreTriggerEventType(endpoint.eventTrigger?.eventType),
-  unsupported: (exported) =>
-    inspectFirestoreTriggers(exported, { admittedEventTypes: ACTIVE_FIRESTORE_EVENT_TYPES })
-      .unsupported,
+  unsupported: (exported, env) =>
+    inspectFirestoreTriggers(exported, {
+      admittedEventTypes: ACTIVE_FIRESTORE_EVENT_TYPES,
+      ...(env === undefined ? {} : { env }),
+    }).unsupported,
 };

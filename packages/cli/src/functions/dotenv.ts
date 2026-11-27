@@ -1,7 +1,7 @@
 /**
- * Loads `.env`, `.env.<project>`, and `.env.local` from a Functions source
- * directory in Firebase's documented precedence order while preserving sandbox
- * project and Google credential isolation (#1939, #1463, #3203).
+ * Loads `.env`, `.env.<project>`, `.env.local`, and `.secret.local` from a
+ * Functions source directory in Firebase's documented precedence order while
+ * preserving sandbox project and Google credential isolation (#1939, #1463, #3203).
  */
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -102,11 +102,12 @@ export function parseDotenv(source: string): Record<string, string> {
     if (hasMatchingQuote && quote !== undefined) {
       value = rawValue.slice(1, -1);
       if (quote === '"') {
-        value = value
-          .replace(/\\n/g, '\n')
-          .replace(/\\r/g, '\r')
-          .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\');
+        value = value.replace(/\\([nr"\\])/g, (_full, escaped: string) => {
+          if (escaped === 'n') return '\n';
+          if (escaped === 'r') return '\r';
+          if (escaped === '"') return '"';
+          return '\\';
+        });
       } else if (quote === "'") {
         value = value.replace(/\\'/g, "'");
       } else if (quote === '`') {
@@ -205,27 +206,80 @@ export interface LoadFunctionsDotenvOptions {
   sourceDir: string;
   projectId: string;
   projectAlias?: string;
+  /** Whether to merge `.secret.local` with highest precedence (default: true). */
+  includeSecrets?: boolean;
 }
 
-/**
- * Load user dotenv entries in Firebase's documented precedence order:
- * `.env` < `.env.<project>` < `.env.local`.
- */
-export function loadFunctionsDotenv(options: LoadFunctionsDotenvOptions): Record<string, string> {
-  const resolvedDir = resolve(options.sourceDir);
+export interface FunctionsEnvAndSecrets {
+  /** Merged user env and local secrets (`.env` < `.env.<project>` < `.env.local` < `.secret.local`). */
+  env: Record<string, string>;
+  /** Entries loaded specifically from `.secret.local` (never containing protected keys). */
+  secrets: Record<string, string>;
+}
+
+const SECRET_LOCAL_FILENAME = '.secret.local';
+
+function resolveRealSourceDir(sourceDir: string): string | null {
+  const resolvedDir = resolve(sourceDir);
   if (!existsSync(resolvedDir)) {
-    return {};
+    return null;
   }
-  let realSourceDir: string;
   try {
     const dirStats = statSync(resolvedDir);
     if (!dirStats.isDirectory()) {
-      return {};
+      return null;
     }
-    realSourceDir = realpathSync(resolvedDir);
+    return realpathSync(resolvedDir);
   } catch {
     // Non-existent or inaccessible source directory yields no dotenv entries.
+    return null;
+  }
+}
+
+function mergeDotenvEntries(
+  target: Record<string, string>,
+  content: string,
+): void {
+  const entries = parseDotenv(content);
+  for (const [key, value] of Object.entries(entries)) {
+    if (isProtectedFunctionsEnvKey(key)) {
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+/**
+ * Load only `.secret.local` entries from `sourceDir`, preserving symlink
+ * containment and refusing protected credential/runtime keys.
+ */
+export function loadFunctionsSecrets(
+  options: Pick<LoadFunctionsDotenvOptions, 'sourceDir'>,
+): Record<string, string> {
+  const realSourceDir = resolveRealSourceDir(options.sourceDir);
+  if (realSourceDir === null) {
     return {};
+  }
+  const secretContent = readContainedDotenvFile(realSourceDir, SECRET_LOCAL_FILENAME);
+  if (secretContent === null) {
+    return {};
+  }
+  const secrets: Record<string, string> = {};
+  mergeDotenvEntries(secrets, secretContent);
+  return secrets;
+}
+
+/**
+ * Load user dotenv entries and `.secret.local` in Firebase's documented local
+ * emulator precedence order:
+ * `.env` < `.env.<project>` < `.env.local` < `.secret.local`.
+ */
+export function loadFunctionsEnvAndSecrets(
+  options: LoadFunctionsDotenvOptions,
+): FunctionsEnvAndSecrets {
+  const realSourceDir = resolveRealSourceDir(options.sourceDir);
+  if (realSourceDir === null) {
+    return { env: {}, secrets: {} };
   }
 
   const orderedContents: string[] = [];
@@ -267,26 +321,42 @@ export function loadFunctionsDotenv(options: LoadFunctionsDotenvOptions): Record
 
   const merged: Record<string, string> = {};
   for (const content of orderedContents) {
-    const entries = parseDotenv(content);
-    for (const [key, value] of Object.entries(entries)) {
-      if (isProtectedFunctionsEnvKey(key)) {
-        continue;
+    mergeDotenvEntries(merged, content);
+  }
+
+  const secrets: Record<string, string> = {};
+  if (options.includeSecrets !== false) {
+    const secretContent = readContainedDotenvFile(realSourceDir, SECRET_LOCAL_FILENAME);
+    if (secretContent !== null) {
+      mergeDotenvEntries(secrets, secretContent);
+      for (const [key, value] of Object.entries(secrets)) {
+        merged[key] = value;
       }
-      merged[key] = value;
     }
   }
-  return merged;
+
+  return { env: merged, secrets };
 }
 
 /**
- * Apply loaded dotenv entries onto `targetEnv`, skipping all protected keys.
+ * Load user dotenv entries in Firebase's documented local emulator precedence order:
+ * `.env` < `.env.<project>` < `.env.local` < `.secret.local`.
+ */
+export function loadFunctionsDotenv(options: LoadFunctionsDotenvOptions): Record<string, string> {
+  return loadFunctionsEnvAndSecrets(options).env;
+}
+
+/**
+ * Apply loaded dotenv and `.secret.local` entries onto `targetEnv`, skipping
+ * all protected keys, and return the secret map loaded from `.secret.local`.
  */
 export function applyFunctionsDotenv(
   targetEnv: NodeJS.ProcessEnv,
   options: LoadFunctionsDotenvOptions,
-): void {
-  const loaded = loadFunctionsDotenv(options);
+): Record<string, string> {
+  const { env: loaded, secrets } = loadFunctionsEnvAndSecrets(options);
   for (const [key, value] of Object.entries(loaded)) {
     targetEnv[key] = value;
   }
+  return secrets;
 }

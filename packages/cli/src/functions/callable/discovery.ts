@@ -7,6 +7,10 @@
  * it unchanged alongside `onRequest` exports.
  */
 import {
+  resolveEndpointRegionsOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
@@ -15,6 +19,7 @@ import {
   DEFAULT_REGION,
   type DiscoveredOnRequest,
   type HttpRequestHandler,
+  type InspectHttpFunctionsOptions,
 } from '../http/discovery.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
@@ -33,42 +38,36 @@ function isGenkitCallable(endpoint: FirebaseEndpoint): boolean {
   return trigger.genkitAction !== undefined;
 }
 
-function regionsOf(endpoint: FirebaseEndpoint): string[] {
-  const rawRegions = endpoint.region;
-  if (!Array.isArray(rawRegions)) return [DEFAULT_REGION];
-  const declared = rawRegions.filter(
-    (region): region is string => typeof region === 'string' && region.length > 0,
-  );
-  if (declared.length > 0) return declared;
-  return [DEFAULT_REGION];
-}
-
 function platformOf(endpoint: FirebaseEndpoint): 'gcfv1' | 'gcfv2' {
   if (endpoint.platform === 'gcfv1') return 'gcfv1';
   return 'gcfv2';
 }
 
-function timeoutOf(endpoint: FirebaseEndpoint): number | null {
-  const timeout = endpoint.timeoutSeconds;
-  if (typeof timeout === 'number' && timeout > 0) return timeout;
-  return null;
-}
-
 /** Every supported onCall export, v1 and v2, in export order. */
-export function inspectOnCall(exported: Record<string, unknown>): DiscoveredOnRequest[] {
+export function inspectOnCall(
+  exported: Record<string, unknown>,
+  options: InspectHttpFunctionsOptions = {},
+): DiscoveredOnRequest[] {
+  const env = options.env;
   const discovered: DiscoveredOnRequest[] = [];
   for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
     const endpoint = callable.__endpoint;
     if (!endpoint || !isCallableEndpoint(endpoint)) continue;
-    if (classifyEndpointOmit(endpoint.omit) !== 'active') continue;
+    if (classifyEndpointOmit(endpoint.omit, env) !== 'active') continue;
     if (isGenkitCallable(endpoint)) continue;
+    const parsedRegions = resolveEndpointRegionsOption(endpoint.region, DEFAULT_REGION, env);
+    if (!parsedRegions.ok) continue;
+    const parsedTimeout = resolveTimeoutSecondsOption(endpoint.timeoutSeconds, env, {
+      allowZero: true,
+    });
+    if (!parsedTimeout.ok) continue;
     discovered.push({
       exportName,
       kind: 'callable',
-      regions: regionsOf(endpoint),
+      regions: parsedRegions.regions,
       platform: platformOf(endpoint),
       privateInvoker: false,
-      timeoutSeconds: timeoutOf(endpoint),
+      timeoutSeconds: parsedTimeout.timeoutSeconds ?? null,
       handler: callable,
     });
   }
@@ -78,18 +77,33 @@ export function inspectOnCall(exported: Record<string, unknown>): DiscoveredOnRe
 /** Claims every endpoint with a `callableTrigger` and reports omitted or Genkit ones. */
 export const callableOnCallFamily: FunctionsTriggerFamily = {
   claims: isCallableEndpoint,
-  unsupported: (exported) => {
+  unsupported: (exported, env) => {
     const unsupported: Array<{ exportName: string; eventType: string }> = [];
     for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
       const endpoint = callable.__endpoint;
       if (!endpoint || !isCallableEndpoint(endpoint)) continue;
-      const omitState = classifyEndpointOmit(endpoint.omit);
+      const omitState = classifyEndpointOmit(endpoint.omit, env);
       if (omitState === 'omitted') {
         unsupported.push({ exportName, eventType: 'callable (omitted from emulation)' });
-      } else if (omitState === 'dynamic') {
+        continue;
+      }
+      if (omitState === 'dynamic') {
         unsupported.push({ exportName, eventType: 'callable (unsupported dynamic omit option)' });
-      } else if (isGenkitCallable(endpoint)) {
+        continue;
+      }
+      if (isGenkitCallable(endpoint)) {
         unsupported.push({ exportName, eventType: 'callable (onCallGenkit is not supported)' });
+        continue;
+      }
+      if (!resolveEndpointRegionsOption(endpoint.region, DEFAULT_REGION, env).ok) {
+        unsupported.push({ exportName, eventType: 'callable (unsupported dynamic region option)' });
+        continue;
+      }
+      if (!resolveTimeoutSecondsOption(endpoint.timeoutSeconds, env, { allowZero: true }).ok) {
+        unsupported.push({
+          exportName,
+          eventType: 'callable (unsupported dynamic timeoutSeconds option)',
+        });
       }
     }
     return unsupported;

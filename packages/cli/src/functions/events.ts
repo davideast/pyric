@@ -14,6 +14,7 @@
  */
 import { getClock, type LocalSandbox, type ServiceEventOperation } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import { redactActiveSecretString, redactActiveSecretValue } from './secret-redaction.js';
 
 /** Every operation the Functions record declares. */
 type FunctionsEventOperation = ServiceEventOperation<'functions'>;
@@ -42,9 +43,9 @@ function emit(
       at: getClock(sandbox).now(),
       service: 'functions',
       op,
-      path,
+      path: redactActiveSecretString(path),
       auth: null,
-      detail,
+      detail: redactActiveSecretValue(detail),
     });
     emitSandboxEvent(sandbox, event, { service: 'functions' });
   } catch {

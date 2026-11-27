@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RemoteSandbox } from '../../remote/index.js';
 import { serializeError, type FunctionsChildEvent } from '../child-protocol.js';
+import { resolveTimeoutSecondsOption } from '../endpoint-options.js';
 import { RemoteIdentityTriggerDelivery } from './delivery.js';
 import type { IdentityExecutionResult } from './response.js';
 import {
@@ -45,8 +46,9 @@ function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
       getGlobalOptions?: () => { timeoutSeconds?: unknown };
     };
     const rawTimeout = optionsModule.getGlobalOptions?.()?.timeoutSeconds;
-    if (typeof rawTimeout === 'number' && Number.isFinite(rawTimeout) && rawTimeout > 0) {
-      return rawTimeout;
+    const parsedTimeout = resolveTimeoutSecondsOption(rawTimeout, process.env);
+    if (parsedTimeout.ok && parsedTimeout.timeoutSeconds !== undefined) {
+      return parsedTimeout.timeoutSeconds;
     }
   } catch {
     // Ignore optional manifest inspection errors and fall back to endpoint metadata.

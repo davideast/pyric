@@ -13,6 +13,7 @@ import {
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from './endpoints.js';
+import type { ParamsEnvMap } from './params-resolver.js';
 
 export interface UnsupportedFunctionsTrigger {
   exportName: string;
@@ -23,22 +24,31 @@ export interface FunctionsTriggerFamily {
   /** Whether this family owns an endpoint, served or refused. */
   claims(endpoint: FirebaseEndpoint): boolean;
   /** The endpoints this family owns but refuses, in export order. */
-  unsupported(exported: Record<string, unknown>): UnsupportedFunctionsTrigger[];
+  unsupported(
+    exported: Record<string, unknown>,
+    env?: ParamsEnvMap,
+  ): UnsupportedFunctionsTrigger[];
+}
+
+export interface FindUnsupportedTriggersOptions {
+  env?: ParamsEnvMap;
 }
 
 /** Every endpoint the given families refuse or do not claim, families first. */
 export function findUnsupportedTriggers(
   exported: Record<string, unknown>,
   families: readonly FunctionsTriggerFamily[],
+  options: FindUnsupportedTriggersOptions = {},
 ): UnsupportedFunctionsTrigger[] {
-  const unsupported = families.flatMap((family) => family.unsupported(exported));
+  const env = options.env;
+  const unsupported = families.flatMap((family) => family.unsupported(exported, env));
   for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
     const endpoint = callable.__endpoint;
     if (!endpoint) continue;
     const claimed = families.some((family) => family.claims(endpoint));
     if (claimed) continue;
     const label = endpointTriggerLabel(endpoint);
-    const omitState = classifyEndpointOmit(endpoint.omit);
+    const omitState = classifyEndpointOmit(endpoint.omit, env);
     if (omitState === 'omitted') {
       unsupported.push({ exportName, eventType: `${label} (omitted from emulation)` });
       continue;

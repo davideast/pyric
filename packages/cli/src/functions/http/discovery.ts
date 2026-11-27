@@ -3,10 +3,16 @@
  * exports, read from the `__endpoint.httpsTrigger` manifest both set.
  */
 import {
+  resolveEndpointRegionsOption,
+  resolveInvokerOption,
+  resolveTimeoutSecondsOption,
+} from '../endpoint-options.js';
+import {
   classifyEndpointOmit,
   listFirebaseEndpoints,
   type FirebaseEndpoint,
 } from '../endpoints.js';
+import type { ParamsEnvMap } from '../params-resolver.js';
 import type { FunctionsTriggerFamily } from '../unsupported.js';
 
 /** The handler an onRequest export is: express's `(req, res)`. */
@@ -37,16 +43,13 @@ export interface DiscoveredOnRequest extends HttpFunctionInfo {
   handler: HttpRequestHandler;
 }
 
+export interface InspectHttpFunctionsOptions {
+  env?: ParamsEnvMap;
+}
+
 function isHttpsEndpoint(endpoint: FirebaseEndpoint): boolean {
   const trigger = endpoint.httpsTrigger;
   return typeof trigger === 'object' && trigger !== null;
-}
-
-function regionsOf(endpoint: FirebaseEndpoint): string[] {
-  const declared = Array.isArray(endpoint.region)
-    ? endpoint.region.filter((region): region is string => typeof region === 'string' && region.length > 0)
-    : [];
-  return declared.length > 0 ? declared : [DEFAULT_REGION];
 }
 
 /**
@@ -54,31 +57,37 @@ function regionsOf(endpoint: FirebaseEndpoint): string[] {
  * (`getInvokerMembers`); any other list, such as 'private' or a service
  * account, binds just those members. No invoker leaves the function public.
  */
-function isPrivateInvoker(endpoint: FirebaseEndpoint): boolean {
-  const invoker = endpoint.httpsTrigger?.invoker;
+function isPrivateInvokerList(invoker: readonly string[] | undefined): boolean {
   if (!Array.isArray(invoker) || invoker.length === 0) return false;
   const grantsAllUsers = invoker.includes('public') && !invoker.includes('private');
   return !grantsAllUsers;
 }
 
-function timeoutOf(endpoint: FirebaseEndpoint): number | null {
-  const timeout = endpoint.timeoutSeconds;
-  return typeof timeout === 'number' && timeout > 0 ? timeout : null;
-}
-
 /** Every onRequest export, v1 and v2, in export order. */
-export function inspectOnRequest(exported: Record<string, unknown>): DiscoveredOnRequest[] {
+export function inspectOnRequest(
+  exported: Record<string, unknown>,
+  options: InspectHttpFunctionsOptions = {},
+): DiscoveredOnRequest[] {
+  const env = options.env;
   const discovered: DiscoveredOnRequest[] = [];
   for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
     const endpoint = callable.__endpoint;
     if (!endpoint || !isHttpsEndpoint(endpoint)) continue;
-    if (classifyEndpointOmit(endpoint.omit) !== 'active') continue;
+    if (classifyEndpointOmit(endpoint.omit, env) !== 'active') continue;
+    const parsedRegions = resolveEndpointRegionsOption(endpoint.region, DEFAULT_REGION, env);
+    if (!parsedRegions.ok) continue;
+    const parsedTimeout = resolveTimeoutSecondsOption(endpoint.timeoutSeconds, env, {
+      allowZero: true,
+    });
+    if (!parsedTimeout.ok) continue;
+    const parsedInvoker = resolveInvokerOption(endpoint.httpsTrigger?.invoker, env);
+    if (!parsedInvoker.ok) continue;
     discovered.push({
       exportName,
-      regions: regionsOf(endpoint),
+      regions: parsedRegions.regions,
       platform: endpoint.platform === 'gcfv1' ? 'gcfv1' : 'gcfv2',
-      privateInvoker: isPrivateInvoker(endpoint),
-      timeoutSeconds: timeoutOf(endpoint),
+      privateInvoker: isPrivateInvokerList(parsedInvoker.invoker),
+      timeoutSeconds: parsedTimeout.timeoutSeconds ?? null,
       handler: callable,
     });
   }
@@ -94,16 +103,33 @@ export function httpFunctionInfo(discovered: DiscoveredOnRequest): HttpFunctionI
 /** The HTTP family claims every endpoint with an `httpsTrigger` and reports omitted ones. */
 export const httpOnRequestFamily: FunctionsTriggerFamily = {
   claims: isHttpsEndpoint,
-  unsupported: (exported) => {
+  unsupported: (exported, env) => {
     const unsupported: Array<{ exportName: string; eventType: string }> = [];
     for (const { exportName, callable } of listFirebaseEndpoints<HttpRequestHandler>(exported)) {
       const endpoint = callable.__endpoint;
       if (!endpoint || !isHttpsEndpoint(endpoint)) continue;
-      const omitState = classifyEndpointOmit(endpoint.omit);
+      const omitState = classifyEndpointOmit(endpoint.omit, env);
       if (omitState === 'omitted') {
         unsupported.push({ exportName, eventType: 'https (omitted from emulation)' });
-      } else if (omitState === 'dynamic') {
+        continue;
+      }
+      if (omitState === 'dynamic') {
         unsupported.push({ exportName, eventType: 'https (unsupported dynamic omit option)' });
+        continue;
+      }
+      if (!resolveEndpointRegionsOption(endpoint.region, DEFAULT_REGION, env).ok) {
+        unsupported.push({ exportName, eventType: 'https (unsupported dynamic region option)' });
+        continue;
+      }
+      if (!resolveTimeoutSecondsOption(endpoint.timeoutSeconds, env, { allowZero: true }).ok) {
+        unsupported.push({
+          exportName,
+          eventType: 'https (unsupported dynamic timeoutSeconds option)',
+        });
+        continue;
+      }
+      if (!resolveInvokerOption(endpoint.httpsTrigger?.invoker, env).ok) {
+        unsupported.push({ exportName, eventType: 'https (unsupported dynamic invoker option)' });
       }
     }
     return unsupported;
