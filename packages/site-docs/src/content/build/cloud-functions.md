@@ -35,7 +35,7 @@ Build the Functions entry point (`main` in `functions/package.json`, defaulting 
 pyric sandbox --hosted
 ```
 
-Pyric starts the Functions child automatically under `pyric sandbox`, the Vite plugin (`pyric()`), and Next.js (`withPyric`). Under `pyric sandbox` without `--hosted`, Functions start once a browser tab connects to the sandbox; with `--hosted`, they start immediately with no browser tab open. If the entry file is not built yet, Pyric logs a warning and starts without Functions rather than crashing.
+Pyric starts the Functions child automatically under `pyric sandbox` (including `pyric sandbox -- next dev` with `withPyric`) and the Vite plugin (`pyric()`). Under `pyric sandbox` without `--hosted`, Functions start once a browser tab connects to the sandbox; with `--hosted`, they start immediately with no browser tab open. If the entry file is not built yet, Pyric logs a warning and starts without Functions rather than crashing.
 
 Only one Functions codebase per session is supported today. Saving a file in the Functions source directory under the Vite plugin reloads the child process automatically (`functions: { watch: false }` disables reload, matching `pyric sandbox`).
 
@@ -128,7 +128,7 @@ The `functions` service tool on `pyric mcp` (and the matching `pyric functions` 
 |---|---|
 | `listTriggers` | Runs isolated discovery over your Functions source and returns all supported triggers across the nine families along with any `unsupported` exports and reasons. |
 | `fire` | Runs a discovered RTDB `onValueCreated` trigger on a synthetic event (`trigger`, `path`, `value`, optional `timeoutMs` up to 60000 ms, default 10000 ms) inside an isolated child process without writing `value` to the database. |
-| `executions` | Lists recorded function executions (from `fire` and hosted HTTP `onRequest` calls) with cause, duration, status (`fulfilled`, `rejected`, or `timeout`), and result or error, optionally filtered with a sandbox clock `since` cursor. |
+| `executions` | Lists recorded function executions (from `fire` and hosted HTTP `onRequest`, Scheduler, Pub/Sub, and Cloud Tasks runs) with cause, duration, status (`fulfilled`, `rejected`, or `timeout`), and result or error, optionally filtered with a sandbox clock `since` cursor. |
 
 ```bash
 pyric functions listTriggers
