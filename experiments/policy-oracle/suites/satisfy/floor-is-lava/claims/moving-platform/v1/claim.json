@@ -1,0 +1,4 @@
+{
+  "description": "From the authored oscillator and physics clock, Pyric reproduces the moving shuttle's x on every substep and detects the first displaced position even when the landing detector follows the shuttle.",
+  "authority": "native-model"
+}

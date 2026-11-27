@@ -1,0 +1,26 @@
+use extension derive;
+
+transition movingPlatform {
+  derive {
+    let phase = before.phase + input.frequency * input.h;
+    // Reduce around one turn. The second term retains the low part of 2*pi.
+    let r = (phase - 6.283185307179586) - 0.00000000000000024492935982947064;
+    let z = r * r;
+    // Odd Taylor polynomial through degree 17, evaluated by Horner's rule.
+    let p17 = 1.0 / 355687428096000.0;
+    let p15 = z * p17 - 1.0 / 1307674368000.0;
+    let p13 = z * p15 + 1.0 / 6227020800.0;
+    let p11 = z * p13 - 1.0 / 39916800.0;
+    let p9 = z * p11 + 1.0 / 362880.0;
+    let p7 = z * p9 - 1.0 / 5040.0;
+    let p5 = z * p7 + 1.0 / 120.0;
+    let p3 = z * p5 - 1.0 / 6.0;
+    let sine = r + r * z * p3;
+    return {'phase': phase, 'x': input.baseX + input.amplitude * sine,
+      'inRange': r >= -1.0 && r <= 1.0};
+  }
+  require supportedPhase { return derived.inRange; }
+  require stoneAtCoursePosition {
+    return after.x - derived.x >= -0.000000000001 && after.x - derived.x <= 0.000000000001;
+  }
+}
