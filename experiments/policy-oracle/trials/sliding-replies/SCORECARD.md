@@ -22,6 +22,41 @@ Live coverage is **measured** with 238 distinct observed proposals. The six rook
 | --- | --- | --- | --- | --- |
 | compiled | 200 | 0 | 4 | 0 |
 
+## Every saved revision
+
+| Policy | Local compile | Google source test | Original | Rook | Bishop | Queen | False approvals | False refusals | Evaluation errors | Limit hits¹ | Verified witness boards | Live measured |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| prior | emitted | unmeasured | 182/190 | 4/6 | 12/18 | 21/30 | 22 | 1 | 0 | 1 | 0 | 190 |
+| rook-rays-v1 | emitted | compiled | 181/190 | 4/6 | 12/18 | 21/30 | 20 | 4 | 0 | 4 | 2 | 0 |
+| rook-cross-v2 | emitted | compiled | 182/190 | 6/6 | 12/18 | 21/30 | 20 | 3 | 0 | 3 | 2 | 0 |
+| bishop-cross-v3 | emitted | unmeasured | 174/190 | 6/6 | 16/18 | 21/30 | 13 | 14 | 0 | 14 | 8 | 0 |
+| queen-cross-v4 | emitted | compiled, service-error | 173/190 | 6/6 | 15/18 | 22/30 | 4 | 23 | 1 | 24 | 18 | 0 |
+| all-packed-path-v5 | emitted | service-error | 176/190 | 6/6 | 18/18 | 29/30 | 4 | 11 | 0 | 11 | 18 | 0 |
+| all-tabled-path-v6 | emitted | service-error | 176/190 | 6/6 | 18/18 | 30/30 | 4 | 10 | 0 | 10 | 18 | 0 |
+| all-rights-king-v7 | emitted | service-error | 186/190 | 6/6 | 18/18 | 30/30 | 4 | 0 | 0 | 0 | 18 | 0 |
+| all-rights-king-v7-dense3 | emitted | unmeasured | 187/190 | 6/6 | 18/18 | 30/30 | 3 | 0 | 0 | 0 | 18 | 0 |
+| all-two-defenders-v8 | emitted | service-error | 186/190 | 6/6 | 18/18 | 30/30 | 2 | 2 | 0 | 2 | 18 | 0 |
+| all-minors-v9 | emitted | service-error | 189/190 | 6/6 | 18/18 | 30/30 | 1 | 0 | 0 | 0 | 18 | 0 |
+| all-minors-v9-dense3 | emitted | unmeasured | 190/190 | 6/6 | 18/18 | 30/30 | 0 | 0 | 0 | 0 | 18 | 0 |
+| all-shared-rays-v10 | emitted | service-error | 189/190 | 6/6 | 18/18 | 30/30 | 1 | 0 | 0 | 0 | 18 | 0 |
+| all-shared-rays-v10-dense3 | emitted | service-error | 190/190 | 6/6 | 18/18 | 30/30 | 0 | 0 | 0 | 0 | 18 | 0 |
+| all-projected-king-v11 | emitted | service-error | 189/190 | 6/6 | 18/18 | 30/30 | 1 | 0 | 0 | 0 | 18 | 0 |
+| all-projected-king-v11-dense3-once | emitted | service-error | 186/190 | 6/6 | 18/18 | 29/30 | 0 | 5 | 0 | 5 | 18 | 0 |
+| all-projected-king-v11-mask-dense3-lean | emitted | unmeasured | 181/190 | 4/6 | 12/18 | 10/30 | 0 | 23 | 12 | 35 | 18 | 0 |
+| all-projected-king-v11-targets-dense3-lean | emitted | unmeasured | 176/190 | 2/6 | 6/18 | 10/30 | 0 | 23 | 23 | 0 | 0 | 0 |
+| all-projected-king-v11-dense3 | emitted | service-error | 190/190 | 6/6 | 18/18 | 30/30 | 0 | 0 | 0 | 0 | 18 | 0 |
+| all-unified-rays-v12 | emitted | compiled | 181/190 | 4/6 | 12/18 | 12/30 | 1 | 23 | 9 | 32 | 18 | 0 |
+| all-unified-rays-v12-dense3-lean | emitted | service-error | 182/190 | 4/6 | 12/18 | 10/30 | 0 | 23 | 11 | 34 | 18 | 0 |
+| all-shared-axes-v13 | emitted | service-error | 188/190 | 6/6 | 18/18 | 28/30 | 1 | 3 | 0 | 3 | 18 | 0 |
+| all-shared-axes-v13-dense3 | emitted | unmeasured | 189/190 | 6/6 | 18/18 | 26/30 | 0 | 5 | 0 | 5 | 18 | 0 |
+| all-mode-table-v14 | emitted | compiled | 185/190 | 6/6 | 16/18 | 20/30 | 1 | 15 | 1 | 16 | 18 | 0 |
+| all-marked-records-v15 | emitted | compiled | 188/190 | 6/6 | 18/18 | 30/30 | 1 | 1 | 0 | 1 | 18 | 0 |
+| all-marked-records-v15-boxed-lean | emitted | unmeasured | 189/190 | 6/6 | 18/18 | 30/30 | 0 | 1 | 0 | 1 | 18 | 0 |
+| all-marked-records-v15-dense3-filecut-lean | emitted | service-error | 190/190 | 6/6 | 18/18 | 30/30 | 0 | 0 | 0 | 0 | 18 | 0 |
+| all-marked-records-v15-dense3-lean | emitted | compiled | 189/190 | 6/6 | 18/18 | 30/30 | 0 | 1 | 0 | 1 | 18 | 0 |
+| all-paired-records-v16 | emitted | unmeasured | 189/190 | 6/6 | 18/18 | 30/30 | 1 | 0 | 0 | 0 | 18 | 0 |
+| all-paired-records-v16-dense3-lean | emitted | compiled | 190/190 | 6/6 | 18/18 | 30/30 | 0 | 0 | 0 | 0 | 18 | 238 |
+
 ## Same move and successor under three claims
 
 | Piece | Board | Move | Native legal replies | Standalone Pyric sliders | Emitted helper (local trace) | Native P/D/W | Local P/D/W | Live P/D/W |
