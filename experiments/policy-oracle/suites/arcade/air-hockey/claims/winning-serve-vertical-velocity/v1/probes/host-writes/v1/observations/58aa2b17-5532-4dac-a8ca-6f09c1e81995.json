@@ -1,0 +1,28 @@
+{
+  "authority": "rtdb-production",
+  "inputDigest": "0fff099ba62d1eac24506cd659fb37e47f58f635e6f3f25077972ff3311265f4",
+  "results": {
+    "stock-host-vy-0": "ALLOW",
+    "stock-host-vy-1": "ALLOW",
+    "stock-guest-vy-0": "ALLOW",
+    "stock-guest-vy-1": "ALLOW",
+    "generated-host-vy-0": "ALLOW",
+    "generated-host-vy-1": "DENY",
+    "generated-guest-vy-0": "ALLOW",
+    "generated-guest-vy-1": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/58aa2b17-5532-4dac-a8ca-6f09c1e81995.json",
+    "sha256": "6d60504bbd2d269af69ce0f3fb82788ab1e2438ca4b99cd7666b31a7ff10883d",
+    "pointers": {
+      "stock-host-vy-0": "/rows/stock-host-vy-0/decision",
+      "stock-host-vy-1": "/rows/stock-host-vy-1/decision",
+      "stock-guest-vy-0": "/rows/stock-guest-vy-0/decision",
+      "stock-guest-vy-1": "/rows/stock-guest-vy-1/decision",
+      "generated-host-vy-0": "/rows/generated-host-vy-0/decision",
+      "generated-host-vy-1": "/rows/generated-host-vy-1/decision",
+      "generated-guest-vy-0": "/rows/generated-guest-vy-0/decision",
+      "generated-guest-vy-1": "/rows/generated-guest-vy-1/decision"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "description": "Compare complete host and guest winning serves from 6\u20136 with horizontal velocity zero and vertical velocity zero or one at each correct serve position.",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}

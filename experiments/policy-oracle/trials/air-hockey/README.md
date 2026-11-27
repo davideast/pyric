@@ -120,3 +120,16 @@ The [paired inputs](../../adapters/air-hockey-moving-serve/v1/fixture.mjs) take 
 | Guest, vx=1 | Allow · 6–7, guest wins, vx=1 | Deny · 6–6, playing, no winner, original puck at (38,121) on tick 0 |
 
 The [live receipt](../../suites/arcade/air-hockey/claims/winning-serve-velocity/v1/probes/host-writes/v1/evidence/a603d34f-7d78-456e-a1cc-3bbb4ab41fdc.json) retains all eight authenticated writes and full readbacks. Each denied write preserved the entire match and ETag. Recapture from the oracle directory with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" moving-serve`, then import with `node adapters/air-hockey-moving-serve/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
+
+## Vertical velocity after either winning goal
+
+The [paired inputs](../../adapters/air-hockey-vertical-serve/v1/fixture.mjs) start from 6–6 and differ only in the final puck’s vertical velocity. Both submit a complete tick-3 winning frame with `vx=0`. The host’s serve is at (48,32) and the guest’s is at (48,96).
+
+| Winning serve | Stock readback | Generated readback |
+|---|---|---|
+| Host, vy=0 | Allow · 7–6, host wins, vy=0 | Allow · identical final match |
+| Host, vy=1 | Allow · 7–6, host wins, vy=1 | Deny · 6–6, playing, no winner, original puck at (38,7) on tick 0 |
+| Guest, vy=0 | Allow · 6–7, guest wins, vy=0 | Allow · identical final match |
+| Guest, vy=1 | Allow · 6–7, guest wins, vy=1 | Deny · 6–6, playing, no winner, original puck at (38,121) on tick 0 |
+
+The [live receipt](../../suites/arcade/air-hockey/claims/winning-serve-vertical-velocity/v1/probes/host-writes/v1/evidence/58aa2b17-5532-4dac-a8ca-6f09c1e81995.json) retains all eight signed writes and complete match readbacks. The entire match and its ETag stayed unchanged after both denials. The stock and generated rules digests match the horizontal velocity capture. Recapture with `node arcade/live/controller/air-hockey.mjs "$trusted_archive" vertical-serve` from the oracle directory and import with `node adapters/air-hockey-vertical-serve/v1/import-reviewed.mjs "$trusted_archive" "$run_id"`.
