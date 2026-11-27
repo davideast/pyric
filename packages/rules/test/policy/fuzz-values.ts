@@ -23,9 +23,22 @@ export const EDGE_NUMBERS: readonly number[] = [
   -(Number.MAX_SAFE_INTEGER + 1),
   2 ** 31 - 1,
   -(2 ** 31),
+  Number.MAX_VALUE,
+  -Number.MAX_VALUE,
   Number.NaN,
   Number.POSITIVE_INFINITY,
   Number.NEGATIVE_INFINITY,
+];
+
+export const INT64_BOUNDARY_BIGINTS: readonly bigint[] = [
+  9223372036854775807n,
+  -9223372036854775808n,
+  9007199254740991n,
+  9007199254740992n,
+  9007199254740993n,
+  -9007199254740991n,
+  -9007199254740992n,
+  -9007199254740993n,
 ];
 
 export const SAFE_INTEGERS: readonly number[] = [
