@@ -1,0 +1,21 @@
+{
+  "authority": "pinned independent local evaluator; diagnostic control only",
+  "originalRulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "faultyRulesSha256": "a0bbb030541b92668f3986188ce28859d6d2e09e1a6b8fb6d761e1791d407ac0",
+  "destinationEncodersChanged": 1,
+  "fullClaimRoutesCompared": 54,
+  "changedFullClaimDecisionErrorOrCost": [],
+  "wronglyEncodedLegalWitnesses": 9,
+  "focusedFaultyOutcomes": {
+    "illegal-witness": 9,
+    "correct-absence": 9
+  },
+  "firstDivergence": {
+    "id": "rook-c5-after-queen",
+    "original": "c5c8",
+    "faulty": "c5d8",
+    "native": [
+      "c5c8"
+    ]
+  }
+}
