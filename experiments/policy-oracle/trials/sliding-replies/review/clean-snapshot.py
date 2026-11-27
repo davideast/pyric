@@ -93,6 +93,16 @@ def run(args):
         package=oracle/'arcade/vendor/pyric-rules-0.1.0.tgz'
         assert digest(package.read_bytes())==tools['PINS'][package.name]
         sdk=tools['install_rules'](package,root/'review-sdk')/'@pyric/rules'
+        outside=evidence/'outside-material-checkmates.json'
+        if outside.exists():
+            stored=read(outside)
+            names=[r['id'] for r in stored['selectedBoardControls']['native']]
+            sample=check('bun','--no-install','review/witness.mjs',sdk,rules,'--boards',*names)
+            assert retained_fields(sample,stored)
+            actual=sample['selectedBoardControls']['routes']
+            snapshot['outsideMaterialLocal']={'writes':len(actual),'disagreements':[
+                {k:r[k] for k in ('id','expected','local','error','expressions')} for r in actual
+                if r['expected']!=r['local'] or r['error']]}
         if (evidence/'wrong-destination.json').exists():
             sensitivity=check(sys.executable,'-B','review/witness-control.py',sdk,rules)
             assert sensitivity==read(evidence/'wrong-destination.json')

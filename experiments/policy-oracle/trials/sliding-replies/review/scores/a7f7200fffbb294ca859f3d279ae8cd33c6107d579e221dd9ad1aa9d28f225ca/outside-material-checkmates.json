@@ -1,0 +1,198 @@
+{
+  "authority": "pinned independent local Rules evaluator on the emitted helper and original write paths",
+  "rulesSha256": "a7f7200fffbb294ca859f3d279ae8cd33c6107d579e221dd9ad1aa9d28f225ca",
+  "diagnosticRulesSha256": "80b219aad8286120e537c718e23f0ee4963dc07506028f9109f2f11f1cf5888f",
+  "interface": {
+    "status": "present",
+    "missing": []
+  },
+  "selectedBoardControls": {
+    "authority": "complete signed-shaped local proposals on selected frozen panel boards",
+    "panelSha256": "5c4e2de98be4c3663c88ecbb05324b18d7e2373033c6c9d8a0d090a3db2e1167",
+    "sourceSha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+    "native": [
+      {
+        "defenderMaterial": "br",
+        "family": "stratified-defender",
+        "features": [
+          "defender-w",
+          "edge",
+          "mate"
+        ],
+        "fen": "8/6B1/8/5k1K/8/6r1/4R3/8 b - -",
+        "id": "sample-w-edge-r-b-defender-0-3",
+        "replies": [],
+        "sliderReplies": [],
+        "successor": "8/6B1/8/5k1K/8/7r/4R3/8 w - -",
+        "uci": "g3h3"
+      },
+      {
+        "defenderMaterial": "qr",
+        "family": "stratified-defender",
+        "features": [
+          "defender-b",
+          "edge",
+          "mate"
+        ],
+        "fen": "8/7k/5K2/6Q1/r7/8/q7/8 w - -",
+        "id": "sample-b-edge-q-q-defender-0-4",
+        "replies": [],
+        "sliderReplies": [],
+        "successor": "8/6Qk/5K2/8/r7/8/q7/8 b - -",
+        "uci": "g5g7"
+      }
+    ],
+    "inputsAndRepliesSha256": "466ef4c89307af42a61f76f2abb2595174925941def985da9ea32bdc857e15b0",
+    "scores": [
+      {
+        "id": "sample-w-edge-r-b-defender-0-3",
+        "supported": false,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 283
+      },
+      {
+        "id": "sample-b-edge-q-q-defender-0-4",
+        "supported": false,
+        "code": -1,
+        "move": null,
+        "expected": [],
+        "outcome": "correct-absence",
+        "expressions": 268
+      }
+    ],
+    "materialAudit": {
+      "promises": {
+        "rook": {
+          "excluded": 2
+        },
+        "bishop": {
+          "excluded": 2
+        },
+        "queen": {
+          "excluded": 2
+        },
+        "queen-with-knight-or-rooks": {
+          "excluded": 2
+        },
+        "including-sole-knight": {
+          "excluded": 2
+        }
+      },
+      "firstMismatch": {},
+      "qualification": {
+        "rook": {
+          "boards": 2,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "bishop": {
+          "boards": 2,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "queen": {
+          "boards": 2,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "queen-with-knight-or-rooks": {
+          "boards": 2,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 0,
+          "passes": true
+        },
+        "including-sole-knight": {
+          "boards": 2,
+          "eligible": 0,
+          "verifiedWitnesses": 0,
+          "guardDisagreements": 0,
+          "passes": true
+        }
+      }
+    },
+    "routes": [
+      {
+        "id": "sample-w-edge-r-b-defender-0-3-playing",
+        "expected": "DENY",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 623,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sample-w-edge-r-b-defender-0-3-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 532,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sample-w-edge-r-b-defender-0-3-won",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 743,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sample-b-edge-q-q-defender-0-4-playing",
+        "expected": "DENY",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 640,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sample-b-edge-q-q-defender-0-4-draw",
+        "expected": "DENY",
+        "local": "DENY",
+        "error": null,
+        "expressions": 555,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      },
+      {
+        "id": "sample-b-edge-q-q-defender-0-4-won",
+        "expected": "ALLOW",
+        "local": "ALLOW",
+        "error": null,
+        "expressions": 766,
+        "branch": "fallback",
+        "guard": [
+          false
+        ],
+        "actualWitness": []
+      }
+    ]
+  }
+}

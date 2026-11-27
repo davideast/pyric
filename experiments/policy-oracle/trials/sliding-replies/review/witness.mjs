@@ -8,8 +8,9 @@ import {position} from '../../chess/reference/score.mjs';
 import {squareName} from '../../chess/reference/arcade-reference.ts';
 import {sample} from '../../chess-safety/reference/fixtures.mjs';
 
-const [sdk,bundle,option]=process.argv.slice(2);
-if (!sdk || !bundle || (option && !['--focused','--roster'].includes(option))) throw Error('Usage: bun witness.mjs PINNED_SDK COMPLETE_RULES [--focused|--roster]');
+const [sdk,bundle,option,...boardIds]=process.argv.slice(2);
+if (!sdk || !bundle || (option && !['--focused','--roster','--boards'].includes(option)) ||
+    (option==='--boards')!==(boardIds.length>0)) throw Error('Usage: bun witness.mjs PINNED_SDK COMPLETE_RULES [--focused|--roster|--boards ID ...]');
 const {firestoreRules}=await import(pathToFileURL(resolve(sdk,'dist/index.js')));
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const read=path=>JSON.parse(readFileSync(new URL(path,import.meta.url)));
@@ -242,14 +243,28 @@ for(const group of ['rook','bishop','queen']) {
 }
 const result={authority:'pinned independent local Rules evaluator on the emitted helper and original write paths',
   rulesSha256:sha(full),diagnosticRulesSha256:sha(diagnostic),interface:{status:missing.length?'missing':'present',missing}};
+function controlOutputs(rows,inputSha256){
+  const scores=rows.map(inspected);
+  const inputs=rows.flatMap(row=>['playing','draw','won'].map(status=>({...row,id:row.id+'-'+status,
+    claim:{status,winner:status==='won'?(row.fen.split(' ')[1]==='w'?'host':'guest'):''},
+    nativeAdmission:status===(row.status??(row.replies.length?'playing':row.features.includes('mate')?'won':'draw'))})));
+  const writeRoutes=routes(original,[inputs]);
+  return {inputsAndRepliesSha256:inputSha256,scores,materialAudit:auditMaterial(rows,scores),routes:writeRoutes};
+}
 function rosterControls(){
   const text=readFileSync(new URL('./roster/boards.json',import.meta.url),'utf8').trimEnd();
   const meta=read('./roster/freeze.json');assert.equal(sha(text),meta.inputsAndRepliesSha256);
-  const rows=JSON.parse(text),scores=rows.map(inspected);
-  const inputs=rows.flatMap(row=>['playing','draw','won'].map(status=>({...row,id:row.id+'-'+status,
-    claim:{status,winner:status==='won'?(row.fen.split(' ')[1]==='w'?'host':'guest'):''},nativeAdmission:status===row.status})));
-  const writeRoutes=routes(original,[inputs]);
-  return {inputsAndRepliesSha256:meta.inputsAndRepliesSha256,scores,materialAudit:auditMaterial(rows,scores),routes:writeRoutes};
+  return controlOutputs(JSON.parse(text),meta.inputsAndRepliesSha256);
+}
+function specificControls(ids){
+  const source=gunzipSync(readFileSync(new URL('./panel/boards.json.gz',import.meta.url)));
+  const freeze=read('./panel/freeze.json');assert.equal(sha(source),freeze.inputsAndRepliesSha256);
+  const frozen=new Map(JSON.parse(source).map(row=>[row.id,row]));
+  assert.equal(ids.length,new Set(ids).size);
+  const rows=ids.map(id=>{assert.ok(frozen.has(id),'Unknown frozen board: '+id);return frozen.get(id);});
+  return {authority:'complete signed-shaped local proposals on selected frozen panel boards',
+    panelSha256:freeze.inputsAndRepliesSha256,sourceSha256:freeze.sourceSha256,native:rows,
+    ...controlOutputs(rows,sha(JSON.stringify(rows)))};
 }
 if(missing.length){
   result.focused=focused.map(row=>({id:row.id,supported:null,code:null,move:null,expected:row.sliderReplies,
@@ -257,6 +272,8 @@ if(missing.length){
   result.routes=[];
 }else if(option==='--roster'){
   result.rosterControls=rosterControls();
+}else if(option==='--boards'){
+  result.selectedBoardControls=specificControls(boardIds);
 }else{
   result.focused=focused.map(inspected);
   result.routes=routes();

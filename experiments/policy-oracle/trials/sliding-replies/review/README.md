@@ -54,3 +54,9 @@ The independent clean replay starts with a Git archive of the requested commit. 
 ```sh
 python3 -B review/clean-snapshot.py "$PYRIC_REPO" "$COMMIT" selected "$PRIVATE_ARCHIVE" "$CHESS_SOURCE" "$REPORT"
 ```
+
+Any named board in the frozen 2,232-position checking panel can be inspected through all three claimed statuses. The following two genuine checkmates lie outside the selected material guard. The complete v16 local ruleset allows both the winning claim and the incorrect playing claim on each board. Their six local proposals and native answers are retained with that ruleset’s digest under `outside-material-checkmates.json`. They have a separate denominator from the 238 signed Firestore submissions.
+
+```sh
+bun --no-install review/witness.mjs "$PINNED_RULES_SDK" "$COMPLETE_RULES" --boards sample-w-edge-r-b-defender-0-3 sample-b-edge-q-q-defender-0-4
+```
