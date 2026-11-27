@@ -274,12 +274,12 @@ struct RtdbPhase2ParityRegressionTests {
                 endpoint: URL(string: "ws://127.0.0.1:5174/__pyric/sandbox")!,
                 transportFactory: { _ in dummyChannel }
             )
-            let firestore = Firestore(bridgeClient: client, app: app)
-            let db = Database(app: app, url: "https://lazy-proj-default-rtdb.firebaseio.com", bridgeClient: client)
-
-            // Clear factory synchronously without wiping per-app instances of concurrent suites.
+            // Clear factory synchronously BEFORE constructing Database so init()
+            // does not pre-resolve Auth.auth(app:) when factory is already registered.
             let savedFactory = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
             #expect(!AuthCredentialProviderRegistry.hasFactory)
+            let firestore = Firestore(bridgeClient: client, app: app)
+            let db = Database(app: app, url: "https://lazy-proj-default-rtdb.firebaseio.com", bridgeClient: client)
             let fsStream = firestore.authLensStream
             let dbStream = db.authLensStream
             AuthCredentialProviderRegistry.restoreFactoryIfAbsent(savedFactory)
@@ -324,13 +324,13 @@ struct RtdbPhase2ParityRegressionTests {
 
             // Calling Auth.auth(app:) directly after Database and Firestore.authLensStream
             // registered observers must not deadlock re-entrantly inside FirebaseAuthBootstrap.
+            let savedBeforeBootstrap = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
             let bootstrapFirestore = Firestore(bridgeClient: client, app: bootstrapApp)
             let bootstrapDb = Database(
                 app: bootstrapApp,
                 url: "https://lazy-proj-default-rtdb.firebaseio.com",
                 bridgeClient: client
             )
-            let savedBeforeBootstrap = AuthCredentialProviderRegistry.clearFactoryPreservingInstances()
             let bootFsStream = bootstrapFirestore.authLensStream
             let bootDbStream = bootstrapDb.authLensStream
             let authInstance = Auth.auth(app: bootstrapApp)
@@ -405,6 +405,33 @@ struct RtdbPhase2ParityRegressionTests {
 
         ref.removeObserver(withHandle: h2)
         ref.removeObserver(withHandle: h1)
+        await client.disconnect()
+    }
+
+    @Test("goOffline and goOnline with active .info/connected observer do not deadlock on stateLock")
+    func infoConnectedGoOfflineOnlineNoDeadlock() async throws {
+        let (_, client, db, _) = try await makeConnectedDatabase(name: "info-deadlock-\(UUID().uuidString)") { _, _ in }
+        let states = ValueCollector<Bool>()
+        let handle = db.reference(withPath: ".info/connected").observe(.value) { snap in
+            if let connected = snap.value as? Bool { states.append(connected) }
+        }
+        for _ in 0..<40 where states.values.isEmpty {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(states.values.last == true)
+        let syncOffline: () -> Void = { db.goOffline() }
+        let syncOnline: () -> Void = { db.goOnline() }
+        syncOffline()
+        for _ in 0..<40 where states.values.last != false {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(states.values.last == false)
+        syncOnline()
+        for _ in 0..<40 where states.values.last != true {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(states.values.last == true)
+        db.reference(withPath: ".info/connected").removeObserver(withHandle: handle)
         await client.disconnect()
     }
 }

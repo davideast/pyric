@@ -461,11 +461,15 @@ public final class Database: NSObject, @unchecked Sendable {
     }
 
     private func setNetworkOnline(_ online: Bool) {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard _networkOnline != online else { return }
-        _networkOnline = online
-        for continuation in networkContinuations.values { continuation.yield(online) }
+        let continuations: [AsyncStream<Bool>.Continuation]? = {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard _networkOnline != online else { return nil }
+            _networkOnline = online
+            return Array(networkContinuations.values)
+        }()
+        guard let continuations else { return }
+        for continuation in continuations { continuation.yield(online) }
         connectionInfoHub.updateNetworkOnline(online)
     }
 

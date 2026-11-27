@@ -47,7 +47,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         database.markUsed()
         let key = ViewKey(path: path, querySpec: querySpec)
 
-        let currentLens = database.currentAuthLens()
+        let currentLens: AuthLens = ConnectionInfo.isInfoPath(path) ? .anon : database.currentAuthLens()
         while true {
             lock.lock()
             let handle = nextHandle
@@ -210,7 +210,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 for wire in [ConnectionInfo.wire(at: path, connected: connected)] {
                     guard wire["exists"]?.boolValue == true else { continue }
                     guard dedup.shouldEmit(wire) else { continue }
-                    activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef), lens: database.currentAuthLens())
+                    activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef), lens: .anon)
                 }
             }
             return (nil, { hub.removeObserver(token) })
