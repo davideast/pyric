@@ -218,11 +218,15 @@ export function emitLoopModule(fn: FunctionDef, loop: CheckedLoop, expressionLim
   if (loop.step.kind === 'update') {
     return emitShortFold(fn, loop, expressionLimit);
   }
-  if (loop.collection.type !== 'listLiteral') {
-    throw new Error(fn.name + ': standalone only: checked input requires type and length enforcement before early return');
+  const dynamic = loop.collection.type !== 'listLiteral';
+  if (dynamic && (loop.input.type !== 'identifier' || !fn.parameters.includes(loop.input.name) || loop.limit > 2)) {
+    throw new Error(fn.name + ': standalone only: checked input requires a list parameter with a bound of at most two');
   }
-  const elements = loop.collection.elements;
-  if (!elements.every(item => item.type === 'literal')) {
+  const integer = (n: number): Expression => ({type:'literal', value:n, raw:String(n)});
+  const length: Expression = {type:'methodCall', object:loop.input, method:'size', args:[]};
+  const elements: Expression[] = loop.collection.type === 'listLiteral' ? loop.collection.elements :
+    Array.from({length:loop.limit}, (_, i) => ({type:'bracketAccess', object:loop.input, index:integer(i)}));
+  if (!dynamic && !elements.every(item => item.type === 'literal')) {
     throw new Error(fn.name + ': standalone only: computed list elements must all evaluate before iteration');
   }
   const { guards } = loop.step;
@@ -260,6 +264,18 @@ export function emitLoopModule(fn: FunctionDef, loop: CheckedLoop, expressionLim
       body = { type: 'ternary', condition: substituteLets(condition, binding, true),
         consequent: substituteLets(result, binding, true), alternate: body };
     }
+    if (dynamic) body = {type:'ternary',
+      condition:{type:'binaryOp',op:'>',left:length,right:integer(i)},
+      consequent:body, alternate:fn.body};
+  }
+  if (dynamic) {
+    const valid: Expression = {type:'binaryOp',op:'&&',left:{type:'isExpr',value:loop.input,typeName:'list'},
+      right:{type:'binaryOp',op:'<=',left:length,right:integer(loop.limit)}};
+    // Invalid input errors before any guard, including an early return.
+    body = {type:'ternary',condition:valid,consequent:body,alternate:{
+      type:'bracketAccess',object:{type:'listLiteral',elements:[]},index:length}};
+    if (1 + fn.parameters.length + fn.lets.length + localUnits + maxUnits(body) > EXPRESSION_LIMIT)
+      throw new Error(fn.name + ': standalone only: unrolled checked input exceeds target expression budget');
   }
   return emitPureFunctionModule({ ...fn, body });
 }

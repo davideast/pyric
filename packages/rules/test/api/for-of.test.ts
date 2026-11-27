@@ -105,7 +105,16 @@ test('ordered accumulators accept empty input and enforce a checked bound before
   expect(() => first({a:true}, ['a','b','c'])).toThrow('exceeds declared bound 2');
   expect(() => first({}, 'abc')).toThrow('requires a list');
   expect(() => fold.firestoreModule()).toThrow('ordered accumulator');
-  expect(() => first.firestoreModule()).toThrow('checked input');
+  const helper = first.firestoreModule().split('export function')[1];
+  const rules = firestoreRules(`rules_version = '2'; service cloud.firestore {
+    match /databases/{db}/documents { function${helper}
+      match /items/{id} { allow create: if firstStop(request.resource.data.rows, request.resource.data.keys); }
+    }
+  }`);
+  const keys = [['a'], ['a','missing'], ['missing','a'], [], ['a','b','c'], 'a'];
+  expect(rules.simulate(keys.map(keys => ({description:JSON.stringify(keys),method:'create' as const,
+    path:'items/test',data:{keys,rows:{a:true}},expectation:'ALLOW' as const}))).cases.map(c=>c.decision))
+    .toEqual(['ALLOW','ALLOW','DENY','DENY','DENY','DENY']);
 });
 
 test('loop syntax, scope, and finite bounds are checked before invocation', () => {
