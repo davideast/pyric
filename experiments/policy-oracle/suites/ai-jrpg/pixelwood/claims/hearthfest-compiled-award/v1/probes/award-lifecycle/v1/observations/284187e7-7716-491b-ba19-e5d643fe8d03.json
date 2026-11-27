@@ -1,0 +1,28 @@
+{
+  "authority": "firestore-sdk",
+  "inputDigest": "5e1d70e37fc23c2a642a25ab75d314069b69290e032e5e9c8ea0d434a371ce9a",
+  "results": {
+    "signed-out-create": "DENY",
+    "signed-create-11": "DENY",
+    "signed-create": "ALLOW",
+    "signed-update-points": "DENY",
+    "signed-update-tier": "DENY",
+    "signed-update-benefit": "DENY",
+    "signed-update-valid": "ALLOW",
+    "signed-delete": "DENY"
+  },
+  "evidence": {
+    "path": "evidence/284187e7-7716-491b-ba19-e5d643fe8d03.json",
+    "sha256": "b55fdf85b45ad6fa6b9cd630acc2cc5bcfee94598a9e11fb5dd0cc111998c441",
+    "pointers": {
+      "signed-out-create": "/rows/signed-out-create/decision",
+      "signed-create-11": "/rows/signed-create-11/decision",
+      "signed-create": "/rows/signed-create/decision",
+      "signed-update-points": "/rows/signed-update-points/decision",
+      "signed-update-tier": "/rows/signed-update-tier/decision",
+      "signed-update-benefit": "/rows/signed-update-benefit/decision",
+      "signed-update-valid": "/rows/signed-update-valid/decision",
+      "signed-delete": "/rows/signed-delete/decision"
+    }
+  }
+}

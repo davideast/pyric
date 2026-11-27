@@ -1,0 +1,5 @@
+{
+  "description": "Enforce the per-recipient cycle 7 Hearthfest points, tier and benefit derived from the stored contribution in compiled Firestore rules.",
+  "authority": "firestore-sdk",
+  "witness": "authenticated-write-readback"
+}

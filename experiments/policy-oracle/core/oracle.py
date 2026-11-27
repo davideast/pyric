@@ -23,6 +23,7 @@ WITNESSES = {
 ARCADE_VERIFIER = "@oracle/adapters/arcade-sdk/v1/verify.mjs"
 PIXELWOOD = "suites/ai-jrpg/pixelwood/claims/"
 SDK_VERIFIERS = {
+    PIXELWOOD + "hearthfest-compiled-award/v1/probes/award-lifecycle/v1": "@oracle/adapters/hearthfest-compiled/v1/verify.mjs",
     PIXELWOOD + "hearthfest-award-write/v1/probes/award-lifecycle/v1": "@oracle/adapters/hearthfest-award/v1/verify.mjs",
     PIXELWOOD + "chat-send/v1/probes/profile-and-rate/v1": "@oracle/adapters/pixelwood-chat/v1/verify.mjs",
     PIXELWOOD + "signup-get-after/v1/probes/paired-signup/v1": "@oracle/adapters/signup-get-after/v1/verify.mjs",
