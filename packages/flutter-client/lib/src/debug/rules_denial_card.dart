@@ -211,10 +211,13 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
                   report.pathVariableBindings!.isNotEmpty)
                 _buildDetailRow(
                   'Bindings',
-                  report.pathVariableBindings!.entries
-                      .map((e) => '${e.key}: ${e.value}')
+                  (report.pathVariableBindings!.keys.toList()..sort())
+                      .map((k) => '$k: ${report.pathVariableBindings![k]}')
                       .join(', '),
                 ),
+              if (report.remediation != null &&
+                  report.remediation!.trim().isNotEmpty)
+                _buildDetailRow('Remediation', report.remediation!.trim()),
               if (report.failedFields.isNotEmpty)
                 _buildDetailRow('Failed Fields', report.failedFields.join(', ')),
               if (report.proposedData != null && report.proposedData!.isNotEmpty)
@@ -224,7 +227,8 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
                       : 'Proposed Data (request.resource.data)',
                   report.proposedData!,
                 )
-              else if (report.proposedValue != null)
+              else if (report.proposedValue != null &&
+                  report.proposedValue is! Map)
                 _buildValueBlock(
                   report.isRtdb
                       ? 'Proposed Value (newData)'
@@ -340,7 +344,7 @@ class _RulesDenialCardState extends State<RulesDenialCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
+            width: 88,
             child: Text(
               '$label:',
               style: const TextStyle(

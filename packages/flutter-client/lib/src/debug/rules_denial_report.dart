@@ -68,6 +68,7 @@ class RulesDenialReport {
   final String? matchedRule;
   final Map<String, String>? pathVariableBindings;
   final String? reason;
+  final String? remediation;
   final String? errorCode;
   final dynamic proposedValue;
   final String errorMessage;
@@ -100,6 +101,7 @@ class RulesDenialReport {
     this.matchedRule,
     this.pathVariableBindings,
     this.reason,
+    this.remediation,
     this.errorCode,
     this.proposedValue,
     this.errorMessage = 'Missing or insufficient permissions.',
@@ -132,9 +134,14 @@ class RulesDenialReport {
     final citation = _asString(ruleObj?['citation']);
     final expression = _asString(ruleObj?['expression']) ?? matchedRule;
 
+    final singularReason = _asString(map['reason']);
     final reasons = _asStringList(map['reasons']);
     if (reasons.isEmpty) {
-      reasons.add(errorMessage);
+      if (singularReason != null && singularReason.trim().isNotEmpty) {
+        reasons.add(singularReason);
+      } else {
+        reasons.add(errorMessage);
+      }
     }
 
     final authObj = _asStringMap(map['auth']);
@@ -182,7 +189,8 @@ class RulesDenialReport {
       matchedPath: _asString(map['matchedPath']),
       matchedRule: matchedRule,
       pathVariableBindings: _asStringStringMap(map['pathVariableBindings']),
-      reason: _asString(map['reason']),
+      reason: singularReason,
+      remediation: _asString(map['remediation']),
       errorCode: _asString(map['errorCode']),
       proposedValue: proposedValue,
       errorMessage: errorMessage,
