@@ -48,3 +48,9 @@ For a ruleset using the dense diagonal shortcut, the independent geometry challe
 ```sh
 python3 -B review/dense-geometry.py "$PINNED_RULES_SDK" "$COMPLETE_RULES" "$CHESS_SOURCE"
 ```
+
+The independent clean replay starts with a Git archive of the requested commit. It reconstructs the compiled rules, all native panels and the strict raw-document audit from the tracked oracle tree, reinstalls the reference evaluator from the vendored tarball, and checks any retained dense-proof and wrong-destination controls. The output records the resolved commit, Git tree object, package digest, compiled source digest and qualified results. Add `--with-history` to regrade every recorded revision in that same snapshot.
+
+```sh
+python3 -B review/clean-snapshot.py "$PYRIC_REPO" "$COMMIT" selected "$PRIVATE_ARCHIVE" "$CHESS_SOURCE" "$REPORT"
+```
