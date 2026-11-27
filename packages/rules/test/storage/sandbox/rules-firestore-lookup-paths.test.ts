@@ -21,17 +21,25 @@ const docs: Record<string, Record<string, unknown>> = {
   'num/0.0': { on: true },
   'num/-0.0': { on: true },
   'num/1.5': { on: true },
-  'num/0.0005': { on: true },
+  'num/-1.5': { on: true },
   'num/5.0E-4': { on: true },
-  'num/10000000.5': { on: true },
+  'num/1.0E-7': { on: true },
   'num/1.00000005E7': { on: true },
+  'num/1.0E21': { on: true },
+  'num/9007199254740992': { on: true },
+  'num/9.007199254740992E15': { on: true },
   'num/NaN': { on: true },
   'num/Infinity': { on: true },
+  'num/-Infinity': { on: true },
   'seed/doc': {
     f: new RulesFloat(1.5),
     bareFloat: 1.5,
     intFloat: new RulesFloat(2),
     smallFloat: 0.0005,
+    largeFloat: 10000000.5,
+    negZeroFloat: new RulesFloat(-0),
+    bigIntField: 9007199254740992n,
+    bigFloatField: 2 ** 53,
     n: 2,
   },
 };
@@ -173,10 +181,11 @@ describe('Storage rules lookup paths: a path literal built in a helper function'
   });
 });
 
-describe('Storage rules lookup paths: numeric interpolation formats proven decimal floats and fails closed on unproven float forms (#1815)', () => {
-  it('interpolationSegments accepts safe ints, bigints, and non-integral floats in [1e-3, 1e7)', () => {
+describe('Storage rules lookup paths: numeric interpolation formats ints and floats via Java Double.toString (#1815)', () => {
+  it('interpolationSegments formats ints as decimal digits and bare or wrapped floats via formatRulesFloat', () => {
     expect(interpolationSegments(2)).toEqual(['2']);
     expect(interpolationSegments(2n)).toEqual(['2']);
+    expect(interpolationSegments(9007199254740992n)).toEqual(['9007199254740992']);
     expect(interpolationSegments(0)).toEqual(['0']);
     expect(interpolationSegments(1.5)).toEqual(['1.5']);
     expect(interpolationSegments(new RulesFloat(1.5))).toEqual(['1.5']);
@@ -184,32 +193,38 @@ describe('Storage rules lookup paths: numeric interpolation formats proven decim
     expect(interpolationSegments(new RulesFloat(-1.5))).toEqual(['-1.5']);
     expect(interpolationSegments(0.001)).toEqual(['0.001']);
     expect(interpolationSegments(new RulesFloat(9999999.5))).toEqual(['9999999.5']);
+    expect(interpolationSegments(new RulesFloat(2))).toEqual(['2.0']);
+    expect(interpolationSegments(new RulesFloat(0))).toEqual(['0.0']);
+    expect(interpolationSegments(-0)).toEqual(['-0.0']);
+    expect(interpolationSegments(new RulesFloat(-0))).toEqual(['-0.0']);
+    expect(interpolationSegments(2 ** 53)).toEqual(['9.007199254740992E15']);
+    expect(interpolationSegments(new RulesFloat(2 ** 53))).toEqual(['9.007199254740992E15']);
+    expect(interpolationSegments(0.0005)).toEqual(['5.0E-4']);
+    expect(interpolationSegments(new RulesFloat(0.0005))).toEqual(['5.0E-4']);
+    expect(interpolationSegments(1e-7)).toEqual(['1.0E-7']);
+    expect(interpolationSegments(new RulesFloat(1e-7))).toEqual(['1.0E-7']);
+    expect(interpolationSegments(10000000.5)).toEqual(['1.00000005E7']);
+    expect(interpolationSegments(new RulesFloat(10000000.5))).toEqual(['1.00000005E7']);
+    expect(interpolationSegments(1e21)).toEqual(['1.0E21']);
+    expect(interpolationSegments(new RulesFloat(1e21))).toEqual(['1.0E21']);
+    expect(interpolationSegments(Number.NaN)).toEqual(['NaN']);
+    expect(interpolationSegments(new RulesFloat(Number.NaN))).toEqual(['NaN']);
+    expect(interpolationSegments(Number.POSITIVE_INFINITY)).toEqual(['Infinity']);
+    expect(interpolationSegments(Number.NEGATIVE_INFINITY)).toEqual(['-Infinity']);
+    expect(interpolationSegments(new RulesFloat(Number.POSITIVE_INFINITY))).toEqual(['Infinity']);
+    expect(interpolationSegments(new RulesFloat(Number.NEGATIVE_INFINITY))).toEqual(['-Infinity']);
   });
 
-  it('interpolationSegments fails closed on integral floats, scientific-range magnitudes, -0, NaN, and infinities', () => {
-    expect(interpolationSegments(new RulesFloat(2))).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(0))).toBeUndefined();
-    expect(interpolationSegments(-0)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(-0))).toBeUndefined();
-    expect(interpolationSegments(2 ** 53)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(2 ** 53))).toBeUndefined();
-    expect(interpolationSegments(0.0005)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(0.0005))).toBeUndefined();
-    expect(interpolationSegments(1e-7)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(1e-7))).toBeUndefined();
-    expect(interpolationSegments(10000000.5)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(10000000.5))).toBeUndefined();
-    expect(interpolationSegments(1e21)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(1e21))).toBeUndefined();
-    expect(interpolationSegments(Number.NaN)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(Number.NaN))).toBeUndefined();
-    expect(interpolationSegments(Number.POSITIVE_INFINITY)).toBeUndefined();
-    expect(interpolationSegments(Number.NEGATIVE_INFINITY)).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(Number.POSITIVE_INFINITY))).toBeUndefined();
-    expect(interpolationSegments(new RulesFloat(Number.NEGATIVE_INFINITY))).toBeUndefined();
+  it('interpolationSegments still rejects booleans, null, undefined, arrays, and plain objects', () => {
+    expect(interpolationSegments(true)).toBeUndefined();
+    expect(interpolationSegments(false)).toBeUndefined();
+    expect(interpolationSegments(null)).toBeUndefined();
+    expect(interpolationSegments(undefined)).toBeUndefined();
+    expect(interpolationSegments([])).toBeUndefined();
+    expect(interpolationSegments({})).toBeUndefined();
   });
 
-  it('resolves 1.5 across bare claims and document fields in get and exists while failing closed on unproven float forms', () => {
+  it('matches captured production Java Double.toString segments across claims, fields, literals, and casts', () => {
     const getByClaim = `match /claim/{file} {
       allow create: if firestore.get(/databases/(default)/documents/num/$(request.auth.token.v)).data.on == true;
     }`;
@@ -234,9 +249,6 @@ describe('Storage rules lookup paths: numeric interpolation formats proven decim
     const existsByLiteralFloat = `match /lit/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(1.5));
     }`;
-    const notExistsIntegralFloatLiteral = `match /lit/{file} {
-      allow create: if !firestore.exists(/databases/(default)/documents/num/$(2.0));
-    }`;
     const existsIntegralFloatLiteral = `match /lit/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(2.0));
     }`;
@@ -249,16 +261,29 @@ describe('Storage rules lookup paths: numeric interpolation formats proven decim
     const existsSmallFloatDocField = `match /doc/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.smallFloat));
     }`;
+    const existsLargeFloatDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.largeFloat));
+    }`;
+    const existsBigIntDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.bigIntField));
+    }`;
+    const existsBigFloatDocField = `match /doc/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(firestore.get(/databases/(default)/documents/seed/doc).data.bigFloatField));
+    }`;
     const existsNanCast = `match /lit/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(float('NaN')));
     }`;
     const existsInfinityCast = `match /lit/{file} {
       allow create: if firestore.exists(/databases/(default)/documents/num/$(float('Infinity')));
     }`;
+    const existsNegInfinityCast = `match /lit/{file} {
+      allow create: if firestore.exists(/databases/(default)/documents/num/$(float('-Infinity')));
+    }`;
 
     expect(upload(getByClaim, 'claim/a.bin', {}, { v: 2 })).toBe(true);
     expect(upload(getByClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(true);
     expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 1.5 })).toBe(true);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: -1.5 })).toBe(true);
     expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 2.5 })).toBe(false);
     expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 2.5 })).toBe(true);
     expect(upload(getByWrappedDocField, 'doc/a.bin')).toBe(true);
@@ -267,18 +292,26 @@ describe('Storage rules lookup paths: numeric interpolation formats proven decim
     expect(upload(existsByIntDocField, 'doc/a.bin')).toBe(true);
     expect(upload(existsByLiteralFloat, 'lit/a.bin')).toBe(true);
 
-    // Unproven float forms error and deny even when candidate segment docs exist,
-    // and under `!firestore.exists(...)` as well.
-    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 0.0005 })).toBe(false);
-    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 0.0005 })).toBe(false);
-    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 10000000.5 })).toBe(false);
-    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: 10000000.5 })).toBe(false);
-    expect(upload(existsIntegralFloatLiteral, 'lit/a.bin')).toBe(false);
-    expect(upload(notExistsIntegralFloatLiteral, 'lit/a.bin')).toBe(false);
-    expect(upload(existsNegativeZeroLiteral, 'lit/a.bin')).toBe(false);
-    expect(upload(existsIntegralFloatDocField, 'doc/a.bin')).toBe(false);
-    expect(upload(existsSmallFloatDocField, 'doc/a.bin')).toBe(false);
-    expect(upload(existsNanCast, 'lit/a.bin')).toBe(false);
-    expect(upload(existsInfinityCast, 'lit/a.bin')).toBe(false);
+    // Production formats floats with Java Double.toString: 5.0E-4, 1.00000005E7,
+    // 2.0, -0.0, NaN, Infinity, -Infinity.
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 0.0005 })).toBe(true);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 10000000.5 })).toBe(true);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 1e21 })).toBe(true);
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: 9007199254740992 })).toBe(true);
+    expect(upload(existsIntegralFloatLiteral, 'lit/a.bin')).toBe(true);
+    expect(upload(existsNegativeZeroLiteral, 'lit/a.bin')).toBe(true);
+    expect(upload(existsIntegralFloatDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsSmallFloatDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsLargeFloatDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsBigIntDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsBigFloatDocField, 'doc/a.bin')).toBe(true);
+    expect(upload(existsNanCast, 'lit/a.bin')).toBe(true);
+    expect(upload(existsInfinityCast, 'lit/a.bin')).toBe(true);
+    expect(upload(existsNegInfinityCast, 'lit/a.bin')).toBe(true);
+
+    // Non-string/non-numeric/non-path types still error and deny even under `!exists(...)`.
+    expect(upload(existsByClaim, 'claim/a.bin', {}, { v: true })).toBe(false);
+    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: true })).toBe(false);
+    expect(upload(notExistsByClaim, 'claim/a.bin', {}, { v: null })).toBe(false);
   });
 });

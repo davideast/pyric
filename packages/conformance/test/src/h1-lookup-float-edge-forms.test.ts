@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { evaluateStorageRules } from '../../../rules/src/storage/rules-evaluator.ts';
 import {
   parseStorageRules,
@@ -15,6 +18,32 @@ import { scenario as authoredScenario } from '../../rules-corpus/storage/h1-look
 import { ALL_RULES_STORAGE_SCENARIOS, storageObservationName } from '../../rules-corpus/storage/index.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
+const HERE = dirname(fileURLToPath(import.meta.url));
+const EDGE_FORMS_OBS_PATH = join(
+  HERE,
+  '..',
+  '..',
+  'observations',
+  'storage-rules',
+  'rules-storage-h1-lookup-float-edge-forms.json',
+);
+
+function decodeMockJsonValue(val: unknown): unknown {
+  if (typeof val === 'number') {
+    if (!Object.is(val, -0) && Number.isInteger(val) && val >= -(2 ** 63) && val < 2 ** 63) {
+      return BigInt(val);
+    }
+    return val;
+  }
+  if (Array.isArray(val)) return val.map(decodeMockJsonValue);
+  if (typeof val !== 'object' || val === null) return val;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+    out[k] = decodeMockJsonValue(v);
+  }
+  return out;
+}
+
 function buildOfflineLookup(tc: StorageTestCase): FirestoreLookup | undefined {
   if (tc.functionMocks === undefined || tc.functionMocks.length === 0) {
     return undefined;
@@ -23,7 +52,7 @@ function buildOfflineLookup(tc: StorageTestCase): FirestoreLookup | undefined {
   const exists = new Set<string>();
   for (const mock of tc.functionMocks) {
     if (mock.function === 'get' && typeof mock.result === 'object' && mock.result !== null) {
-      gets.set(mock.path, mock.result);
+      gets.set(mock.path, decodeMockJsonValue(mock.result) as Record<string, unknown>);
     } else if (mock.function === 'exists' && mock.result === true) {
       exists.add(mock.path);
     }
@@ -53,40 +82,12 @@ function toOfflineInput(tc: StorageTestCase): EvaluationInput {
   };
 }
 
-const FAIL_CLOSED_CASE_DESCRIPTIONS = [
-  'integral float 2.0 as 2.0: $(2.0) mocked at items/2.0',
-  'integral float 2.0 as 2: $(2.0) mocked at items/2',
-  'integral float(2) as 2.0: $(float(2)) mocked at items/2.0',
-  'integral float(2) as 2: $(float(2)) mocked at items/2',
-  '2^53 claim scientific: auth claim 9007199254740992 mocked at items/9.007199254740992E15',
-  '2^53 field plain: document field 9007199254740992 mocked at items/9007199254740992',
-  '2^53 field scientific: document field 9007199254740992 mocked at items/9.007199254740992E15',
-  'small claim 0.0005 scientific: auth claim 0.0005 mocked at items/5.0E-4',
-  'small claim 0.0005 plain: auth claim 0.0005 mocked at items/0.0005',
-  'small field 0.0005 scientific: document field 0.0005 mocked at items/5.0E-4',
-  'small field 0.0005 plain: document field 0.0005 mocked at items/0.0005',
-  "exponent cast 1e-7: $(float('1e-7')) mocked at Java and JS exponent/plain forms",
-  'large claim 10000000.5 scientific: auth claim 10000000.5 mocked at items/1.00000005E7',
-  'large claim 10000000.5 plain: auth claim 10000000.5 mocked at items/10000000.5',
-  'large field 10000000.5 scientific: document field 10000000.5 mocked at items/1.00000005E7',
-  'large field 10000000.5 plain: document field 10000000.5 mocked at items/10000000.5',
-  'large claim 1e21: auth claim 1e21 mocked at Java and JS exponent forms',
-  'negative zero literal as -0.0: $(-0.0) mocked at items/-0.0',
-  'negative zero literal as 0.0 or 0: $(-0.0) mocked at items/0.0 and items/0',
-  'negative zero product: $(-1.0 * 0.0) mocked at items/-0.0, items/0.0, and items/0',
-  "nan cast: $(float('NaN')) mocked at items/NaN",
-  'nan division: $(0.0 / 0.0) mocked at items/NaN',
-  "infinity cast: $(float('Infinity')) mocked at items/Infinity",
-  "neg infinity cast: $(float('-Infinity')) mocked at items/-Infinity",
-  'infinity division: $(1.0 / 0.0) mocked at items/Infinity',
-] as const;
-
-describe('h1-lookup-float-edge-forms staged Storage rules-corpus probe (#1815)', () => {
+describe('h1-lookup-float-edge-forms Storage rules-corpus probe (#1815)', () => {
   const scenario = ALL_RULES_STORAGE_SCENARIOS.find(
     (entry) => entry.id === 'h1-lookup-float-edge-forms',
   );
 
-  it('loads from rules-corpus/storage with pendingRowLink enabled and 32 unique cases', () => {
+  it('loads from rules-corpus/storage with 32 unique cases', () => {
     expect(scenario).toBeDefined();
     if (scenario === undefined) return;
     expect(scenario).toMatchObject(authoredScenario);
@@ -97,24 +98,18 @@ describe('h1-lookup-float-edge-forms staged Storage rules-corpus probe (#1815)',
     expect(descriptions.size).toBe(32);
   });
 
-  it('compiles cleanly and fails closed offline on unproven integral, scientific, -0, NaN, and infinity float forms', () => {
+  it('compiles cleanly and matches all 32 captured production verdicts offline', () => {
     if (scenario === undefined) throw new Error('missing scenario h1-lookup-float-edge-forms');
+    const captured = JSON.parse(readFileSync(EDGE_FORMS_OBS_PATH, 'utf8')) as {
+      behavior: Record<string, 'ALLOW' | 'DENY'>;
+    };
     const parsed = parseStorageRules(scenario.rules);
-    const verdicts = new Map<string, 'ALLOW' | 'DENY'>();
+    const verdicts: Record<string, 'ALLOW' | 'DENY'> = {};
     for (const tc of scenario.cases) {
       const result = evaluateStorageRules(parsed, toOfflineInput(tc), undefined, buildOfflineLookup(tc));
-      let verdict: 'ALLOW' | 'DENY' = 'DENY';
-      if (result.allowed) {
-        verdict = 'ALLOW';
-      }
-      verdicts.set(tc.description, verdict);
+      verdicts[tc.description] = result.allowed ? 'ALLOW' : 'DENY';
     }
-
-    expect(verdicts.get('control: int auth claim 7 in firestore.exists path')).toBe('ALLOW');
-    expect(verdicts.get('2^53 claim plain: auth claim 9007199254740992 mocked at items/9007199254740992')).toBe('ALLOW');
-    for (const description of FAIL_CLOSED_CASE_DESCRIPTIONS) {
-      expect(verdicts.get(description)).toBe('DENY');
-    }
+    expect(verdicts).toEqual(captured.behavior);
   });
 
   it('builds Rules Test API wire cases and plans parity-readonly capture on main push', async () => {

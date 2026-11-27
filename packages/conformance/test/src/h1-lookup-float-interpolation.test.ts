@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { evaluateStorageRules } from '../../../rules/src/storage/rules-evaluator.ts';
 import {
   parseStorageRules,
@@ -10,10 +13,18 @@ import {
   normalizeStoragePath,
   type StorageTestCase,
 } from '../../../rules/src/test/spec.ts';
-import { planCaptureRun } from '../../../../scripts/ci/oracle-capture-plan.ts';
 import { scenario as authoredScenario } from '../../rules-corpus/storage/h1-lookup-float-interpolation.ts';
 import { ALL_RULES_STORAGE_SCENARIOS, storageObservationName } from '../../rules-corpus/storage/index.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const OBS_PATH = join(
+  HERE,
+  '..',
+  '..',
+  'observations',
+  'storage-rules',
+  'rules-storage-h1-lookup-float-interpolation.json',
+);
 
 function buildOfflineLookup(tc: StorageTestCase): FirestoreLookup | undefined {
   if (!tc.functionMocks || tc.functionMocks.length === 0) {
@@ -53,46 +64,41 @@ function toOfflineInput(tc: StorageTestCase): EvaluationInput {
   };
 }
 
-describe('h1-lookup-float-interpolation staged Storage rules-corpus probe (#1815)', () => {
+describe('h1-lookup-float-interpolation linked Storage rules-corpus probe (#1815)', () => {
   const scenario = ALL_RULES_STORAGE_SCENARIOS.find(
     (entry) => entry.id === 'h1-lookup-float-interpolation',
   );
 
-  it('loads from rules-corpus/storage with pendingRowLink enabled and a stable observation stem', () => {
+  it('loads from rules-corpus/storage linked to storage-rules#115 with pendingRowLink dropped', () => {
     expect(scenario).toBeDefined();
     if (!scenario) return;
     expect(scenario).toMatchObject(authoredScenario);
-    expect(scenario.pendingRowLink).toBe(true);
+    expect(scenario.pendingRowLink).toBeUndefined();
     expect(storageObservationName(scenario)).toBe('rules-storage-h1-lookup-float-interpolation');
     expect(scenario.cases).toHaveLength(8);
+    const obs = JSON.parse(readFileSync(OBS_PATH, 'utf8')) as {
+      matrixRow: string;
+      rowIds: string[];
+    };
+    expect(obs.matrixRow).toBe('storage-rules#115');
+    expect(obs.rowIds).toEqual(['storage-rules#115']);
   });
 
-  it('evaluates offline against pyric: ALLOW on all 8 captured float and integer lookup cases', () => {
+  it('matches all 8 captured production verdicts offline against pyric', () => {
     if (scenario === undefined) throw new Error('missing scenario h1-lookup-float-interpolation');
+    const obs = JSON.parse(readFileSync(OBS_PATH, 'utf8')) as {
+      behavior: Record<string, 'ALLOW' | 'DENY'>;
+    };
     const parsed = parseStorageRules(scenario.rules);
     const verdicts: Record<string, 'ALLOW' | 'DENY'> = {};
     for (const tc of scenario.cases) {
       const result = evaluateStorageRules(parsed, toOfflineInput(tc), undefined, buildOfflineLookup(tc));
-      let verdict: 'ALLOW' | 'DENY' = 'DENY';
-      if (result.allowed) {
-        verdict = 'ALLOW';
-      }
-      verdicts[tc.description] = verdict;
+      verdicts[tc.description] = result.allowed ? 'ALLOW' : 'DENY';
     }
-
-    expect(verdicts).toEqual({
-      'claim get: float auth claim 1.5 in firestore.get path': 'ALLOW',
-      'claim get control: int auth claim 7 in firestore.get path': 'ALLOW',
-      'claim exists: float auth claim 1.5 in firestore.exists path': 'ALLOW',
-      'claim exists control: int auth claim 7 in firestore.exists path': 'ALLOW',
-      'field get: float document field 1.5 in firestore.get path': 'ALLOW',
-      'field get control: int document field 7 in firestore.get path': 'ALLOW',
-      'field exists: float document field 1.5 in firestore.exists path': 'ALLOW',
-      'field exists control: int document field 7 in firestore.exists path': 'ALLOW',
-    });
+    expect(verdicts).toEqual(obs.behavior);
   });
 
-  it('serializes float 1.5 and int 7 wire values and plans main-branch parity-readonly capture', async () => {
+  it('serializes float 1.5 and int 7 wire values cleanly', () => {
     if (!scenario) throw new Error('missing scenario h1-lookup-float-interpolation');
     const wireCases = scenario.cases.map((tc) => buildStorageApiTestCase(tc));
     expect(wireCases[0]?.request.auth?.token).toEqual({ v: 1.5 });
@@ -107,43 +113,5 @@ describe('h1-lookup-float-interpolation staged Storage rules-corpus probe (#1815
       args: [{ exactValue: '/databases/(default)/documents/cfg/main' }],
       result: { value: { data: { v: 7 } } },
     });
-
-    expectStagedUntilCaptured('rules-storage-h1-lookup-float-interpolation', {
-      rig: 'rules-storage',
-      filterFlag: '--scenario',
-      filterValueFor: () => 'h1-lookup-float-interpolation',
-    });
-
-    const plan = await planCaptureRun(
-      {
-        GITHUB_EVENT_NAME: 'push',
-        GITHUB_REF: 'refs/heads/main',
-        GCP_WIF_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/p/providers/gh',
-        PARITY_SA_EMAIL: 'parity-test-sa@digame-mas.iam.gserviceaccount.com',
-        CAPTURE_RUNNER_OS: 'ubuntu-latest',
-      },
-      {
-        stagedTargets: [
-          {
-            rig: 'rules-storage',
-            observationName: 'rules-storage-h1-lookup-float-interpolation',
-            filterFlag: '--scenario',
-            filterValue: 'h1-lookup-float-interpolation',
-          },
-        ],
-        pendingPrefixRigs: [],
-      },
-    );
-    expect(plan.shouldRun).toBe(true);
-    expect(plan.needsParityWif).toBe(true);
-    expect(plan.needsCaptureWif).toBe(false);
-    expect(plan.invocations).toEqual([
-      {
-        rig: 'rules-storage',
-        script: 'packages/conformance/src/run-rules-storage.ts',
-        args: ['--write', '--scenario', 'h1-lookup-float-interpolation'],
-        wifTier: 'parity-readonly',
-      },
-    ]);
   });
 });
