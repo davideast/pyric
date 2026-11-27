@@ -161,5 +161,91 @@ void main() {
       expect(controller.denials, isEmpty);
       expect(controller.latestDenial, isNull);
     });
+
+    test('auto-refreshes users on init and displays email in activeIdentityTitle', () async {
+      await Future<void>.delayed(Duration.zero);
+      final listOps = harness.sentMessages
+          .where((m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.listUsers')
+          .toList();
+      expect(listOps.length, 1);
+
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': listOps.single['id'],
+        'ok': true,
+        'value': [
+          {
+            'uid': 'alice-uid',
+            'email': 'alice@example.com',
+            'displayName': 'Alice',
+          },
+        ],
+      });
+      await pumpEventQueue();
+
+      auth.switchAuthLens(AuthLens.asUser(uid: 'alice-uid'));
+      await pumpEventQueue();
+      expect(controller.activeIdentityTitle, 'alice@example.com');
+
+      // Falls back to token email when UID is not yet in users list.
+      auth.switchAuthLens(
+        AuthLens.asUser(uid: 'unlisted-uid', token: {'email': 'unlisted@example.com'}),
+      );
+      await pumpEventQueue();
+      expect(controller.activeIdentityTitle, 'unlisted@example.com');
+    });
+
+    test('clears stale denials on signOut while preserving them across debug lens switches', () async {
+      final signInFuture = auth.signInWithEmailAndPassword('alice@example.com', 'password123');
+      await Future<void>.delayed(Duration.zero);
+      final signInOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.signInEmail',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': signInOp['id'],
+        'ok': true,
+        'value': {
+          'user': {
+            'uid': 'alice-uid',
+            'email': 'alice@example.com',
+            'isAnonymous': false,
+          },
+        },
+      });
+      await signInFuture;
+      await pumpEventQueue();
+
+      controller.addDenial(
+        RulesDenialReport(
+          citation: 'firestore.rules:10:3',
+          reasons: ['Denied for alice'],
+        ),
+      );
+      await pumpEventQueue();
+      expect(controller.denials.length, 1);
+
+      // Debug lens toggles must keep denials visible for inspection.
+      controller.toggleAdminBypass(true);
+      await pumpEventQueue();
+      expect(controller.denials.length, 1);
+
+      // Signing out clears denials so the next signed-in user starts clean.
+      final signOutFuture = auth.signOut();
+      await Future<void>.delayed(Duration.zero);
+      final signOutOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.signOut',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': signOutOp['id'],
+        'ok': true,
+        'value': null,
+      });
+      await signOutFuture;
+      await pumpEventQueue();
+
+      expect(controller.denials, isEmpty);
+    });
   });
 }

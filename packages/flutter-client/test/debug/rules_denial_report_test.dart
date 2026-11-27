@@ -132,5 +132,46 @@ void main() {
       expect(record.customClaims['admin'], true);
       expect(record.customClaims['role'], 'lead');
     });
+
+    test('synthesizes RulesDenialReport for storage/unauthorized without denialContext', () {
+      const ex = PyricBridgeException(
+        code: 'storage/unauthorized',
+        message: 'storage/unauthorized: Get "audio/alice/narr-1.wav" in bucket "demo.appspot.com" denied by rules.',
+      );
+
+      final report = RulesDenialReport.fromBridgeException(ex);
+      expect(report, isNotNull);
+      expect(report!.isStorage, isTrue);
+      expect(report.engine, 'storage');
+      expect(report.file, 'storage.rules');
+      expect(report.citation, 'storage.rules');
+      expect(report.errorCode, 'storage/unauthorized');
+      expect(report.requestMethod, 'get');
+      expect(report.requestPath, 'audio/alice/narr-1.wav');
+      expect(report.reasons.single, startsWith('Get "audio/alice/narr-1.wav"'));
+    });
+
+    test('synthesizes fallback report for permission-denied and ignores non-denials', () {
+      const fsDenied = PyricBridgeException(
+        code: 'permission-denied',
+        message: 'Denied by rules',
+      );
+      final fsReport = RulesDenialReport.fromBridgeException(fsDenied);
+      expect(fsReport, isNotNull);
+      expect(fsReport!.engine, 'firestore');
+      expect(fsReport.citation, 'firestore.rules');
+
+      const authError = PyricBridgeException(
+        code: 'auth/internal-error',
+        message: '{"error":{"message":"Not allowed","status":"PERMISSION_DENIED"}}',
+      );
+      expect(RulesDenialReport.fromBridgeException(authError), isNull);
+
+      const notFound = PyricBridgeException(
+        code: 'storage/object-not-found',
+        message: 'Missing object',
+      );
+      expect(RulesDenialReport.fromBridgeException(notFound), isNull);
+    });
   });
 }
