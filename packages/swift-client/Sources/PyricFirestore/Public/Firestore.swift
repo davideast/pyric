@@ -88,6 +88,7 @@ public class Firestore: @unchecked Sendable {
     private var bridgeObserverId: UUID?
     private let instanceLock = NSLock()
     private var _credentialProvider: (any AuthCredentialProvider)?
+    private var lazyLensWaiters: [UUID: @Sendable (any AuthCredentialProvider) -> Void] = [:]
 
     public var credentialProvider: (any AuthCredentialProvider)? {
         get {
@@ -103,8 +104,17 @@ public class Firestore: @unchecked Sendable {
         }
         set {
             instanceLock.lock()
-            defer { instanceLock.unlock() }
             _credentialProvider = newValue
+            let waiters = newValue != nil ? Array(lazyLensWaiters.values) : []
+            if newValue != nil {
+                lazyLensWaiters.removeAll()
+            }
+            instanceLock.unlock()
+            if let newValue {
+                for waiter in waiters {
+                    waiter(newValue)
+                }
+            }
         }
     }
 
@@ -116,8 +126,70 @@ public class Firestore: @unchecked Sendable {
         if let provider = credentialProvider {
             return provider.authLensStream
         }
-        return AsyncStream { continuation in
+        let targetAppName = app.name
+        return AsyncStream { [weak self] continuation in
             continuation.yield(.anon)
+            guard let self else {
+                continuation.finish()
+                return
+            }
+            let forwardLock = NSLock()
+            nonisolated(unsafe) var forwardTask: Task<Void, Never>?
+            nonisolated(unsafe) var bound = false
+            nonisolated(unsafe) var registryObsID: UUID?
+            let waiterID = UUID()
+            let bindProvider: @Sendable (any AuthCredentialProvider) -> Void = { provider in
+                forwardLock.lock()
+                if bound {
+                    forwardLock.unlock()
+                    return
+                }
+                bound = true
+                let obsToRemove = registryObsID
+                registryObsID = nil
+                forwardTask = Task {
+                    for await lens in provider.authLensStream {
+                        if Task.isCancelled { break }
+                        continuation.yield(lens)
+                    }
+                }
+                forwardLock.unlock()
+                if let obsToRemove {
+                    AuthCredentialProviderRegistry.removeRegistrationObserver(obsToRemove)
+                }
+            }
+            let obsID = AuthCredentialProviderRegistry.addRegistrationObserver { [weak self] appName in
+                guard appName == nil || appName == targetAppName else { return }
+                guard let self, let resolved = self.credentialProvider else { return }
+                bindProvider(resolved)
+            }
+            forwardLock.lock()
+            registryObsID = obsID
+            forwardLock.unlock()
+            self.instanceLock.lock()
+            self.lazyLensWaiters[waiterID] = bindProvider
+            self.instanceLock.unlock()
+            if let immediate = self.credentialProvider {
+                bindProvider(immediate)
+            }
+            continuation.onTermination = { [weak self] _ in
+                forwardLock.lock()
+                bound = true
+                let taskToCancel = forwardTask
+                forwardTask = nil
+                let obsToRemove = registryObsID
+                registryObsID = nil
+                forwardLock.unlock()
+                taskToCancel?.cancel()
+                if let obsToRemove {
+                    AuthCredentialProviderRegistry.removeRegistrationObserver(obsToRemove)
+                }
+                if let self {
+                    self.instanceLock.lock()
+                    self.lazyLensWaiters.removeValue(forKey: waiterID)
+                    self.instanceLock.unlock()
+                }
+            }
         }
     }
 

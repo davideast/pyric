@@ -165,11 +165,17 @@ class PyricDatabaseReference extends PyricQuery {
     };
   }
 
-  Future<PyricDataSnapshot> _getForTransaction() async {
-    final res = await database.op('rtdb.get', {
-      'path': path,
-      'transaction': true,
-    });
+  Future<PyricDataSnapshot> _getForTransaction({
+    required Map<String, dynamic> actAs,
+  }) async {
+    final res = await database.op(
+      'rtdb.get',
+      {
+        'path': path,
+        'transaction': true,
+      },
+      actAs: actAs,
+    );
     if (res is Map) {
       return PyricDataSnapshot.fromWire(this, Map<String, dynamic>.from(res));
     }
@@ -189,10 +195,11 @@ class PyricDatabaseReference extends PyricQuery {
     bool applyLocally = true,
     int maxAttempts = 25,
   }) async {
+    final txLens = database.effectiveAuthLens;
     int attempts = 0;
     while (true) {
       attempts++;
-      final currentSnap = await _getForTransaction();
+      final currentSnap = await _getForTransaction(actAs: txLens);
       final mutableData = PyricMutableData(
         key: key,
         value: _deepCloneValue(currentSnap.value),
@@ -212,12 +219,16 @@ class PyricDatabaseReference extends PyricQuery {
         mutableData.priority,
         currentSnap.priority,
       );
-      final res = await database.op('rtdb.transactionCommit', {
-        'path': path,
-        'expected': currentSnap.value,
-        'value': wireValue,
-        'applyLocally': applyLocally,
-      });
+      final res = await database.op(
+        'rtdb.transactionCommit',
+        {
+          'path': path,
+          'expected': currentSnap.value,
+          'value': wireValue,
+          'applyLocally': applyLocally,
+        },
+        actAs: txLens,
+      );
 
       if (res is Map) {
         final retry = res['retry'] == true;
@@ -225,16 +236,27 @@ class PyricDatabaseReference extends PyricQuery {
           continue;
         }
         final committed = res['committed'] == true;
-        final snapMap = res['snapshot'] is Map
-            ? Map<String, dynamic>.from(res['snapshot'] as Map)
-            : <String, dynamic>{
-                'key': key,
-                'exists': mutableData.value != null,
-                'value': mutableData.value,
-                'priority': mutableData.priority,
-              };
+        if (res['snapshot'] is Map) {
+          final snapMap = Map<String, dynamic>.from(res['snapshot'] as Map);
+          return PyricTransactionResult(
+            committed: committed,
+            snapshot: PyricDataSnapshot.fromWire(this, snapMap),
+          );
+        }
+        if (!committed) {
+          return PyricTransactionResult(
+            committed: false,
+            snapshot: currentSnap,
+          );
+        }
+        final snapMap = <String, dynamic>{
+          'key': key,
+          'exists': mutableData.value != null,
+          'value': mutableData.value,
+          'priority': mutableData.priority,
+        };
         return PyricTransactionResult(
-          committed: committed,
+          committed: true,
           snapshot: PyricDataSnapshot.fromWire(this, snapMap),
         );
       }

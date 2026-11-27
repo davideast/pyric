@@ -96,12 +96,13 @@ class DatabaseReference(
         handler: Transaction.Handler,
         fireLocalEvents: Boolean
     ): TransactionOutcome {
+        val txLens = database.getEffectiveAuthLens().toMap()
         var maxRetries = 25
         while (maxRetries-- > 0) {
             val currentWire = database.bridgeClient.op(
                 method = "rtdb.get",
                 params = database.withInstance(mapOf("path" to path, "transaction" to true)),
-                actAs = database.getEffectiveAuthLens().toMap()
+                actAs = txLens
             )
             @Suppress("UNCHECKED_CAST")
             val snapMap = currentWire as? Map<String, Any?>
@@ -109,32 +110,53 @@ class DatabaseReference(
             val currentPriority = snapMap?.get("priority")
 
             val mutableData = MutableData(currentVal, currentPriority, key)
-            val result = handler.doTransaction(mutableData)
+            val result = try {
+                handler.doTransaction(mutableData)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return TransactionOutcome(
+                    DatabaseError(
+                        DatabaseError.USER_CODE_EXCEPTION,
+                        e.message ?: "Transaction handler threw an exception"
+                    ),
+                    false,
+                    null
+                )
+            }
 
             if (!result.isSuccess) {
                 return TransactionOutcome(null, false, DataSnapshot.fromWire(this, snapMap))
             }
 
+            val wireValue = result.mutableData?.encodeWireValue(currentPriority)
             val commitRes = database.bridgeClient.op(
                 method = "rtdb.transactionCommit",
                 params = database.withInstance(
                     mapOf(
                         "path" to path,
                         "expected" to currentVal,
-                        "value" to result.mutableData?.value,
+                        "value" to wireValue,
                         "applyLocally" to fireLocalEvents
                     )
                 ),
-                actAs = database.getEffectiveAuthLens().toMap()
+                actAs = txLens
             )
             @Suppress("UNCHECKED_CAST")
             val commitMap = commitRes as? Map<String, Any?>
             val retry = commitMap?.get("retry") == true
             if (!retry) {
+                val committed = commitMap?.get("committed") == true
                 @Suppress("UNCHECKED_CAST")
                 val finalSnapMap = commitMap?.get("snapshot") as? Map<String, Any?>
-                val finalSnap = DataSnapshot.fromWire(this, finalSnapMap)
-                return TransactionOutcome(null, commitMap?.get("committed") == true, finalSnap)
+                val finalSnap = if (finalSnapMap != null) {
+                    DataSnapshot.fromWire(this, finalSnapMap)
+                } else if (!committed) {
+                    DataSnapshot.fromWire(this, snapMap)
+                } else {
+                    DataSnapshot.fromWire(this, null)
+                }
+                return TransactionOutcome(null, committed, finalSnap)
             }
         }
         return TransactionOutcome(

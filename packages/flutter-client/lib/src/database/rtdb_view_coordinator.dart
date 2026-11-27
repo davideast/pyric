@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:collection/collection.dart';
 
+import '../auth/auth_lens.dart';
 import 'pyric_data_snapshot.dart';
 import 'pyric_database.dart';
 import 'pyric_database_reference.dart';
@@ -252,12 +253,34 @@ class _ObserverRegistration {
   final RtdbSnapshotDiffer differ;
   final StreamController<PyricDatabaseEvent> controller;
   bool active = true;
+  bool pendingInitialFlush = false;
+  final List<PyricDatabaseEvent> pendingEvents = <PyricDatabaseEvent>[];
 
   _ObserverRegistration({
     required this.id,
     required this.differ,
     required this.controller,
   });
+
+  void flushPending() {
+    pendingInitialFlush = false;
+    if (pendingEvents.isEmpty) return;
+    final toDeliver = List<PyricDatabaseEvent>.from(pendingEvents);
+    pendingEvents.clear();
+    for (final ev in toDeliver) {
+      if (!active || controller.isClosed) break;
+      controller.add(ev);
+    }
+  }
+
+  void deliverOrQueue(PyricDatabaseEvent event) {
+    if (!active || controller.isClosed) return;
+    if (pendingInitialFlush) {
+      pendingEvents.add(event);
+      return;
+    }
+    controller.add(event);
+  }
 }
 
 class _ActiveRtdbView {
@@ -270,6 +293,8 @@ class _ActiveRtdbView {
   final List<_ObserverRegistration> _registrations = <_ObserverRegistration>[];
   StreamSubscription<dynamic>? _sub;
   PyricDataSnapshot? _latestSnapshot;
+  AuthLens? _latestSnapshotLens;
+  AuthLens? _activeLens;
 
   _ActiveRtdbView({
     required this.key,
@@ -279,33 +304,59 @@ class _ActiveRtdbView {
     required this.onEmpty,
   });
 
+  void _clearCachedSnapshot() {
+    _latestSnapshot = null;
+    _latestSnapshotLens = null;
+  }
+
   void addRegistration(_ObserverRegistration reg) {
     _registrations.add(reg);
+    final currentLens = database.effectiveLens;
+    if (_latestSnapshot != null && _latestSnapshotLens != currentLens) {
+      _clearCachedSnapshot();
+    }
     final cached = _latestSnapshot;
     if (cached != null) {
       final initialEvents = reg.differ.collectEvents(cached);
       if (initialEvents.isNotEmpty) {
+        reg.pendingInitialFlush = true;
+        reg.pendingEvents.addAll(initialEvents);
         scheduleMicrotask(() {
-          if (!reg.active || reg.controller.isClosed) return;
-          for (final ev in initialEvents) {
-            if (!reg.active || reg.controller.isClosed) break;
-            reg.controller.add(ev);
+          if (!reg.active || reg.controller.isClosed) {
+            reg.pendingInitialFlush = false;
+            reg.pendingEvents.clear();
+            return;
           }
+          reg.flushPending();
         });
       }
     }
-    _sub ??= database.subscribeRtdb(ref.path, querySpec: querySpec).listen(
-      _handleRawEvent,
-      onError: _handleError,
-      onDone: _handleDone,
-    );
+    _sub ??= database
+        .subscribeRtdb(
+          ref.path,
+          querySpec: querySpec,
+          onLensChange: (nextLens) {
+            if (_activeLens != nextLens) {
+              _clearCachedSnapshot();
+            }
+            _activeLens = nextLens;
+          },
+        )
+        .listen(
+          _handleRawEvent,
+          onError: _handleError,
+          onDone: _handleDone,
+        );
   }
 
   Future<void> removeRegistration(_ObserverRegistration reg) {
     reg.active = false;
+    reg.pendingInitialFlush = false;
+    reg.pendingEvents.clear();
     _registrations.remove(reg);
     if (_registrations.isEmpty) {
-      _latestSnapshot = null;
+      _clearCachedSnapshot();
+      _activeLens = null;
       final sub = _sub;
       _sub = null;
       onEmpty(key, this);
@@ -328,6 +379,7 @@ class _ActiveRtdbView {
             children: const <PyricDataSnapshot>[],
           );
     _latestSnapshot = snap;
+    _latestSnapshotLens = _activeLens ?? database.effectiveLens;
 
     final snapshotRegs = List<_ObserverRegistration>.from(_registrations);
     final batches = <(_ObserverRegistration, List<PyricDatabaseEvent>)>[];
@@ -344,7 +396,7 @@ class _ActiveRtdbView {
         if (!reg.active || reg.controller.isClosed) continue;
         for (final ev in evs) {
           if (ev.type == kind && reg.active && !reg.controller.isClosed) {
-            reg.controller.add(ev);
+            reg.deliverOrQueue(ev);
           }
         }
       }
@@ -352,23 +404,34 @@ class _ActiveRtdbView {
   }
 
   void _handleError(Object error, StackTrace stackTrace) {
-    _latestSnapshot = null;
+    _clearCachedSnapshot();
     final snapshotRegs = List<_ObserverRegistration>.from(_registrations);
     for (final reg in snapshotRegs) {
       if (reg.active && !reg.controller.isClosed) {
-        reg.controller.addError(error, stackTrace);
+        if (reg.pendingInitialFlush) {
+          reg.flushPending();
+        }
+        if (reg.active && !reg.controller.isClosed) {
+          reg.controller.addError(error, stackTrace);
+        }
       }
     }
   }
 
   void _handleDone() {
-    _latestSnapshot = null;
+    _clearCachedSnapshot();
+    _activeLens = null;
     _sub = null;
     onEmpty(key, this);
     final snapshotRegs = List<_ObserverRegistration>.from(_registrations);
     _registrations.clear();
     for (final reg in snapshotRegs) {
+      if (reg.active && !reg.controller.isClosed && reg.pendingInitialFlush) {
+        reg.flushPending();
+      }
       reg.active = false;
+      reg.pendingInitialFlush = false;
+      reg.pendingEvents.clear();
       if (!reg.controller.isClosed) {
         reg.controller.close();
       }

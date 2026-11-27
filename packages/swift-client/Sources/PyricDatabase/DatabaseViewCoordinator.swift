@@ -90,6 +90,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         private let lock = NSLock()
         private var records: [RegistrationRecord] = []
         private var latestSnapshot: DataSnapshot?
+        private var latestSnapshotLens: AuthLens?
         private var closed = false
         private var feedTask: Task<Void, Never>?
         private var feedCleanup: (@Sendable () -> Void)?
@@ -125,15 +126,27 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             lock.unlock()
         }
 
+        func clearLatestSnapshot() {
+            lock.lock()
+            latestSnapshot = nil
+            latestSnapshotLens = nil
+            lock.unlock()
+        }
+
         func addRegistration(
             entry: ObserverEntry,
             eventTypes: Set<DataEventType>,
-            orderBySpec: [String: AnySendable]?
+            orderBySpec: [String: AnySendable]?,
+            currentLens: AuthLens
         ) -> Bool {
             lock.lock()
             if closed {
                 lock.unlock()
                 return false
+            }
+            if latestSnapshot != nil && latestSnapshotLens != currentLens {
+                latestSnapshot = nil
+                latestSnapshotLens = nil
             }
             let differ = SnapshotEvents(eventTypes: eventTypes, orderBySpec: orderBySpec)
             let record = RegistrationRecord(entry: entry, differ: differ)
@@ -154,13 +167,14 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             return true
         }
 
-        func handleSnapshot(_ snap: DataSnapshot) {
+        func handleSnapshot(_ snap: DataSnapshot, lens: AuthLens) {
             lock.lock()
             if closed {
                 lock.unlock()
                 return
             }
             latestSnapshot = snap
+            latestSnapshotLens = lens
             var batches: [(entry: ObserverEntry, events: [DatabaseChildEvent])] = []
             batches.reserveCapacity(records.count)
             for record in records {
@@ -173,6 +187,23 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 let pendingBatches = batches
                 deliveryQueue.async {
                     Self.deliverFanout(pendingBatches)
+                }
+            }
+            lock.unlock()
+        }
+
+        func deliverRecoverableDenial(_ error: Error) {
+            lock.lock()
+            if closed {
+                lock.unlock()
+                return
+            }
+            latestSnapshot = nil
+            latestSnapshotLens = nil
+            let entries = records.map(\.entry)
+            if !entries.isEmpty {
+                deliveryQueue.async {
+                    for entry in entries { entry.deliverCancel(error) }
                 }
             }
             lock.unlock()
@@ -282,6 +313,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         database.markUsed()
         let key = ViewKey(path: path, querySpec: querySpec)
 
+        let currentLens = database.currentAuthLens()
         while true {
             lock.lock()
             let handle = nextHandle
@@ -291,7 +323,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 keyByHandle[handle] = key
                 entriesByHandle[handle] = entry
                 lock.unlock()
-                if existing.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec) {
+                if existing.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec, currentLens: currentLens) {
                     return handle
                 }
                 lock.lock()
@@ -302,7 +334,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
             }
 
             let created = ActiveView(key: key, deliveryQueue: database.bridgeClient.deliveryQueue)
-            _ = created.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec)
+            _ = created.addRegistration(entry: entry, eventTypes: eventTypes, orderBySpec: orderBySpec, currentLens: currentLens)
             created.startFeed { [weak self] activeView in
                 Self.makeFeedTask(
                     coordinator: self,
@@ -444,7 +476,7 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 for wire in [ConnectionInfo.wire(at: path, connected: connected)] {
                     guard wire["exists"]?.boolValue == true else { continue }
                     guard dedup.shouldEmit(wire) else { continue }
-                    activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef))
+                    activeView.handleSnapshot(DataSnapshot(wire: wire, ref: queryRef), lens: database.currentAuthLens())
                 }
             }
             return (nil, { hub.removeObserver(token) })
@@ -510,7 +542,14 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
         }
 
         let handleBox = HandleBox()
+        let isRecoverableDenial: @Sendable (Error) -> Bool = { error in
+            guard let bridgeErr = error as? PyricBridgeError else { return false }
+            return bridgeErr.denialContext != nil
+                || bridgeErr.code == .permissionDenied
+                || bridgeErr.code == .unauthenticated
+        }
         let openForLens: @Sendable (AuthLens) -> Bool = { [weak coordinator] lens in
+            activeView.clearLatestSnapshot()
             let token = UUID()
             guard handleBox.begin(token: token) else { return false }
             let capturedCoordinator = coordinator
@@ -518,21 +557,22 @@ internal final class DatabaseViewCoordinator: @unchecked Sendable {
                 target: subscriptionTarget,
                 actAs: lens.toAnySendable(),
                 dispatchOnDeliveryQueue: false,
-                onEvent: { [weak capturedCoordinator] event in
+                onEvent: { event in
                     guard handleBox.isActive(token: token) else { return }
                     guard case .value(let wireSnap) = event else { return }
                     if let errDict = wireSnap["__error"] {
                         let msg = errDict["message"]?.stringValue ?? "Permission denied"
-                        capturedCoordinator?.evictErroredView(
-                            activeView,
-                            error: PyricBridgeError.permissionDenied(msg)
-                        )
+                        activeView.deliverRecoverableDenial(PyricBridgeError.permissionDenied(msg))
                         return
                     }
-                    activeView.handleSnapshot(DataSnapshot(wire: wireSnap, ref: queryRef))
+                    activeView.handleSnapshot(DataSnapshot(wire: wireSnap, ref: queryRef), lens: lens)
                 },
                 onFinish: { [weak capturedCoordinator] error in
                     guard let error, handleBox.isActive(token: token) else { return }
+                    if isRecoverableDenial(error) {
+                        activeView.deliverRecoverableDenial(error)
+                        return
+                    }
                     capturedCoordinator?.evictErroredView(activeView, error: error)
                 }
             )

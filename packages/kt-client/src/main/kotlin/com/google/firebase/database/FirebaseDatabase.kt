@@ -37,6 +37,17 @@ class FirebaseDatabase(
 
     val authLensFlow: StateFlow<AuthLens> = serviceAuthLens.authLensFlow
 
+    internal data class ListenerRegistryKey<L>(
+        val path: String,
+        val querySpec: RtdbQuerySpec,
+        val listener: L
+    )
+
+    internal val valueListeners =
+        ConcurrentHashMap<ListenerRegistryKey<ValueEventListener>, RtdbSnapshotRegistration>()
+    internal val childListeners =
+        ConcurrentHashMap<ListenerRegistryKey<ChildEventListener>, RtdbSnapshotRegistration>()
+
     /** Off between goOffline() and goOnline(); `.info/connected` is false while it is off. */
     private val _networkEnabled = MutableStateFlow(true)
     internal val networkEnabled: StateFlow<Boolean> = _networkEnabled.asStateFlow()
@@ -207,6 +218,10 @@ class FirebaseDatabase(
         @JvmStatic
         fun clearInstancesForTest() {
             for (db in instances.values) {
+                db.valueListeners.values.forEach { it.cancel() }
+                db.valueListeners.clear()
+                db.childListeners.values.forEach { it.cancel() }
+                db.childListeners.clear()
                 db.infoHub.dispose()
                 db.databaseScope.cancel()
             }

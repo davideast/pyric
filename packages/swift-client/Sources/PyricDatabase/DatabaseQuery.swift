@@ -266,7 +266,11 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
     }
 
     /// Reads the location, sent in the place `turn` holds.
-    func getData(turn: OperationTurn, forTransaction: Bool = false) async throws -> DataSnapshot {
+    func getData(
+        turn: OperationTurn,
+        forTransaction: Bool = false,
+        actAs explicitLens: AuthLens? = nil
+    ) async throws -> DataSnapshot {
         database.markUsed()
         let client = database.bridgeClient
         if ConnectionInfo.isInfoPath(path) {
@@ -283,7 +287,7 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         } else if let qSpec = toQuerySpecAnySendable() {
             params["query"] = qSpec
         }
-        let actAs = database.currentAuthLens()
+        let actAs = explicitLens ?? database.currentAuthLens()
         let wire = try await client.op(
             turn: turn,
             method: "rtdb.get",
@@ -293,9 +297,113 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         return DataSnapshot(wire: wire, ref: ref)
     }
 
+    private final class SingleEventGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var settled = false
+        private var handle: UInt?
+        private var pendingRemove = false
+
+        func attach(handle: UInt, remove: (UInt) -> Void) {
+            lock.lock()
+            if pendingRemove {
+                lock.unlock()
+                remove(handle)
+                return
+            }
+            self.handle = handle
+            lock.unlock()
+        }
+
+        func claim() -> (won: Bool, handle: UInt?) {
+            lock.lock()
+            defer { lock.unlock() }
+            if settled {
+                return (false, nil)
+            }
+            settled = true
+            pendingRemove = true
+            let h = handle
+            handle = nil
+            return (true, h)
+        }
+    }
+
     public func observeSingleEvent(of eventType: DataEventType) async throws -> DataSnapshot {
-        let snap = try await getData()
-        return Self.extractSingleEventSnapshot(from: snap, eventType: eventType)
+        if eventType == .value {
+            return try await getData()
+        }
+        let gate = SingleEventGate()
+        final class ContBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private var cont: CheckedContinuation<DataSnapshot, Error>?
+            private var pendingResult: Result<DataSnapshot, Error>?
+            func store(_ c: CheckedContinuation<DataSnapshot, Error>) {
+                lock.lock()
+                if let res = pendingResult {
+                    pendingResult = nil
+                    lock.unlock()
+                    c.resume(with: res)
+                    return
+                }
+                cont = c
+                lock.unlock()
+            }
+            func finish(_ res: Result<DataSnapshot, Error>) {
+                lock.lock()
+                if let c = cont {
+                    cont = nil
+                    lock.unlock()
+                    c.resume(with: res)
+                    return
+                }
+                if pendingResult == nil {
+                    pendingResult = res
+                }
+                lock.unlock()
+            }
+        }
+        let contBox = ContBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                contBox.store(continuation)
+                if Task.isCancelled {
+                    let claimed = gate.claim()
+                    if let h = claimed.handle {
+                        self.removeObserver(withHandle: h)
+                    }
+                    if claimed.won {
+                        contBox.finish(.failure(CancellationError()))
+                    }
+                    return
+                }
+                let handle = self.observe(eventType, with: { snap in
+                    let claimed = gate.claim()
+                    if let h = claimed.handle {
+                        self.removeObserver(withHandle: h)
+                    }
+                    if claimed.won {
+                        contBox.finish(.success(snap))
+                    }
+                }, withCancel: { error in
+                    let claimed = gate.claim()
+                    if let h = claimed.handle {
+                        self.removeObserver(withHandle: h)
+                    }
+                    if claimed.won {
+                        contBox.finish(.failure(error))
+                    }
+                })
+                gate.attach(handle: handle) { self.removeObserver(withHandle: $0) }
+            }
+        } onCancel: {
+            let claimed = gate.claim()
+            if let h = claimed.handle {
+                self.removeObserver(withHandle: h)
+            }
+            if claimed.won {
+                contBox.finish(.failure(CancellationError()))
+            }
+        }
     }
 
     public func observeSingleEvent(
@@ -303,25 +411,37 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
         with block: @escaping @Sendable (DataSnapshot) -> Void,
         withCancel cancelBlock: (@Sendable (Error) -> Void)? = nil
     ) {
-        getData { error, snapshot in
-            if let error {
+        if eventType == .value {
+            getData { error, snapshot in
+                if let error {
+                    cancelBlock?(error)
+                    return
+                }
+                if let snapshot {
+                    block(snapshot)
+                }
+            }
+            return
+        }
+        let gate = SingleEventGate()
+        let handle = self.observe(eventType, with: { snap in
+            let claimed = gate.claim()
+            if let h = claimed.handle {
+                self.removeObserver(withHandle: h)
+            }
+            if claimed.won {
+                block(snap)
+            }
+        }, withCancel: { error in
+            let claimed = gate.claim()
+            if let h = claimed.handle {
+                self.removeObserver(withHandle: h)
+            }
+            if claimed.won {
                 cancelBlock?(error)
-                return
             }
-            if let snapshot {
-                block(Self.extractSingleEventSnapshot(from: snapshot, eventType: eventType))
-            }
-        }
-    }
-
-    private static func extractSingleEventSnapshot(
-        from snap: DataSnapshot,
-        eventType: DataEventType
-    ) -> DataSnapshot {
-        if eventType == .childAdded, let first = snap.childrenSnapshots.first {
-            return first
-        }
-        return snap
+        })
+        gate.attach(handle: handle) { self.removeObserver(withHandle: $0) }
     }
 
     // -- Real-Time Listeners & AsyncStreams --
