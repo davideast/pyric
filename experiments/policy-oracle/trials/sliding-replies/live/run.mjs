@@ -8,6 +8,7 @@ import {retain} from '../../for-of/live/retain.mjs';
 import {inputs,buildPlan,versionDirectory,verifySource,chunkFixtures} from './fixtures.mjs';
 import {lookup,verifiedPlan,writeOnce} from './records.mjs';
 import {inspectTarget} from './preflight.mjs';
+import {uploadObservation} from './upload.mjs';
 
 const json=x=>JSON.stringify(x,null,2)+'\n';
 
@@ -60,7 +61,12 @@ async function execute(args) {
           const prior=retained(archive,state.captures[0].receipt);
           const uploaded=previouslyUploaded(archive,prior.runId,digest);
           await withPreparedRuleset(uploaded,run);
-        } else await run();
+        } else {
+          const upload=uploadObservation(digest,archive);
+          assert.equal(upload?.state,'compiled','no verified Google ruleset available for activation');
+          const {withPreparedRuleset}=await import('../../../arcade/live/controller/release.mjs');
+          await withPreparedRuleset(upload.ruleset,run);
+        }
       } finally {clearTimeout(stop);}
     }
   }

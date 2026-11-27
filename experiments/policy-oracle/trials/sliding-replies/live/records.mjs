@@ -6,6 +6,7 @@ import {qualify,checkRows} from '../../for-of/live/evidence.mjs';
 import {privateArchive} from '../../../arcade/live/controller/archive.mjs';
 import {reviewedPlan} from '../../chess-safety/live/fixtures.mjs';
 import {diagnostics} from './diagnostic.mjs';
+import {uploadObservation} from './upload.mjs';
 import {previousDigest,previousPlans,roles,readJSON,inputs,versionDirectory,
   buildPlan,verifySource,chunkFixtures,signedOperands} from './fixtures.mjs';
 
@@ -80,5 +81,6 @@ export function lookup(digest,archive) {
   const rows=[...distinct.values()],distinctCases=rows.length,expectedCases=data.order.length;
   if(distinctCases===expectedCases) assert.deepEqual([...rows.map(r=>r.id)].sort(),[...data.order].sort());
   return {rulesSha256:digest,status:distinctCases===expectedCases?'measured':distinctCases?'partial':'unmeasured',
-    expectedCases,distinctCases,archiveAuthenticated:Boolean(archive),compileDiagnostics:diagnostics(digest,archive),captures,rows};
+    expectedCases,distinctCases,archiveAuthenticated:Boolean(archive),compileDiagnostics:diagnostics(digest,archive),
+    rulesetCreation:uploadObservation(digest,archive),captures,rows};
 }

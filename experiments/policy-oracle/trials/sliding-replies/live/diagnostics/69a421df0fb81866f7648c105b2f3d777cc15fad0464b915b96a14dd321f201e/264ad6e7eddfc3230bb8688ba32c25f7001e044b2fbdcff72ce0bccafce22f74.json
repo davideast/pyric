@@ -1,0 +1,60 @@
+{
+  "authority": "Google Rules Test API",
+  "rulesSha256": "69a421df0fb81866f7648c105b2f3d777cc15fad0464b915b96a14dd321f201e",
+  "requestSha256": "a10cccf886fb2a920fe3b462f1c5e34d8dc80d832eed8fe5ee1aeac2cdbd7f1f",
+  "httpStatus": 200,
+  "state": "compiled",
+  "issues": [
+    {
+      "severity": "WARNING",
+      "line": 309,
+      "column": 12,
+      "message": "Unused function: sliderMove."
+    },
+    {
+      "severity": "WARNING",
+      "line": 310,
+      "column": 25,
+      "message": "Unused variable: text."
+    },
+    {
+      "severity": "WARNING",
+      "line": 310,
+      "column": 30,
+      "message": "Unused variable: defender."
+    },
+    {
+      "severity": "WARNING",
+      "line": 310,
+      "column": 39,
+      "message": "Unused variable: status."
+    },
+    {
+      "severity": "WARNING",
+      "line": 311,
+      "column": 12,
+      "message": "Unused function: dormantsliderStatus."
+    },
+    {
+      "severity": "WARNING",
+      "line": 379,
+      "column": 12,
+      "message": "Unused function: knightWitness."
+    },
+    {
+      "severity": "WARNING",
+      "line": 705,
+      "column": 38,
+      "message": "Unused variable: kind."
+    },
+    {
+      "severity": "WARNING",
+      "line": 717,
+      "column": 12,
+      "message": "Unused function: nextEp."
+    }
+  ],
+  "caseWrites": 0,
+  "releasesActivated": 0,
+  "receipt": "264ad6e7eddfc3230bb8688ba32c25f7001e044b2fbdcff72ce0bccafce22f74"
+}
