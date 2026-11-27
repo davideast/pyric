@@ -17,6 +17,7 @@ function scenarioFixtures() {
     case 'frame': return frameFixtures;
     case 'winning-goal': return JSON.parse(readFileSync(
       new URL('../../../adapters/air-hockey-winning/v1/frames.json',import.meta.url)));
+    case 'host-serve-side': return import('../../../adapters/air-hockey-host-serve-side/v1/fixture.mjs').then(module => module.fixtures);
     case 'serve-side': return import('../../../adapters/air-hockey-serve-side/v1/fixture.mjs').then(module => module.fixtures);
     case 'guest-win': return JSON.parse(readFileSync(
       new URL('../../../adapters/air-hockey-guest-win/v1/frames.json',import.meta.url)));
@@ -34,7 +35,7 @@ const resource = collection+'/'+name;
 const management = 'https://firebasedatabase.googleapis.com/v1beta/';
 const url = 'https://'+name+'.firebaseio.com';
 const closed = {rules:{'.read':false,'.write':false}};
-const generatedFile = ['match-win','guest-win','serve-side'].includes(scenario) ? 'air-hockey-match-win' : 'air-hockey';
+const generatedFile = ['match-win','guest-win','serve-side','host-serve-side'].includes(scenario) ? 'air-hockey-match-win' : 'air-hockey';
 const compiled = readFileSync(new URL('../../../adapters/'+generatedFile+'/v1/generated.json',import.meta.url),'utf8');
 const access = execFileSync('gcloud',['auth','print-access-token'],{encoding:'utf8'}).trim();
 const owner = {Authorization:'Bearer '+access};

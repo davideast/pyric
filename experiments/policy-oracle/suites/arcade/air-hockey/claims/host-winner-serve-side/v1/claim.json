@@ -1,0 +1,5 @@
+{
+  "description": "Compare complete host winning frames from 6\u20136 that differ only in whether the stationary serve is at (48,96) or (48,32).",
+  "authority": "rtdb-production",
+  "witness": "authenticated-write-readback"
+}
