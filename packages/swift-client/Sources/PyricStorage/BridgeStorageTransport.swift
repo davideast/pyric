@@ -99,13 +99,16 @@ package enum BridgeStorageTransport {
             )
         }
 
-        let clientPatch = metadata.toAdminPatchWire(existingCustomKeys: [])
+        var clientPatch = metadata.toAdminPatchWire(existingCustomKeys: [])
         var clientParams = reference.bucketWireParams
         clientParams["path"] = .string(reference.fullPath)
-        clientParams["patch"] = .dictionary(clientPatch)
         if metadata.replacesCustomMetadata {
+            if clientPatch["customMetadata"] == nil {
+                clientPatch["customMetadata"] = .dictionary([:])
+            }
             clientParams["replaceCustomMetadata"] = .bool(true)
         }
+        clientParams["patch"] = .dictionary(clientPatch)
         do {
             let updated = try await client.op(
                 turn: turn,

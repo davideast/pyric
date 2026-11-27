@@ -332,4 +332,55 @@ struct SwiftPhase1ParityRegressionTests {
         #expect(updateOp["fields"]?.arrayValue != nil)
         await client.disconnect()
     }
+
+    @Test("P2-S05: fresh StorageMetadata with customMetadata = [:] or nil sends empty customMetadata dict with replaceCustomMetadata")
+    func updateMetadataFreshClearCustomMetadata() async throws {
+        let recordedOps = OpRecorder<[String: AnySendable]>()
+        let channel = makeMockChannel { op in
+            recordedOps.record(op)
+            return .success(.dictionary([
+                "bucket": .string("demo-s05.appspot.com"),
+                "name": .string("docs/a.txt"),
+                "fullPath": .string("docs/a.txt"),
+                "size": .int(1),
+            ]))
+        }
+        let client = PyricBridgeClient(channel: channel)
+        let app = FirebaseApp(
+            name: "s05-clear-\(UUID().uuidString)",
+            options: FirebaseOptions(
+                projectID: "demo-s05",
+                apiKey: "k",
+                googleAppID: "1:1:ios:s05",
+                storageBucket: "demo-s05.appspot.com"
+            )
+        )
+        let storage = Storage(
+            app: app,
+            storageBucket: "demo-s05.appspot.com",
+            isNamedBucket: false,
+            configuredDefaultBucket: "demo-s05.appspot.com",
+            bridgeClient: client
+        )
+        let ref = storage.reference(withPath: "docs/a.txt")
+
+        let emptyDictMeta = StorageMetadata()
+        emptyDictMeta.customMetadata = [:]
+        _ = try await ref.updateMetadata(emptyDictMeta)
+
+        let nilMeta = StorageMetadata()
+        nilMeta.customMetadata = nil
+        _ = try await ref.updateMetadata(nilMeta)
+
+        let ops = recordedOps.snapshot()
+        #expect(ops.count == 2)
+        for op in ops {
+            #expect(op["method"]?.stringValue == "storage.updateMetadata")
+            #expect(op["replaceCustomMetadata"]?.boolValue == true)
+            let patchCustom = op["patch"]?["customMetadata"]?.dictionaryValue
+            #expect(patchCustom != nil)
+            #expect(patchCustom?.isEmpty == true)
+        }
+        await client.disconnect()
+    }
 }

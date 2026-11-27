@@ -566,7 +566,8 @@ describe('native Swift Cloud Storage live-host conformance', () => {
         expect(host.traffic.rpcMethods).toContain('storage.abortUpload');
         expect(host.traffic.rpcMethods).toContain('storage.getMetadata');
         expect(host.traffic.rpcMethods).toContain('storage.getDownloadURL');
-        expect(host.traffic.rpcMethods).toContain('storage.setMetadata');
+        expect(host.traffic.rpcMethods).toContain('storage.updateMetadata');
+        expect(host.traffic.rpcMethods).not.toContain('storage.setMetadata');
         expect(host.traffic.rpcMethods).toContain('storage.listAll');
         expect(host.traffic.rpcMethods).toContain('storage.deleteObject');
         expect(host.traffic.httpRequests.filter((r) => r.method === 'PUT').length).toBeGreaterThanOrEqual(8);
