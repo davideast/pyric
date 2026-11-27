@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {linkKingProjections} from './king.mjs';
 
 function replaceOnce(source, original, replacement) {
   assert.equal(source.split(original).length, 2, original.slice(0,100));
@@ -12,7 +13,7 @@ export function lowerProtocol(source,variant) {
   source=replaceOnce(source,'next.board.keys().toSet() == old.board.keys().toSet() && ','');
   const prior="old.castling == '' || kind != 'k' && !(fromSquare in ['a1', 'a8', 'h1', 'h8']) && !(toSquare in ['a1', 'a8', 'h1', 'h8']) && old.castling.matches('K?Q?k?q?') ? next.castling == old.castling : next.castling == (old.castling.matches('K?Q?k?q?') ? castle ? old.castling.replace(color == 'w' ? '[KQ]' : '[kq]', '') : _games_chess_chess_helpers__dropRights(old.castling, piece, fromSquare, toSquare) : keptRights(old.castling, piece, fromSquare, toSquare))";
   const canonical="old.castling == '' ? next.castling == '' : next.castling == (old.castling.matches('K?Q?k?q?') ? _games_chess_chess_helpers__dropRights(old.castling, piece, fromSquare, toSquare) : keptRights(old.castling, piece, fromSquare, toSquare))";
-  const explicitCastle=['all-minors-v9','all-shared-rays-v10'].includes(variant) ? canonical.replace('? _games_chess_chess_helpers__dropRights',"? castle ? old.castling.replace(color == 'w' ? '[KQ]' : '[kq]', '') : _games_chess_chess_helpers__dropRights") : canonical;
+  const explicitCastle=['all-minors-v9','all-shared-rays-v10','all-projected-king-v11'].includes(variant) ? canonical.replace('? _games_chess_chess_helpers__dropRights',"? castle ? old.castling.replace(color == 'w' ? '[KQ]' : '[kq]', '') : _games_chess_chess_helpers__dropRights") : canonical;
   source=replaceOnce(source,prior,explicitCastle);
   const original='boardTransition(old, next, mv, piece, color, fromSquare, toSquare) && old.status';
   const dispatch="(piece.matches('[wb][rbq]') && old.castling == '' && (fromSquare + toSquare).matches('[a-h][1-8][a-h][1-8]') && next.board.values().hasOnly(',wp,wn,wb,wr,wq,wk,bp,bn,bb,br,bq,bk'.split(',')) ? orderedSliderTransition(next, mv, piece, color, fromSquare, toSquare) : boardTransition(old, next, mv, piece, color, fromSquare, toSquare)) && old.status";
@@ -21,7 +22,7 @@ export function lowerProtocol(source,variant) {
   // split() accepts a regular expression. Validate the lookup key first; an
   // invalid key deliberately indexes the empty map, retaining Rules error semantics.
   source=replaceOnce(source,coordinate,"return file.matches('[a-h]') ? 'abcdefgh'.split(file)[0].size() : {}[file];");
-  return source;
+  return variant==='all-projected-king-v11' ? linkKingProjections(source) : source;
 }
 
 export function protocolBinding(variant) {

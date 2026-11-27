@@ -44,12 +44,12 @@ function projection(stride, length, sign) {
   return "board.replace('" + pattern + "','" + next + "')";
 }
 
-export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq','all-two-defenders-v8':'rbq','all-minors-v9':'rbq','all-shared-rays-v10':'rbq'};
+export const variants = {'rook-rays-v1':'r', 'rook-cross-v2':'r', 'bishop-cross-v3':'rb', 'queen-cross-v4':'rbq','all-packed-path-v5':'rbq','all-tabled-path-v6':'rbq','all-rights-king-v7':'rbq','all-two-defenders-v8':'rbq','all-minors-v9':'rbq','all-shared-rays-v10':'rbq','all-projected-king-v11':'rbq'};
 
 export function sources(variant) {
   const kinds = variants[variant];
   if (!kinds) throw Error('Unknown slider policy variant: ' + variant);
-  if(variant==='all-shared-rays-v10') return sharedSources(variant);
+  if(['all-shared-rays-v10','all-projected-king-v11'].includes(variant)) return sharedSources(variant);
   if (['all-two-defenders-v8','all-minors-v9'].includes(variant)) return {...mixedSources(variant),...crossSources(variant),...protocolSources(variant)};
   if (kinds !== 'r') return {...extendedSources(kinds),...crossSources(variant),...(variant.startsWith('all-')?protocolSources(variant):{})};
   const out = {};
@@ -88,7 +88,7 @@ export function sources(variant) {
 }
 
 export function binding(variant) {
-  if(variant==='all-shared-rays-v10') return sharedBinding()+'\n  '+protocolBinding(variant);
+  if(['all-shared-rays-v10','all-projected-king-v11'].includes(variant)) return sharedBinding(variant)+'\n  '+protocolBinding(variant);
   if (['all-two-defenders-v8','all-minors-v9'].includes(variant)) return mixedBinding(variant)+'\n  '+protocolBinding(variant);
   if (variants[variant]?.length > 1) {
     const optimized=variant.startsWith('all-');

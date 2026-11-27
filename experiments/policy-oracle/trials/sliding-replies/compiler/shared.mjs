@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {kingProjections} from './king.mjs';
 import {attacks} from './sources.mjs';
 import {crossSources,familyRoute} from './cross.mjs';
 import {mixedSources} from './material.mjs';
@@ -22,11 +23,12 @@ export function sharedSources(variant) {
     assert.ok(source.includes(rejected('w')));
     out[shared]=neutral('w');
   }
+  if(variant==='all-projected-king-v11') for(const color of ['w','b']) out['slideKing'+color]=kingProjections(color);
   out.slideFailurePattern="function slideFailurePattern(white) { return white ? '"+rejected('w')+"' : '"+rejected('b')+"'; }";
   return out;
 }
 
-export function sharedBinding() {
+export function sharedBinding(variant) {
   const functions=[];
   for(const kind of 'rbq') {
     const choices=familyRoute(kind,'').replaceAll('(board)','(board,rejected)');
@@ -45,7 +47,7 @@ export function sharedBinding() {
         : board.matches('.*S.*') ? slideChooser(board,direction,rejected) : -1;
     }`);
     const all=Array.from({length:4},(_,i)=>'allRefused'+color+i+'(records)').join(' && ');
-    functions.push(`function slideKing${color}(board) {
+    if(variant!=='all-projected-king-v11') functions.push(`function slideKing${color}(board) {
       let fixed=board.replace('[SPNO]','X');
       let records=fixed+';'+fixed+';';
       return !(${all});
