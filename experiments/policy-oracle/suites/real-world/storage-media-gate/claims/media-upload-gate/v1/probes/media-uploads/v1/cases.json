@@ -1,0 +1,333 @@
+[
+  {
+    "id": "valid-png-exact-5mib",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 5242880,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "valid-webp-private",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/banner.webp",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/webp",
+      "size": 65536,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "private",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "valid-pdf-8mib",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/contract.pdf",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "application/pdf",
+      "size": 8388608,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "valid-pdf-exact-10mib",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/archive.pdf",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "application/pdf",
+      "size": 10485760,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "anonymous-upload-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": null,
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 102400,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "wrong-user-path-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u2/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 102400,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "wrong-tenant-token-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "globex"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 102400,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "outside-prefix-path-denied",
+    "method": "create",
+    "path": "public/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 102400,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "svg-xss-mime-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/icon.svg",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/svg+xml",
+      "size": 2048,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "empty-file-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/jpeg",
+      "size": 0,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "oversized-image-over-5mib-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 5242881,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "oversized-pdf-over-10mib-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/huge.pdf",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "application/pdf",
+      "size": 10485761,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "spoofed-uploaded-by-metadata-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 4096,
+      "metadata": {
+        "uploadedBy": "admin-1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "wrong-tenant-metadata-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 4096,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "globex",
+        "visibility": "workspace",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "public-visibility-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 4096,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "public",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    }
+  },
+  {
+    "id": "invalid-sha256-metadata-denied",
+    "method": "create",
+    "path": "tenants/acme/users/u1/media/photo.png",
+    "auth": {
+      "uid": "u1",
+      "token": {
+        "tenantId": "acme"
+      }
+    },
+    "requestResource": {
+      "contentType": "image/png",
+      "size": 4096,
+      "metadata": {
+        "uploadedBy": "u1",
+        "tenantId": "acme",
+        "visibility": "workspace",
+        "sha256": "not-a-sha256"
+      }
+    }
+  }
+]

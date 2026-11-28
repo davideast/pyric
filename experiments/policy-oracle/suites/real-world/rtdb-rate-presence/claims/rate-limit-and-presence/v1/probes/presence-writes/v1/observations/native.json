@@ -1,0 +1,42 @@
+{
+  "authority": "native-model",
+  "inputDigest": "c6afafe538f4639c8a86da0b63ecdf756f6878518b98d7717958eb7a49e584e4",
+  "results": {
+    "valid-online-to-away-in-window": "ALLOW",
+    "valid-20th-boundary-write": "ALLOW",
+    "valid-window-rollover-reset": "ALLOW",
+    "valid-offline-to-online-reconnect": "ALLOW",
+    "offline-to-away-jump-denied": "DENY",
+    "unknown-presence-state-denied": "DENY",
+    "heartbeat-rewind-denied": "DENY",
+    "heartbeat-jump-over-300s-denied": "DENY",
+    "cooldown-burst-under-500ms-denied": "DENY",
+    "rate-limit-21st-write-denied": "DENY",
+    "premature-window-reset-denied": "DENY",
+    "skipped-window-count-denied": "DENY",
+    "note-over-64-chars-denied": "DENY",
+    "cross-user-write-denied": "DENY",
+    "anonymous-write-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "2cda72c1eb047eb8b2e3736bb27269dff59423252dec77970c5d03369b9d3e4f",
+    "pointers": {
+      "valid-online-to-away-in-window": "/decisions/valid-online-to-away-in-window",
+      "valid-20th-boundary-write": "/decisions/valid-20th-boundary-write",
+      "valid-window-rollover-reset": "/decisions/valid-window-rollover-reset",
+      "valid-offline-to-online-reconnect": "/decisions/valid-offline-to-online-reconnect",
+      "offline-to-away-jump-denied": "/decisions/offline-to-away-jump-denied",
+      "unknown-presence-state-denied": "/decisions/unknown-presence-state-denied",
+      "heartbeat-rewind-denied": "/decisions/heartbeat-rewind-denied",
+      "heartbeat-jump-over-300s-denied": "/decisions/heartbeat-jump-over-300s-denied",
+      "cooldown-burst-under-500ms-denied": "/decisions/cooldown-burst-under-500ms-denied",
+      "rate-limit-21st-write-denied": "/decisions/rate-limit-21st-write-denied",
+      "premature-window-reset-denied": "/decisions/premature-window-reset-denied",
+      "skipped-window-count-denied": "/decisions/skipped-window-count-denied",
+      "note-over-64-chars-denied": "/decisions/note-over-64-chars-denied",
+      "cross-user-write-denied": "/decisions/cross-user-write-denied",
+      "anonymous-write-denied": "/decisions/anonymous-write-denied"
+    }
+  }
+}

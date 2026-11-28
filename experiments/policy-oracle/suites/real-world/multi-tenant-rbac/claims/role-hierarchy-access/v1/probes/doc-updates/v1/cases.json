@@ -1,0 +1,491 @@
+[
+  {
+    "id": "editor-updates-standard-doc",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-1"
+    }
+  },
+  {
+    "id": "admin-updates-restricted-doc",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "adm-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "admin",
+        "roleRank": 3
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "adm-1"
+    }
+  },
+  {
+    "id": "admin-archives-active-doc",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "adm-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "admin",
+        "roleRank": 3
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "archived",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "adm-1"
+    }
+  },
+  {
+    "id": "owner-escalates-min-write-rank",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "owner-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "owner",
+        "roleRank": 4
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 3,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    }
+  },
+  {
+    "id": "anonymous-update-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": null,
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "anon"
+    }
+  },
+  {
+    "id": "cross-tenant-token-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-2",
+      "token": {
+        "tenantId": "globex",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-2"
+    }
+  },
+  {
+    "id": "cross-tenant-path-mismatch-denied",
+    "operation": "update",
+    "path": "tenants/globex/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-1"
+    }
+  },
+  {
+    "id": "tenant-id-reassignment-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "owner-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "owner",
+        "roleRank": 4
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "globex",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    }
+  },
+  {
+    "id": "viewer-write-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "view-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "viewer",
+        "roleRank": 1
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "view-1"
+    }
+  },
+  {
+    "id": "editor-restricted-doc-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-1"
+    }
+  },
+  {
+    "id": "editor-rank-escalation-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 3,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-1"
+    }
+  },
+  {
+    "id": "spoofed-role-rank-mismatch-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 4
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": true,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-1"
+    }
+  },
+  {
+    "id": "editor-archive-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "archived",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "ed-1"
+    }
+  },
+  {
+    "id": "archived-doc-edit-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "owner-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "owner",
+        "roleRank": 4
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "archived",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    }
+  },
+  {
+    "id": "created-by-mutation-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "owner-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "owner",
+        "roleRank": 4
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "other",
+      "updatedBy": "owner-1"
+    }
+  },
+  {
+    "id": "forged-updated-by-denied",
+    "operation": "update",
+    "path": "tenants/acme/docs/doc-1",
+    "auth": {
+      "uid": "ed-1",
+      "token": {
+        "tenantId": "acme",
+        "role": "editor",
+        "roleRank": 2
+      }
+    },
+    "before": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    },
+    "after": {
+      "tenantId": "acme",
+      "title": "Q4 Runbook v2",
+      "status": "active",
+      "minWriteRank": 2,
+      "restricted": false,
+      "createdBy": "owner-1",
+      "updatedBy": "owner-1"
+    }
+  }
+]

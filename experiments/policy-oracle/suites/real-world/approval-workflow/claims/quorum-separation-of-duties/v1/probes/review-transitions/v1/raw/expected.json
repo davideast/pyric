@@ -1,0 +1,18 @@
+{
+  "decisions": {
+    "valid-unsorted-two-of-three-approval": "ALLOW",
+    "valid-approval-with-security-signoff": "ALLOW",
+    "valid-single-reject-transition": "ALLOW",
+    "author-self-approval-denied": "DENY",
+    "author-finalizing-actor-denied": "DENY",
+    "duplicate-reviewer-stuffing-denied": "DENY",
+    "insufficient-quorum-denied": "DENY",
+    "veto-reject-blocks-approval-denied": "DENY",
+    "reject-without-reject-vote-denied": "DENY",
+    "stale-revision-approval-denied": "DENY",
+    "content-hash-tampered-denied": "DENY",
+    "ineligible-outsider-reviewer-denied": "DENY",
+    "missing-security-signoff-denied": "DENY",
+    "draft-to-approved-skip-denied": "DENY"
+  }
+}

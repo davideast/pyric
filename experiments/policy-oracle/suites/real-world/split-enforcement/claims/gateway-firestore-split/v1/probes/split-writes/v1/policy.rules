@@ -1,0 +1,38 @@
+use extension derive;
+use extension bounded;
+
+transition purchaseOrderSubmit {
+  derive {
+    let subtotal = bounded.fold(input.items, 0, (acc, item) => acc + item.qty * item.unitCents, 12);
+    let fee = (subtotal * before.feeBps) / 10000;
+    return {'subtotalCents': subtotal, 'feeCents': fee, 'totalCents': subtotal + fee};
+  }
+  require authenticatedTenant {
+    return input.auth != null
+      && input.tenant == before.tenantId
+      && after.tenantId == before.tenantId
+      && after.submittedBy == input.uid;
+  }
+  require validOrderEnvelope {
+    return before.status == 'draft'
+      && after.status == 'submitted'
+      && after.currency == before.currency
+      && after.orderNumber == before.orderNumber
+      && after.budgetLimitCents == before.budgetLimitCents
+      && after.feeBps == before.feeBps
+      && after.totalCents is int
+      && after.totalCents > 0
+      && after.totalCents <= before.budgetLimitCents;
+  }
+  require validLineItems {
+    let ok = bounded.all(
+      input.items,
+      item => item.qty is int && item.qty > 0 && item.unitCents is int && item.unitCents >= 0,
+      12
+    );
+    return ok;
+  }
+  require derivedTotalMatches {
+    return after.totalCents == derived.totalCents;
+  }
+}

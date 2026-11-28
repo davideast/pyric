@@ -1,0 +1,5 @@
+{
+  "description": "Lower a Realtime Database rate-limit and presence state transition guard (online/away/offline machine, monotonic heartbeat with upper drift bound, per-60s window counter and 500ms cooldown, status note length) via compilePolicy().rtdb() and verify placement with bind.rtdb().",
+  "authority": "native-model",
+  "witness": "native-trace"
+}

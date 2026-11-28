@@ -1,0 +1,5 @@
+{
+  "description": "Compile one purchase-order policy in mixed mode: lower pure envelope/tenant rules to Firestore and enforce derive + bounded.fold residuals via createPolicyGuard().wrapFetch() (both interpreter and standalone engines), asserting zero drift.",
+  "authority": "native-model",
+  "witness": "native-trace"
+}

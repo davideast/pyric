@@ -1,0 +1,19 @@
+{
+  "decisions": {
+    "valid-online-to-away-in-window": "ALLOW",
+    "valid-20th-boundary-write": "ALLOW",
+    "valid-window-rollover-reset": "ALLOW",
+    "valid-offline-to-online-reconnect": "ALLOW",
+    "offline-to-away-jump-denied": "DENY",
+    "unknown-presence-state-denied": "DENY",
+    "heartbeat-rewind-denied": "DENY",
+    "heartbeat-jump-over-300s-denied": "DENY",
+    "cooldown-burst-under-500ms-denied": "DENY",
+    "rate-limit-21st-write-denied": "DENY",
+    "premature-window-reset-denied": "DENY",
+    "skipped-window-count-denied": "DENY",
+    "note-over-64-chars-denied": "DENY",
+    "cross-user-write-denied": "DENY",
+    "anonymous-write-denied": "DENY"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "authority": "native-model",
+  "inputDigest": "8f72ebb7a123ff107f661170063eed9a56fc9947f351b7259611bf784bb1c12d",
+  "results": {
+    "valid-included-seats-only": "ALLOW",
+    "valid-overage-discount-tax-floor": "ALLOW",
+    "valid-trial-to-active-at-quota": "ALLOW",
+    "valid-past-due-to-canceled": "ALLOW",
+    "over-seat-quota-denied": "DENY",
+    "tampered-total-off-by-one-cent-denied": "DENY",
+    "rounded-up-discount-denied": "DENY",
+    "negative-line-item-cents-denied": "DENY",
+    "zero-line-item-qty-denied": "DENY",
+    "float-cents-rejected-denied": "DENY",
+    "skipped-billing-cycle-denied": "DENY",
+    "tampered-seat-price-denied": "DENY",
+    "canceled-reactivation-denied": "DENY",
+    "currency-change-denied": "DENY",
+    "over-bound-line-items-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "b7136d2de2c57a34382d2ab73816349a6c3da21ba4723f321ded5d322e1692a3",
+    "pointers": {
+      "valid-included-seats-only": "/decisions/valid-included-seats-only",
+      "valid-overage-discount-tax-floor": "/decisions/valid-overage-discount-tax-floor",
+      "valid-trial-to-active-at-quota": "/decisions/valid-trial-to-active-at-quota",
+      "valid-past-due-to-canceled": "/decisions/valid-past-due-to-canceled",
+      "over-seat-quota-denied": "/decisions/over-seat-quota-denied",
+      "tampered-total-off-by-one-cent-denied": "/decisions/tampered-total-off-by-one-cent-denied",
+      "rounded-up-discount-denied": "/decisions/rounded-up-discount-denied",
+      "negative-line-item-cents-denied": "/decisions/negative-line-item-cents-denied",
+      "zero-line-item-qty-denied": "/decisions/zero-line-item-qty-denied",
+      "float-cents-rejected-denied": "/decisions/float-cents-rejected-denied",
+      "skipped-billing-cycle-denied": "/decisions/skipped-billing-cycle-denied",
+      "tampered-seat-price-denied": "/decisions/tampered-seat-price-denied",
+      "canceled-reactivation-denied": "/decisions/canceled-reactivation-denied",
+      "currency-change-denied": "/decisions/currency-change-denied",
+      "over-bound-line-items-denied": "/decisions/over-bound-line-items-denied"
+    }
+  }
+}

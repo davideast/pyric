@@ -1,0 +1,46 @@
+{
+  "authority": "native-model",
+  "inputDigest": "a8f2a77ea7812037b656d6fbb46349872153428b863d922745e0a911b233ca2c",
+  "results": {
+    "db-allow-valid-order": "ALLOW",
+    "gw-allow-valid-order": "ALLOW",
+    "gw-allow-odd-cents-floor": "ALLOW",
+    "db-deny-wrong-tenant": "DENY",
+    "gw-deny-wrong-tenant": "DENY",
+    "db-deny-anonymous": "DENY",
+    "gw-deny-anonymous": "DENY",
+    "db-deny-over-budget": "DENY",
+    "gw-deny-over-budget": "DENY",
+    "db-deny-resubmit-replay": "DENY",
+    "gw-deny-resubmit-replay": "DENY",
+    "db-deny-forged-submitter": "DENY",
+    "gw-deny-forged-submitter": "DENY",
+    "db-passes-envelope-on-tampered-total": "ALLOW",
+    "gw-deny-residual-tampered-total": "DENY",
+    "gw-deny-residual-negative-item": "DENY",
+    "gw-deny-residual-over-bound-items": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "9f37735133ed78272713cc324d7a6294dbba7f9828262ed709f397ea4fc3f9fb",
+    "pointers": {
+      "db-allow-valid-order": "/decisions/db-allow-valid-order",
+      "gw-allow-valid-order": "/decisions/gw-allow-valid-order",
+      "gw-allow-odd-cents-floor": "/decisions/gw-allow-odd-cents-floor",
+      "db-deny-wrong-tenant": "/decisions/db-deny-wrong-tenant",
+      "gw-deny-wrong-tenant": "/decisions/gw-deny-wrong-tenant",
+      "db-deny-anonymous": "/decisions/db-deny-anonymous",
+      "gw-deny-anonymous": "/decisions/gw-deny-anonymous",
+      "db-deny-over-budget": "/decisions/db-deny-over-budget",
+      "gw-deny-over-budget": "/decisions/gw-deny-over-budget",
+      "db-deny-resubmit-replay": "/decisions/db-deny-resubmit-replay",
+      "gw-deny-resubmit-replay": "/decisions/gw-deny-resubmit-replay",
+      "db-deny-forged-submitter": "/decisions/db-deny-forged-submitter",
+      "gw-deny-forged-submitter": "/decisions/gw-deny-forged-submitter",
+      "db-passes-envelope-on-tampered-total": "/decisions/db-passes-envelope-on-tampered-total",
+      "gw-deny-residual-tampered-total": "/decisions/gw-deny-residual-tampered-total",
+      "gw-deny-residual-negative-item": "/decisions/gw-deny-residual-negative-item",
+      "gw-deny-residual-over-bound-items": "/decisions/gw-deny-residual-over-bound-items"
+    }
+  }
+}

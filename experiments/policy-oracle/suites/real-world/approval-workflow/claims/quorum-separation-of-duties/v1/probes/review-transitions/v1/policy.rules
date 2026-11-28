@@ -1,0 +1,55 @@
+use extension bounded;
+
+transition documentApproval {
+  require validStageTransition {
+    return before.status == 'in_review'
+      && (after.status == 'approved' || after.status == 'rejected')
+      && before.quorum is int && before.quorum >= 2 && after.quorum == before.quorum
+      && before.revision is int && after.revision == before.revision
+      && after.contentHash == before.contentHash
+      && after.authorId == before.authorId
+      && before.requiresSecurity is bool
+      && after.requiresSecurity == before.requiresSecurity;
+  }
+  require separationOfDuties {
+    let validList = bounded.all(
+      after.approvals,
+      a => a.reviewerId != before.authorId
+        && a.revision == before.revision
+        && a.decision in ['approve', 'reject']
+        && a.reviewerId in before.eligibleReviewers,
+      16
+    );
+    return input.actorId != before.authorId
+      && input.actorId in before.eligibleReviewers
+      && validList;
+  }
+  require distinctReviewers {
+    let unique = bounded.all(
+      after.approvals,
+      a => bounded.count(after.approvals, b => b.reviewerId == a.reviewerId, 16) == 1,
+      16
+    );
+    return unique;
+  }
+  require quorumAndVeto {
+    let yesCount = bounded.count(
+      after.approvals,
+      a => a.decision == 'approve' && a.reviewerId != before.authorId && a.revision == before.revision,
+      16
+    );
+    let noCount = bounded.count(
+      after.approvals,
+      a => a.decision == 'reject' && a.revision == before.revision,
+      16
+    );
+    let hasSecurity = bounded.any(
+      after.approvals,
+      a => a.decision == 'approve' && a.role == 'security' && a.reviewerId != before.authorId && a.revision == before.revision,
+      16
+    );
+    return after.status == 'approved'
+      ? (yesCount >= before.quorum && noCount == 0 && (!before.requiresSecurity || hasSecurity))
+      : noCount >= 1;
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "decisions": {
+    "valid-included-seats-only": "ALLOW",
+    "valid-overage-discount-tax-floor": "ALLOW",
+    "valid-trial-to-active-at-quota": "ALLOW",
+    "valid-past-due-to-canceled": "ALLOW",
+    "over-seat-quota-denied": "DENY",
+    "tampered-total-off-by-one-cent-denied": "DENY",
+    "rounded-up-discount-denied": "DENY",
+    "negative-line-item-cents-denied": "DENY",
+    "zero-line-item-qty-denied": "DENY",
+    "float-cents-rejected-denied": "DENY",
+    "skipped-billing-cycle-denied": "DENY",
+    "tampered-seat-price-denied": "DENY",
+    "canceled-reactivation-denied": "DENY",
+    "currency-change-denied": "DENY",
+    "over-bound-line-items-denied": "DENY"
+  }
+}

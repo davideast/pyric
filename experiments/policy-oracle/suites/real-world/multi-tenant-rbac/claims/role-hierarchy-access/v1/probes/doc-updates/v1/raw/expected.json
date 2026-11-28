@@ -1,0 +1,20 @@
+{
+  "decisions": {
+    "editor-updates-standard-doc": "ALLOW",
+    "admin-updates-restricted-doc": "ALLOW",
+    "admin-archives-active-doc": "ALLOW",
+    "owner-escalates-min-write-rank": "ALLOW",
+    "anonymous-update-denied": "DENY",
+    "cross-tenant-token-denied": "DENY",
+    "cross-tenant-path-mismatch-denied": "DENY",
+    "tenant-id-reassignment-denied": "DENY",
+    "viewer-write-denied": "DENY",
+    "editor-restricted-doc-denied": "DENY",
+    "editor-rank-escalation-denied": "DENY",
+    "spoofed-role-rank-mismatch-denied": "DENY",
+    "editor-archive-denied": "DENY",
+    "archived-doc-edit-denied": "DENY",
+    "created-by-mutation-denied": "DENY",
+    "forged-updated-by-denied": "DENY"
+  }
+}

@@ -1,0 +1,390 @@
+[
+  {
+    "id": "valid-online-to-away-in-window",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "away",
+      "lastSeenMs": 1700000011000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "In a meeting"
+    }
+  },
+  {
+    "id": "valid-20th-boundary-write",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 19,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000010500,
+      "windowStartMs": 1700000000000,
+      "windowCount": 20,
+      "note": "At cap"
+    }
+  },
+  {
+    "id": "valid-window-rollover-reset",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 20,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000061000,
+      "windowStartMs": 1700000060000,
+      "windowCount": 1,
+      "note": "New minute"
+    }
+  },
+  {
+    "id": "valid-offline-to-online-reconnect",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "offline",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000015000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": ""
+    }
+  },
+  {
+    "id": "offline-to-away-jump-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "offline",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "away",
+      "lastSeenMs": 1700000015000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "unknown-presence-state-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "invisible",
+      "lastSeenMs": 1700000015000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "heartbeat-rewind-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000009999,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "heartbeat-jump-over-300s-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000310001,
+      "windowStartMs": 1700000310000,
+      "windowCount": 1,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "cooldown-burst-under-500ms-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000010499,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "rate-limit-21st-write-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 20,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000012000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 21,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "premature-window-reset-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 20,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000059999,
+      "windowStartMs": 1700000059999,
+      "windowCount": 1,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "skipped-window-count-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000012000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 7,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "note-over-64-chars-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "alice"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000012000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  },
+  {
+    "id": "cross-user-write-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": {
+      "uid": "mallory"
+    },
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000012000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "Focusing"
+    }
+  },
+  {
+    "id": "anonymous-write-denied",
+    "operation": "write",
+    "path": "/presence/alice",
+    "auth": null,
+    "data": {
+      "presence": {
+        "alice": {
+          "state": "online",
+          "lastSeenMs": 1700000010000,
+          "windowStartMs": 1700000000000,
+          "windowCount": 5,
+          "note": "Focusing"
+        }
+      }
+    },
+    "newData": {
+      "state": "online",
+      "lastSeenMs": 1700000012000,
+      "windowStartMs": 1700000000000,
+      "windowCount": 6,
+      "note": "Focusing"
+    }
+  }
+]

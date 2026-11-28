@@ -1,0 +1,44 @@
+{
+  "authority": "native-model",
+  "inputDigest": "c5e7e89d28267b2bf63da849266f280d6dd251131a6d6321c20720bdeb4cb51a",
+  "results": {
+    "valid-png-exact-5mib": "ALLOW",
+    "valid-webp-private": "ALLOW",
+    "valid-pdf-8mib": "ALLOW",
+    "valid-pdf-exact-10mib": "ALLOW",
+    "anonymous-upload-denied": "DENY",
+    "wrong-user-path-denied": "DENY",
+    "wrong-tenant-token-denied": "DENY",
+    "outside-prefix-path-denied": "DENY",
+    "svg-xss-mime-denied": "DENY",
+    "empty-file-denied": "DENY",
+    "oversized-image-over-5mib-denied": "DENY",
+    "oversized-pdf-over-10mib-denied": "DENY",
+    "spoofed-uploaded-by-metadata-denied": "DENY",
+    "wrong-tenant-metadata-denied": "DENY",
+    "public-visibility-denied": "DENY",
+    "invalid-sha256-metadata-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "68483cfaab2f95f7538d8c8c0107f88db1fc361fb956afb613ac27aaf583046f",
+    "pointers": {
+      "valid-png-exact-5mib": "/decisions/valid-png-exact-5mib",
+      "valid-webp-private": "/decisions/valid-webp-private",
+      "valid-pdf-8mib": "/decisions/valid-pdf-8mib",
+      "valid-pdf-exact-10mib": "/decisions/valid-pdf-exact-10mib",
+      "anonymous-upload-denied": "/decisions/anonymous-upload-denied",
+      "wrong-user-path-denied": "/decisions/wrong-user-path-denied",
+      "wrong-tenant-token-denied": "/decisions/wrong-tenant-token-denied",
+      "outside-prefix-path-denied": "/decisions/outside-prefix-path-denied",
+      "svg-xss-mime-denied": "/decisions/svg-xss-mime-denied",
+      "empty-file-denied": "/decisions/empty-file-denied",
+      "oversized-image-over-5mib-denied": "/decisions/oversized-image-over-5mib-denied",
+      "oversized-pdf-over-10mib-denied": "/decisions/oversized-pdf-over-10mib-denied",
+      "spoofed-uploaded-by-metadata-denied": "/decisions/spoofed-uploaded-by-metadata-denied",
+      "wrong-tenant-metadata-denied": "/decisions/wrong-tenant-metadata-denied",
+      "public-visibility-denied": "/decisions/public-visibility-denied",
+      "invalid-sha256-metadata-denied": "/decisions/invalid-sha256-metadata-denied"
+    }
+  }
+}

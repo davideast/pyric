@@ -1,0 +1,44 @@
+{
+  "authority": "native-model",
+  "inputDigest": "87e4e629e56c5809a6a20578fe0a15647d4d7fd33d7b89bec454305a5940a635",
+  "results": {
+    "editor-updates-standard-doc": "ALLOW",
+    "admin-updates-restricted-doc": "ALLOW",
+    "admin-archives-active-doc": "ALLOW",
+    "owner-escalates-min-write-rank": "ALLOW",
+    "anonymous-update-denied": "DENY",
+    "cross-tenant-token-denied": "DENY",
+    "cross-tenant-path-mismatch-denied": "DENY",
+    "tenant-id-reassignment-denied": "DENY",
+    "viewer-write-denied": "DENY",
+    "editor-restricted-doc-denied": "DENY",
+    "editor-rank-escalation-denied": "DENY",
+    "spoofed-role-rank-mismatch-denied": "DENY",
+    "editor-archive-denied": "DENY",
+    "archived-doc-edit-denied": "DENY",
+    "created-by-mutation-denied": "DENY",
+    "forged-updated-by-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "5c7ecbb415296ec9d17359afd7234a46fb8e0ca3fcfedc33ad2017a3254e76e6",
+    "pointers": {
+      "editor-updates-standard-doc": "/decisions/editor-updates-standard-doc",
+      "admin-updates-restricted-doc": "/decisions/admin-updates-restricted-doc",
+      "admin-archives-active-doc": "/decisions/admin-archives-active-doc",
+      "owner-escalates-min-write-rank": "/decisions/owner-escalates-min-write-rank",
+      "anonymous-update-denied": "/decisions/anonymous-update-denied",
+      "cross-tenant-token-denied": "/decisions/cross-tenant-token-denied",
+      "cross-tenant-path-mismatch-denied": "/decisions/cross-tenant-path-mismatch-denied",
+      "tenant-id-reassignment-denied": "/decisions/tenant-id-reassignment-denied",
+      "viewer-write-denied": "/decisions/viewer-write-denied",
+      "editor-restricted-doc-denied": "/decisions/editor-restricted-doc-denied",
+      "editor-rank-escalation-denied": "/decisions/editor-rank-escalation-denied",
+      "spoofed-role-rank-mismatch-denied": "/decisions/spoofed-role-rank-mismatch-denied",
+      "editor-archive-denied": "/decisions/editor-archive-denied",
+      "archived-doc-edit-denied": "/decisions/archived-doc-edit-denied",
+      "created-by-mutation-denied": "/decisions/created-by-mutation-denied",
+      "forged-updated-by-denied": "/decisions/forged-updated-by-denied"
+    }
+  }
+}

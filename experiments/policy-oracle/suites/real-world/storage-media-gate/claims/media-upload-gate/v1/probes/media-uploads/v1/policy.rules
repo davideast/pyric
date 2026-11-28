@@ -1,0 +1,24 @@
+use extension methods;
+
+transition mediaUploadGate {
+  require authenticatedTenantPath {
+    return input.auth != null
+      && input.auth.uid == input.pathUid
+      && input.auth.token.tenantId == input.pathTenant;
+  }
+  require allowedMimeType {
+    return after.contentType in ['image/png', 'image/jpeg', 'image/webp', 'application/pdf']
+      && after.contentType.matches('^(image/(png|jpeg|webp)|application/pdf)$');
+  }
+  require sizeCeiling {
+    return after.size is int
+      && after.size > 0
+      && (after.contentType == 'application/pdf' ? after.size <= 10485760 : after.size <= 5242880);
+  }
+  require customMetadataContract {
+    return after.metadata.get('uploadedBy', '') == input.auth.uid
+      && after.metadata.get('tenantId', '') == input.pathTenant
+      && after.metadata.get('visibility', '') in ['private', 'workspace']
+      && after.metadata.get('sha256', '').matches('^[0-9a-f]{64}$');
+  }
+}

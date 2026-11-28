@@ -1,0 +1,66 @@
+use extension derive;
+use extension bounded;
+
+transition invoiceCycle {
+  derive {
+    let activeSeats = bounded.fold(input.seats, 0, (acc, s) => s.active ? acc + 1 : acc, 32);
+    let billableSeats = activeSeats > before.includedSeats ? activeSeats - before.includedSeats : 0;
+    let overageCents = billableSeats * before.seatPriceCents;
+    let extraCents = bounded.fold(input.lineItems, 0, (acc, item) => acc + item.qty * item.unitCents, 16);
+    let grossCents = before.basePlanCents + overageCents + extraCents;
+    let discountCents = (grossCents * before.discountBps) / 10000;
+    let netCents = grossCents - discountCents;
+    let taxCents = (netCents * before.taxBps) / 10000;
+    return {
+      'activeSeats': activeSeats,
+      'billableSeats': billableSeats,
+      'overageCents': overageCents,
+      'extraCents': extraCents,
+      'discountCents': discountCents,
+      'taxCents': taxCents,
+      'totalCents': netCents + taxCents
+    };
+  }
+  require validPlanTransition {
+    return (before.status == 'trial' || before.status == 'active' || before.status == 'past_due')
+      && (after.status == 'active' || after.status == 'past_due' || after.status == 'canceled')
+      && before.currency == after.currency
+      && before.billingCycle is int && after.billingCycle is int
+      && after.billingCycle == before.billingCycle + 1
+      && before.basePlanCents is int && before.basePlanCents >= 0
+      && before.seatPriceCents is int && before.seatPriceCents >= 0
+      && before.includedSeats is int && before.includedSeats >= 0
+      && before.maxSeats is int && before.maxSeats >= before.includedSeats
+      && before.discountBps is int && before.discountBps >= 0 && before.discountBps <= 5000
+      && before.taxBps is int && before.taxBps >= 0 && before.taxBps <= 3000;
+  }
+  require validLineItems {
+    let itemsOk = bounded.fold(
+      input.lineItems,
+      true,
+      (ok, item) => ok && item.qty is int && item.qty > 0 && item.unitCents is int && item.unitCents >= 0,
+      16
+    );
+    return itemsOk;
+  }
+  require validSeats {
+    let seatsOk = bounded.fold(input.seats, true, (ok, s) => ok && s.active is bool, 32);
+    return seatsOk;
+  }
+  require withinSeatQuota {
+    return derived.activeSeats <= before.maxSeats + 1
+      && after.activeSeats == derived.activeSeats
+      && after.billableSeats == derived.billableSeats;
+  }
+  require invoiceTotalsExact {
+    return after.totalCents is int && after.totalCents >= 0;
+  }
+  require planTermsImmutable {
+    return after.basePlanCents == before.basePlanCents
+      && after.seatPriceCents == before.seatPriceCents
+      && after.includedSeats == before.includedSeats
+      && after.maxSeats == before.maxSeats
+      && after.discountBps == before.discountBps
+      && after.taxBps == before.taxBps;
+  }
+}
