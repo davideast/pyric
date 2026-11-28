@@ -565,7 +565,7 @@ ${boundedRe2Runtime}
     sign: (n) => isInt(n) ? (n < 0n ? -1n : n > 0n ? 1n : 0n) : isFloat(n) ? new FloatVal(Math.sign(n.v)) : fail('Expected a number'),
   };
   const api = {
-    tick, data, read, exportVal,
+    tick, used: () => budget - remaining, data, read, exportVal,
     fold: (xs, init, step, bound) => {
       try { return fold(xs, init, step, bound); }
       catch (error) { if (error instanceof RuleError) return error; throw error; }
