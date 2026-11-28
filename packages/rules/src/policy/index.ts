@@ -439,12 +439,19 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
         });
         let lowered: LowerRtdbResult;
         if (exp.ok && exp.expr) {
-          lowered = lowerRtdbExpression(
-            exp.rtdbCondition ?? exp.expr,
-            bindings,
-            { defaultLeafType: 'any', checkTiming: true, trustedInput: exp.usesDerivedProjection, maxLength: RTDB_CHAR_LIMIT },
-            exp.rtdbLets ?? [],
-          );
+          const rtdbOpts = {
+            defaultLeafType: 'any' as const,
+            checkTiming: true,
+            trustedInput: exp.usesDerivedProjection,
+            maxLength: RTDB_CHAR_LIMIT,
+          };
+          const rtdbLets = exp.rtdbLets ?? [];
+          lowered = lowerRtdbExpression(exp.rtdbCondition ?? exp.expr, bindings, rtdbOpts, rtdbLets);
+          // Retry with fully substituted expr when un-inlined lets fail (e.g. root alias `let b = before; b.x` or unused pure let).
+          if (!lowered.predicate && rtdbLets.length > 0 && !lowered.problems.some((p) => p.includes('emission limit'))) {
+            const flat = lowerRtdbExpression(exp.expr, bindings, rtdbOpts, []);
+            if (flat.predicate) lowered = flat;
+          }
           if (lowered.predicate && exp.usesDerivedProjection) {
             projectedReqs.add(rule.name);
             for (const p of exp.projectedDerivePaths) allProjected.add(p);

@@ -65,13 +65,16 @@ export function collectDirectCalls(
   });
 }
 
-function findForbiddenMapKey(expr: Expression, seen = new Set<Expression>()): string | undefined {
+export function findForbiddenMapKey(expr: Expression, seen = new Set<Expression>()): string | undefined {
   if (seen.has(expr)) return undefined;
   seen.add(expr);
   if (expr.type === 'mapLiteral') {
     for (const en of expr.entries) {
-      const k = en.key.type === 'literal' && typeof en.key.value === 'string' ? en.key.value : undefined;
-      if (k && FORBIDDEN_MAP_KEYS.has(k)) return k;
+      if (en.key.type === 'literal' && typeof en.key.value === 'string') {
+        if (FORBIDDEN_MAP_KEYS.has(en.key.value)) return en.key.value;
+      } else {
+        return '<dynamic>';
+      }
     }
   }
   for (const child of expressionChildren(expr)) {
@@ -107,7 +110,11 @@ function validateDeriveMapKeys(
       nonLiteralLeaves.push(fullPath);
     }
     const innerForbidden = findForbiddenMapKey(entry.value);
-    if (innerForbidden) return 'Forbidden derive output key: ' + innerForbidden;
+    if (innerForbidden) {
+      return innerForbidden === '<dynamic>'
+        ? 'Dynamic map literal key cannot be lowered safely'
+        : 'Forbidden derive output key: ' + innerForbidden;
+    }
   }
   return undefined;
 }

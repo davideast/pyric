@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { firestoreRules } from '../../src/api/firestore.js';
 import { rtdbRules } from '../../src/api/rtdb.js';
 import { storageRules } from '../../src/api/storage.js';
-import { compilePolicy, createPolicyGuard, jsonBodyExtractor, provePolicy, type Transition, type Verdict } from '../../src/policy/index.js';
+import { compilePolicy, createPolicyGuard, jsonBodyExtractor, provePolicy, verifySplitEnforcement, type Transition, type Verdict } from '../../src/policy/index.js';
 
 const tempDir = mkdtempSync(join(tmpdir(), 'pyric-lowering-exp-'));
 let seq = 0;
@@ -511,5 +511,64 @@ describe('Deeper derive projections, sibling soundness, and trusted-input checks
       error: 'POLICY_LIMIT_EXCEEDED',
       fatal: true,
     });
+  });
+
+  test('pins self-audit regressions: unused derived with impure derive, forbidden/dynamic require map keys, RTDB root alias', () => {
+    // 1. Unused derived.* in let or dropped helper arg must NOT swallow fatal bounded.fold in eager derive
+    for (const src of [
+      `use extension derive; use extension bounded;
+       transition t {
+         derive { let total = bounded.fold(input.items, 0, (a, x) => a + x, 2); return {'total': total}; }
+         require r { let unused = derived.total; return after.ok == true; }
+       }`,
+      `use extension derive; use extension bounded;
+       function dropArg(x, y) { return y == true; }
+       transition t {
+         derive { let total = bounded.fold(input.items, 0, (a, x) => a + x, 2); return {'total': total}; }
+         require r { return dropArg(derived.total, after.ok); }
+       }`,
+    ]) {
+      const pol = compilePolicy(src);
+      const [fsRow] = pol.firestore({ 'after.ok': 'request.resource.data.ok' }, 'mixed');
+      const [rtRow] = pol.rtdb({ after: 'newData' }, 'mixed');
+      const [stRow] = pol.storage({ 'after.ok': 'request.resource.size' }, 'mixed');
+      expect(fsRow!.predicate).toBeUndefined();
+      expect(rtRow!.predicate).toBeUndefined();
+      expect(stRow!.predicate).toBeUndefined();
+      expect(fsRow!.diagnostics.some((d) => d.code === 'USES_DERIVE_COLLECTION')).toBe(true);
+      const split = verifySplitEnforcement(src, {
+        firestore: { 'after.ok': 'request.resource.data.ok' },
+        scenarios: [{ name: 'fatal overflow preserved', transition: { before: {}, after: { ok: true }, input: { items: [1, 2, 3] } }, expectOk: false }],
+        fuzz: { enabled: false },
+      });
+      expect(split.ok).toBe(true);
+      expect(split.targets.firestore?.plan.mode).toBe('gateway-only');
+    }
+
+    // 2. Plain require with forbidden or dynamic map literal keys refused (never fail open in Firestore/Storage)
+    for (const src of [
+      "transition t { require r { return {'__proto__': 1} is map; } }",
+      "transition t { require r { return {'constructor': 1} is map; } }",
+      "transition t { require r { return {'prototype': 1} is map; } }",
+      'transition t { require r { let k = before.k; return {k: 1} is map; } }',
+    ]) {
+      const p = compilePolicy(src);
+      const [fsRow] = p.firestore({ 'before.k': 'resource.data.k' }, 'mixed');
+      const [stRow] = p.storage({ 'before.k': 'resource.name' }, 'mixed');
+      expect(fsRow!.predicate, src).toBeUndefined();
+      expect(stRow!.predicate, src).toBeUndefined();
+    }
+
+    // 3. RTDB root alias `let b = before; return after.x == b.x + 1;` and unused pure `/` let lower cleanly via flat fallback
+    const alias = compilePolicy('transition t { require r { let b = before; let dead = before.x / 2; return after.x == b.x + 1; } }');
+    const [rtAlias] = alias.rtdb({ before: 'data', after: 'newData' }, 'complete');
+    expect(evalRtdb(rtAlias!.predicate!, { x: 4 }, { x: 5 })).toBe('ALLOW');
+    expect(evalRtdb(rtAlias!.predicate!, { x: 4 }, { x: 6 })).toBe('DENY');
+
+    // 4. Triple unary negation parenthesizes cleanly (`-(-(-x))`)
+    const tri = compilePolicy('transition t { require r { let a = -before.x; let b = -a; return -b == after.x; } }');
+    const [triFs] = tri.firestore({ 'before.x': 'resource.data.x', 'after.x': 'request.resource.data.x' }, 'complete');
+    expect(evalFirestore(triFs!.predicate!, { x: 5 }, { x: -5 })).toBe('ALLOW');
+    expect(evalFirestore(triFs!.predicate!, { x: 5 }, { x: 5 })).toBe('DENY');
   });
 });

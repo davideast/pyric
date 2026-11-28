@@ -10,6 +10,7 @@ import {
   computeDeriveCompleteReason,
   countTreeWithin,
   ExpansionAbort,
+  findForbiddenMapKey,
   rewriteDerivedRefs,
   type DeriveExpansionPlan,
   type HelperAnalysis,
@@ -335,6 +336,15 @@ export function expandRequirementForTarget(
   try {
     if (!rule.lets.length && !seenCalls.size && !usesDerive) {
       const pureCond = rule.condition as Expression;
+      const forbidden = findForbiddenMapKey(pureCond);
+      if (forbidden) {
+        throw new ExpansionAbort(
+          forbidden === '<dynamic>'
+            ? 'Dynamic map literal key cannot be lowered safely'
+            : 'Forbidden map key cannot be lowered: ' + forbidden,
+          false,
+        );
+      }
       const units = estimateIRExprUnits(pureCond);
       const nodes = countAllNodes(pureCond);
       if (targetUnitLimit !== null && units > targetUnitLimit) {
@@ -375,6 +385,27 @@ export function expandRequirementForTarget(
       strictlyCoveredPaths = rew.strictlyCovered;
       deriveUnits = rew.deriveUnits;
       expandedNodes = rew.expandedNodes;
+      // Standalone triggers `derive` eagerly whenever `usesDerived` holds (even for unused lets/args).
+      // Refuse lowering when `derive` contains fatal-capable collection ops and no path remained to attach completeReason.
+      if (projectedDerivePaths.length === 0 && derivePlan.operations.size > 0) {
+        throw new ExpansionAbort(
+          'Materializing derive requires ' +
+            [...new Set(derivePlan.operations.values())].join(', ') +
+            ': ' +
+            [...derivePlan.operations.keys()].join(', '),
+          false,
+        );
+      }
+    }
+
+    const forbidden = findForbiddenMapKey(expandedExpr);
+    if (forbidden) {
+      throw new ExpansionAbort(
+        forbidden === '<dynamic>'
+          ? 'Dynamic map literal key cannot be lowered safely'
+          : 'Forbidden map key cannot be lowered: ' + forbidden,
+        false,
+      );
     }
 
     const expandedUnits = estimateIRExprUnits(expandedExpr);

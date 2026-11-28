@@ -133,7 +133,7 @@ function buildAuthFromEntries(
       const r = readTransitionPath(transition, policyPath);
       if (r.present) {
         const val = reviveValues ? revivePolicyValue(r.value) : r.value;
-        setNestedPath(token, target.slice('request.auth.token.'.length).split('.'), val);
+        if (!setNestedPath(token, target.slice('request.auth.token.'.length).split('.'), val)) return { ok: false };
         hasToken = true;
       }
     } else if (target === 'request.auth') {
@@ -187,7 +187,7 @@ function makeFirestoreRunner(
         } else if (target.startsWith('resource.data.')) {
           hasResourceBinding = true;
           const r = readTransitionPath(transition, policyPath);
-          if (r.present) setNestedPath(resource, target.slice('resource.data.'.length).split('.'), revivePolicyValue(r.value));
+          if (r.present && !setNestedPath(resource, target.slice('resource.data.'.length).split('.'), revivePolicyValue(r.value))) return undefined;
         } else if (target === 'request.resource.data') {
           hasDataBinding = true;
           const r = readTransitionPath(transition, policyPath);
@@ -195,7 +195,7 @@ function makeFirestoreRunner(
         } else if (target.startsWith('request.resource.data.')) {
           hasDataBinding = true;
           const r = readTransitionPath(transition, policyPath);
-          if (r.present) setNestedPath(data, target.slice('request.resource.data.'.length).split('.'), revivePolicyValue(r.value));
+          if (r.present && !setNestedPath(data, target.slice('request.resource.data.'.length).split('.'), revivePolicyValue(r.value))) return undefined;
         }
       }
       if (!hasResourceBinding && isPlainRecord(transition.before)) {
@@ -305,7 +305,7 @@ function buildRtdbSlotValue(
     const r = readTransitionPath(transition, item.policyPath);
     if (!r.present) continue;
     if (hasUnrepresentableRtdbValue(r.value, false)) return { ok: false };
-    setNestedPath(map, item.binding.path!.split('/'), r.value);
+    if (!setNestedPath(map, item.binding.path!.split('/'), r.value)) return { ok: false };
     anyPresent = true;
   }
   if (!anyPresent) return { ok: true, present: false, value: undefined };
@@ -372,7 +372,7 @@ export function createRtdbEvaluator(
         const r = readTransitionPath(transition, item.policyPath);
         if (!r.present) continue;
         if (hasUnrepresentableRtdbValue(r.value, false)) return undefined;
-        setNestedPath(rootObj, item.binding.path!.split('/'), r.value);
+        if (!setNestedPath(rootObj, item.binding.path!.split('/'), r.value)) return undefined;
       }
       for (const item of newParent) {
         const r = readTransitionPath(transition, item.policyPath);
@@ -380,8 +380,9 @@ export function createRtdbEvaluator(
         const existing = readNested(rootObj, segs);
         if (r.present) {
           if (hasUnrepresentableRtdbValue(r.value, false)) return undefined;
-          if (!existing.present) setNestedPath(rootObj, segs, r.value);
-          else if (!deepEqualJson(existing.value, r.value)) return undefined;
+          if (!existing.present) {
+            if (!setNestedPath(rootObj, segs, r.value)) return undefined;
+          } else if (!deepEqualJson(existing.value, r.value)) return undefined;
         } else if (existing.present) {
           return undefined;
         }
@@ -488,7 +489,7 @@ export function createStorageEvaluator(
           if (r.present) {
             if (hasNonJsonNumber(r.value)) return undefined;
             stored ??= {};
-            setNestedPath(stored, target.slice('resource.'.length).split('.'), r.value);
+            if (!setNestedPath(stored, target.slice('resource.'.length).split('.'), r.value)) return undefined;
           }
         } else if (target === 'request.resource') {
           const r = readTransitionPath(transition, policyPath);
@@ -499,7 +500,7 @@ export function createStorageEvaluator(
           if (r.present) {
             if (hasNonJsonNumber(r.value)) return undefined;
             incoming ??= {};
-            setNestedPath(incoming, target.slice('request.resource.'.length).split('.'), r.value);
+            if (!setNestedPath(incoming, target.slice('request.resource.'.length).split('.'), r.value)) return undefined;
           }
         } else if (isWildcardIdent(target)) {
           const r = readTransitionPath(transition, policyPath);
