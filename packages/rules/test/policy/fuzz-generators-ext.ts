@@ -506,6 +506,12 @@ export const RE2_CURATED_PATTERNS: readonly string[] = [
   '[a-]',
   '[^a]',
   '[z-a]',
+  '[\\d-z]',
+  '[\\p{L}-z]',
+  '[[:digit:]-z]',
+  '[0-[:digit:]]',
+  '[[:digit:]-]',
+  '[\\d-]',
 ];
 
 export const RE2_BACKTRACK_CASES: readonly (readonly [string, string])[] = [

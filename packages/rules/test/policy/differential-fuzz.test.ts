@@ -1,4 +1,4 @@
-// Deterministic >=10,000-case (12,600+ executed) multi-engine differential fuzzer
+// Deterministic >=10,000-case (12,800+ executed) multi-engine differential fuzzer
 // for @pyric/rules/experimental/policy. Proves agreement across:
 //   1. In-process unified Policy IR interpreter (interpretModule / compileFunction / compilePolicy)
 //   2. Compiled zero-dependency standalone ES module (compileBoundedModule / .standaloneModule())

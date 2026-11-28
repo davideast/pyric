@@ -107,6 +107,13 @@ ${boundedRe2FoldRuntime}
     if (neg) pos++;
     const tests = [];
     const readAtom = () => {
+      const pm = /^\\[:(\\^?)([^:\\]]*):\\]/.exec(pat.slice(pos));
+      if (pm) {
+        const base = re2Posix(pm[2]);
+        const inv = pm[1] === '^';
+        pos += pm[0].length;
+        return { fn: (c) => { const hit = ci ? re2Orbit(c).some((p) => base(p)) : base(c); return inv ? !hit : hit; } };
+      }
       if (pat[pos] === '\\\\') {
         const nx = pat[pos + 1];
         if (nx === 'd' || nx === 'D' || nx === 'w' || nx === 'W' || nx === 's' || nx === 'S') {
@@ -138,19 +145,9 @@ ${boundedRe2FoldRuntime}
     let first = true;
     while (pos < pat.length && (first || pat[pos] !== ']')) {
       first = false;
-      const pm = /^\\[:(\\^?)([^:\\]]*):\\]/.exec(pat.slice(pos));
-      if (pm) {
-        const base = re2Posix(pm[2]);
-        const inv = pm[1] === '^';
-        tests.push((c) => {
-          const hit = ci ? re2Orbit(c).some((p) => base(p)) : base(c);
-          return inv ? !hit : hit;
-        });
-        pos += pm[0].length;
-        continue;
-      }
       const left = readAtom();
-      if (left.ch !== undefined && pat[pos] === '-' && pat[pos + 1] !== undefined && pat[pos + 1] !== ']') {
+      if (pat[pos] === '-' && pat[pos + 1] !== undefined && pat[pos + 1] !== ']') {
+        if (left.ch === undefined) fail('Invalid character class range');
         pos++;
         const right = readAtom();
         if (right.ch === undefined) fail('Invalid character class range');

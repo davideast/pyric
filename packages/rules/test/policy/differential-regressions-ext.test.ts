@@ -215,6 +215,19 @@ describe('10K differential fuzzer shrunk permanent regressions', () => {
       expect(captureCall(() => mod.m!('aa', bad)).kind, bad).toBe('eval-error');
     }
 
+    // 11. Shorthand, Unicode, and POSIX classes rejected as range endpoints; trailing '-' stays valid.
+    for (const bad of [
+      '[\\d-z]', '[\\D-z]', '[\\w-z]', '[\\W-z]', '[\\s-z]', '[\\S-z]', '[\\d-\\d]',
+      '[\\p{L}-z]', '[\\P{L}-z]', '[\\pL-z]', '[[:digit:]-z]', '[[:alpha:]-[:digit:]]',
+      '[0-[:digit:]]', '[!-[:alpha:]]', '[0-[:^digit:]]', '[0-[:bad:]]',
+    ]) {
+      expectEq('m', ['5', bad]);
+      expect(captureCall(() => mod.m!('5', bad)).kind, bad).toBe('eval-error');
+    }
+    expectEq('m', ['-', '[\\d-]'], true);
+    expectEq('m', ['5', '[[:digit:]-]'], true);
+    expectEq('m', ['-', '[\\p{L}-]'], true);
+
     // End-to-end Firestore & Storage parity for \Q...\E and \s vs \v.
     const fsSrc = 'use extension methods; transition t { require r { return after.s.matches("\\\\Qabc\\\\E(?i)d"); } }';
     const fsPol = compilePolicy(fsSrc);
