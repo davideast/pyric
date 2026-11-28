@@ -1,13 +1,27 @@
 // Experimental opt-in entry. Standard rules loaders never import this grammar.
 // Unified on Policy IR (ir.ts) + static checker (check.ts) across compilePolicy,
-// compileFunction, and compileBoundedModule.
+// compileFunction, compileBoundedModule, provePolicy, and createPolicyGuard.
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
+import { EXPRESSION_LIMIT } from '../linter/expression-cost.js';
 import { EvalError, ResourceLimitError } from '../simulator/eval-error.js';
 import { evaluate, evaluateBinding } from '../simulator/evaluator.js';
 import { TraceRecorder } from '../simulator/trace-recorder.js';
 import { compileBoundedModule, emitStandaloneModule, type StandaloneModuleResult } from './bounded-module.js';
 import { checkPolicyIR, type CheckedPolicyIR } from './check.js';
 import { bindDerivedLocals, derivedCollectionReads, projectDerivedField } from './derived-field.js';
+import {
+  buildFailureTrace,
+  buildRequirementCost,
+  classifyPlacementProblems,
+  estimateIRExprUnits,
+  makePolicySpan,
+  toDiagnosticJsonValue,
+  type BoundedOpCostDetail,
+  type EvaluatedBindingTrace,
+  type ExpressionCostBreakdown,
+  type PlacementProblemDetail,
+  type PolicyFailureTrace,
+} from './diagnostics.js';
 import { createPolicyContext, evalIRExpr, evalIRLet, interpretModule, revivePolicyValue, type Scope } from './eval-ir.js';
 import {
   compileProjections,
@@ -52,8 +66,17 @@ import {
 export type Transition = { before: unknown; after: unknown; input: unknown };
 export type Verdict =
   | { ok: true }
-  | { ok: false; requirement: string; location: string; reason: string; fatal?: true };
+  | { ok: false; requirement: string; location: string; reason: string; fatal?: true; trace?: PolicyFailureTrace };
 export type SnapshotBindings = RtdbBindings;
+
+export interface FunctionPlacementReport {
+  name: string;
+  target: 'Firestore' | 'standalone';
+  firestoreLowerable: boolean;
+  reason: string;
+  diagnostics: PlacementProblemDetail[];
+  cost: ExpressionCostBreakdown;
+}
 
 export function compileFunction(source: string, { expressionLimit = 8192 } = {}) {
   const ir: IRProgram = parsePolicyIR(source, 'function');
@@ -90,13 +113,51 @@ export function compileFunction(source: string, { expressionLimit = 8192 } = {})
     return evalIRExpr(fn.body, ctx, scope);
   };
 
+  const firestoreModule = () => {
+    if (!pureFn) throw new Error(fn.name + ': bounded expressions have no Firestore module lowering');
+    return loop ? emitLoopModule(pureFn, loop, expressionLimit) : emitPureFunctionModule(pureFn);
+  };
+
+  const placement = (): FunctionPlacementReport => {
+    const boundedOps: BoundedOpCostDetail[] = [];
+    const letUnits = fn.lets.reduce((s, l) => s + 1 + estimateIRExprUnits(l.value, boundedOps), 0);
+    const bodyUnits = estimateIRExprUnits(fn.body, boundedOps);
+    const sourceUnits = letUnits + bodyUnits;
+    let firestoreLowerable = false;
+    let reason = 'Lowerable to Firestore 2+modules function';
+    const problems: string[] = [];
+    try {
+      firestoreModule();
+      firestoreLowerable = true;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+      problems.push(reason);
+    }
+    return {
+      name: fn.name,
+      target: firestoreLowerable ? 'Firestore' : 'standalone',
+      firestoreLowerable,
+      reason,
+      diagnostics: classifyPlacementProblems(problems, firestoreLowerable, reason),
+      cost: {
+        sourceUnits,
+        sourceLimit: expressionLimit,
+        targetUnits: firestoreLowerable ? sourceUnits : null,
+        targetLimit: EXPRESSION_LIMIT,
+        withinSourceBudget: sourceUnits <= expressionLimit,
+        withinTargetBudget: firestoreLowerable ? sourceUnits <= EXPRESSION_LIMIT : null,
+        letUnits,
+        conditionUnits: bodyUnits,
+        boundedOps,
+      },
+    };
+  };
+
   return Object.assign(invoke, {
     ir: checked,
     standaloneModule: (): StandaloneModuleResult => emitStandaloneModule(checked),
-    firestoreModule: () => {
-      if (!pureFn) throw new Error(fn.name + ': bounded expressions have no Firestore module lowering');
-      return loop ? emitLoopModule(pureFn, loop, expressionLimit) : emitPureFunctionModule(pureFn);
-    },
+    placement,
+    firestoreModule,
     rtdbNumericPredicate(bindings: Record<string, NumericSnapshot>) {
       if (loop) throw new Error('Loops have no RTDB numeric lowering');
       if (!pureFn) throw new Error('Bounded expressions have no RTDB numeric lowering');
@@ -118,6 +179,32 @@ function requirementBoundedOps(rule: { lets: readonly { value: unknown }[]; cond
   return found;
 }
 
+function recordBindingTrace(
+  out: EvaluatedBindingTrace[],
+  name: string,
+  scopeKind: 'derive' | 'require',
+  val: unknown,
+  loc?: { line: number; col: number },
+): void {
+  const span = loc ? makePolicySpan(loc) : undefined;
+  if (val instanceof EvalError) {
+    out.push({
+      name,
+      scope: scopeKind,
+      error: val.message,
+      ...(val instanceof ResourceLimitError ? { fatal: true as const } : {}),
+      ...(span ? { span } : {}),
+    });
+  } else {
+    out.push({
+      name,
+      scope: scopeKind,
+      value: toDiagnosticJsonValue(val),
+      ...(span ? { span } : {}),
+    });
+  }
+}
+
 export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
   const ir: IRProgram = parsePolicyIR(source, 'transition');
   const checked: CheckedPolicyIR = checkPolicyIR(ir, { expressionLimit });
@@ -131,6 +218,7 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
     ctx: ReturnType<typeof createPolicyContext>,
     captureErrors: boolean,
     preSanitized = false,
+    bindingLog?: EvaluatedBindingTrace[],
   ): unknown {
     if (!derivation) throw new Error('This policy has no derive block');
     const state = { nodes: 0 };
@@ -138,7 +226,10 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
       before: preSanitized ? before : revivePolicyValue(before, state),
       input: preSanitized ? input : input === undefined ? Object.create(null) : revivePolicyValue(input, state),
     });
-    for (const binding of derivation.lets) evalIRLet(binding, ctx, scope);
+    for (const binding of derivation.lets) {
+      evalIRLet(binding, ctx, scope);
+      if (bindingLog) recordBindingTrace(bindingLog, binding.name, 'derive', scope[binding.name], binding.loc);
+    }
     try {
       return evalIRExpr(derivation.expr, ctx, scope);
     } catch (error) {
@@ -178,19 +269,30 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
       const after = revivePolicyValue(transition.after, inputState);
       const input = transition.input === undefined ? Object.create(null) : revivePolicyValue(transition.input, inputState);
       let derived: unknown;
+      let hasDerived = false;
+      const deriveBindings: EvaluatedBindingTrace[] = [];
+
       for (const rule of requirements) {
         const scope: Scope = { before, after, input };
+        const reqBindings: EvaluatedBindingTrace[] = [];
+        const trace = new TraceRecorder();
+        let outcome: 'false' | 'eval-error' | 'resource-limit' = 'eval-error';
         try {
           if (usesDerived.has(rule.name)) {
-            derived ??= deriveFrom({ before, input }, ctx, true, true);
+            if (!hasDerived) {
+              derived = deriveFrom({ before, input }, ctx, true, true, deriveBindings);
+              hasDerived = true;
+            }
             scope.derived = derived;
           }
-          for (const binding of rule.lets) evalIRLet(binding, ctx, scope);
-          const trace = new TraceRecorder();
+          for (const binding of rule.lets) {
+            evalIRLet(binding, ctx, scope);
+            recordBindingTrace(reqBindings, binding.name, 'require', scope[binding.name], binding.loc);
+          }
           const evalCtx = { ...ctx, trace };
           const ok = evalIRExpr(rule.condition, evalCtx, scope);
           if (ok === true) continue;
-          // Report scalar evidence from the actual evaluation, without re-running policy code.
+          outcome = 'false';
           const entries = trace.entries;
           let index = 0;
           while (entries[index]?.operator === '&&' && entries[index]?.value === false) {
@@ -207,12 +309,27 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
           throw new EvalError('Requirement failed: ' + rule.source);
         } catch (error) {
           if (!(error instanceof EvalError)) throw error;
+          const isFatal = error instanceof ResourceLimitError;
+          if (isFatal) outcome = 'resource-limit';
+          const bindings = usesDerived.has(rule.name) ? [...deriveBindings, ...reqBindings] : reqBindings;
+          const failureTrace = buildFailureTrace({
+            rule,
+            outcome,
+            bindings,
+            entries: trace.entries,
+            derived,
+            hasDerived: usesDerived.has(rule.name) && hasDerived,
+            expressionUnitsUsed: ctx.expressionBudget.evaluated,
+            expressionLimit,
+            errorMessage: outcome === 'false' ? undefined : error.message,
+          });
           return {
             ok: false,
             requirement: rule.name,
             location: rule.location,
             reason: error.message,
-            ...(error instanceof ResourceLimitError ? { fatal: true as const } : {}),
+            ...(isFatal ? { fatal: true as const } : {}),
+            trace: failureTrace,
           };
         }
       }
@@ -236,8 +353,10 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
         const selection = projected.get(rule.name);
         const expanded = typeof selection === 'object' ? selection.expanded : undefined;
         let result: ReturnType<typeof lowerFirestore>;
+        let loweredTargetExpr: Expression | undefined;
         if (!hasFunctions && !rule.lets.length && isPureRulesExpr(rule.condition) && (expanded || !extensions.length)) {
-          result = lowerFirestore(expanded ?? asPureRulesExpr(rule.condition), projections, Boolean(expanded));
+          loweredTargetExpr = expanded ?? asPureRulesExpr(rule.condition);
+          result = lowerFirestore(loweredTargetExpr, projections, Boolean(expanded));
           if (result.predicate && typeof selection === 'object') covered.add(selection.key);
         } else {
           const problems =
@@ -253,9 +372,16 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
           result = { inputs: [...reads.get(rule.name)!], features: [], origins: {}, predicate: undefined, problems };
         }
         const reason = result.problems.join('; ') || 'All reads bound at this placement';
+        const cost = buildRequirementCost(
+          rule,
+          expressionLimit,
+          result.predicate ? loweredTargetExpr : undefined,
+          EXPRESSION_LIMIT,
+        );
         return {
           requirement: rule.name,
           location: rule.location,
+          span: makePolicySpan(rule.loc, rule.location),
           source: rule.source,
           features: ['Rules expressions', ...extensions, ...result.features],
           inputs: result.inputs,
@@ -264,6 +390,8 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
           target: 'Firestore',
           enforcement: result.predicate ? 'standalone and database' : 'standalone only',
           reason,
+          diagnostics: classifyPlacementProblems(result.problems, Boolean(result.predicate), reason),
+          cost,
           predicate: result.predicate,
         };
       });
@@ -283,10 +411,17 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
         : siblings.length
           ? 'Unverified derive outputs: ' + siblings.join(', ')
           : undefined;
-      const report = rows.map((row) => ({
-        ...row,
-        ...(completeReason && row.predicate && projected.has(row.requirement) ? { completeReason } : {}),
-      }));
+      type FirestoreRow = (typeof rows)[number] & { completeReason?: string };
+      const report: FirestoreRow[] = rows.map((row): FirestoreRow => {
+        if (completeReason && row.predicate && projected.has(row.requirement)) {
+          return {
+            ...row,
+            completeReason,
+            diagnostics: [...row.diagnostics, ...classifyPlacementProblems([completeReason], false, completeReason)],
+          };
+        }
+        return row;
+      });
       const residual = report.filter((row) => !row.predicate || row.completeReason);
       if (mode === 'complete' && residual.length) {
         throw new Error(
@@ -423,8 +558,16 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
         const reason = lowered.predicate
           ? 'Mapped RTDB snapshot expression'
           : lowered.problems.join('; ') || 'No equivalent predicate for this expression and snapshot binding';
+        const effectiveProblems = lowered.predicate ? [] : lowered.problems.length ? lowered.problems : [reason];
+        const cost = buildRequirementCost(
+          rule,
+          expressionLimit,
+          lowered.predicate && isPureRulesExpr(rule.condition) ? (expanded ?? asPureRulesExpr(rule.condition)) : undefined,
+          null,
+        );
         return {
           requirement: rule.name,
+          span: makePolicySpan(rule.loc, rule.location),
           inputs,
           bindings: bound,
           source: rule.source,
@@ -439,6 +582,8 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
           target: 'RTDB',
           enforcement: lowered.predicate ? 'gateway and database' : 'gateway only',
           reason,
+          diagnostics: classifyPlacementProblems(effectiveProblems, Boolean(lowered.predicate), reason),
+          cost,
           predicate: lowered.predicate,
         };
       });
@@ -487,31 +632,27 @@ export {
 
 export { compileBoundedModule, emitStandaloneModule, type StandaloneModuleResult } from './bounded-module.js';
 export { checkPolicyIR, checkExpressionLimit, type CheckedPolicyIR, type CheckedFunction, type CheckOptions } from './check.js';
+export {
+  toDiagnosticJsonValue,
+  type BoundedOpCostDetail, type EvaluatedBindingTrace, type ExpressionCostBreakdown,
+  type PlacementProblemDetail, type PlacementReasonCode, type PolicyFailureTrace,
+  type PolicySpan, type SubExpressionOperandTrace, type SubExpressionTrace,
+} from './diagnostics.js';
 export { interpretModule } from './eval-ir.js';
 export {
-  parsePolicyIR,
-  irChildren,
-  walkIR,
-  isPureRulesExpr,
-  asPureRulesExpr,
-  irFieldPath,
-  collectBoundedOps,
-  type PolicyExtension,
-  type PolicyProgramKind,
-  type BoundedOpKind,
-  type BoundedUnaryOpKind,
-  type IRBoundedOp,
-  type IRBoundedUnaryOp,
-  type IRBoundedFoldOp,
-  type IRBoundedAppendOp,
-  type IRExpr,
-  type IRLetBinding,
-  type IRGuardReturn,
-  type IRLoopBody,
-  type IRLoop,
-  type IRFunction,
-  type IRDerivation,
-  type IRRequirement,
-  type IRTransition,
-  type IRProgram,
+  createPolicyGuard, jsonBodyExtractor, PolicyDeniedError, PolicyPayloadTooLargeError,
+  type DeniedVerdict, type HttpLikeRequest, type HttpLikeResponse,
+  type PolicyGuard, type PolicyGuardOptions, type RequestTransitionExtractor, type VerifiedTransition,
+} from './guard.js';
+export {
+  parsePolicyIR, irChildren, walkIR, isPureRulesExpr, asPureRulesExpr, irFieldPath, collectBoundedOps,
+  type PolicyExtension, type PolicyProgramKind, type BoundedOpKind, type BoundedUnaryOpKind,
+  type IRBoundedOp, type IRBoundedUnaryOp, type IRBoundedFoldOp, type IRBoundedAppendOp,
+  type IRExpr, type IRLetBinding, type IRGuardReturn, type IRLoopBody, type IRLoop,
+  type IRFunction, type IRDerivation, type IRRequirement, type IRTransition, type IRProgram,
 } from './ir.js';
+export {
+  detectPolicyKind, instantiateStandaloneModule, provePolicy,
+  type PolicyProofReport, type ProveDivergence, type ProvePolicyFuzzOptions,
+  type ProvePolicyOptions, type ProvePolicyScenario, type ProveScenarioResult,
+} from './prove.js';

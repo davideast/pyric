@@ -241,9 +241,17 @@ function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; expo
       ['input', 'input'],
     ]);
     const lines = emitLets(transition.derivation.lets, scope, state);
+    const traceRecs = transition.derivation.lets.map((l) => {
+      const v = scope.get(l.name)!;
+      const spanPart = l.loc
+        ? `, span: { line: ${l.loc.line}, col: ${l.loc.col}, location: ${JSON.stringify(`${l.loc.line}:${l.loc.col}`)} }`
+        : '';
+      return `  if (traceBindings) traceBindings.push({ name: ${JSON.stringify(l.name)}, scope: "derive", ...( ${v} instanceof Error ? { error: ${v}.message } : { value: safeTrace(${v}) })${spanPart} });`;
+    });
+    lines.push(...traceRecs);
     lines.push(`  return ${emitExpr(transition.derivation.expr, scope, state)};`);
     lines.unshift(`  $.tick(${state.cost});`);
-    code.push(`function deriveImpl($, before, input) {\n${lines.join('\n')}\n}`);
+    code.push(`function deriveImpl($, before, input, traceBindings, safeTrace) {\n${lines.join('\n')}\n}`);
     code.push(
       `export function derive(start) { const $ = runtime(${budget}); const before = $.data(start.before); const input = start.input === undefined ? Object.create(null) : $.data(start.input); return $.exportVal($.read(deriveImpl($, before, input))); }`,
     );
@@ -258,24 +266,39 @@ function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; expo
       ['after', 'after'],
       ['input', 'input'],
     ]);
+    const spanObj = rule.loc
+      ? `{ line: ${rule.loc.line}, col: ${rule.loc.col}, location: ${JSON.stringify(rule.location)} }`
+      : `{ line: 1, col: 1, location: ${JSON.stringify(rule.location)} }`;
     const stmts: string[] = [];
     if (checked.usesDerived.has(rule.name)) {
       scope.set('derived', 'derivedVal');
-      stmts.push('    if (!hasDerived) { hasDerived = true; derivedVal = deriveImpl($, before, input); }');
+      stmts.push('      if (!hasDerived) { hasDerived = true; derivedVal = deriveImpl($, before, input, deriveBindings, safeTrace); }');
     }
-    for (const line of emitLets(rule.lets, scope, state)) stmts.push('  ' + line);
+    for (const line of emitLets(rule.lets, scope, state)) stmts.push('    ' + line);
+    for (const l of rule.lets) {
+      const v = scope.get(l.name)!;
+      const loc = l.loc ? `span: { line: ${l.loc.line}, col: ${l.loc.col}, location: ${JSON.stringify(`${l.loc.line}:${l.loc.col}`)} }, ` : '';
+      stmts.push(`      reqBindings.push({ name: ${JSON.stringify(l.name)}, scope: "require", ${loc}...( ${v} instanceof Error ? { error: ${v}.message } : { value: safeTrace(${v}) }) });`);
+    }
+    const deriveSpread = checked.usesDerived.has(rule.name) ? '...deriveBindings, ' : '';
+    const mkTrace = (outcome: string, fatal: boolean, errExpr: string) =>
+      `{ requirement: ${JSON.stringify(rule.name)}, span: ${spanObj}, source: ${JSON.stringify(rule.source)}, outcome: ${JSON.stringify(outcome)}, fatal: ${fatal}, bindings: [${deriveSpread}...reqBindings], failingSubExpression: { source: ${JSON.stringify(rule.source)}, kind: ${JSON.stringify(rule.condition.type)}, ${errExpr} } }`;
     const condCode = emitExpr(rule.condition, scope, state);
-    stmts.unshift(`    $.tick(${state.cost});`);
-    stmts.push(`    const ok = $.read(${condCode});`);
-    stmts.push(`    if (ok !== true) return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: ${JSON.stringify('Requirement failed: ' + rule.source)} };`);
+    stmts.unshift(`      $.tick(${state.cost});`);
+    stmts.push(`      const ok = $.read(${condCode});`);
+    stmts.push(
+      `      if (ok !== true) return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: ${JSON.stringify('Requirement failed: ' + rule.source)}, trace: ${mkTrace('false', false, 'value: false')} };`,
+    );
     ruleBlocks.push(
-      `  try {\n${stmts.join('\n')}\n  } catch (err) {\n    if (err instanceof Error && err.constructor.name === 'RuleError') return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: err.message };\n    if (err instanceof Error && err.constructor.name === 'ResourceLimitError') return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: err.message, fatal: true };\n    throw err;\n  }`,
+      `  {\n    const reqBindings = [];\n    try {\n${stmts.join('\n')}\n    } catch (err) {\n      if (err instanceof Error && err.constructor.name === 'RuleError') return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: err.message, trace: ${mkTrace('eval-error', false, 'error: err.message')} };\n      if (err instanceof Error && err.constructor.name === 'ResourceLimitError') return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: err.message, fatal: true, trace: ${mkTrace('resource-limit', true, 'error: err.message')} };\n      throw err;\n    }\n  }`,
     );
   }
 
-  const header = transition.derivation ? '  let hasDerived = false, derivedVal;' : '';
+  const safeTraceDef =
+    `  const safeTrace = (x, d = 0, st = { n: 0 }) => ++st.n > 512 ? { $truncated: 'max-nodes' } : d > 12 ? { $truncated: 'max-depth' } : typeof x === 'bigint' ? (x >= -9007199254740991n && x <= 9007199254740991n ? Number(x) : { $int64: String(x) }) : typeof x === 'string' ? (x.length > 512 ? x.slice(0, 512) + '...(truncated)' : x) : typeof x === 'number' ? (Object.is(x, -0) ? { $float: '-0' } : Number.isFinite(x) ? x : { $float: String(x) }) : x && x.constructor && x.constructor.name === 'FloatVal' ? safeTrace(x.v, d + 1, st) : x && x.constructor && x.constructor.name === 'BytesVal' ? { $bytes: Array.from(x.d.slice(0, 64)), size: x.d.length } : x && x.constructor && x.constructor.name === 'TimestampVal' ? { $timestamp: { seconds: x.s, nanos: x.n } } : x && x.constructor && x.constructor.name === 'DurationVal' ? { $duration: { seconds: x.s, nanos: x.n } } : x && x.constructor && x.constructor.name === 'SetVal' ? { $set: x.items.slice(0, 64).map((v) => safeTrace(v, d + 1, st)) } : Array.isArray(x) ? x.slice(0, 64).map((v) => safeTrace(v, d + 1, st)) : x && typeof x === 'object' ? Object.fromEntries(Object.keys(x).slice(0, 64).map((k) => [k, safeTrace(x[k], d + 1, st)])) : x === undefined ? null : x;`;
+  const header = transition.derivation ? '  let hasDerived = false, derivedVal; const deriveBindings = [];' : '';
   code.push(
-    `export function judge(transition) {\n  const $ = runtime(${budget});\n  const before = $.data(transition.before);\n  const after = $.data(transition.after);\n  const input = transition.input === undefined ? Object.create(null) : $.data(transition.input);\n${header}\n${ruleBlocks.join('\n')}\n  return { ok: true };\n}`,
+    `export function judge(transition) {\n  const $ = runtime(${budget});\n${safeTraceDef}\n  const before = $.data(transition.before);\n  const after = $.data(transition.after);\n  const input = transition.input === undefined ? Object.create(null) : $.data(transition.input);\n${header}\n${ruleBlocks.join('\n')}\n  return { ok: true };\n}`,
   );
   exports.push('judge');
   return { code, exports };
