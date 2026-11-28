@@ -26,11 +26,11 @@
  *   pyric --version
  *
  * Env vars:
- *   PYRIC_PORT                       — bridge port (default 5174)
- *   PYRIC_PROJECT                    — project label for bridge health and audit output
- *   PYRIC_VERBOSE                    — set to 1 for per-tool-call logging
- *   FIREBASE_SA_BASE64               — base64-encoded service-account JSON (Rules Test API verify)
- *   GOOGLE_APPLICATION_CREDENTIALS   — path to service-account JSON (Rules Test API verify)
+ *   PYRIC_PORT                       -- bridge port (default 5174)
+ *   PYRIC_PROJECT                    -- project label for bridge health and audit output
+ *   PYRIC_VERBOSE                    -- set to 1 for per-tool-call logging
+ *   FIREBASE_SA_BASE64               -- base64-encoded service-account JSON (Rules Test API verify)
+ *   GOOGLE_APPLICATION_CREDENTIALS   -- path to service-account JSON (Rules Test API verify)
  *
  * Exit codes:
  *   0  success
@@ -67,6 +67,7 @@ export const COMMANDS_BEFORE_SERVICES: ReadonlySet<string> = new Set([
   'mcp',
   'init',
   'vendor',
+  'policy',
 ]);
 
 async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null> {
@@ -242,7 +243,7 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
   // Graceful shutdown. Idempotent because:
   //   1. npx forwards SIGINT to its child AND the terminal sends SIGINT
   //      to the process group, so one Ctrl-C delivers SIGINT TWICE to
-  //      this process — without a guard, the handler ran twice and
+  //      this process -- without a guard, the handler ran twice and
   //      printed everything twice.
   //   2. An impatient user mashing Ctrl-C expects "now I mean it" to
   //      force-exit, not enqueue more clean-shutdowns.
@@ -256,7 +257,7 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
     process.stdout.write(`\npyric: received ${signal}, stopping bridge...\n`);
     // Hard safety net: clean shutdown is ~instant once sockets are
     // forcibly closed (see handle.stop in standalone.ts). If something
-    // hangs anyway — peer pre-handshake, MCP transport in mid-write —
+    // hangs anyway -- peer pre-handshake, MCP transport in mid-write --
     // don't make the user wait forever.
     const forceExitTimer = setTimeout(() => {
       process.stderr.write('pyric: shutdown taking longer than expected, force-exiting\n');
@@ -302,9 +303,13 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
  * Dispatch a parsed CLI invocation to its subcommand handler.
  * Exported so the test suite can drive the dispatcher directly
  * without spawning a child process. `process.exit` is not called
- * here — the caller (the top-level `main()` below) does that.
+ * here -- the caller (the top-level `main()` below) does that.
  */
 export async function dispatch(parsed: ParsedArgs): Promise<number> {
+  if (parsed.subcommand === 'policy') {
+    const { runPolicy } = await import('./policy/index.js');
+    return await runPolicy(parsed);
+  }
   const asksForHelp = Boolean(parsed.flags.get('help') || parsed.flags.get('h'));
   if (asksForHelp) {
     const { renderHelp } = await import('./help.js');
@@ -450,7 +455,7 @@ export function isDirectRun(): boolean {
  * The compiled standalone binary calls this from its generated entry
  * (scripts/compile.ts) instead of relying on {@link isDirectRun}: inside a
  * `bun build --compile` binary this module is an import (import.meta.main is
- * false) and `process.argv[1]` is the user's first argument, not a path — so
+ * false) and `process.argv[1]` is the user's first argument, not a path -- so
  * direct-run detection is structurally false there and the binary would
  * otherwise exit 0 silently.
  */
@@ -470,7 +475,7 @@ if (isDirectRun()) runDirect();
 
 /**
  * Drain stdout + stderr before exiting. `process.exit()` does NOT wait
- * for pipe-buffered output to flush — `process.stdout.write(text)`
+ * for pipe-buffered output to flush -- `process.stdout.write(text)`
  * against a pipe (which `bash -c '$(pyric --help)'` creates) queues
  * the data, and a bare `process.exit(0)` discards it on Linux Node 20.
  * Symptom: `pyric --help | cat` prints nothing in CI but works in a
