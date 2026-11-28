@@ -436,7 +436,7 @@ export class SplitProofAccumulator {
   summary(): SplitTargetProofSummary {
     return {
       target: this.harness.target,
-      ok: this.divergences.length === 0 && this.passed === this.checked,
+      ok: this.divergences.length === 0 && this.passed === this.checked && !(this.checked === 0 && this.skippedUnsupported > 0),
       plan: this.harness.plan,
       checked: this.checked,
       passed: this.passed,

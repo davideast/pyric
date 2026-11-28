@@ -6,7 +6,7 @@ import { expressionChildren } from '../grammar/call-depth-limits.js';
 import type { CheckedFunction } from './check.js';
 import { estimateIRExprUnits, type BoundedOpCostDetail } from './diagnostics.js';
 import { field } from './firestore.js';
-import { collectBoundedOps, isPureRulesExpr, walkIR, type IRDerivation, type IRExpr } from './ir.js';
+import { collectBoundedOps, irChildren, isPureRulesExpr, type IRDerivation, type IRExpr } from './ir.js';
 
 const FORBIDDEN_MAP_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -58,10 +58,12 @@ export function collectDirectCalls(
   expr: IRExpr,
   functions: ReadonlyMap<string, CheckedFunction>,
   out: Set<string>,
+  seen = new Set<IRExpr>(),
 ): void {
-  walkIR(expr, (node) => {
-    if (node.type === 'functionCall' && functions.has(node.name)) out.add(node.name);
-  });
+  if (seen.has(expr)) return;
+  seen.add(expr);
+  if (expr.type === 'functionCall' && functions.has(expr.name)) out.add(expr.name);
+  for (const child of irChildren(expr)) collectDirectCalls(child, functions, out, seen);
 }
 
 export function findForbiddenMapKey(expr: Expression, seen = new Set<Expression>()): string | undefined {

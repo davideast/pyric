@@ -3,6 +3,7 @@
 // with zero Node-only imports, supporting Fetch / Next.js Route Handlers, Cloud Functions HTTP
 // handlers, and client-side optimistic checks.
 import type { StandaloneModuleResult } from './bounded-module.js';
+import { ResourceLimitError } from '../simulator/eval-error.js';
 import { FirestoreSet } from '../simulator/firestore-set.js';
 import { isRulesMap } from '../simulator/rules-type.js';
 import { Bytes } from '../simulator/wrappers/bytes.js';
@@ -410,7 +411,7 @@ export function createPolicyGuard<TContext = unknown>(
   };
 
 function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = { nodes: 0 }): unknown {
-  if (++st.nodes > 16384 || depth > 64) throw new Error('Derived output depth or node bound exceeded');
+  if (++st.nodes > 16384 || depth > 64) throw new ResourceLimitError('Derived output depth or node bound exceeded');
   if (typeof value === 'bigint') {
     return value >= -9007199254740991n && value <= 9007199254740991n ? Number(value) : value;
   }

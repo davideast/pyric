@@ -51,10 +51,10 @@ function setNestedPath(target: Record<string, unknown>, segments: readonly strin
 function readNested(root: unknown, segments: readonly string[]): { present: boolean; value: unknown } {
   let cur: unknown = root;
   for (const seg of segments) {
-    if (!cur || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, seg)) {
-      return { present: false, value: undefined };
-    }
-    cur = (cur as Record<string, unknown>)[seg];
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return { present: false, value: undefined };
+    const desc = Object.getOwnPropertyDescriptor(cur, seg);
+    if (!desc || !('value' in desc)) return { present: false, value: undefined };
+    cur = desc.value;
   }
   return { present: true, value: cur };
 }
@@ -73,7 +73,10 @@ function hasNonJsonNumber(value: unknown, depth = 0): boolean {
   if (typeof value === 'bigint') return true;
   if (Array.isArray(value)) return value.some((v) => hasNonJsonNumber(v, depth + 1));
   if (typeof value === 'object') {
-    return Object.values(value as Record<string, unknown>).some((v) => hasNonJsonNumber(v, depth + 1));
+    return Object.keys(value as Record<string, unknown>).some((k) => {
+      const d = Object.getOwnPropertyDescriptor(value, k);
+      return !d || !('value' in d) || hasNonJsonNumber(d.value, depth + 1);
+    });
   }
   return false;
 }
@@ -143,12 +146,20 @@ function buildAuthFromEntries(
       if (r.value === null) {
         bareAuthNull = true;
       } else if (isPlainRecord(r.value)) {
-        if (typeof r.value.uid !== 'string') return { ok: false };
+        const uidD = Object.getOwnPropertyDescriptor(r.value, 'uid');
+        if (!uidD || !('value' in uidD) || typeof uidD.value !== 'string') return { ok: false };
         uidPresent = true;
-        uid = r.value.uid;
-        if (r.value.token !== undefined) {
-          if (!isPlainRecord(r.value.token)) return { ok: false };
-          Object.assign(token, reviveValues ? (revivePolicyValue(r.value.token) as Record<string, unknown>) : r.value.token);
+        uid = uidD.value;
+        const tokD = Object.getOwnPropertyDescriptor(r.value, 'token');
+        if (tokD && !('value' in tokD)) return { ok: false };
+        if (tokD?.value !== undefined) {
+          if (!isPlainRecord(tokD.value)) return { ok: false };
+          const src = reviveValues ? (revivePolicyValue(tokD.value) as Record<string, unknown>) : tokD.value;
+          for (const k of Object.keys(src)) {
+            const d = Object.getOwnPropertyDescriptor(src, k);
+            if (FORBIDDEN_PATH_KEYS.has(k) || !d || !('value' in d)) return { ok: false };
+            Object.defineProperty(token, k, { value: d.value, enumerable: true, writable: true, configurable: true });
+          }
           hasToken = true;
         }
       } else {
@@ -468,6 +479,8 @@ export function createStorageEvaluator(
   }
 
   const hasAuth = entries.some(([, t]) => t === 'request.auth' || t.startsWith('request.auth.'));
+  const bindsStoredSize = entries.some(([, t]) => t === 'resource' || t === 'resource.size');
+  const bindsIncomingSize = entries.some(([, t]) => t === 'request.resource' || t === 'request.resource.size');
   return (transition: Transition) => {
     try {
       let stored: Record<string, unknown> | undefined;
@@ -518,24 +531,21 @@ export function createStorageEvaluator(
         if (!built.ok || (built.auth?.token && hasNonJsonNumber(built.auth.token))) return undefined;
         auth = built.auth;
       }
-      const validSize = (obj: Record<string, unknown>): obj is Record<string, unknown> & { size: number } =>
-        typeof obj.size === 'number' && Number.isSafeInteger(obj.size) && !Object.is(obj.size, -0) && obj.size >= 0;
-      if (stored !== undefined && method !== 'create' && !validSize(stored)) return undefined;
-      if (incoming !== undefined && method !== 'delete' && !validSize(incoming)) return undefined;
+      const ensureSize = (obj: Record<string, unknown>, bound: boolean): boolean => {
+        if (!bound && !Object.hasOwn(obj, 'size')) obj.size = 0;
+        return typeof obj.size === 'number' && Number.isSafeInteger(obj.size) && !Object.is(obj.size, -0) && obj.size >= 0;
+      };
+      if (stored !== undefined && method !== 'create' && !ensureSize(stored, bindsStoredSize)) return undefined;
+      if (incoming !== undefined && method !== 'delete' && !ensureSize(incoming, bindsIncomingSize)) return undefined;
       const path = wildcards.length
         ? 'items/' + wildcards.map((w) => wildcardVals.get(w)!).join('/') + '/obj1'
         : 'items/obj1';
-      const [row] = rules.simulate([
-        {
-          description: 'provePolicy-storage',
-          method,
-          path,
-          expectation: 'ALLOW',
-          ...(hasAuth ? { auth } : {}),
-          ...(stored !== undefined && method !== 'create' ? { resource: stored as unknown as StorageCase['resource'] } : {}),
-          ...(incoming !== undefined && method !== 'delete' ? { requestResource: incoming as unknown as StorageCase['requestResource'] } : {}),
-        },
-      ]).cases;
+      const [row] = rules.simulate([{
+        description: 'provePolicy-storage', method, path, expectation: 'ALLOW',
+        ...(hasAuth ? { auth } : {}),
+        ...(stored !== undefined && method !== 'create' ? { resource: stored as unknown as StorageCase['resource'] } : {}),
+        ...(incoming !== undefined && method !== 'delete' ? { requestResource: incoming as unknown as StorageCase['requestResource'] } : {}),
+      }]).cases;
       if (!row || row.unsupported) return undefined;
       return row.decision === 'ALLOW' || row.decision === 'DENY' ? row.decision : undefined;
     } catch {

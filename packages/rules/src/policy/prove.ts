@@ -346,12 +346,11 @@ export function provePolicy(source: string, options: ProvePolicyOptions = {}): P
       const rtdbDecision = rtdbEval && interp.kind === 'verdict' ? rtdbEval(t) : undefined;
       const storageDecision = storageEval && interp.kind === 'verdict' ? storageEval(t) : undefined;
 
+      const isFatal = Boolean(rawInterp && !rawInterp.ok && rawInterp.fatal);
       let parityOk = outcomesEqual(interp, stand);
-      if (parityOk && fsDecision && interp.kind === 'verdict') parityOk = (fsDecision === 'ALLOW') === interp.ok;
-      if (parityOk && rtdbDecision && interp.kind === 'verdict') parityOk = (rtdbDecision === 'ALLOW') === interp.ok;
-      if (parityOk && storageDecision && interp.kind === 'verdict') {
-        parityOk = (storageDecision === 'ALLOW') === interp.ok;
-      }
+      if (parityOk && fsDecision && interp.kind === 'verdict') parityOk = !isFatal && (fsDecision === 'ALLOW') === interp.ok;
+      if (parityOk && rtdbDecision && interp.kind === 'verdict') parityOk = !isFatal && (rtdbDecision === 'ALLOW') === interp.ok;
+      if (parityOk && storageDecision && interp.kind === 'verdict') parityOk = !isFatal && (storageDecision === 'ALLOW') === interp.ok;
 
       let splitMap: Partial<Record<PolicyTargetName, SplitCaseOutcome>> | undefined;
       if (splitAccumulators.length) {

@@ -464,7 +464,7 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
           lowered = { inputs, features: [], problems, predicate: undefined };
         }
         const bound = Object.fromEntries(
-          inputs.flatMap((key) => {
+          (lowered.predicate ? lowered.inputs : inputs).flatMap((key) => {
             const hit = boundRtdbEntry(bindings, key);
             return hit.found ? [[key, hit.value]] : [];
           }),
