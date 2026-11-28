@@ -122,9 +122,9 @@ export function bindRealtime<R extends RequirementRow>(placement: RealtimePlacem
   const parts = placement.path.split('/').slice(1);
   if (!placement.path.startsWith('/') || !parts.length || parts.some(p => !p || /[.#\[\]]/.test(p)))
     throw new Error('Expected an absolute RTDB validation path');
-  const residuals = requirements.filter(row => !row.predicate);
+  const residuals = requirements.filter(row => !row.predicate || row.completeReason);
   if (placement.mode !== 'mixed' && residuals.length)
-    throw new Error(residuals.map(row => row.requirement + ': ' + row.reason).join('\n'));
+    throw new Error(residuals.map(row => row.requirement + ': ' + (row.completeReason ?? row.reason)).join('\n'));
   return {
     path: placement.path, operation: '.validate', requirements,
     verify(rules: { rules: unknown }) {

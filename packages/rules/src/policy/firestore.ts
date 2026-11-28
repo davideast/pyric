@@ -1,6 +1,7 @@
 // Opt-in target. Bind policy reads to Firestore data, then emit an ordinary
 // Rules expression. Placement and the accuracy of each projection belong to the caller.
 import { assembleExpression, assembleFunction } from '../grammar/FirestoreAssembler.js';
+import { addParenthesizedGroup } from '../grammar/paren-groups.js';
 import { compileLimitViolations } from '../grammar/compile-limits.js';
 import { sourceSizeViolation } from '../grammar/source-compile-limits.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
@@ -55,7 +56,12 @@ function origin(expr: Expression): string {
   return 'context';
 }
 
-export function lowerFirestore(expr: Expression, projections: Map<string, Expression | string>, projectedField = false) {
+export function lowerFirestore(
+  expr: Expression,
+  projections: Map<string, Expression | string>,
+  projectedField = false,
+  verifySyntax = false,
+) {
   const inputs = new Set<string>();
   const missing = new Set<string>();
   const features = new Set<string>();
@@ -93,7 +99,15 @@ export function lowerFirestore(expr: Expression, projections: Map<string, Expres
       case 'literal': return node;
       case 'listLiteral': return { ...node, elements: node.elements.map(lower) };
       case 'mapLiteral': return { ...node, entries: node.entries.map(e => ({ key: lower(e.key), value: lower(e.value) })) };
-      case 'unaryOp': features.add(node.op); return { ...node, operand: lower(node.operand) };
+      case 'unaryOp': {
+        features.add(node.op);
+        let operand = lower(node.operand);
+        if (node.op === '-' && operand.type === 'unaryOp' && operand.op === '-') {
+          operand = { ...operand };
+          addParenthesizedGroup(operand);
+        }
+        return { ...node, operand };
+      }
       case 'binaryOp': features.add(node.op); return { ...node, left: lower(node.left), right: lower(node.right) };
       case 'isExpr': features.add('is ' + node.typeName); return { ...node, value: lower(node.value) };
       case 'inExpr': features.add('in'); return { ...node, element: lower(node.element), collection: lower(node.collection) };
@@ -115,9 +129,8 @@ export function lowerFirestore(expr: Expression, projections: Map<string, Expres
   const predicate = lower(expr);
   if (missing.size) problems.add('Missing binding: ' + [...missing].join(', '));
   const source = problems.size ? undefined : assembleExpression(predicate);
-  if (projectedField && source) {
-    // Substitution can combine individually legal tokens or grow a projection
-    // past a structural limit. Check the emitted syntax before claiming it.
+  if (source) {
+    // Check emitted syntax and structural compile limits before claiming any lowered predicate.
     const check = parseToASTOrError(`rules_version = '2'; service cloud.firestore {
       match /databases/{db}/documents { match /items/{id} { allow update: if ${source}; } } }`);
     if (!check.ok) problems.add(check.error.message);
