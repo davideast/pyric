@@ -9,6 +9,7 @@ import { augmentWebpackConfig } from './webpack-config.js';
 import { augmentTurbopackConfig } from './turbopack-config.js';
 import { augmentDevRewrites } from './dev-rewrites.js';
 import { augmentRuntimeEnv } from './runtime-env.js';
+import { resolveFunctionsGateway } from './functions-target.js';
 import { enforceNoEdgeRuntime } from './edge-runtime.js';
 
 function isFunctionConfig(config: NextConfig): config is NextConfigFunction {
@@ -26,8 +27,9 @@ function applyPyricEnhancements(config: NextConfigObject, options?: PyricNextOpt
   let enhancedConfig = augmentServerExternalPackages(config);
   enhancedConfig = augmentWebpackConfig(enhancedConfig);
   enhancedConfig = augmentTurbopackConfig(enhancedConfig);
-  enhancedConfig = augmentDevRewrites(enhancedConfig, options);
-  enhancedConfig = augmentRuntimeEnv(enhancedConfig, options);
+  const functionsGateway = resolveFunctionsGateway(options);
+  enhancedConfig = augmentDevRewrites(enhancedConfig, options, functionsGateway);
+  enhancedConfig = augmentRuntimeEnv(enhancedConfig, options, functionsGateway);
   return enhancedConfig;
 }
 
