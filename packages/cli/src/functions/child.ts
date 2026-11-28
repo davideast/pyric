@@ -4,11 +4,13 @@
  * source with the real SDK, starts each trigger family, and reports ready to
  * the host over IPC.
  */
-import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
 import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
 import { disconnectFromHost, sendToHost } from './child-ipc.js';
+import {
+  collectActiveEventTimeouts,
+  registerDeclaredEndpointSecrets,
+} from './child-manifest-helpers.js';
 import {
   HEARTBEAT_INTERVAL_MS,
   STOP_DEADLINE_MS,
@@ -18,20 +20,16 @@ import {
   type FunctionsChildMessage,
 } from './child-protocol.js';
 import { collectChildReadyMetadata } from './child-ready-metadata.js';
+import { startAuthLifecycleChildRuntime } from './auth/child-runtime.js';
+import { authLifecycleTriggersFamily } from './auth/discovery.js';
+import type { AuthLifecycleTriggerExecutionHost } from './auth/execution.js';
 import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
-import {
-  applyFunctionsDotenv,
-  isProtectedFunctionsEnvKey,
-  resolveFunctionsSourceDir,
-} from './dotenv.js';
-import { resolveTimeoutSecondsOption } from './endpoint-options.js';
-import { listFirebaseEndpoints } from './endpoints.js';
+import { applyFunctionsDotenv, resolveFunctionsSourceDir } from './dotenv.js';
 import {
   createSecretRedactor,
   getActiveSecretRedactor,
   installStreamSecretRedaction,
   setActiveSecretRedactor,
-  type SecretRedactor,
 } from './secret-redaction.js';
 import { startFirestoreChildRuntime } from './firestore/child-runtime.js';
 import { firestoreTriggersFamily } from './firestore/discovery.js';
@@ -117,87 +115,6 @@ function surviveUncaughtErrors(): void {
   process.on('unhandledRejection', report);
 }
 
-function resolveGlobalTimeoutSeconds(entry: string): number | undefined {
-  let functionsMain: string;
-  try {
-    functionsMain = createRequire(entry).resolve('firebase-functions');
-  } catch (error: unknown) {
-    // Synthetic test fixtures without a `firebase-functions` install have no global options.
-    void error;
-    return undefined;
-  }
-  const libDir = dirname(dirname(functionsMain));
-  const cjsOptionsPath = join(libDir, 'v2/options.js');
-  if (!existsSync(cjsOptionsPath)) {
-    return undefined;
-  }
-  try {
-    const optionsModule = createRequire(functionsMain)(cjsOptionsPath) as {
-      getGlobalOptions?: () => { timeoutSeconds?: unknown };
-    };
-    const rawTimeout = optionsModule.getGlobalOptions?.()?.timeoutSeconds;
-    const parsedTimeout = resolveTimeoutSecondsOption(rawTimeout, process.env);
-    if (parsedTimeout.ok && parsedTimeout.timeoutSeconds !== undefined) {
-      return parsedTimeout.timeoutSeconds;
-    }
-  } catch (error: unknown) {
-    // Optional inspection fallback when `v2/options.js` layout differs.
-    void error;
-  }
-  return undefined;
-}
-
-function collectActiveEventTimeouts(
-  entry: string,
-  exported: Record<string, unknown>,
-  unsupportedNames: ReadonlySet<string>,
-): Array<number | null> {
-  const globalTimeoutSeconds = resolveGlobalTimeoutSeconds(entry);
-  const timeouts: Array<number | null> = [];
-  for (const { exportName, callable } of listFirebaseEndpoints(exported)) {
-    const endpoint = callable.__endpoint;
-    if (!endpoint) continue;
-    if (unsupportedNames.has(exportName)) continue;
-    if (httpOnRequestFamily.claims(endpoint) || callableOnCallFamily.claims(endpoint)) {
-      continue;
-    }
-    const rawTimeout = endpoint.timeoutSeconds;
-    const parsedTimeout = resolveTimeoutSecondsOption(rawTimeout, process.env);
-    if (parsedTimeout.ok && parsedTimeout.timeoutSeconds !== undefined) {
-      timeouts.push(parsedTimeout.timeoutSeconds);
-    } else if (rawTimeout === undefined && globalTimeoutSeconds !== undefined) {
-      timeouts.push(globalTimeoutSeconds);
-    } else {
-      timeouts.push(null);
-    }
-  }
-  return timeouts;
-}
-
-function registerDeclaredEndpointSecrets(
-  exported: Record<string, unknown>,
-  redactor: SecretRedactor,
-): void {
-  const values: string[] = [];
-  for (const { callable } of listFirebaseEndpoints(exported)) {
-    const entries = callable.__endpoint?.secretEnvironmentVariables;
-    if (!Array.isArray(entries)) continue;
-    for (const entry of entries) {
-      const key = entry?.key;
-      if (typeof key !== 'string' || key.length === 0 || isProtectedFunctionsEnvKey(key)) {
-        continue;
-      }
-      const value = process.env[key];
-      if (typeof value === 'string' && value.length > 0) {
-        values.push(value);
-      }
-    }
-  }
-  if (values.length > 0) {
-    redactor.addValues(values);
-  }
-}
-
 async function runFunctionsChild(): Promise<void> {
   const entry = process.env.PYRIC_FUNCTIONS_ENTRY;
   const instance = process.env.PYRIC_FUNCTIONS_INSTANCE;
@@ -238,6 +155,7 @@ async function runFunctionsChild(): Promise<void> {
   let firestoreHost: FirestoreTriggerExecutionHost | undefined;
   let schedulerHost: SchedulerChildRuntimeHost | undefined;
   let identityHost: IdentityTriggerExecutionHost | undefined;
+  let authLifecycleHost: AuthLifecycleTriggerExecutionHost | undefined;
   let pubsubHost: PubSubChildRuntimeHost | undefined;
   let tasksHost: TasksChildRuntimeHost | undefined;
   let httpServer: HttpChildServer | undefined;
@@ -257,6 +175,8 @@ async function runFunctionsChild(): Promise<void> {
       await pubsubHost?.idle();
       identityHost?.close();
       await identityHost?.idle();
+      authLifecycleHost?.close();
+      await authLifecycleHost?.idle();
       schedulerHost?.close();
       await schedulerHost?.idle();
       storageHost?.close();
@@ -487,6 +407,16 @@ async function runFunctionsChild(): Promise<void> {
     if (identityHost.triggerCount > 0) {
       surviveUncaughtErrors();
     }
+    authLifecycleHost = startAuthLifecycleChildRuntime({
+      exported,
+      sandbox: runtimeSandbox,
+      projectId,
+      send,
+    });
+    await authLifecycleHost.ready;
+    if (authLifecycleHost.triggerCount > 0) {
+      surviveUncaughtErrors();
+    }
     pubsubHost = startPubSubChildRuntime({
       exported,
       sandbox: runtimeSandbox,
@@ -521,6 +451,7 @@ async function runFunctionsChild(): Promise<void> {
       firestoreTriggersFamily,
       schedulerTriggersFamily,
       identityBlockingFamily,
+      authLifecycleTriggersFamily,
       pubsubTriggersFamily,
       tasksTriggersFamily,
       httpOnRequestFamily,
@@ -532,6 +463,7 @@ async function runFunctionsChild(): Promise<void> {
       firestoreHost.triggerCount +
       schedulerHost.triggerCount +
       identityHost.triggerCount +
+      authLifecycleHost.triggerCount +
       pubsubHost.triggerCount +
       tasksHost.triggerCount;
     const unsupportedNames = new Set(unsupportedTriggers.map((item) => item.exportName));

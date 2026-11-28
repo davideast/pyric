@@ -34,7 +34,7 @@ describe('inspectOnCall', () => {
     expect(inspectOnRequest({ plain: exported.plain, legacy: exported.legacy })).toEqual([]);
   });
 
-  test('claims onCall exports and reports omitted or onCallGenkit exports as unsupported', () => {
+  test('claims onCall and onCallGenkit exports and reports omitted exports as unsupported', () => {
     const fakeAction = Object.assign(() => undefined, {
       __action: { name: 'summarizeItems' },
       run: async () => ({ result: 'ok' }),
@@ -44,14 +44,15 @@ describe('inspectOnCall', () => {
       active: https.onCall(() => 'ok'),
       omitted: https.onCall({ omit: true }, () => 'skip'),
       genkit: https.onCallGenkit(fakeAction as never),
+      genkitOmitted: https.onCallGenkit({ omit: true }, fakeAction as never),
     };
 
-    expect(inspectOnCall(exported).map((fn) => fn.exportName)).toEqual(['active']);
+    expect(inspectOnCall(exported).map((fn) => fn.exportName)).toEqual(['active', 'genkit']);
     expect(
       findUnsupportedTriggers(exported, [rtdbCreatedFamily, httpOnRequestFamily, callableOnCallFamily]),
     ).toEqual([
       { exportName: 'omitted', eventType: 'callable (omitted from emulation)' },
-      { exportName: 'genkit', eventType: 'callable (onCallGenkit is not supported)' },
+      { exportName: 'genkitOmitted', eventType: 'callable (omitted from emulation)' },
     ]);
   });
 
