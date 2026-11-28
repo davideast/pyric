@@ -102,19 +102,35 @@ internal class FirestoreOfflineCoordinator(
         }
     }
 
-    fun projectDocument(path: String, authScope: String = currentAuthScope()): ProjectedDocState {
-        val (base, mutations) = synchronized(lock) {
-            backingStore(authScope)[path] to stagedWrites.values
-                .filter { it.authScope == authScope }
-                .flatMap { it.mutations }
+    internal data class ProjectedDocWithNetwork(
+        val projection: ProjectedDocState,
+        val listenerNetworkEnabled: Boolean
+    )
+
+    fun projectDocumentWithNetwork(
+        path: String,
+        authScope: String = currentAuthScope()
+    ): ProjectedDocWithNetwork {
+        val (base, mutations, networkEnabled) = synchronized(lock) {
+            Triple(
+                backingStore(authScope)[path],
+                stagedWrites.values
+                    .filter { it.authScope == authScope }
+                    .flatMap { it.mutations },
+                _listenerNetworkEnabledFlow.value
+            )
         }
-        return FirestoreOfflineProjection.projectDocument(
+        val projection = FirestoreOfflineProjection.projectDocument(
             path = path,
             base = base,
             stagedMutations = mutations,
             resolveRef = { p -> firestore.unvalidatedDocumentRef(p) }
         )
+        return ProjectedDocWithNetwork(projection, networkEnabled)
     }
+
+    fun projectDocument(path: String, authScope: String = currentAuthScope()): ProjectedDocState =
+        projectDocumentWithNetwork(path, authScope).projection
 
     fun submitWrite(
         mutation: OfflineDocMutation,

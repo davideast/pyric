@@ -269,7 +269,8 @@ class DocumentReference internal constructor(
         val rawEnvelope = if (exists) DocumentDataEnvelope.extractEnvelope(rawData) else null
         firestore.offlineCoordinator.recordServerDoc(path, exists, unpackedData, rawEnvelope, authScope)
 
-        val projected = firestore.offlineCoordinator.projectDocument(path, authScope)
+        val (projected, listenerNetworkEnabled) =
+            firestore.offlineCoordinator.projectDocumentWithNetwork(path, authScope)
         val hasPending = projected.hasPendingWrites || resMap["hasPendingWrites"] == true
         val finalExists = if (projected.hasPendingWrites) projected.exists else exists
         val finalData = if (projected.hasPendingWrites) projected.data else unpackedData
@@ -279,7 +280,10 @@ class DocumentReference internal constructor(
             reference = this,
             exists = finalExists,
             rawData = finalData,
-            metadata = SnapshotMetadata(hasPendingWrites = hasPending, isFromCache = false),
+            metadata = SnapshotMetadata(
+                hasPendingWrites = hasPending,
+                isFromCache = !listenerNetworkEnabled
+            ),
             rawWireData = if (finalExists && !projected.hasPendingWrites) rawEnvelope else null
         )
     }

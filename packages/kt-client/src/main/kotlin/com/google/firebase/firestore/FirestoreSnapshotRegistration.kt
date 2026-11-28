@@ -111,12 +111,12 @@ internal class DocumentSnapshotRegistration(
                 val gen = generation.get()
                 deliveryQueue.enqueue {
                     if (!active || generation.get() != gen) return@enqueue
-                    val isOffline = offlineMode || !firestore.offlineCoordinator.listenerNetworkEnabledFlow.value
+                    val (proj, listenerNetworkEnabled) =
+                        firestore.offlineCoordinator.projectDocumentWithNetwork(docRef.path, activeAuthScope)
+                    val isOffline = offlineMode || !listenerNetworkEnabled
                     val candidate = if (isOffline) {
-                        val proj = firestore.offlineCoordinator.projectDocument(docRef.path, activeAuthScope)
                         docRef.snapshotFromProjection(proj, isFromCache = true)
                     } else if (rawGeneration == gen) {
-                        val proj = firestore.offlineCoordinator.projectDocument(docRef.path, activeAuthScope)
                         if (proj.known) docRef.snapshotFromProjection(proj, isFromCache = false) else null
                     } else {
                         null
