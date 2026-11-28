@@ -34,13 +34,18 @@ export function instantiateStandaloneModule(
   return factory() as Record<string, (...args: unknown[]) => unknown>;
 }
 
+function stripCommentsAndStrings(source: string): string {
+  return source.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, ' ');
+}
+
 /** Detect policy kind from source syntax when `options.kind` is omitted. */
 export function detectPolicyKind(source: string): PolicyProgramKind {
-  if (/(^|[\s;])transition\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/.test(source)) return 'transition';
-  if (/use\s+extension\s+bounded\s*;/.test(source) && /(^|[\s;])export\s+function\b/.test(source)) {
+  const cleaned = stripCommentsAndStrings(source);
+  if (/(^|[\s;])transition\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/.test(cleaned)) return 'transition';
+  if (/use\s+extension\s+bounded\s*;/.test(cleaned) && /(^|[\s;])export\s+function\b/.test(cleaned)) {
     return 'module';
   }
-  const fnMatches = source.match(/(^|[\s;])(export\s+)?function\s+[A-Za-z_]/g);
+  const fnMatches = cleaned.match(/(^|[\s;])(export\s+)?function\s+[A-Za-z_]/g);
   if (fnMatches && fnMatches.length > 1) return 'module';
   return 'function';
 }
@@ -185,14 +190,24 @@ function readNested(root: unknown, segments: readonly string[]): { present: bool
   return { present: true, value: cur };
 }
 
+function readTransitionPath(transition: Transition, policyPath: string): { present: boolean; value: unknown } {
+  const [root, ...rest] = policyPath.split('.');
+  const rootObj =
+    root === 'before' ? transition.before : root === 'after' ? transition.after : root === 'input' ? transition.input : undefined;
+  if (!rest.length) return { present: rootObj !== undefined, value: rootObj };
+  return readNested(rootObj, rest);
+}
+
+const SUPPORTED_FS_BINDING = /^(?:resource\.data(?:\.[A-Za-z_][A-Za-z0-9_]*)*|request\.resource\.data(?:\.[A-Za-z_][A-Za-z0-9_]*)*|request\.auth(?:\.uid|\.token(?:\.[A-Za-z_][A-Za-z0-9_]*)+)?)$/;
+
 /** Pre-compile a lowered Firestore module once for fast scenario + fuzz replay. */
 export function createFirestoreEvaluator(
   moduleSource: string,
   fnName: string,
   bindings: FirestoreBindings,
 ): ((transition: Transition) => string | undefined) | undefined {
-  const values = Object.values(bindings);
-  if (values.some((v) => v.includes('get(') || v.includes('getAfter('))) return undefined;
+  const entries = Object.entries(bindings);
+  if (entries.some(([, target]) => !SUPPORTED_FS_BINDING.test(target))) return undefined;
   const body = moduleSource.slice(moduleSource.indexOf('export function') + 'export '.length);
   const rules = firestoreRules(`rules_version = '2'; service cloud.firestore {
     match /databases/{db}/documents {
@@ -200,22 +215,65 @@ export function createFirestoreEvaluator(
       match /items/{id} { allow update: if ${fnName}(); }
     }
   }`);
+  const hasAuthBinding = entries.some(([, target]) => target === 'request.auth' || target.startsWith('request.auth.'));
   return (transition: Transition) => {
-    const beforeData =
-      transition.before && typeof transition.before === 'object' ? revivePolicyValue(transition.before) : {};
-    const afterData =
-      transition.after && typeof transition.after === 'object' ? revivePolicyValue(transition.after) : {};
+    const resource: Record<string, unknown> =
+      transition.before && typeof transition.before === 'object' && !Array.isArray(transition.before)
+        ? (revivePolicyValue(transition.before) as Record<string, unknown>)
+        : {};
+    const data: Record<string, unknown> =
+      transition.after && typeof transition.after === 'object' && !Array.isArray(transition.after)
+        ? (revivePolicyValue(transition.after) as Record<string, unknown>)
+        : {};
+    let auth: { uid: string; token?: Record<string, unknown> } | null | undefined;
+    if (hasAuthBinding) {
+      let uid: unknown;
+      let uidPresent = false;
+      const token: Record<string, unknown> = {};
+      let hasToken = false;
+      for (const [policyPath, target] of entries) {
+        if (target === 'request.auth.uid') {
+          const r = readTransitionPath(transition, policyPath);
+          uidPresent = r.present;
+          uid = r.value;
+        } else if (target.startsWith('request.auth.token.')) {
+          const r = readTransitionPath(transition, policyPath);
+          if (r.present) {
+            setNestedPath(token, target.slice('request.auth.token.'.length).split('.'), revivePolicyValue(r.value));
+            hasToken = true;
+          }
+        } else if (target === 'request.auth') {
+          const r = readTransitionPath(transition, policyPath);
+          if (r.present && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
+            const obj = r.value as Record<string, unknown>;
+            if (typeof obj.uid === 'string') {
+              uidPresent = true;
+              uid = obj.uid;
+            }
+          }
+        }
+      }
+      if (uidPresent && uid !== null && typeof uid !== 'string') return undefined;
+      if (typeof uid === 'string') {
+        auth = hasToken ? { uid, token } : { uid };
+      } else if (hasToken) {
+        auth = { uid: '', token };
+      } else {
+        auth = null;
+      }
+    }
     const [row] = rules.simulate([
       {
         description: 'provePolicy',
         method: 'update',
         path: 'items/one',
-        resource: beforeData as Record<string, unknown>,
-        data: afterData as Record<string, unknown>,
+        resource,
+        data,
+        ...(hasAuthBinding ? { auth } : {}),
         expectation: 'ALLOW',
       },
     ]).cases;
-    return row?.decision;
+    return row?.unsupported ? undefined : row?.decision;
   };
 }
 

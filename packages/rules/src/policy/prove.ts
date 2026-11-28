@@ -241,12 +241,26 @@ export function provePolicy(source: string, options: ProvePolicyOptions = {}): P
     }
 
     const runTransition = (t: Transition) => {
-      const interp = normalizeVerdict(policy.judge(t));
-      const stand = standaloneMod?.judge
-        ? normalizeVerdict(standaloneMod.judge(t) as Verdict)
-        : ({ kind: 'eval-error' } as NormalizedOutcome);
-      const fsDecision = fsEval ? fsEval(t) : undefined;
-      const rtdbDecision = rtdbEval ? rtdbEval(t) : undefined;
+      let rawInterp: Verdict | undefined;
+      let interp: NormalizedOutcome;
+      try {
+        rawInterp = policy.judge(t);
+        interp = normalizeVerdict(rawInterp);
+      } catch (e) {
+        interp = normalizeError(e);
+      }
+      let stand: NormalizedOutcome;
+      if (standaloneMod?.judge) {
+        try {
+          stand = normalizeVerdict(standaloneMod.judge(t) as Verdict);
+        } catch (e) {
+          stand = normalizeError(e);
+        }
+      } else {
+        stand = { kind: 'eval-error' };
+      }
+      const fsDecision = fsEval && interp.kind === 'verdict' ? fsEval(t) : undefined;
+      const rtdbDecision = rtdbEval && interp.kind === 'verdict' ? rtdbEval(t) : undefined;
       let parityOk = outcomesEqual(interp, stand);
       if (parityOk && fsDecision && interp.kind === 'verdict') {
         parityOk = (fsDecision === 'ALLOW') === interp.ok;
@@ -254,28 +268,37 @@ export function provePolicy(source: string, options: ProvePolicyOptions = {}): P
       if (parityOk && rtdbDecision && interp.kind === 'verdict') {
         parityOk = (rtdbDecision === 'ALLOW') === interp.ok;
       }
-      return { interp, stand, fsDecision, rtdbDecision, parityOk };
+      return { rawInterp, interp, stand, fsDecision, rtdbDecision, parityOk };
     };
 
     for (const sc of options.scenarios ?? []) {
       const t = sc.transition ?? { before: {}, after: {}, input: {} };
-      const rawVerdict = policy.judge(t);
       const run = runTransition(t);
+      const rawVerdict = run.rawInterp;
       let ok = run.parityOk;
       let mismatch: string | undefined = run.parityOk ? undefined : 'Cross-engine parity divergence';
-      if (ok && sc.expectOk !== undefined && rawVerdict.ok !== sc.expectOk) {
+      if (ok && sc.expectError && rawVerdict !== undefined) {
         ok = false;
-        mismatch = `Expected ok=${sc.expectOk}, got ok=${rawVerdict.ok}`;
+        mismatch = `Expected boundary error, got verdict ok=${rawVerdict.ok}`;
       }
-      if (ok && sc.expectRequirement !== undefined && (rawVerdict.ok || rawVerdict.requirement !== sc.expectRequirement)) {
-        ok = false;
-        mismatch = `Expected requirement=${sc.expectRequirement}`;
+      if (ok && sc.expectOk !== undefined) {
+        const actualOk = rawVerdict ? rawVerdict.ok : false;
+        if (actualOk !== sc.expectOk) {
+          ok = false;
+          mismatch = `Expected ok=${sc.expectOk}, got ${rawVerdict ? `ok=${rawVerdict.ok}` : run.interp.kind}`;
+        }
+      }
+      if (ok && sc.expectRequirement !== undefined) {
+        if (!rawVerdict || rawVerdict.ok || rawVerdict.requirement !== sc.expectRequirement) {
+          ok = false;
+          mismatch = `Expected requirement=${sc.expectRequirement}`;
+        }
       }
       scenarioResults.push({
         name: sc.name,
         ok,
         parityOk: run.parityOk,
-        interpreter: toDiagnosticJsonValue(rawVerdict),
+        interpreter: toDiagnosticJsonValue(rawVerdict ?? run.interp),
         standalone: run.stand,
         ...(run.fsDecision ? { firestore: run.fsDecision } : {}),
         ...(run.rtdbDecision ? { rtdb: run.rtdbDecision } : {}),

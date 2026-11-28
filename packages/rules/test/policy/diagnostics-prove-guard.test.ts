@@ -3,9 +3,11 @@ import {
   compileFunction,
   compilePolicy,
   createPolicyGuard,
+  detectPolicyKind,
   instantiateStandaloneModule,
   jsonBodyExtractor,
   PolicyDeniedError,
+  PolicyPayloadTooLargeError,
   provePolicy,
   type HttpLikeRequest,
   type HttpLikeResponse,
@@ -477,5 +479,96 @@ describe('Phase 3: createPolicyGuard() Web-standard host boundary middleware', (
     const serializedDag = JSON.stringify({ dagVerdict, dagStand });
     expect(performance.now() - t0).toBeLessThan(200);
     expect(serializedDag).toContain('max-nodes');
+  });
+
+  test('pins audit regressions for provePolicy boundaries/auth/kind, guard.derive fidelity, HTTP 413, and standalone trace budget', async () => {
+    // 1. provePolicy catches hostile / over-bound transition scenarios without throwing uncaught
+    const getterObj: Record<string, unknown> = {};
+    Object.defineProperty(getterObj, 's', { enumerable: true, get() { return 'hi'; } });
+    const hostileReport = provePolicy(`transition t { require ok { return after.s == 'hi'; } }`, {
+      scenarios: [
+        { name: 'over-long string', transition: { before: {}, after: { s: 'a'.repeat(5000) }, input: {} }, expectError: true },
+        { name: 'hostile getter', transition: { before: {}, after: getterObj, input: {} }, expectError: true },
+        { name: 'non-plain proto', transition: { before: {}, after: Object.create({ s: 'hi' }), input: {} }, expectOk: false },
+      ],
+      fuzz: { enabled: false },
+    });
+    expect(hostileReport.ok).toBe(true);
+    expect(hostileReport.scenarios.passed).toBe(3);
+
+    // 2. provePolicy populates request.auth.* for Firestore target simulations
+    const ownerPolicy = `
+      transition ownerEdit {
+        require isOwner {
+          return before.owner == input.uid && after.count == before.count + 1;
+        }
+      }
+    `;
+    const authReport = provePolicy(ownerPolicy, {
+      firestore: {
+        'before.owner': 'resource.data.owner',
+        'before.count': 'resource.data.count',
+        'after.count': 'request.resource.data.count',
+        'input.uid': 'request.auth.uid',
+      },
+      scenarios: [
+        { name: 'owner allowed', transition: { before: { owner: 'alice', count: 1 }, after: { count: 2 }, input: { uid: 'alice' } }, expectOk: true },
+        { name: 'non-owner denied', transition: { before: { owner: 'alice', count: 1 }, after: { count: 2 }, input: { uid: 'bob' } }, expectOk: false },
+      ],
+      fuzz: { seed: 7, cases: 40 },
+    });
+    expect(authReport.ok).toBe(true);
+    expect(authReport.scenarios.results[0]?.firestore).toBe('ALLOW');
+    expect(authReport.scenarios.results[1]?.firestore).toBe('DENY');
+
+    // 3. guard.derive() preserves full strings (>512), arrays (>64), and -0 without diagnostic truncation
+    const richPolicy = `
+      use extension derive;
+      transition rich {
+        derive { return {'text': input.text, 'negZero': -0.0, 'items': input.items}; }
+        require ok { return after.ok == true; }
+      }
+    `;
+    const richInterp = createPolicyGuard(richPolicy, { engine: 'interpreter' });
+    const richStand = createPolicyGuard(richPolicy, { engine: 'standalone' });
+    const bigInput = { text: 'x'.repeat(600), items: Array.from({ length: 70 }, (_, i) => i) };
+    for (const g of [richInterp, richStand]) {
+      const out = g.derive({ before: {}, input: bigInput }) as { text: string; negZero: number; items: number[] };
+      expect(out.text.length).toBe(600);
+      expect(Object.is(out.negZero, -0)).toBe(true);
+      expect(out.items.length).toBe(70);
+    }
+
+    // 4. wrapHttpHandler maps PolicyPayloadTooLargeError to 413 POLICY_PAYLOAD_TOO_LARGE
+    let status413 = 0;
+    let body413: unknown;
+    const h413 = richStand.wrapHttpHandler(
+      () => { throw new PolicyPayloadTooLargeError(1024); },
+      (_req, res) => { res.status(200).json!({ ok: true }); },
+    );
+    await h413(
+      { method: 'POST' },
+      { status(c: number) { status413 = c; return this; }, json(b: unknown) { body413 = b; } },
+    );
+    expect(status413).toBe(413);
+    expect((body413 as { error: string }).error).toBe('POLICY_PAYLOAD_TOO_LARGE');
+
+    // 5. standaloneModule().judge().trace populates expressionUnitsUsed and expressionLimit
+    const standDeny = richStand.check({ before: {}, after: { ok: false }, input: { text: 'a', items: [] } });
+    expect(standDeny.ok).toBe(false);
+    if (!standDeny.ok) {
+      expect(standDeny.trace?.expressionUnitsUsed).toBeGreaterThan(0);
+      expect(standDeny.trace?.expressionLimit).toBe(8192);
+    }
+
+    // 6. detectPolicyKind ignores 'transition foo {' inside strings and comments
+    expect(detectPolicyKind('function check(s) { return s == "a transition fake {"; }')).toBe('function');
+    expect(detectPolicyKind('// transition fake {\nfunction check(x) { return x > 0; }')).toBe('function');
+    const fnStrReport = provePolicy('function check(s) { return s == "a transition fake {"; }', {
+      scenarios: [{ name: 'matches literal', args: ['a transition fake {'], expectValue: true }],
+      fuzz: { enabled: false },
+    });
+    expect(fnStrReport.ok).toBe(true);
+    expect(fnStrReport.kind).toBe('function');
   });
 });

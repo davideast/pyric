@@ -3,6 +3,12 @@
 // with zero Node-only imports, supporting Fetch / Next.js Route Handlers, Cloud Functions HTTP
 // handlers, and client-side optimistic checks.
 import type { StandaloneModuleResult } from './bounded-module.js';
+import { FirestoreSet } from '../simulator/firestore-set.js';
+import { isRulesMap } from '../simulator/rules-type.js';
+import { Bytes } from '../simulator/wrappers/bytes.js';
+import { Duration } from '../simulator/wrappers/duration.js';
+import { RulesFloat } from '../simulator/wrappers/float.js';
+import { Timestamp } from '../simulator/wrappers/timestamp.js';
 import { toDiagnosticJsonValue, type PolicyFailureTrace } from './diagnostics.js';
 import { compilePolicy, type Transition, type Verdict } from './index.js';
 import { instantiateStandaloneModule } from './prove-helpers.js';
@@ -296,9 +302,35 @@ export function createPolicyGuard<TContext = unknown>(
     return compiled.judge(transition);
   };
 
+function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = { nodes: 0 }): unknown {
+  if (++st.nodes > 16384 || depth > 64) throw new Error('Derived output depth or node bound exceeded');
+  if (typeof value === 'bigint') {
+    return value >= -9007199254740991n && value <= 9007199254740991n ? Number(value) : value;
+  }
+  if (value instanceof RulesFloat) return value.value;
+  if (value instanceof Bytes) return new Uint8Array(value.data);
+  if (value instanceof Timestamp) return { __type: 'timestamp', seconds: value.seconds, nanos: value.nanos };
+  if (value instanceof Duration) return { __type: 'duration', seconds: value.seconds, nanos: value.nanos };
+  if (value instanceof FirestoreSet) return value.toArray().map((v) => unwrapDerivedValue(v, depth + 1, st));
+  if (Array.isArray(value)) return value.map((v) => unwrapDerivedValue(v, depth + 1, st));
+  if (isRulesMap(value)) {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value)) {
+      Object.defineProperty(out, key, {
+        value: unwrapDerivedValue(value[key], depth + 1, st),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
+  }
+  return value;
+}
+
   const derive = (start: Pick<Transition, 'before' | 'input'>): Record<string, unknown> => {
-    const raw = standalone?.derive ? standalone.derive(start) : compiled.derive(start);
-    return toDiagnosticJsonValue(raw) as Record<string, unknown>;
+    if (standalone?.derive) return standalone.derive(start) as Record<string, unknown>;
+    return unwrapDerivedValue(compiled.derive(start)) as Record<string, unknown>;
   };
 
   const assertTransition = (transition: Transition): void => {
@@ -391,10 +423,14 @@ export function createPolicyGuard<TContext = unknown>(
         try {
           transition = await extract(req);
         } catch (error) {
+          const isTooLarge = error instanceof PolicyPayloadTooLargeError;
           sendHttpJson(
             res,
-            badRequestStatus,
-            { error: 'POLICY_BAD_REQUEST', reason: error instanceof Error ? error.message : String(error) },
+            isTooLarge ? payloadTooLargeStatus : badRequestStatus,
+            {
+              error: isTooLarge ? 'POLICY_PAYLOAD_TOO_LARGE' : 'POLICY_BAD_REQUEST',
+              reason: error instanceof Error ? error.message : String(error),
+            },
             digestHeader,
           );
           return;

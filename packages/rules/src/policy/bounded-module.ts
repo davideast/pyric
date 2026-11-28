@@ -282,7 +282,7 @@ function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; expo
     }
     const deriveSpread = checked.usesDerived.has(rule.name) ? '...deriveBindings, ' : '';
     const mkTrace = (outcome: string, fatal: boolean, errExpr: string) =>
-      `{ requirement: ${JSON.stringify(rule.name)}, span: ${spanObj}, source: ${JSON.stringify(rule.source)}, outcome: ${JSON.stringify(outcome)}, fatal: ${fatal}, bindings: [${deriveSpread}...reqBindings], failingSubExpression: { source: ${JSON.stringify(rule.source)}, kind: ${JSON.stringify(rule.condition.type)}, ${errExpr} } }`;
+      `{ requirement: ${JSON.stringify(rule.name)}, span: ${spanObj}, source: ${JSON.stringify(rule.source)}, outcome: ${JSON.stringify(outcome)}, fatal: ${fatal}, bindings: [${deriveSpread}...reqBindings], failingSubExpression: { source: ${JSON.stringify(rule.source)}, kind: ${JSON.stringify(rule.condition.type)}, ${errExpr} }, expressionUnitsUsed: $.used(), expressionLimit: ${budget} }`;
     const condCode = emitExpr(rule.condition, scope, state);
     stmts.unshift(`      $.tick(${state.cost});`);
     stmts.push(`      const ok = $.read(${condCode});`);
