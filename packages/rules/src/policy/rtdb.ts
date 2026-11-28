@@ -1,8 +1,8 @@
 // Unified RTDB lowering target for pure policy functions and transitions.
 // Unifies numeric predicates, exact safe-integer increments, and general
 // numeric/boolean/string/null comparisons over data/newData snapshots.
-// Uses dual-polarity local guards to preserve CEL short-circuiting and prevent
-// fail-open negation or runtime-error drift under RTDB's 2-valued semantics.
+// Uses Kleene dual-polarity local guards and safe-int arithmetic bounds to
+// preserve CEL short-circuiting and prevent fail-open negation or overflow drift.
 import type { Expression, FunctionDef } from '../grammar/FirestoreAST.js';
 import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../rtdb/grammar/expression-tree.js';
 import { validateExpression as validateRtdbExpression } from '../rtdb/grammar/validator.js';
@@ -44,12 +44,21 @@ interface RtdbTerm {
   readonly snapshotNode?: string;
   readonly isRootBinding?: boolean;
   readonly typedLeaf?: boolean;
+  readonly pureWhenGuarded?: boolean;
+  readonly numVal?: number;
+  readonly arith?: { readonly op: '+' | '-' | '*' | '?:'; readonly a: RtdbTerm; readonly b: RtdbTerm; readonly cond?: string };
+}
+
+interface LetEntry {
+  readonly expr: Expression;
+  readonly env: ReadonlyMap<string, LetEntry>;
 }
 
 const KEY_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_MAX_LENGTH = 16384;
 const SAFE_INT_MAX = 9007199254740991;
 const SAFE_INT_MIN = -9007199254740991;
+const INLINE_BOUND_MAX_CHARS = 80;
 
 function normalizeBinding(binding: RtdbBinding): RtdbSnapshotBinding | undefined {
   if (binding === 'data' || binding === 'newData') return { snapshot: binding };
@@ -85,13 +94,11 @@ function guardPrefix(guards: readonly string[]): string {
 }
 
 function withGuards(term: RtdbTerm): string {
-  if (!term.guards.length) return term.text;
-  return '(' + [...term.guards, term.text].join(' && ') + ')';
+  return term.guards.length ? '(' + [...term.guards, term.text].join(' && ') + ')' : term.text;
 }
 
 function safeStringLiteral(value: string): string | undefined {
-  if (/[\r\n\u2028\u2029]/.test(value)) return undefined;
-  return JSON.stringify(value);
+  return /[\r\n\u2028\u2029]/.test(value) ? undefined : JSON.stringify(value);
 }
 
 function integerCheck(nodeExpr: string, min = SAFE_INT_MIN, max = SAFE_INT_MAX): string {
@@ -107,12 +114,35 @@ function flip(pol: Polarity): Polarity {
 }
 
 function negateCmp(op: '<' | '<=' | '>' | '>='): '<' | '<=' | '>' | '>=' {
-  switch (op) {
-    case '<': return '>=';
-    case '<=': return '>';
-    case '>': return '<=';
-    case '>=': return '<';
+  return op === '<' ? '>=' : op === '<=' ? '>' : op === '>' ? '<=' : '<';
+}
+
+function nonZeroConstantNumber(expr: Expression): number | undefined {
+  if (expr.type === 'literal' && typeof expr.value === 'number' && Number.isFinite(expr.value) && expr.value !== 0) {
+    return expr.value;
   }
+  if (expr.type === 'unaryOp' && expr.op === '-') {
+    const inner = nonZeroConstantNumber(expr.operand);
+    return inner !== undefined ? -inner : undefined;
+  }
+  return undefined;
+}
+
+function isDefinitelyBoolean(expr: Expression, letEnv: ReadonlyMap<string, LetEntry>): boolean {
+  if (expr.type === 'literal') return typeof expr.value === 'boolean';
+  if (expr.type === 'unaryOp') return expr.op === '!';
+  if (expr.type === 'isExpr') return true;
+  if (expr.type === 'binaryOp') {
+    return ['&&', '||', '==', '!=', '<', '<=', '>', '>='].includes(expr.op);
+  }
+  if (expr.type === 'ternary') {
+    return isDefinitelyBoolean(expr.consequent, letEnv) && isDefinitelyBoolean(expr.alternate, letEnv);
+  }
+  if (expr.type === 'identifier') {
+    const entry = letEnv.get(expr.name);
+    return entry ? isDefinitelyBoolean(entry.expr, entry.env) : false;
+  }
+  return false;
 }
 
 function inferLiteralKind(expr: Expression): 'number' | 'string' | 'boolean' | undefined {
@@ -126,6 +156,28 @@ function inferLiteralKind(expr: Expression): 'number' | 'string' | 'boolean' | u
   return undefined;
 }
 
+function boundTerm(term: RtdbTerm, limit: number): string[] {
+  if (term.numVal !== undefined) return Math.abs(term.numVal) <= limit ? [] : ['false'];
+  if (term.text.length <= INLINE_BOUND_MAX_CHARS || !term.arith) {
+    return [`(${term.text} >= ${-limit} && ${term.text} <= ${limit})`];
+  }
+  if (term.arith.op === '?:') {
+    const yb = boundTerm(term.arith.a, limit);
+    const nb = boundTerm(term.arith.b, limit);
+    if (!yb.length && !nb.length) return [];
+    const y = yb.length ? guardPrefix(yb) : 'true';
+    const n = nb.length ? guardPrefix(nb) : 'true';
+    return [`(${term.arith.cond!} ? ${y} : ${n})`];
+  }
+  const childLimit = term.arith.op === '*' ? Math.floor(Math.sqrt(limit)) : Math.floor(limit / 2);
+  if (childLimit < 1) return [`(${term.text} >= ${-limit} && ${term.text} <= ${limit})`];
+  return mergeGuards(boundTerm(term.arith.a, childLimit), boundTerm(term.arith.b, childLimit));
+}
+
+function sameGuards(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((g, i) => g === b[i]);
+}
+
 export function lowerRtdbExpression(
   expr: Expression,
   bindings: RtdbBindings,
@@ -135,93 +187,58 @@ export function lowerRtdbExpression(
   const maxLength = options.maxLength ?? DEFAULT_MAX_LENGTH;
   const defaultLeafType = options.defaultLeafType ?? 'any';
   const checkTiming = options.checkTiming ?? false;
-
   const normalized = new Map<string, RtdbSnapshotBinding>();
   const problems = new Set<string>();
   const inputs = new Set<string>();
   const features = new Set<string>();
-
   for (const [key, raw] of Object.entries(bindings)) {
     const parsed = normalizeBinding(raw);
-    if (!parsed) {
-      problems.add('Invalid RTDB snapshot binding for ' + key);
-      continue;
-    }
-    normalized.set(key, parsed);
+    if (!parsed) problems.add('Invalid RTDB snapshot binding for ' + key);
+    else normalized.set(key, parsed);
   }
-
   function checkLength(text: string): string {
     if (text.length > maxLength) throw new Error('RTDB predicate exceeds emission limit');
     return text;
   }
-
   function makeTerm(
     text: string,
     kind: ValueKind,
     guards: readonly string[] = [],
-    extra?: Pick<RtdbTerm, 'snapshotNode' | 'isRootBinding' | 'typedLeaf'>,
+    extra?: Omit<RtdbTerm, 'text' | 'kind' | 'guards'>,
   ): RtdbTerm {
-    checkLength(text);
-    let guardChars = 0;
-    for (const g of guards) guardChars += g.length + 4;
-    if (text.length + guardChars > maxLength) throw new Error('RTDB predicate exceeds emission limit');
+    let total = checkLength(text).length;
+    for (const g of guards) total += g.length + 4;
+    if (total > maxLength) throw new Error('RTDB predicate exceeds emission limit');
     return { text, kind, guards, ...extra };
   }
-
   function resolveSnapshot(path: string): RtdbTerm | undefined {
     const exact = normalized.get(path);
     let binding = exact;
     let remaining: string[] = [];
-    let isRootBinding = false;
-    if (exact) {
-      isRootBinding = true;
-    } else {
+    const isRootBinding = Boolean(exact);
+    if (!exact) {
       const parts = path.split('.');
       for (let i = parts.length - 1; i >= 1; i--) {
-        const prefix = parts.slice(0, i).join('.');
-        const found = normalized.get(prefix);
-        if (found) {
-          binding = found;
-          remaining = parts.slice(i);
-          break;
-        }
+        const found = normalized.get(parts.slice(0, i).join('.'));
+        if (found) { binding = found; remaining = parts.slice(i); break; }
       }
     }
-    if (!binding) {
-      problems.add('Missing binding: ' + path);
-      return undefined;
-    }
+    if (!binding) { problems.add('Missing binding: ' + path); return undefined; }
     if (checkTiming) {
       const root = path.split('.')[0];
-      if ((root === 'before' && binding.snapshot !== 'data') ||
-          (root === 'after' && binding.snapshot !== 'newData')) {
+      if ((root === 'before' && binding.snapshot !== 'data') || (root === 'after' && binding.snapshot !== 'newData')) {
         problems.add('Wrong snapshot: ' + path + ' bound to ' + binding.snapshot);
         return undefined;
       }
     }
-    if (!remaining.every((k) => KEY_SEGMENT.test(k))) {
-      problems.add('Unsupported RTDB field ' + path);
-      return undefined;
-    }
+    if (!remaining.every((k) => KEY_SEGMENT.test(k))) { problems.add('Unsupported RTDB field ' + path); return undefined; }
     const childPath = [binding.path, ...remaining].filter(Boolean).join('/');
-    const nodeExpr = binding.snapshot
-      + (binding.parent ? '.parent()' : '')
-      + (childPath ? '.child(' + JSON.stringify(childPath) + ')' : '');
+    const nodeExpr = binding.snapshot + (binding.parent ? '.parent()' : '') + (childPath ? '.child(' + JSON.stringify(childPath) + ')' : '');
     const hint = binding.type ?? defaultLeafType;
-    if (hint === 'number') {
-      return makeTerm(nodeExpr + '.val()', 'number', [nodeExpr + '.isNumber()'], {
-        snapshotNode: nodeExpr, isRootBinding, typedLeaf: true,
-      });
-    }
-    if (hint === 'string') {
-      return makeTerm(nodeExpr + '.val()', 'string', [nodeExpr + '.isString()'], {
-        snapshotNode: nodeExpr, isRootBinding, typedLeaf: true,
-      });
-    }
-    if (hint === 'boolean') {
-      return makeTerm('(' + nodeExpr + '.val() == true)', 'boolean', [nodeExpr + '.isBoolean()'], {
-        snapshotNode: nodeExpr, isRootBinding, typedLeaf: true,
-      });
+    if (hint === 'number' || hint === 'string' || hint === 'boolean') {
+      const method = hint === 'number' ? '.isNumber()' : hint === 'string' ? '.isString()' : '.isBoolean()';
+      const text = hint === 'boolean' ? '(' + nodeExpr + '.val() == true)' : nodeExpr + '.val()';
+      return makeTerm(text, hint, [nodeExpr + method], { snapshotNode: nodeExpr, isRootBinding, typedLeaf: true, pureWhenGuarded: true });
     }
     return makeTerm(nodeExpr + '.val()', 'unknown', [], { snapshotNode: nodeExpr, isRootBinding, typedLeaf: false });
   }
@@ -232,32 +249,49 @@ export function lowerRtdbExpression(
       const check = kind === 'number' ? '.isNumber()' : kind === 'string' ? '.isString()' : '.isBoolean()';
       const text = kind === 'boolean' ? '(' + term.snapshotNode + '.val() == true)' : term.snapshotNode + '.val()';
       return makeTerm(text, kind, mergeGuards(term.guards, [term.snapshotNode + check]), {
-        snapshotNode: term.snapshotNode, isRootBinding: term.isRootBinding, typedLeaf: true,
+        snapshotNode: term.snapshotNode, isRootBinding: term.isRootBinding, typedLeaf: true, pureWhenGuarded: true,
       });
     }
     return undefined;
   }
 
-  const locals = new Map<string, RtdbTerm>();
+  const rootEnv = new Map<string, LetEntry>();
+  const boolCache = new Map<LetEntry, Partial<Record<Polarity, RtdbTerm>>>();
 
-  function emitValue(node: Expression, expectedKind?: 'number' | 'string' | 'boolean'): RtdbTerm {
+  function emitUntypedScalarEq(snap: RtdbTerm, scalar: RtdbTerm, effectivePol: Polarity, snapOnLeft: boolean): RtdbTerm {
+    if (effectivePol === 'pos') {
+      const typed = narrow(snap, scalar.kind as 'number' | 'string' | 'boolean')!;
+      const text = snapOnLeft ? `(${typed.text} == ${scalar.text})` : `(${scalar.text} == ${typed.text})`;
+      return makeTerm(text, 'boolean', mergeGuards(typed.guards, scalar.guards), { pureWhenGuarded: true });
+    }
+    const existGuard = snap.isRootBinding ? [] : [snap.snapshotNode + '.exists()'];
+    const snapVal = snap.snapshotNode + '.val()';
+    const text = snapOnLeft ? `(${snapVal} != ${scalar.text})` : `(${scalar.text} != ${snapVal})`;
+    return makeTerm(text, 'boolean', mergeGuards(existGuard, scalar.guards), { pureWhenGuarded: true });
+  }
+
+  function emitValue(
+    node: Expression,
+    expectedKind?: 'number' | 'string' | 'boolean',
+    env: ReadonlyMap<string, LetEntry> = rootEnv,
+  ): RtdbTerm {
     const path = field(node);
     if (path) {
-      const local = locals.get(path);
-      if (local) return expectedKind ? (narrow(local, expectedKind) ?? local) : local;
+      const local = env.get(path);
+      if (local) return emitValue(local.expr, expectedKind, local.env);
       inputs.add(path);
       const resolved = resolveSnapshot(path);
       if (!resolved) throw new Error('Unbound RTDB field ' + path);
       return expectedKind ? (narrow(resolved, expectedKind) ?? resolved) : resolved;
     }
     if (node.type === 'literal') {
-      if (typeof node.value === 'boolean') return makeTerm(String(node.value), 'boolean');
+      if (typeof node.value === 'boolean') return makeTerm(String(node.value), 'boolean', [], { pureWhenGuarded: true });
       if (node.value === null) return makeTerm('null', 'null');
       if (typeof node.value === 'number') {
         if (!Number.isFinite(node.value) || Object.is(node.value, -0) || Math.abs(node.value) > SAFE_INT_MAX) {
           throw new Error('Unsupported RTDB numeric literal: ' + node.raw);
         }
-        return makeTerm(String(node.value), 'number');
+        return makeTerm(String(node.value), 'number', [], { numVal: node.value });
       }
       if (typeof node.value === 'string') {
         const encoded = safeStringLiteral(node.value);
@@ -269,15 +303,18 @@ export function lowerRtdbExpression(
     if (node.type === 'unaryOp') {
       features.add(node.op);
       if (node.op === '-') {
-        const inner = narrow(emitValue(node.operand), 'number');
+        const inner = narrow(emitValue(node.operand, 'number', env), 'number');
         if (!inner) throw new Error('Unsupported RTDB unary - operand');
-        return makeTerm('(-' + inner.text + ')', 'number', inner.guards);
+        return makeTerm('(-' + inner.text + ')', 'number', inner.guards, {
+          numVal: inner.numVal !== undefined ? -inner.numVal : undefined,
+          arith: inner.arith,
+        });
       }
-      if (node.op === '!') return emitBool(node, 'pos');
+      if (node.op === '!') return emitBool(node, 'pos', env);
     }
     if (node.type === 'methodCall') {
       if (node.method === 'size' && node.args.length === 0) {
-        const recv = narrow(emitValue(node.object), 'string');
+        const recv = narrow(emitValue(node.object, 'string', env), 'string');
         if (!recv) throw new Error('RTDB .size() requires a string receiver');
         features.add('string.length');
         return makeTerm('(' + recv.text + '.length)', 'number', recv.guards);
@@ -286,108 +323,118 @@ export function lowerRtdbExpression(
     }
     if (node.type === 'binaryOp') {
       features.add(node.op);
-      if (node.op === '&&' || node.op === '||' || node.op === '==' || node.op === '!=' ||
-          node.op === '<' || node.op === '<=' || node.op === '>' || node.op === '>=') {
-        return emitBool(node, 'pos');
+      if (['&&', '||', '==', '!=', '<', '<=', '>', '>='].includes(node.op)) {
+        return emitBool(node, 'pos', env);
       }
       if (node.op === '+' || node.op === '-' || node.op === '*' || node.op === '%') {
         const hintKind = node.op === '+'
           ? (expectedKind ?? inferLiteralKind(node.left) ?? inferLiteralKind(node.right))
           : 'number';
-        const rawLeft = emitValue(node.left, hintKind);
-        const rawRight = emitValue(node.right, hintKind);
+        const rawLeft = emitValue(node.left, hintKind, env);
+        const rawRight = emitValue(node.right, hintKind, env);
         if (node.op === '+' && (rawLeft.kind === 'string' || rawRight.kind === 'string')) {
-          const l = narrow(rawLeft, 'string') ?? narrow(emitValue(node.left, 'string'), 'string');
-          const r = narrow(rawRight, 'string') ?? narrow(emitValue(node.right, 'string'), 'string');
+          const l = narrow(rawLeft, 'string') ?? narrow(emitValue(node.left, 'string', env), 'string');
+          const r = narrow(rawRight, 'string') ?? narrow(emitValue(node.right, 'string', env), 'string');
           if (!l || !r) throw new Error('RTDB + cannot mix string and non-string');
           return makeTerm('(' + l.text + ' + ' + r.text + ')', 'string', mergeGuards(l.guards, r.guards));
         }
-        const l = narrow(rawLeft, 'number') ?? narrow(emitValue(node.left, 'number'), 'number');
-        const r = narrow(rawRight, 'number') ?? narrow(emitValue(node.right, 'number'), 'number');
+        const l = narrow(rawLeft, 'number') ?? narrow(emitValue(node.left, 'number', env), 'number');
+        const r = narrow(rawRight, 'number') ?? narrow(emitValue(node.right, 'number', env), 'number');
         if (!l || !r) throw new Error('Unsupported RTDB arithmetic operands for ' + node.op);
         if (node.op === '%') {
-          // Guard against division-by-zero producing NaN in RTDB.
-          const extra = node.right.type === 'literal' && typeof node.right.value === 'number' && node.right.value !== 0
-            ? []
-            : ['(' + r.text + ' != 0)'];
-          return makeTerm('(' + l.text + ' % ' + r.text + ')', 'number', mergeGuards(l.guards, r.guards, extra));
+          if (nonZeroConstantNumber(node.right) === undefined) {
+            throw new Error('RTDB % requires a non-zero constant divisor');
+          }
+          return makeTerm('(' + l.text + ' % ' + r.text + ')', 'number', mergeGuards(l.guards, r.guards));
         }
-        return makeTerm('(' + l.text + ' ' + node.op + ' ' + r.text + ')', 'number', mergeGuards(l.guards, r.guards));
+        const exprText = '(' + l.text + ' ' + node.op + ' ' + r.text + ')';
+        const arith = { op: node.op, a: l, b: r } as const;
+        const rawNumVal = l.numVal !== undefined && r.numVal !== undefined
+          ? (node.op === '+' ? l.numVal + r.numVal : node.op === '-' ? l.numVal - r.numVal : l.numVal * r.numVal)
+          : undefined;
+        const candidate: RtdbTerm = { text: exprText, kind: 'number', guards: [], arith, numVal: rawNumVal };
+        const rangeGuard = boundTerm(candidate, SAFE_INT_MAX);
+        return makeTerm(exprText, 'number', mergeGuards(l.guards, r.guards, rangeGuard), { arith, numVal: rawNumVal });
       }
       throw new Error('Unsupported RTDB binary operator: ' + node.op);
     }
-    if (node.type === 'isExpr') return emitBool(node, 'pos');
+    if (node.type === 'isExpr') return emitBool(node, 'pos', env);
     if (node.type === 'ternary') {
       features.add('conditional');
-      const condPos = emitBool(node.condition, 'pos');
-      const condNeg = emitBool(node.condition, 'neg');
-      const yes = emitValue(node.consequent, expectedKind);
-      const no = emitValue(node.alternate, expectedKind);
-      if (yes.kind === 'boolean' && no.kind === 'boolean') return emitBool(node, 'pos');
-      let resolvedYes = yes;
-      let resolvedNo = no;
+      const condPos = emitBool(node.condition, 'pos', env);
+      const condNeg = emitBool(node.condition, 'neg', env);
+      let yes = emitValue(node.consequent, expectedKind, env);
+      let no = emitValue(node.alternate, expectedKind, env);
+      if (yes.kind === 'boolean' && no.kind === 'boolean') return emitBool(node, 'pos', env);
       if (yes.kind === 'unknown' && (no.kind === 'number' || no.kind === 'string')) {
-        resolvedYes = emitValue(node.consequent, no.kind);
+        yes = emitValue(node.consequent, no.kind, env);
       } else if (no.kind === 'unknown' && (yes.kind === 'number' || yes.kind === 'string')) {
-        resolvedNo = emitValue(node.alternate, yes.kind);
+        no = emitValue(node.alternate, yes.kind, env);
       }
-      if (resolvedYes.kind !== resolvedNo.kind ||
-          (resolvedYes.kind !== 'number' && resolvedYes.kind !== 'string')) {
+      if (yes.kind !== no.kind || (yes.kind !== 'number' && yes.kind !== 'string')) {
         throw new Error('Unsupported RTDB ternary value types');
       }
-      const condVal = withGuards(condPos);
-      const condValid = '(' + condVal + ' || ' + withGuards(condNeg) + ')';
-      const yesGuard = resolvedYes.guards.length ? guardPrefix(resolvedYes.guards) : 'true';
-      const noGuard = resolvedNo.guards.length ? guardPrefix(resolvedNo.guards) : 'true';
+      const pureCond = Boolean(condPos.pureWhenGuarded && condNeg.pureWhenGuarded && sameGuards(condPos.guards, condNeg.guards));
+      const condTest = pureCond ? condPos.text : withGuards(condPos);
+      const condGuards = pureCond ? condPos.guards : ['(' + condTest + ' || ' + withGuards(condNeg) + ')'];
+      const yesGuard = yes.guards.length ? guardPrefix(yes.guards) : 'true';
+      const noGuard = no.guards.length ? guardPrefix(no.guards) : 'true';
       const branchGuard = yesGuard === 'true' && noGuard === 'true'
         ? []
-        : ['(' + condVal + ' ? ' + yesGuard + ' : ' + noGuard + ')'];
-      const guards = mergeGuards([condValid], branchGuard);
-      return makeTerm('(' + condVal + ' ? ' + resolvedYes.text + ' : ' + resolvedNo.text + ')', resolvedYes.kind, guards);
+        : ['(' + condTest + ' ? ' + yesGuard + ' : ' + noGuard + ')'];
+      return makeTerm(
+        '(' + condTest + ' ? ' + yes.text + ' : ' + no.text + ')',
+        yes.kind,
+        mergeGuards(condGuards, branchGuard),
+        yes.kind === 'number' ? { arith: { op: '?:', a: yes, b: no, cond: condTest } } : undefined,
+      );
     }
     throw new Error('Unsupported RTDB expression: ' + node.type);
   }
 
-  function emitBool(node: Expression, pol: Polarity): RtdbTerm {
+  function emitBool(node: Expression, pol: Polarity, env: ReadonlyMap<string, LetEntry> = rootEnv): RtdbTerm {
+    if (node.type === 'identifier') {
+      const local = env.get(node.name);
+      if (local) {
+        let cached = boolCache.get(local);
+        if (!cached) { cached = {}; boolCache.set(local, cached); }
+        if (!cached[pol]) cached[pol] = emitBool(local.expr, pol, local.env);
+        return cached[pol]!;
+      }
+    }
     if (node.type === 'literal' && typeof node.value === 'boolean') {
-      return makeTerm(String(pol === 'pos' ? node.value : !node.value), 'boolean');
+      return makeTerm(String(pol === 'pos' ? node.value : !node.value), 'boolean', [], { pureWhenGuarded: true });
     }
     if (node.type === 'unaryOp' && node.op === '!') {
       features.add('!');
-      return emitBool(node.operand, flip(pol));
+      return emitBool(node.operand, flip(pol), env);
     }
     if (node.type === 'binaryOp' && (node.op === '&&' || node.op === '||')) {
       features.add(node.op);
       const emitAnd = (node.op === '&&' && pol === 'pos') || (node.op === '||' && pol === 'neg');
-      const l = withGuards(emitBool(node.left, pol));
-      const r = withGuards(emitBool(node.right, pol));
+      const l = withGuards(emitBool(node.left, pol, env));
+      const r = withGuards(emitBool(node.right, pol, env));
       return makeTerm('(' + l + (emitAnd ? ' && ' : ' || ') + r + ')', 'boolean');
     }
     if (node.type === 'ternary') {
       features.add('conditional');
-      const cPos = withGuards(emitBool(node.condition, 'pos'));
-      const cNeg = withGuards(emitBool(node.condition, 'neg'));
-      const tRes = withGuards(emitBool(node.consequent, pol));
-      const fRes = withGuards(emitBool(node.alternate, pol));
+      const cPos = withGuards(emitBool(node.condition, 'pos', env));
+      const cNeg = withGuards(emitBool(node.condition, 'neg', env));
+      const tRes = withGuards(emitBool(node.consequent, pol, env));
+      const fRes = withGuards(emitBool(node.alternate, pol, env));
       return makeTerm('(' + cPos + ' ? ' + tRes + ' : (' + cNeg + ' && ' + fRes + '))', 'boolean');
     }
     if (node.type === 'isExpr') {
       features.add('is ' + node.typeName);
-      const inner = emitValue(node.value);
+      const inner = emitValue(node.value, undefined, env);
       if (inner.snapshotNode) {
         const n = inner.snapshotNode;
-        if (node.typeName === 'int') {
-          const pred = integerCheck(n);
+        if (node.typeName === 'int' || node.typeName === 'number' || node.typeName === 'string' || node.typeName === 'bool') {
+          const pred = node.typeName === 'int' ? integerCheck(n)
+            : n + (node.typeName === 'number' ? '.isNumber()' : node.typeName === 'string' ? '.isString()' : '.isBoolean()');
           if (pol === 'pos') return makeTerm(pred, 'boolean');
-          if (!inner.isRootBinding) throw new Error('Negated is int on child snapshot is unsound for missing vs null');
-          return makeTerm('(!' + pred + ')', 'boolean');
-        }
-        if (node.typeName === 'number' || node.typeName === 'string' || node.typeName === 'bool') {
-          const method = node.typeName === 'number' ? '.isNumber()'
-            : node.typeName === 'string' ? '.isString()' : '.isBoolean()';
-          if (pol === 'pos') return makeTerm(n + method, 'boolean');
           if (!inner.isRootBinding) throw new Error('Negated is ' + node.typeName + ' on child snapshot is unsound for missing vs null');
-          return makeTerm('(!' + n + method + ')', 'boolean');
+          return makeTerm('(!' + pred + ')', 'boolean');
         }
         if (node.typeName === 'null') {
           if (!inner.isRootBinding) throw new Error('is null on child snapshot cannot distinguish missing key from null');
@@ -395,14 +442,9 @@ export function lowerRtdbExpression(
         }
         throw new Error('Unsupported RTDB type test: is ' + node.typeName);
       }
-      if (node.typeName === 'number' && inner.kind === 'number') {
-        return makeTerm(String(pol === 'pos'), 'boolean', inner.guards);
-      }
-      if (node.typeName === 'string' && inner.kind === 'string') {
-        return makeTerm(String(pol === 'pos'), 'boolean', inner.guards);
-      }
-      if (node.typeName === 'bool' && inner.kind === 'boolean') {
-        return makeTerm(String(pol === 'pos'), 'boolean', inner.guards);
+      const mapped = node.typeName === 'bool' ? 'boolean' : node.typeName;
+      if (inner.kind === mapped && (mapped === 'number' || mapped === 'string' || mapped === 'boolean')) {
+        return makeTerm(String(pol === 'pos'), 'boolean', inner.guards, { pureWhenGuarded: true });
       }
       throw new Error('Unsupported RTDB type test: is ' + node.typeName);
     }
@@ -410,89 +452,110 @@ export function lowerRtdbExpression(
       features.add(node.op);
       const op = pol === 'pos' ? node.op : negateCmp(node.op);
       const hint = inferLiteralKind(node.left) ?? inferLiteralKind(node.right);
-      const rawL = emitValue(node.left, hint === 'string' || hint === 'number' ? hint : undefined);
-      const rawR = emitValue(node.right, hint === 'string' || hint === 'number' ? hint : undefined);
+      const rawL = emitValue(node.left, hint === 'string' || hint === 'number' ? hint : undefined, env);
+      const rawR = emitValue(node.right, hint === 'string' || hint === 'number' ? hint : undefined, env);
       if (rawL.kind === 'unknown' && rawR.kind === 'unknown' && rawL.snapshotNode && rawR.snapshotNode) {
         const a = rawL.snapshotNode;
         const b = rawR.snapshotNode;
-        const numBranch = `(${a}.isNumber() && ${b}.isNumber() && (${a}.val() ${op} ${b}.val()))`;
-        const strBranch = `(${a}.isString() && ${b}.isString() && (${a}.val() ${op} ${b}.val()))`;
-        return makeTerm(`(${numBranch} || ${strBranch})`, 'boolean');
+        return makeTerm(
+          `((${a}.isNumber() && ${b}.isNumber() && (${a}.val() ${op} ${b}.val())) || (${a}.isString() && ${b}.isString() && (${a}.val() ${op} ${b}.val())))`,
+          'boolean',
+        );
       }
       const targetKind = rawL.kind === 'string' || rawR.kind === 'string' ? 'string' : 'number';
       const l = narrow(rawL, targetKind);
       const r = narrow(rawR, targetKind);
       if (!l || !r) throw new Error('Unsupported RTDB ordering operands for ' + node.op);
-      return makeTerm('(' + l.text + ' ' + op + ' ' + r.text + ')', 'boolean', mergeGuards(l.guards, r.guards));
+      return makeTerm('(' + l.text + ' ' + op + ' ' + r.text + ')', 'boolean', mergeGuards(l.guards, r.guards), { pureWhenGuarded: true });
     }
     if (node.type === 'binaryOp' && (node.op === '==' || node.op === '!=')) {
       features.add(node.op);
       const effectivePol = node.op === '==' ? pol : flip(pol);
-      const rawL = emitValue(node.left);
-      const rawR = emitValue(node.right);
+      const leftBool = isDefinitelyBoolean(node.left, env);
+      const rightBool = isDefinitelyBoolean(node.right, env);
+      if (leftBool && rightBool) {
+        if (node.right.type === 'literal' && typeof node.right.value === 'boolean') {
+          return emitBool(node.left, node.right.value ? effectivePol : flip(effectivePol), env);
+        }
+        if (node.left.type === 'literal' && typeof node.left.value === 'boolean') {
+          return emitBool(node.right, node.left.value ? effectivePol : flip(effectivePol), env);
+        }
+        const lp = withGuards(emitBool(node.left, 'pos', env));
+        const ln = withGuards(emitBool(node.left, 'neg', env));
+        const rp = withGuards(emitBool(node.right, 'pos', env));
+        const rn = withGuards(emitBool(node.right, 'neg', env));
+        return makeTerm(
+          effectivePol === 'pos' ? `((${lp} && ${rp}) || (${ln} && ${rn}))` : `((${lp} && ${rn}) || (${ln} && ${rp}))`,
+          'boolean',
+        );
+      }
+      const rawL = leftBool ? undefined : emitValue(node.left, undefined, env);
+      const rawR = rightBool ? undefined : emitValue(node.right, undefined, env);
+      if (leftBool || rightBool) {
+        const boolNode = leftBool ? node.left : node.right;
+        const other = leftBool ? rawR! : rawL!;
+        if ((other.kind === 'boolean' || other.kind === 'unknown') && other.snapshotNode) {
+          const bp = withGuards(emitBool(boolNode, 'pos', env));
+          const bn = withGuards(emitBool(boolNode, 'neg', env));
+          const n = other.snapshotNode;
+          const strict = other.kind === 'boolean' || effectivePol === 'pos';
+          const exist = other.isRootBinding ? '' : `${n}.exists() && `;
+          const onTrue = strict ? `(${n}.isBoolean() && (${n}.val() == ${effectivePol === 'pos' ? 'true' : 'false'}))` : `(${exist}(${n}.val() != true))`;
+          const onFalse = strict ? `(${n}.isBoolean() && (${n}.val() == ${effectivePol === 'pos' ? 'false' : 'true'}))` : `(${exist}(${n}.val() != false))`;
+          return makeTerm(`((${bp} && ${onTrue}) || (${bn} && ${onFalse}))`, 'boolean');
+        }
+        throw new Error('Unsupported RTDB equality between boolean and ' + other.kind);
+      }
+      const lhs = rawL!;
+      const rhs = rawR!;
       const cmpOp = effectivePol === 'pos' ? '==' : '!=';
-      // Null comparisons
-      if (rawL.kind === 'null' || rawR.kind === 'null') {
-        const other = rawL.kind === 'null' ? rawR : rawL;
-        if (other.kind === 'null') return makeTerm(String(effectivePol === 'pos'), 'boolean');
+      if (lhs.kind === 'null' || rhs.kind === 'null') {
+        const other = lhs.kind === 'null' ? rhs : lhs;
+        if (other.kind === 'null') return makeTerm(String(effectivePol === 'pos'), 'boolean', [], { pureWhenGuarded: true });
         if (other.snapshotNode && !other.typedLeaf) {
           if (effectivePol === 'neg') return makeTerm(other.snapshotNode + '.exists()', 'boolean');
-          if (!other.isRootBinding) {
-            throw new Error('Null equality on child snapshot cannot distinguish missing key from null');
-          }
+          if (!other.isRootBinding) throw new Error('Null equality on child snapshot cannot distinguish missing key from null');
           return makeTerm('(!' + other.snapshotNode + '.exists())', 'boolean');
         }
-        return makeTerm(String(effectivePol === 'neg'), 'boolean', other.guards);
+        return makeTerm(String(effectivePol === 'neg'), 'boolean', other.guards, { pureWhenGuarded: true });
       }
-      // Untyped snapshot compared with known scalar
-      if (rawL.kind === 'unknown' && rawL.snapshotNode && (rawR.kind === 'number' || rawR.kind === 'string' || rawR.kind === 'boolean')) {
-        if (effectivePol === 'pos') {
-          const l = narrow(rawL, rawR.kind)!;
-          return makeTerm('(' + l.text + ' == ' + rawR.text + ')', 'boolean', mergeGuards(l.guards, rawR.guards));
-        }
-        const existGuard = rawL.isRootBinding ? [] : [rawL.snapshotNode + '.exists()'];
-        return makeTerm('(' + rawL.snapshotNode + '.val() != ' + rawR.text + ')', 'boolean', mergeGuards(existGuard, rawR.guards));
+      if (lhs.kind === 'unknown' && lhs.snapshotNode && (rhs.kind === 'number' || rhs.kind === 'string' || rhs.kind === 'boolean')) {
+        return emitUntypedScalarEq(lhs, rhs, effectivePol, true);
       }
-      if (rawR.kind === 'unknown' && rawR.snapshotNode && (rawL.kind === 'number' || rawL.kind === 'string' || rawL.kind === 'boolean')) {
-        if (effectivePol === 'pos') {
-          const r = narrow(rawR, rawL.kind)!;
-          return makeTerm('(' + rawL.text + ' == ' + r.text + ')', 'boolean', mergeGuards(rawL.guards, r.guards));
-        }
-        const existGuard = rawR.isRootBinding ? [] : [rawR.snapshotNode + '.exists()'];
-        return makeTerm('(' + rawL.text + ' != ' + rawR.snapshotNode + '.val())', 'boolean', mergeGuards(rawL.guards, existGuard));
+      if (rhs.kind === 'unknown' && rhs.snapshotNode && (lhs.kind === 'number' || lhs.kind === 'string' || lhs.kind === 'boolean')) {
+        return emitUntypedScalarEq(rhs, lhs, effectivePol, false);
       }
-      // Two untyped snapshots: guard both as primitive scalars (objects lack structural == in RTDB).
-      if (rawL.kind === 'unknown' && rawR.kind === 'unknown' && rawL.snapshotNode && rawR.snapshotNode) {
-        const g = mergeGuards([scalarGuard(rawL.snapshotNode), scalarGuard(rawR.snapshotNode)]);
-        return makeTerm('(' + rawL.snapshotNode + '.val() ' + cmpOp + ' ' + rawR.snapshotNode + '.val())', 'boolean', g);
+      if (lhs.kind === 'unknown' && rhs.kind === 'unknown' && lhs.snapshotNode && rhs.snapshotNode) {
+        const g = mergeGuards([scalarGuard(lhs.snapshotNode), scalarGuard(rhs.snapshotNode)]);
+        return makeTerm(`(${lhs.snapshotNode}.val() ${cmpOp} ${rhs.snapshotNode}.val())`, 'boolean', g, { pureWhenGuarded: true });
       }
-      // Same known scalar kind
-      if (rawL.kind === rawR.kind && (rawL.kind === 'number' || rawL.kind === 'string' || rawL.kind === 'boolean')) {
-        return makeTerm('(' + rawL.text + ' ' + cmpOp + ' ' + rawR.text + ')', 'boolean', mergeGuards(rawL.guards, rawR.guards));
+      if (lhs.kind === rhs.kind && (lhs.kind === 'number' || lhs.kind === 'string' || lhs.kind === 'boolean')) {
+        return makeTerm(`(${lhs.text} ${cmpOp} ${rhs.text})`, 'boolean', mergeGuards(lhs.guards, rhs.guards), { pureWhenGuarded: true });
       }
-      throw new Error('Unsupported RTDB equality between ' + rawL.kind + ' and ' + rawR.kind);
+      throw new Error('Unsupported RTDB equality between ' + lhs.kind + ' and ' + rhs.kind);
     }
-    const value = narrow(emitValue(node), 'boolean');
+    const value = narrow(emitValue(node, 'boolean', env), 'boolean');
     if (!value) throw new Error('RTDB validation requires a boolean result');
     if (pol === 'pos') return value;
     if (value.snapshotNode) {
-      return makeTerm('(' + value.snapshotNode + '.val() == false)', 'boolean', value.guards);
+      return makeTerm('(' + value.snapshotNode + '.val() == false)', 'boolean', value.guards, { pureWhenGuarded: true });
     }
     return makeTerm('(!' + value.text + ')', 'boolean', value.guards);
   }
 
   try {
     for (const binding of lets) {
-      locals.set(binding.name, emitValue(binding.value));
+      const snapshot = new Map(rootEnv);
+      emitValue(binding.value, undefined, snapshot);
+      rootEnv.set(binding.name, { expr: binding.value, env: snapshot });
     }
-    const result = emitBool(expr, 'pos');
+    const result = emitBool(expr, 'pos', rootEnv);
     const predicate = checkLength(withGuards(result));
     const parsed = parseRtdbExpressionTree(predicate);
     if (!parsed.ok) {
       problems.add('Generated RTDB predicate failed to parse: ' + parsed.message);
     } else {
-      const typeErrors = validateRtdbExpression(predicate, 'validate');
-      for (const err of typeErrors) {
+      for (const err of validateRtdbExpression(predicate, 'validate')) {
         problems.add('Generated RTDB predicate failed type check: ' + err.message);
       }
     }
@@ -503,9 +566,7 @@ export function lowerRtdbExpression(
       predicate: problems.size ? undefined : predicate,
     };
   } catch (error) {
-    if (!problems.size) {
-      problems.add(error instanceof Error ? error.message : String(error));
-    }
+    if (!problems.size) problems.add(error instanceof Error ? error.message : String(error));
     return { inputs: [...inputs], features: [...features], problems: [...problems], predicate: undefined };
   }
 }
@@ -516,9 +577,7 @@ export function emitRtdbFunctionPredicate(fn: FunctionDef, bindings: RtdbBinding
     throw new Error('RTDB parameter bindings must match');
   }
   const result = lowerRtdbExpression(fn.body, bindings, { defaultLeafType }, fn.lets);
-  if (!result.predicate) {
-    throw new Error(result.problems.join('; ') || 'Unsupported RTDB expression');
-  }
+  if (!result.predicate) throw new Error(result.problems.join('; ') || 'Unsupported RTDB expression');
   return result.predicate;
 }
 

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { firestoreGrammar, firestoreSemantics } from '../../src/grammar/FirestoreParser.js';
 import type { Expression, FunctionDef } from '../../src/grammar/FirestoreAST.js';
-import { evaluate } from '../../src/simulator/evaluator.js';
+import { evaluate, evaluateBinding } from '../../src/simulator/evaluator.js';
+import { ExpressionBudget } from '../../src/simulator/expression-budget.js';
 import { rtdbRules } from '../../src/api/rtdb.js';
 import { parseRtdbExpressionTree } from '../../src/rtdb/grammar/expression-tree.js';
 import {
@@ -199,6 +200,69 @@ describe('unified RTDB target (policy/rtdb.ts)', () => {
     expect(bypassOr.ok && hasRequiredConjunct(bypassOr.tree, wanted)).toBe(false);
     expect(bypassTern.ok && hasRequiredConjunct(bypassTern.tree, wanted)).toBe(false);
     expect(requiredAnd.ok && hasRequiredConjunct(requiredAnd.tree, wanted)).toBe(true);
+  });
+
+  test('pins red-team regressions: boolean ==/!=, negated boolean lets, >2^53 arithmetic, and non-constant %', () => {
+    const bindings: RtdbBindings = { after: { snapshot: 'newData' } };
+    // 1. Boolean == / != Kleene biconditional must not fail open on missing/wrong-type fields
+    for (const [src, after] of [
+      ['(after.x > 0 || after.y > 0) == false', {}],
+      ['(after.x > 0 || after.y > 0) == false', { x: 'bad', y: -1 }],
+      ['(after.x < after.y) == false', {}],
+      ['(after.x > 0 || false) == (after.y > 0 || false)', {}],
+      ['(after.x > 0 || false) == (after.y > 0 || false)', { x: 1, y: 2 }],
+      ['(after.x > 0 || false) == (after.y > 0 || false)', { x: -1, y: -2 }],
+      ['(after.x > 0 || false) == (after.y > 0 || false)', { x: 1, y: -2 }],
+      ['after.flag == (after.x > 0)', {}],
+      ['after.flag == (after.x > 0)', { flag: false, x: -1 }],
+      ['after.flag != (after.x > 0)', { flag: 123, x: 1 }],
+    ] as const) {
+      const ast = parseExpr(src);
+      const lowered = lowerRtdbExpression(ast, bindings);
+      expect(lowered.predicate, src).toBeDefined();
+      expect(evalRtdb(lowered.predicate!, {}, after), `${src} on ${JSON.stringify(after)}`)
+        .toBe(evalInterpreter(ast, { after }));
+    }
+
+    // 2. Boolean let bindings must preserve dual polarity under ! and ?:
+    for (const [fnSrc, after] of [
+      ['function f(after) { let ok = after.x > 0 || after.y > 0; return !ok; }', {}],
+      ['function f(after) { let ok = after.x > 0 || after.y > 0; return !ok; }', { x: -1, y: -2 }],
+      ['function f(after) { let ok = after.x > 0 || after.y > 0; return !ok; }', { x: 1, y: -2 }],
+      ['function f(after) { let lt = after.x < after.y; return !lt; }', {}],
+      ['function f(after) { let lt = after.x < after.y; return !lt; }', { x: 5, y: 2 }],
+    ] as const) {
+      const pred = emitRtdbFunctionPredicate(parseFn(fnSrc), { after: { snapshot: 'newData', type: 'any' } }, 'any');
+      const fn = parseFn(fnSrc);
+      const expected = (() => {
+        try {
+          const scope: Record<string, unknown> = { after };
+          for (const l of fn.lets) scope[l.name] = evaluateBinding(l.value, { expressionBudget: new ExpressionBudget(() => new Error('limit'), 8192) }, scope);
+          return evaluate(fn.body, { expressionBudget: new ExpressionBudget(() => new Error('limit'), 8192) }, scope) === true ? 'ALLOW' : 'DENY';
+        } catch { return 'DENY'; }
+      })();
+      expect(evalRtdb(pred, {}, after), `${fnSrc} on ${JSON.stringify(after)}`).toBe(expected);
+    }
+
+    // 3. Arithmetic past 2^53 / int64 overflow must never fail open
+    for (const src of [
+      'after.x + 2 == after.x + 1',
+      'after.x * after.x > 0',
+      '!(after.x * after.x > 0)',
+    ]) {
+      const ast = parseExpr(src);
+      const lowered = lowerRtdbExpression(ast, bindings);
+      expect(lowered.predicate, src).toBeDefined();
+      expect(evalRtdb(lowered.predicate!, {}, { x: 9007199254740991 }), src).toBe('DENY');
+    }
+
+    // 4. Non-constant % divisor refused (float % 0 yields NaN while int % 0 errors); constant non-zero % allowed
+    expect(lowerRtdbExpression(parseExpr('!(after.x % after.y == 0)'), bindings).predicate).toBeUndefined();
+    expect(lowerRtdbExpression(parseExpr('after.x % 0 == 0'), bindings).predicate).toBeUndefined();
+    const constMod = lowerRtdbExpression(parseExpr('after.x % 2 == 0'), bindings);
+    expect(constMod.predicate).toBeDefined();
+    expect(evalRtdb(constMod.predicate!, {}, { x: 4 })).toBe('ALLOW');
+    expect(evalRtdb(constMod.predicate!, {}, { x: 3 })).toBe('DENY');
   });
 
   test('seeded differential parity over 200 RTDB expressions and edge values', () => {

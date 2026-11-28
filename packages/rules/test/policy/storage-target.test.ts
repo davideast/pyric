@@ -195,13 +195,23 @@ describe('Firebase Storage Rules v2 target (policy/storage.ts)', () => {
       'null == input.auth',
       '!(input.auth != null)',
       '!(null != input.auth)',
+      '(input.auth != null) ? false : true',
+      '!(input.auth != null && true)',
+      '(input.auth != null) == false',
+      '!(input.auth is map)',
+      'input.auth != 1',
       'before == null',
       'after == null',
+      '(before != null) ? false : true',
+      'after != 1',
     ]) {
       const r = lowerStorage(parseExpr(bad), rootProj);
       expect(r.predicate, bad).toBeUndefined();
       expect(r.problems[0], bad).toContain('diverges');
     }
+    // Monotone positive root != null and root is map remain allowed
+    expect(lowerStorage(parseExpr('input.auth != null && after.size < 100'), rootProj).predicate).toBeDefined();
+    expect(lowerStorage(parseExpr('input.auth is map && after.size < 100'), rootProj).predicate).toBeDefined();
   });
 
   test('emitStorageModule and composeStorage enforce conjunctive slots and verb exclusivity', () => {
@@ -269,7 +279,7 @@ describe('Firebase Storage Rules v2 target (policy/storage.ts)', () => {
       lower,
     )).toThrow(/required conjunct/);
 
-    // Reject binding request.resource on delete
+    // Reject binding request.resource on delete and write, and resource on create
     const deleteTemplate = template.replace('allow create:', 'allow delete:');
     expect(() => composeStorage(
       {
@@ -280,5 +290,31 @@ describe('Firebase Storage Rules v2 target (policy/storage.ts)', () => {
       ['plainSmall'],
       lower,
     )).toThrow(/request\.resource is unset/);
+
+    const writeTemplate = template.replace('allow create:', 'allow write:');
+    expect(() => composeStorage(
+      {
+        rules: writeTemplate,
+        slot: 'policySlot',
+        placements: [{ path: '/b/{bucket}/o/notes/{file}', operation: 'write', bindings: { after: 'request.resource' } }],
+      },
+      ['plainSmall'],
+      lower,
+    )).toThrow(/request\.resource is unset/);
+
+    const beforeExpr = parseExpr('before.size < 1024');
+    const lowerBefore = (bindings: StorageBindings) => {
+      const r = lowerStorage(beforeExpr, compileStorageProjections(bindings));
+      return [{ requirement: 'oldSmall', reason: r.problems.join('; ') || 'ok', predicate: r.predicate, origins: r.origins }];
+    };
+    expect(() => composeStorage(
+      {
+        rules: template,
+        slot: 'policySlot',
+        placements: [{ path: '/b/{bucket}/o/notes/{file}', operation: 'create', bindings: { before: 'resource' } }],
+      },
+      ['oldSmall'],
+      lowerBefore,
+    )).toThrow(/resource is unset/);
   });
 });

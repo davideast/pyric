@@ -202,12 +202,23 @@ export function lowerStorage(
   const origins: Record<string, string> = {};
   const problems = new Set<string>();
 
-  function lower(node: Expression): Expression {
+  function rejectBareRoot(lowered: Expression, context: string): void {
+    const root = isAbsentErrorRoot(lowered);
+    if (root) {
+      problems.add(
+        context + ' on Storage ' + root + ' diverges: Storage raises an evaluation error when absent rather than null',
+      );
+    }
+  }
+
+  function lower(node: Expression, monotonePos: boolean, allowBareRoot = false): Expression {
     switch (node.type) {
       case 'memberAccess':
       case 'identifier': {
         const name = field(node);
-        if (!name && node.type === 'memberAccess') return { ...node, object: lower(node.object) };
+        if (!name && node.type === 'memberAccess') {
+          return { ...node, object: lower(node.object, false, true) };
+        }
         if (!name) throw new Error('Expected policy input');
         inputs.add(name);
         const found = resolveProjection(name, projections);
@@ -231,62 +242,75 @@ export function lowerStorage(
             problems.add(name + ' requires a trusted Storage input, auth value, or constant');
           }
         }
+        if (!allowBareRoot) rejectBareRoot(value, 'Bare reference');
         return value;
       }
       case 'literal':
         return node;
       case 'listLiteral':
-        return { ...node, elements: node.elements.map(lower) };
+        return { ...node, elements: node.elements.map((item) => lower(item, false)) };
       case 'mapLiteral':
-        return { ...node, entries: node.entries.map((entry) => ({ key: lower(entry.key), value: lower(entry.value) })) };
+        return {
+          ...node,
+          entries: node.entries.map((entry) => ({
+            key: lower(entry.key, false),
+            value: lower(entry.value, false),
+          })),
+        };
       case 'unaryOp': {
         features.add(node.op);
-        const operand = lower(node.operand);
-        if (node.op === '!' && operand.type === 'binaryOp' && operand.op === '!=') {
-          const root = (isNullLiteral(operand.left) && isAbsentErrorRoot(operand.right))
-            || (isNullLiteral(operand.right) && isAbsentErrorRoot(operand.left));
-          if (root) {
-            problems.add(
-              'Negated non-null check on Storage ' + root + ' diverges: Storage raises an evaluation error when absent rather than null',
-            );
-          }
-        }
-        return { ...node, operand };
+        return { ...node, operand: lower(node.operand, false) };
       }
       case 'binaryOp': {
         features.add(node.op);
-        const left = lower(node.left);
-        const right = lower(node.right);
-        if (node.op === '==') {
-          const root = (isNullLiteral(left) && isAbsentErrorRoot(right))
-            || (isNullLiteral(right) && isAbsentErrorRoot(left));
-          if (root) {
-            problems.add(
-              'Null equality on Storage ' + root + ' diverges: Storage raises an evaluation error when absent rather than null',
-            );
-          }
+        if (node.op === '&&' || node.op === '||') {
+          return {
+            ...node,
+            left: lower(node.left, monotonePos),
+            right: lower(node.right, monotonePos),
+          };
         }
-        return { ...node, left, right };
+        if (node.op === '!=') {
+          const left = lower(node.left, false, true);
+          const right = lower(node.right, false, true);
+          const leftRoot = isAbsentErrorRoot(left);
+          const rightRoot = isAbsentErrorRoot(right);
+          if (leftRoot) {
+            if (!monotonePos || !isNullLiteral(right)) {
+              rejectBareRoot(left, monotonePos ? 'Non-null comparison with non-null value' : 'Non-monotone != null check');
+            }
+          }
+          if (rightRoot) {
+            if (!monotonePos || !isNullLiteral(left)) {
+              rejectBareRoot(right, monotonePos ? 'Non-null comparison with non-null value' : 'Non-monotone != null check');
+            }
+          }
+          return { ...node, left, right };
+        }
+        return { ...node, left: lower(node.left, false), right: lower(node.right, false) };
       }
       case 'isExpr': {
         features.add('is ' + node.typeName);
-        const value = lower(node.value);
-        if (node.typeName === 'null') {
-          const root = isAbsentErrorRoot(value);
-          if (root) {
-            problems.add(
-              'is null on Storage ' + root + ' diverges: Storage raises an evaluation error when absent rather than null',
-            );
-          }
+        const value = lower(node.value, false, true);
+        if (isAbsentErrorRoot(value) && (!monotonePos || node.typeName !== 'map')) {
+          rejectBareRoot(value, 'is ' + node.typeName + (monotonePos ? '' : ' in non-monotone position'));
         }
         return { ...node, value };
       }
       case 'inExpr':
         features.add('in');
-        return { ...node, element: lower(node.element), collection: lower(node.collection) };
+        return {
+          ...node,
+          element: lower(node.element, false),
+          collection: lower(node.collection, false, true),
+        };
       case 'bracketAccess':
         features.add('index');
-        return { ...node, object: lower(node.object), index: lower(node.index) };
+        return {
+          ...node,
+          object: lower(node.object, false, true),
+          index: lower(node.index, false),
+        };
       case 'methodCall': {
         const allowed = ALLOWED_STORAGE_METHODS[node.method];
         if (!allowed || !allowed.includes(node.args.length)) {
@@ -294,15 +318,24 @@ export function lowerStorage(
           return node;
         }
         features.add('method:' + node.method);
-        return { ...node, object: lower(node.object), args: node.args.map(lower) };
+        return {
+          ...node,
+          object: lower(node.object, false, true),
+          args: node.args.map((arg) => lower(arg, false)),
+        };
       }
       case 'ternary': {
         features.add('conditional');
-        const condition = lower(node.condition);
+        const condition = lower(node.condition, false);
         if (condition.type === 'literal' && typeof condition.value === 'boolean') {
-          return lower(condition.value ? node.consequent : node.alternate);
+          return lower(condition.value ? node.consequent : node.alternate, monotonePos);
         }
-        return { ...node, condition, consequent: lower(node.consequent), alternate: lower(node.alternate) };
+        return {
+          ...node,
+          condition,
+          consequent: lower(node.consequent, monotonePos),
+          alternate: lower(node.alternate, monotonePos),
+        };
       }
       default:
         problems.add('Unsupported Storage expression ' + node.type);
@@ -310,7 +343,7 @@ export function lowerStorage(
     }
   }
 
-  const predicate = lower(expr);
+  const predicate = lower(expr, true);
   if (missing.size) problems.add('Missing binding: ' + [...missing].join(', '));
   const source = problems.size ? undefined : assembleExpression(predicate);
   if (source) {
@@ -406,7 +439,8 @@ function verbsOverlap(opsA: readonly Operation[], opB: StorageGrantVerb): boolea
   return opsA.some((op) => expandVerb(op as StorageGrantVerb).some((verb) => expandedB.has(verb)));
 }
 
-const NO_REQUEST_RESOURCE_OPS = new Set<StorageGrantVerb>(['read', 'get', 'list', 'delete']);
+const NO_REQUEST_RESOURCE_OPS = new Set<StorageGrantVerb>(['read', 'get', 'list', 'delete', 'write']);
+const NO_STORED_RESOURCE_OPS = new Set<StorageGrantVerb>(['create', 'write']);
 
 export function composeStorage<R extends { requirement: string; reason: string; predicate?: string; completeReason?: string; origins?: Record<string, string> }>(
   template: StorageTemplate,
@@ -477,6 +511,14 @@ export function composeStorage<R extends { requirement: string; reason: string; 
           Object.values(row.origins ?? {}).includes('after'));
         if (usesIncoming) {
           diagnostics.push(key + ': request.resource is unset on Storage ' + operation + ' requests');
+          continue;
+        }
+      }
+      if (NO_STORED_RESOURCE_OPS.has(operation)) {
+        const usesStored = requirements.some((row) =>
+          Object.values(row.origins ?? {}).includes('before'));
+        if (usesStored) {
+          diagnostics.push(key + ': resource is unset on Storage ' + operation + ' requests');
           continue;
         }
       }
