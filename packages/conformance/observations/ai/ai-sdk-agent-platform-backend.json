@@ -1,0 +1,151 @@
+{
+  "name": "ai-sdk-agent-platform-backend",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai AgentPlatformBackend(location?) constructor defaults, BackendType.AGENT_PLATFORM handle keying per (FirebaseApp, location), invalid backend error guard, model resource normalization (short, models/-prefixed, custom publisher, tunedModels), and firebasevertexai.googleapis.com locations/<location>/... request URL and fetch-error decoration.",
+  "observedAt": "2026-11-27T21:25:39.725Z",
+  "fbSdkVersion": "13.4.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "backendConstructor": {
+      "defaultBackend": {
+        "isBackend": true,
+        "isAgentPlatformBackend": true,
+        "isGoogleAIBackend": false,
+        "backendType": "AGENT_PLATFORM",
+        "matchesEnumAgentPlatform": true,
+        "location": "global"
+      },
+      "emptyLocationBackend": {
+        "backendType": "AGENT_PLATFORM",
+        "location": "global"
+      },
+      "regionalBackend": {
+        "backendType": "AGENT_PLATFORM",
+        "location": "us-central1"
+      }
+    },
+    "handleKeyingAndGuards": {
+      "carriesApp": true,
+      "handleBackendIsAgentPlatform": true,
+      "handleBackendLocationGlobal": "global",
+      "handleBackendLocationRegional": "us-central1",
+      "distinctFromGoogleAiOnSameApp": true,
+      "omittedAndExplicitGlobalSameHandle": true,
+      "omittedAndEmptyLocationSameHandle": true,
+      "distinctLocationsDistinctHandlesOnSameApp": true,
+      "distinctAppsDistinctHandlesSameLocation": true,
+      "invalidBackendThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "error",
+        "name": "FirebaseError",
+        "messageIncludesInvalidBackend": true
+      },
+      "nonAppTargetThrew": true
+    },
+    "modelResourceNormalization": {
+      "shortModelOnGlobal": "publishers/google/models/gemini-2.5-flash",
+      "modelsPrefixedOnRegional": "publishers/google/models/gemini-2.5-flash",
+      "customPublisherPreserved": "publishers/acme/models/not-a-real-model",
+      "tunedModelPreserved": "tunedModels/not-a-real-tuned-model"
+    },
+    "liveWireAndErrorUrls": {
+      "unauthenticatedRegionalUnary": {
+        "wire": {
+          "host": "firebasevertexai.googleapis.com",
+          "pathTemplate": "/v1beta/projects/{project}/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent",
+          "query": "",
+          "hasApiKeyHeader": true,
+          "hasAppCheckHeader": false
+        },
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "httpStatus": 401,
+        "messageMatchesExpectedErrorFetchingPrefix": true
+      },
+      "unauthenticatedGlobalStream": {
+        "wire": {
+          "host": "firebasevertexai.googleapis.com",
+          "pathTemplate": "/v1beta/projects/{project}/locations/global/publishers/google/models/gemini-2.5-flash:streamGenerateContent",
+          "query": "?alt=sse",
+          "hasApiKeyHeader": true,
+          "hasAppCheckHeader": false
+        },
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "httpStatus": 401,
+        "messageMatchesExpectedErrorFetchingPrefix": true,
+        "chunksYieldedBeforeRejection": 0
+      },
+      "authenticatedUnknownModelGlobal": {
+        "wire": {
+          "host": "firebasevertexai.googleapis.com",
+          "pathTemplate": "/v1beta/projects/{project}/locations/global/publishers/google/models/not-a-real-model:generateContent",
+          "query": "",
+          "hasApiKeyHeader": true,
+          "hasAppCheckHeader": true
+        },
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "httpStatus": 404,
+        "messageMatchesExpectedErrorFetchingPrefix": true
+      },
+      "authenticatedCustomPublisherCountTokens": {
+        "wire": {
+          "host": "firebasevertexai.googleapis.com",
+          "pathTemplate": "/v1beta/projects/{project}/locations/europe-west4/publishers/acme/models/not-a-real-model:countTokens",
+          "query": "",
+          "hasApiKeyHeader": true,
+          "hasAppCheckHeader": true
+        },
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "httpStatus": 404,
+        "messageMatchesExpectedErrorFetchingPrefix": true
+      },
+      "authenticatedTunedModelUnary": {
+        "wire": {
+          "host": "firebasevertexai.googleapis.com",
+          "pathTemplate": "/v1beta/projects/{project}/locations/asia-northeast1/tunedModels/not-a-real-tuned-model:generateContent",
+          "query": "",
+          "hasApiKeyHeader": true,
+          "hasAppCheckHeader": true
+        },
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "fetch-error",
+        "httpStatus": 404,
+        "messageMatchesExpectedErrorFetchingPrefix": true
+      },
+      "authenticatedGlobalGenerateContent": {
+        "outcome": "ai-error",
+        "wire": {
+          "host": "firebasevertexai.googleapis.com",
+          "pathTemplate": "/v1beta/projects/{project}/locations/global/publishers/google/models/gemini-2.5-flash:generateContent",
+          "query": "",
+          "hasApiKeyHeader": true,
+          "hasAppCheckHeader": true
+        },
+        "httpStatus": 404,
+        "errorCode": "fetch-error",
+        "isAIError": true,
+        "isFirebaseError": true,
+        "messageMatchesExpectedErrorFetchingPrefix": true,
+        "finishReason": null,
+        "topLevelKeySet": [],
+        "helperTextIsNonEmptyString": false
+      }
+    }
+  }
+}
