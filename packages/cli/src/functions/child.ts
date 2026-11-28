@@ -17,6 +17,7 @@ import {
   serializeError,
   type FunctionsChildMessage,
 } from './child-protocol.js';
+import { collectChildReadyMetadata } from './child-ready-metadata.js';
 import { callableOnCallFamily, inspectOnCall } from './callable/discovery.js';
 import {
   applyFunctionsDotenv,
@@ -534,6 +535,11 @@ async function runFunctionsChild(): Promise<void> {
       pubsubHost.triggerCount +
       tasksHost.triggerCount;
     const unsupportedNames = new Set(unsupportedTriggers.map((item) => item.exportName));
+    const { exportNames, triggers } = collectChildReadyMetadata(
+      exported,
+      httpFunctions,
+      unsupportedNames,
+    );
     let eventTimeouts: Array<number | null> = [];
     if (totalTriggerCount > 0) {
       eventTimeouts = collectActiveEventTimeouts(entry, exported, unsupportedNames);
@@ -542,6 +548,8 @@ async function runFunctionsChild(): Promise<void> {
       type: 'ready',
       triggerCount: totalTriggerCount,
       unsupportedTriggers,
+      exportNames,
+      triggers,
     };
     if (eventTimeouts.length > 0) {
       readyMessage.eventTimeouts = eventTimeouts;

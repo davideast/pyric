@@ -54,6 +54,7 @@ export type FunctionsHttpState =
 export interface FunctionsHttpRecord {
   exportName: string;
   kind?: 'http' | 'callable';
+  codebase?: string;
   method: string;
   /** The path and query the function saw. */
   path: string;
@@ -264,7 +265,23 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
     return { kind: 'function', fn: match.fn, forwardUrl: rawUrl, viaRewrite: true };
   };
 
-  const waitForFreshChildAfterRefusal = async (deadToken: string): Promise<FunctionsChildHttpReady | null> => {
+  const resolveBackend = (
+    activeHttp: FunctionsChildHttpReady,
+    codebase: string | undefined,
+  ): { port: number; token: string } => {
+    if (codebase !== undefined && activeHttp.backends !== undefined) {
+      const matched = activeHttp.backends.find((backend) => backend.codebase === codebase);
+      if (matched !== undefined) {
+        return { port: matched.port, token: matched.token };
+      }
+    }
+    return { port: activeHttp.port, token: activeHttp.token };
+  };
+
+  const waitForFreshChildAfterRefusal = async (
+    deadToken: string,
+    codebase: string | undefined,
+  ): Promise<FunctionsChildHttpReady | null> => {
     const deadline = Date.now() + DEAD_CHILD_TRANSITION_WAIT_MS;
     while (Date.now() < deadline) {
       const observed = current;
@@ -272,12 +289,20 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         if (observed.ready !== undefined) {
           await waitBounded(observed.ready, CRASH_RESTART_WAIT_MS);
         }
-        if (current.kind === 'ready' && current.http !== null && current.http.token !== deadToken) {
+        if (
+          current.kind === 'ready' &&
+          current.http !== null &&
+          resolveBackend(current.http, codebase).token !== deadToken
+        ) {
           return current.http;
         }
         return null;
       }
-      if (observed.kind === 'ready' && observed.http !== null && observed.http.token !== deadToken) {
+      if (
+        observed.kind === 'ready' &&
+        observed.http !== null &&
+        resolveBackend(observed.http, codebase).token !== deadToken
+      ) {
         return observed.http;
       }
       if (observed.kind !== 'ready') {
@@ -405,9 +430,10 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
       }
       const timeout = requestTimeout(resolved.fn, resolved, options.hostingRewriteTimeoutSeconds);
       const buildTarget = (activeHttp: FunctionsChildHttpReady, deferRefused: boolean): ProxyTarget => {
+        const backend = resolveBackend(activeHttp, resolved.fn.codebase);
         const proxyTarget: ProxyTarget = {
-          port: activeHttp.port,
-          token: activeHttp.token,
+          port: backend.port,
+          token: backend.token,
           exportName: resolved.fn.exportName,
           forwardUrl: resolved.forwardUrl,
           timeoutMs: timeout.seconds * 1_000,
@@ -424,9 +450,13 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         return proxyTarget;
       };
 
+      const initialBackend = resolveBackend(http, resolved.fn.codebase);
       let outcome = await proxyToChild(req, res, buildTarget(http, true));
       if (outcome.connectRefused === true) {
-        const replacementHttp = await waitForFreshChildAfterRefusal(http.token);
+        const replacementHttp = await waitForFreshChildAfterRefusal(
+          initialBackend.token,
+          resolved.fn.codebase,
+        );
         if (replacementHttp !== null) {
           outcome = await proxyToChild(req, res, buildTarget(replacementHttp, false));
         } else {
@@ -449,6 +479,9 @@ export function createFunctionsHttpGateway(options: FunctionsHttpGatewayOptions)
         };
         if (resolved.fn.kind === 'callable') {
           record.kind = 'callable';
+        }
+        if (resolved.fn.codebase !== undefined) {
+          record.codebase = resolved.fn.codebase;
         }
         options.onServed?.(record);
         if (resolved.fn.kind !== 'callable') {

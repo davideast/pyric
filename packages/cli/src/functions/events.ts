@@ -30,6 +30,7 @@ export interface FunctionExecutionOutcome {
   result?: unknown;
   error?: string;
   retryConfig?: Record<string, number>;
+  codebase?: string;
 }
 
 function emit(
@@ -56,23 +57,31 @@ function emit(
 /** The runtime resolved one trigger out of the project's Functions source. */
 export function emitTriggerDiscovered(
   sandbox: LocalSandbox,
-  trigger: { exportName: string; reference: string; instance: string },
+  trigger: { exportName: string; reference: string; instance: string; codebase?: string },
 ): void {
-  emit(sandbox, 'trigger_discovered', trigger.reference, {
+  const detail: Record<string, unknown> = {
     trigger: trigger.exportName,
     instance: trigger.instance,
-  });
+  };
+  if (trigger.codebase !== undefined) {
+    detail.codebase = trigger.codebase;
+  }
+  emit(sandbox, 'trigger_discovered', trigger.reference, detail);
 }
 
 /** A handler was fired on a synthetic event at `ref`. */
 export function emitHandlerFired(
   sandbox: LocalSandbox,
-  fired: { trigger: string; ref: string; params: Record<string, string> },
+  fired: { trigger: string; ref: string; params: Record<string, string>; codebase?: string },
 ): void {
-  emit(sandbox, 'handler_fired', fired.ref, {
+  const detail: Record<string, unknown> = {
     trigger: fired.trigger,
     params: fired.params,
-  });
+  };
+  if (fired.codebase !== undefined) {
+    detail.codebase = fired.codebase;
+  }
+  emit(sandbox, 'handler_fired', fired.ref, detail);
 }
 
 /** A run finished, with how long it took and what it produced. */
@@ -87,6 +96,7 @@ export function emitExecutionFinished(
     durationMs: outcome.durationMs,
     status: outcome.status,
   };
+  if (outcome.codebase !== undefined) detail.codebase = outcome.codebase;
   if (outcome.status === 'fulfilled') detail.result = outcome.result;
   if (outcome.status === 'rejected') detail.error = outcome.error;
   if (outcome.retryConfig !== undefined) detail.retryConfig = outcome.retryConfig;

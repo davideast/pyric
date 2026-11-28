@@ -30,6 +30,7 @@ export type FunctionsChildEvent =
       startedAt?: number;
       durationMs?: number;
       retryConfig?: Record<string, number>;
+      codebase?: string;
     }
   | {
       type: 'execution';
@@ -41,16 +42,19 @@ export type FunctionsChildEvent =
       startedAt?: number;
       durationMs?: number;
       retryConfig?: Record<string, number>;
+      codebase?: string;
     }
   | {
       type: 'delivery-error';
       exportName: string;
       error: SerializedFunctionsError;
+      codebase?: string;
     }
   | {
       /** An exception no handler caught, which the child logged and survived (functions-http#12). */
       type: 'uncaught-error';
       error: SerializedFunctionsError;
+      codebase?: string;
     };
 
 /** The child's HTTP listener and the onRequest functions it serves, as the child reports them. */
@@ -59,9 +63,37 @@ export interface FunctionsChildHttpListener {
   functions: HttpFunctionInfo[];
 }
 
+/** One codebase's HTTP listener when multiple codebases serve HTTP/callable functions. */
+export interface FunctionsChildHttpBackend {
+  codebase: string;
+  port: number;
+  token: string;
+  functions: HttpFunctionInfo[];
+}
+
 /** The listener plus the token the host made for this spawn, which the proxy must send. */
 export interface FunctionsChildHttpReady extends FunctionsChildHttpListener {
   token: string;
+  /** Per-codebase HTTP listeners when running multiple codebases. */
+  backends?: readonly FunctionsChildHttpBackend[];
+}
+
+/** Trigger metadata preserved across codebases in ready snapshots and listings. */
+export interface FunctionsReadyTriggerInfo {
+  exportName: string;
+  kind: string;
+  codebase?: string;
+  regions?: readonly string[];
+}
+
+/** Per-codebase ready summary attached when running one or more named codebases. */
+export interface FunctionsCodebaseReadySummary {
+  codebase: string;
+  sourceDir: string;
+  entry: string;
+  triggerCount: number;
+  httpFunctionCount: number;
+  unsupportedTriggers: UnsupportedFunctionsTrigger[];
 }
 
 export interface FunctionsChildReady {
@@ -69,6 +101,12 @@ export interface FunctionsChildReady {
   unsupportedTriggers: UnsupportedFunctionsTrigger[];
   /** Present when the source exports at least one onRequest function. */
   http?: FunctionsChildHttpReady;
+  /** All declared Firebase endpoint export names in this child (used for cross-codebase collision checks). */
+  exportNames?: string[];
+  /** Active trigger listing preserving per-trigger `codebase` metadata. */
+  triggers?: FunctionsReadyTriggerInfo[];
+  /** Per-codebase summaries when running multi-codebase or named-codebase projects. */
+  codebases?: FunctionsCodebaseReadySummary[];
 }
 
 /** What the child's ready message carries: it never sends the token back. */

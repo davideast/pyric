@@ -30,6 +30,8 @@ export interface FunctionExecutionRecord {
   error?: string;
   /** Retry configuration metadata when emitted by a retriable trigger family. */
   retryConfig?: Record<string, number>;
+  /** Owning codebase when executed in a multi-codebase or named-codebase project. */
+  codebase?: string;
 }
 
 /** Whether one event is a finished Functions run. */
@@ -75,6 +77,9 @@ function toRecord(event: SandboxEvent, ordinal: number): FunctionExecutionRecord
   if (typeof detail.retryConfig === 'object' && detail.retryConfig !== null) {
     record.retryConfig = detail.retryConfig as Record<string, number>;
   }
+  if (typeof detail.codebase === 'string' && detail.codebase.length > 0) {
+    record.codebase = detail.codebase;
+  }
   return record;
 }
 
@@ -96,6 +101,7 @@ export function recordFunctionExecution(
     durationMs: outcome.durationMs,
     status: outcome.status,
   };
+  if (outcome.codebase !== undefined) record.codebase = outcome.codebase;
   if (outcome.status === 'fulfilled') record.result = redactActiveSecretValue(outcome.result);
   if (outcome.status === 'rejected') {
     record.error = redactActiveSecretString(outcome.error ?? 'Unknown error');

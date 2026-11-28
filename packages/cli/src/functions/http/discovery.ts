@@ -37,6 +37,8 @@ export interface HttpFunctionInfo {
   privateInvoker: boolean;
   /** The declared `timeoutSeconds`, or null for the platform default. */
   timeoutSeconds: number | null;
+  /** Owning codebase when discovered in a multi-codebase or named-codebase project. */
+  codebase?: string;
 }
 
 export interface DiscoveredOnRequest extends HttpFunctionInfo {

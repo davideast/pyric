@@ -53,14 +53,37 @@ describe('discoverFunctionsProject', () => {
     expect(discoverFunctionsProject(cwd)?.entry).toBe(join(cwd, 'functions/index.js'));
   });
 
-  test('rejects multiple codebases in the one-source first slice', () => {
+  test('discovers multiple codebases declared in a functions array', () => {
     const cwd = project({
       functions: [
         { source: 'functions-a', codebase: 'a' },
         { source: 'functions-b', codebase: 'b' },
       ],
     });
-    expect(() => discoverFunctionsProject(cwd)).toThrow(/multiple Functions codebases.*one source/s);
+    mkdirSync(join(cwd, 'functions-a'), { recursive: true });
+    mkdirSync(join(cwd, 'functions-b'), { recursive: true });
+    writeFileSync(join(cwd, 'functions-a/package.json'), JSON.stringify({ name: 'a' }));
+    writeFileSync(join(cwd, 'functions-b/package.json'), JSON.stringify({ name: 'b' }));
+    writeFileSync(join(cwd, 'functions-a/index.js'), 'exports.a = true;');
+    writeFileSync(join(cwd, 'functions-b/index.js'), 'exports.b = true;');
+
+    expect(discoverFunctionsProject(cwd)).toEqual({
+      sourceDir: join(cwd, 'functions-a'),
+      entry: join(cwd, 'functions-a/index.js'),
+      codebase: 'a',
+      codebases: [
+        {
+          codebase: 'a',
+          sourceDir: join(cwd, 'functions-a'),
+          entry: join(cwd, 'functions-a/index.js'),
+        },
+        {
+          codebase: 'b',
+          sourceDir: join(cwd, 'functions-b'),
+          entry: join(cwd, 'functions-b/index.js'),
+        },
+      ],
+    });
   });
 
   test('throws when a declared source directory has no package.json', () => {
