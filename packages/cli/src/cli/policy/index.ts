@@ -6,7 +6,7 @@ import { runPolicyCheck } from './check.js';
 import { makeSimpleDiagnostic } from './diagnostics.js';
 import { runPolicyEmit } from './emit.js';
 import { formatJson, formatUsageErrorText, renderPolicyHelp } from './format.js';
-import { isJsonOutput, PolicyInputError, readBooleanFlag } from './input.js';
+import { isJsonOutput, parseBooleanFlag, PolicyInputError } from './input.js';
 import { runPolicyProve } from './prove.js';
 import {
   POLICY_EXIT_OK,
@@ -49,9 +49,27 @@ export async function runPolicy(
 ): Promise<number> {
   const out = deps.stdout ?? process.stdout;
   const sub = parsed.positional[0];
-  const json = isJsonOutput(parsed.flags);
-  const asksHelp =
-    readBooleanFlag(parsed.flags.get('help')) || readBooleanFlag(parsed.flags.get('h'));
+  const knownCommand: PolicyCommandName | null =
+    sub !== undefined && SUBCOMMANDS.has(sub) ? (sub as PolicyCommandName) : null;
+  const fileArg = parsed.positional[1] ?? null;
+
+  let json = false;
+  try {
+    json = isJsonOutput(parsed.flags);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return writeUsageError(knownCommand, fileArg, 'USAGE_ERROR', 'cli', message, false, deps);
+  }
+
+  let asksHelp = false;
+  try {
+    const longHelp = parseBooleanFlag(parsed.flags.get('help'), '--help');
+    const shortHelp = parseBooleanFlag(parsed.flags.get('h'), '-h');
+    asksHelp = longHelp || shortHelp;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return writeUsageError(knownCommand, fileArg, 'USAGE_ERROR', 'cli', message, json, deps);
+  }
 
   if (asksHelp) {
     if (sub !== undefined && !SUBCOMMANDS.has(sub)) {
@@ -70,6 +88,17 @@ export async function runPolicy(
   }
 
   if (sub === undefined) {
+    if (parsed.passthrough !== undefined && parsed.passthrough.length > 0) {
+      return writeUsageError(
+        null,
+        null,
+        'USAGE_ERROR',
+        'cli',
+        `unexpected trailing arguments after '--': ${parsed.passthrough.join(' ')}`,
+        json,
+        deps,
+      );
+    }
     if (json) {
       return writeUsageError(
         null,

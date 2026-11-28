@@ -278,11 +278,13 @@ function stageRulesModuleTarget(params: {
     return;
   }
   try {
+    const partialRequirements = withPred.filter((r) => !r.lowered).map((r) => r.requirement);
     staged.push(
       stageArtifact(outDir, target, format, fileName, params.emitPartial(withPred), {
         complete: false,
-        loweredRequirements: withPred.map((r) => r.requirement),
-        residualRequirements: report.summary.residualRequirements,
+        loweredRequirements: [...report.summary.loweredRequirements],
+        residualRequirements: [...report.summary.residualRequirements],
+        ...(partialRequirements.length > 0 ? { partialRequirements } : {}),
       }),
     );
   } catch (err) {

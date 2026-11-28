@@ -10,9 +10,11 @@ import {
   type ParsedArgs,
 } from '../parse-args.js';
 import {
+  assertAllowedKeys,
   assertSafeKeys,
   isJsonOutput,
   isPlainRecord,
+  parseBooleanFlag,
   parseConfigBool,
   parseConfigInt,
   parseIntInRange,
@@ -22,11 +24,11 @@ import {
   parseTargetsList,
   parseTemplate,
   PolicyInputError,
-  readBooleanFlag,
   readJsonFile,
   readStringFlag,
   readStringListFlags,
   readText,
+  readValidatedStringFlag,
   validateKind,
   validateMode,
   validateOutputStem,
@@ -51,11 +53,48 @@ export {
   defaultOutputStem,
   isJsonOutput,
   isPlainRecord,
+  parseBooleanFlag,
   PolicyInputError,
   readBooleanFlag,
   validateOutputStem,
   validateRtdbPath,
 } from './input-parsers.js';
+
+const ALLOWED_CONFIG_KEYS: ReadonlySet<string> = new Set([
+  'kind',
+  'expressionLimit',
+  'mode',
+  'name',
+  'outDir',
+  'targets',
+  'firestore',
+  'storage',
+  'rtdb',
+  'scenarios',
+  'scenariosFile',
+  'fuzz',
+]);
+
+const ALLOWED_RULES_TARGET_KEYS: ReadonlySet<string> = new Set([
+  'bindings',
+  'bindingsFile',
+  'template',
+  'templateFile',
+]);
+
+const ALLOWED_RTDB_SECTION_KEYS: ReadonlySet<string> = new Set([
+  'bindings',
+  'bindingsFile',
+  'path',
+]);
+
+const ALLOWED_FUZZ_KEYS: ReadonlySet<string> = new Set([
+  'enabled',
+  'seed',
+  'cases',
+  'includeAdversarial',
+  'maxDurationMs',
+]);
 
 const COMMON_VALUE_FLAGS = [
   'kind',
@@ -141,6 +180,7 @@ async function readDefaultStdin(): Promise<string> {
 function readConfigSection(
   cfg: Record<string, unknown> | undefined,
   key: string,
+  allowedKeys: ReadonlySet<string>,
 ): Record<string, unknown> | undefined {
   if (cfg === undefined || cfg[key] === undefined) return undefined;
   const val = cfg[key];
@@ -148,6 +188,7 @@ function readConfigSection(
     throw new PolicyInputError(`config.${key} must be a JSON object`);
   }
   assertSafeKeys(val, `config.${key}`);
+  assertAllowedKeys(val, allowedKeys, `config.${key}`);
   return val;
 }
 
@@ -265,6 +306,12 @@ export async function loadPolicyInputs(
     throw new PolicyInputError(`missing value for --${missing}`);
   }
 
+  if (parsed.passthrough !== undefined && parsed.passthrough.length > 0) {
+    throw new PolicyInputError(
+      `unexpected trailing arguments after '--': ${parsed.passthrough.join(' ')}`,
+    );
+  }
+
   const args = parsed.positional.slice(1);
   if (args.length === 0) {
     throw new PolicyInputError("missing policy file path (pass '-' to read stdin)");
@@ -288,6 +335,7 @@ export async function loadPolicyInputs(
       throw new PolicyInputError(`config file '${absCfg}' must contain a JSON object`);
     }
     assertSafeKeys(rawCfg, 'config');
+    assertAllowedKeys(rawCfg, ALLOWED_CONFIG_KEYS, 'config');
     cfg = rawCfg;
     cfgDir = dirname(absCfg);
   }
@@ -297,26 +345,29 @@ export async function loadPolicyInputs(
       ? await (deps.readStdin ?? readDefaultStdin)()
       : await readText(resolve(cwd, file), readFileFn, 'policy file');
 
-  const rawKind = readStringFlag(parsed.flags.get('kind')) ?? cfg?.kind;
-  const kind = rawKind !== undefined ? validateKind(rawKind, '--kind') : undefined;
+  const cfgKind = cfg?.kind !== undefined ? validateKind(cfg.kind, 'config.kind') : undefined;
+  const flagKind = readValidatedStringFlag(parsed.flags.get('kind'), '--kind', validateKind);
+  const kind = flagKind ?? cfgKind;
 
   const defaultMode: PolicyMode = command === 'emit' ? 'complete' : 'mixed';
-  const mode = validateMode(
-    readStringFlag(parsed.flags.get('mode')) ?? cfg?.mode ?? defaultMode,
-    '--mode',
+  const cfgMode = cfg?.mode !== undefined ? validateMode(cfg.mode, 'config.mode') : undefined;
+  const flagMode = readValidatedStringFlag(parsed.flags.get('mode'), '--mode', validateMode);
+  const mode = flagMode ?? cfgMode ?? defaultMode;
+
+  const cfgLimit =
+    cfg?.expressionLimit !== undefined
+      ? parseConfigInt(cfg.expressionLimit, 'config.expressionLimit', 1, 1000000)
+      : undefined;
+  const flagLimit = readValidatedStringFlag(
+    parsed.flags.get('expression-limit'),
+    '--expression-limit',
+    (raw, label) => parseIntInRange(raw, label, 1, 1000000),
   );
+  const expressionLimit = flagLimit ?? cfgLimit;
 
-  const flagLimit = readStringFlag(parsed.flags.get('expression-limit'));
-  const expressionLimit =
-    flagLimit !== undefined
-      ? parseIntInRange(flagLimit, '--expression-limit', 1, 1000000)
-      : cfg?.expressionLimit !== undefined
-        ? parseConfigInt(cfg.expressionLimit, 'config.expressionLimit', 1, 1000000)
-        : undefined;
-
-  const cfgFs = readConfigSection(cfg, 'firestore');
-  const cfgSt = readConfigSection(cfg, 'storage');
-  const cfgRtdb = readConfigSection(cfg, 'rtdb');
+  const cfgFs = readConfigSection(cfg, 'firestore', ALLOWED_RULES_TARGET_KEYS);
+  const cfgSt = readConfigSection(cfg, 'storage', ALLOWED_RULES_TARGET_KEYS);
+  const cfgRtdb = readConfigSection(cfg, 'rtdb', ALLOWED_RTDB_SECTION_KEYS);
 
   const firestoreBindings = await resolveOptionalBindings(
     readStringFlag(parsed.flags.get('firestore-bindings')),
@@ -362,10 +413,14 @@ export async function loadPolicyInputs(
     readFileFn,
   );
 
-  const rawRtdbPath =
-    readStringFlag(parsed.flags.get('rtdb-path')) ??
-    readConfigString(cfgRtdb, 'path', 'config.rtdb.path');
-  const rtdbPath = rawRtdbPath !== undefined ? validateRtdbPath(rawRtdbPath) : undefined;
+  const cfgRtdbPath = readConfigString(cfgRtdb, 'path', 'config.rtdb.path');
+  const validatedCfgRtdbPath = cfgRtdbPath !== undefined ? validateRtdbPath(cfgRtdbPath) : undefined;
+  const flagRtdbPath = readValidatedStringFlag(
+    parsed.flags.get('rtdb-path'),
+    '--rtdb-path',
+    (raw) => validateRtdbPath(raw),
+  );
+  const rtdbPath = flagRtdbPath ?? validatedCfgRtdbPath;
 
   let scenarios: ProvePolicyScenario[] = [];
   const scenariosFlag = readStringFlag(parsed.flags.get('scenarios'));
@@ -387,41 +442,49 @@ export async function loadPolicyInputs(
     );
   }
 
-  const cfgFuzz = readConfigSection(cfg, 'fuzz');
-  const fuzzEnabled = readBooleanFlag(parsed.flags.get('no-fuzz'))
-    ? false
-    : cfgFuzz?.enabled !== undefined
-      ? parseConfigBool(cfgFuzz.enabled, 'config.fuzz.enabled')
-      : true;
-  const includeAdversarial = readBooleanFlag(parsed.flags.get('no-adversarial'))
-    ? false
-    : cfgFuzz?.includeAdversarial !== undefined
+  const cfgFuzz = readConfigSection(cfg, 'fuzz', ALLOWED_FUZZ_KEYS);
+  const noFuzz = parseBooleanFlag(parsed.flags.get('no-fuzz'), '--no-fuzz');
+  const cfgFuzzEnabled =
+    cfgFuzz?.enabled !== undefined ? parseConfigBool(cfgFuzz.enabled, 'config.fuzz.enabled') : true;
+  const fuzzEnabled = noFuzz ? false : cfgFuzzEnabled;
+
+  const noAdversarial = parseBooleanFlag(parsed.flags.get('no-adversarial'), '--no-adversarial');
+  const cfgAdv =
+    cfgFuzz?.includeAdversarial !== undefined
       ? parseConfigBool(cfgFuzz.includeAdversarial, 'config.fuzz.includeAdversarial')
       : true;
+  const includeAdversarial = noAdversarial ? false : cfgAdv;
 
-  const seedFlag = readStringFlag(parsed.flags.get('seed'));
-  const seed =
-    seedFlag !== undefined
-      ? parseIntInRange(seedFlag, '--seed', 0, 4294967295)
-      : cfgFuzz?.seed !== undefined
-        ? parseConfigInt(cfgFuzz.seed, 'config.fuzz.seed', 0, 4294967295)
-        : 1337;
+  const cfgSeed =
+    cfgFuzz?.seed !== undefined
+      ? parseConfigInt(cfgFuzz.seed, 'config.fuzz.seed', 0, 4294967295)
+      : undefined;
+  const flagSeed = readValidatedStringFlag(parsed.flags.get('seed'), '--seed', (raw, label) =>
+    parseIntInRange(raw, label, 0, 4294967295),
+  );
+  const seed = flagSeed ?? cfgSeed ?? 1337;
 
-  const casesFlag = readStringFlag(parsed.flags.get('fuzz-cases'));
-  const cases =
-    casesFlag !== undefined
-      ? parseIntInRange(casesFlag, '--fuzz-cases', 0, 2000)
-      : cfgFuzz?.cases !== undefined
-        ? parseConfigInt(cfgFuzz.cases, 'config.fuzz.cases', 0, 2000)
-        : 64;
+  const cfgCases =
+    cfgFuzz?.cases !== undefined
+      ? parseConfigInt(cfgFuzz.cases, 'config.fuzz.cases', 0, 2000)
+      : undefined;
+  const flagCases = readValidatedStringFlag(
+    parsed.flags.get('fuzz-cases'),
+    '--fuzz-cases',
+    (raw, label) => parseIntInRange(raw, label, 0, 2000),
+  );
+  const cases = flagCases ?? cfgCases ?? 64;
 
-  const maxDurFlag = readStringFlag(parsed.flags.get('max-duration-ms'));
-  const maxDurationMs =
-    maxDurFlag !== undefined
-      ? parseIntInRange(maxDurFlag, '--max-duration-ms', 100, 60000)
-      : cfgFuzz?.maxDurationMs !== undefined
-        ? parseConfigInt(cfgFuzz.maxDurationMs, 'config.fuzz.maxDurationMs', 100, 60000)
-        : 10000;
+  const cfgMaxDur =
+    cfgFuzz?.maxDurationMs !== undefined
+      ? parseConfigInt(cfgFuzz.maxDurationMs, 'config.fuzz.maxDurationMs', 100, 60000)
+      : undefined;
+  const flagMaxDur = readValidatedStringFlag(
+    parsed.flags.get('max-duration-ms'),
+    '--max-duration-ms',
+    (raw, label) => parseIntInRange(raw, label, 100, 60000),
+  );
+  const maxDurationMs = flagMaxDur ?? cfgMaxDur ?? 10000;
 
   const flagOutDir = readStringFlag(parsed.flags.get('out-dir'));
   const cfgOutDir = flagOutDir === undefined ? readConfigString(cfg, 'outDir', 'config.outDir') : undefined;
@@ -432,9 +495,12 @@ export async function loadPolicyInputs(
         ? resolve(cfgDir, cfgOutDir)
         : undefined;
 
-  const rawName =
-    readStringFlag(parsed.flags.get('name')) ?? readConfigString(cfg, 'name', 'config.name');
-  const name = rawName !== undefined ? validateOutputStem(rawName) : undefined;
+  const cfgName = readConfigString(cfg, 'name', 'config.name');
+  const validatedCfgName = cfgName !== undefined ? validateOutputStem(cfgName) : undefined;
+  const flagName = readValidatedStringFlag(parsed.flags.get('name'), '--name', (raw) =>
+    validateOutputStem(raw),
+  );
+  const name = flagName ?? validatedCfgName;
 
   const flagTargets = readStringListFlags(parsed.flags, ['targets', 'target']);
   let targets: PolicyTarget[] | undefined;
@@ -448,6 +514,9 @@ export async function loadPolicyInputs(
   }
 
   const rawManifest = readStringFlag(parsed.flags.get('manifest'));
+  const noStandalone = parseBooleanFlag(parsed.flags.get('no-standalone'), '--no-standalone');
+  const noWrite = parseBooleanFlag(parsed.flags.get('no-write'), '--no-write');
+  const noEsmVerify = parseBooleanFlag(parsed.flags.get('no-esm-verify'), '--no-esm-verify');
   return {
     file,
     source,
@@ -467,8 +536,8 @@ export async function loadPolicyInputs(
     name,
     targets,
     manifestPath: rawManifest !== undefined ? resolve(cwd, rawManifest) : undefined,
-    noStandalone: readBooleanFlag(parsed.flags.get('no-standalone')),
-    noWrite: readBooleanFlag(parsed.flags.get('no-write')),
-    verifyEsm: !readBooleanFlag(parsed.flags.get('no-esm-verify')),
+    noStandalone,
+    noWrite,
+    verifyEsm: !noEsmVerify,
   };
 }

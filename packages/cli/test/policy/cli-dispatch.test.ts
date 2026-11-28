@@ -159,6 +159,24 @@ describe('pyric policy dispatch and CLI hygiene', () => {
     const rSeed = await run(['prove', pol, '--config', badFuzzSeed, '--json']);
     expect(rSeed.code).toBe(POLICY_EXIT_USAGE);
     expect(JSON.parse(rSeed.out).diagnostics[0].message).toContain('config.fuzz.seed');
+
+    const nullMode = join(dir, 'null-mode.json');
+    writeFileSync(nullMode, '{"mode": null}');
+    const rNullMode = await run(['check', pol, '--config', nullMode, '--json']);
+    expect(rNullMode.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(rNullMode.out).diagnostics[0].message).toContain('config.mode');
+
+    const typoCfg = join(dir, 'typo-cfg.json');
+    writeFileSync(typoCfg, '{"typoFlag": true}');
+    const rTypo = await run(['check', pol, '--config', typoCfg, '--json']);
+    expect(rTypo.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(rTypo.out).diagnostics[0].message).toContain("unknown key 'typoFlag'");
+
+    const typoFuzz = join(dir, 'typo-fuzz.json');
+    writeFileSync(typoFuzz, '{"fuzz": {"badKey": 1}}');
+    const rTypoFuzz = await run(['prove', pol, '--config', typoFuzz, '--json']);
+    expect(rTypoFuzz.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(rTypoFuzz.out).diagnostics[0].message).toContain("unknown key 'badKey'");
   });
 
   it('validates flag ranges, path traversal in --name, and unsafe --rtdb-path segments', async () => {
@@ -189,6 +207,45 @@ describe('pyric policy dispatch and CLI hygiene', () => {
 
     const badPath2 = await run(['emit', pol, '--no-write', '--rtdb-path', '/rooms/__proto__', '--json']);
     expect(badPath2.code).toBe(POLICY_EXIT_USAGE);
+
+    for (const segPath of ['/rooms/a$b', '/rooms/a\x01b', '/rooms/a\x7fb', '/rooms/$', '/rooms/$1bad', '/rooms/$a$b']) {
+      const r = await run(['emit', pol, '--no-write', '--rtdb-path', segPath, '--json']);
+      expect(r.code).toBe(POLICY_EXIT_USAGE);
+    }
+    const okWildcard = await run(['emit', pol, '--no-write', '--rtdb-path', '/rooms/$room_id', '--json']);
+    expect(okWildcard.code).toBe(POLICY_EXIT_OK);
+
+    // Trailing `--` passthrough args must fail with USAGE_ERROR.
+    const trailing = await run(['check', pol, '--json', '--', 'extra-garbage', '--bogus']);
+    expect(trailing.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(trailing.out).diagnostics[0].message).toContain("after '--'");
+
+    const bareTrailing = await run(['--', 'extra']);
+    expect(bareTrailing.code).toBe(POLICY_EXIT_USAGE);
+    expect(bareTrailing.err).toContain("after '--'");
+
+    // Strict boolean flags reject arbitrary strings.
+    const badJsonFlag = await run(['check', pol, '--json=banana']);
+    expect(badJsonFlag.code).toBe(POLICY_EXIT_USAGE);
+    expect(badJsonFlag.out).toBe('');
+    expect(badJsonFlag.err).toContain('invalid --json');
+
+    const badNoFuzz = await run(['prove', pol, '--no-fuzz=banana', '--json']);
+    expect(badNoFuzz.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(badNoFuzz.out).diagnostics[0].message).toContain('invalid --no-fuzz');
+
+    const badHelp = await run(['check', pol, '--help=banana', '--json']);
+    expect(badHelp.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(badHelp.out).diagnostics[0].message).toContain('invalid --help');
+
+    // Repeated scalar flags validate every occurrence, taking the last valid value.
+    const badDupSeed = await run(['prove', pol, '--seed', 'notanumber', '--seed', '42', '--no-fuzz', '--json']);
+    expect(badDupSeed.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(badDupSeed.out).diagnostics[0].message).toContain('--seed');
+
+    const okDupSeed = await run(['prove', pol, '--seed', '1', '--seed', '42', '--no-fuzz', '--json']);
+    expect(okDupSeed.code).toBe(POLICY_EXIT_OK);
+    expect(JSON.parse(okDupSeed.out).fuzz.seed).toBe(42);
   });
 
   it('reads policy source from stdin when given - and catches loader errors cleanly', async () => {

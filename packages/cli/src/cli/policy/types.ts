@@ -426,6 +426,7 @@ export interface EmittedArtifact {
   complete?: boolean;
   loweredRequirements?: string[];
   residualRequirements?: string[];
+  partialRequirements?: string[];
   rtdbPath?: string;
   predicate?: string;
 }

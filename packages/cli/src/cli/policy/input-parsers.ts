@@ -25,6 +25,26 @@ const VALID_TARGETS: ReadonlySet<string> = new Set(['standalone', 'firestore', '
 const VALID_RTDB_TYPES: ReadonlySet<string> = new Set(['number', 'string', 'boolean', 'any']);
 const VALID_FIRESTORE_OPS: ReadonlySet<string> = new Set(['create', 'update', 'delete']);
 const SAFE_STEM_RE = /^[A-Za-z0-9._-]+$/;
+const RTDB_WILDCARD_RE = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
+const RTDB_INVALID_KEY_CHARS_RE = /[.#$[\]\x00-\x1f\x7f]/;
+const ALLOWED_RTDB_BINDING_KEYS: ReadonlySet<string> = new Set(['snapshot', 'parent', 'path', 'type']);
+const ALLOWED_SCENARIO_KEYS: ReadonlySet<string> = new Set([
+  'name',
+  'transition',
+  'functionName',
+  'args',
+  'expectOk',
+  'expectRequirement',
+  'expectValue',
+  'expectError',
+]);
+const ALLOWED_TEMPLATE_KEYS: ReadonlySet<string> = new Set([
+  'slot',
+  'rules',
+  'rulesFile',
+  'placements',
+]);
+const ALLOWED_PLACEMENT_KEYS: ReadonlySet<string> = new Set(['path', 'operation', 'bindings']);
 
 export class PolicyInputError extends Error {
   readonly kind: 'usage' | 'io';
@@ -47,17 +67,40 @@ export function assertSafeKeys(obj: Record<string, unknown>, label: string): voi
   }
 }
 
-export function readBooleanFlag(value: FlagValue | undefined): boolean {
-  if (value === true || value === 'true') return true;
-  if (Array.isArray(value)) {
-    const last = value[value.length - 1];
-    return last === true || last === 'true';
+export function assertAllowedKeys(
+  obj: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  label: string,
+): void {
+  for (const key of Object.keys(obj)) {
+    if (!allowed.has(key)) {
+      throw new PolicyInputError(`unknown key '${key}' in ${label}`);
+    }
   }
-  return false;
+}
+
+export function parseBooleanFlag(value: FlagValue | undefined, label: string): boolean {
+  if (value === undefined) return false;
+  const items = Array.isArray(value) ? value : [value];
+  let result = false;
+  for (const item of items) {
+    if (item === true || item === 'true') {
+      result = true;
+    } else if (item === false || item === 'false') {
+      result = false;
+    } else {
+      throw new PolicyInputError(`invalid ${label} '${String(item)}'; expected true or false`);
+    }
+  }
+  return result;
+}
+
+export function readBooleanFlag(value: FlagValue | undefined, label = 'flag'): boolean {
+  return parseBooleanFlag(value, label);
 }
 
 export function isJsonOutput(flags: ReadonlyMap<string, FlagValue>): boolean {
-  return readBooleanFlag(flags.get('json'));
+  return parseBooleanFlag(flags.get('json'), '--json');
 }
 
 export function readStringFlag(value: FlagValue | undefined): string | undefined {
@@ -67,6 +110,23 @@ export function readStringFlag(value: FlagValue | undefined): string | undefined
     if (typeof last === 'string') return last;
   }
   return undefined;
+}
+
+export function readValidatedStringFlag<T>(
+  value: FlagValue | undefined,
+  label: string,
+  parser: (raw: string, flagLabel: string) => T,
+): T | undefined {
+  if (value === undefined) return undefined;
+  const items = Array.isArray(value) ? value : [value];
+  let result: T | undefined;
+  for (const item of items) {
+    if (typeof item !== 'string') {
+      throw new PolicyInputError(`missing value for ${label}`);
+    }
+    result = parser(item, label);
+  }
+  return result;
 }
 
 export function readStringListFlags(
@@ -150,6 +210,7 @@ export function parseRtdbBindings(raw: unknown, label: string): RtdbBindings {
       throw new PolicyInputError(`${label} entry '${key}' must be 'data', 'newData', or a snapshot object`);
     }
     assertSafeKeys(val, `${label}.${key}`);
+    assertAllowedKeys(val, ALLOWED_RTDB_BINDING_KEYS, `${label}.${key}`);
     if (val.snapshot !== 'data' && val.snapshot !== 'newData') {
       throw new PolicyInputError(`${label}.${key}.snapshot must be 'data' or 'newData'`);
     }
@@ -178,8 +239,21 @@ export function validateRtdbPath(path: string): string {
     throw new PolicyInputError(`invalid RTDB path '${path}'; expected an absolute path like /items/$id`);
   }
   for (const part of parts) {
-    if (part.length === 0 || /[.#[\]]/.test(part) || FORBIDDEN_KEYS.has(part)) {
+    if (part.length === 0 || FORBIDDEN_KEYS.has(part)) {
       throw new PolicyInputError(`invalid RTDB path segment '${part}' in '${path}'`);
+    }
+    if (part.startsWith('$')) {
+      if (!RTDB_WILDCARD_RE.test(part)) {
+        throw new PolicyInputError(
+          `invalid RTDB wildcard segment '${part}' in '${path}'; expected $[A-Za-z_][A-Za-z0-9_]*`,
+        );
+      }
+      continue;
+    }
+    if (RTDB_INVALID_KEY_CHARS_RE.test(part)) {
+      throw new PolicyInputError(
+        `invalid RTDB path segment in '${path}'; disallowed character (., #, $, [, ], or ASCII control)`,
+      );
     }
   }
   return path;
@@ -216,6 +290,8 @@ export function parseScenarios(raw: unknown, label: string): ProvePolicyScenario
     if (!isPlainRecord(item) || typeof item.name !== 'string' || item.name.trim().length === 0) {
       throw new PolicyInputError(`${label}[${i}] must be an object with a non-empty string 'name'`);
     }
+    assertSafeKeys(item, `${label}[${i}]`);
+    assertAllowedKeys(item, ALLOWED_SCENARIO_KEYS, `${label}[${i}]`);
     if (item.transition !== undefined && !isPlainRecord(item.transition)) {
       throw new PolicyInputError(`${label}[${i}].transition must be an object`);
     }
@@ -291,6 +367,7 @@ export async function parseTemplate(
 ): Promise<FirestoreTemplate | StorageTemplate> {
   if (!isPlainRecord(raw)) throw new PolicyInputError(`${label} must be a JSON object`);
   assertSafeKeys(raw, label);
+  assertAllowedKeys(raw, ALLOWED_TEMPLATE_KEYS, label);
   if (typeof raw.slot !== 'string' || raw.slot.trim().length === 0) {
     throw new PolicyInputError(`${label}.slot must be a non-empty string`);
   }
@@ -313,6 +390,7 @@ export async function parseTemplate(
       throw new PolicyInputError(`${label}.placements[${idx}] must be an object`);
     }
     assertSafeKeys(entry, `${label}.placements[${idx}]`);
+    assertAllowedKeys(entry, ALLOWED_PLACEMENT_KEYS, `${label}.placements[${idx}]`);
     if (typeof entry.path !== 'string' || entry.path.length === 0) {
       throw new PolicyInputError(`${label}.placements[${idx}].path must be a non-empty string`);
     }

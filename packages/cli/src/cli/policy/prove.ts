@@ -11,7 +11,7 @@ import {
 } from './check.js';
 import { makeSimpleDiagnostic } from './diagnostics.js';
 import { formatProveText } from './format.js';
-import { isJsonOutput, isPlainRecord, loadPolicyInputs } from './input.js';
+import { isPlainRecord, loadPolicyInputs } from './input.js';
 import { loadPolicyExperimentalApi, verifyStandaloneModuleEsm } from './loader.js';
 import {
   POLICY_EXIT_OK,
@@ -148,7 +148,7 @@ export async function runPolicyProve(
       },
       counterexamples: [],
     };
-    if (isJsonOutput(parsed.flags)) {
+    if (inputs.json) {
       writeReport(true, report, '', deps);
     } else {
       (deps.stderr ?? process.stderr).write(`pyric policy prove: ${diag.message}\n`);

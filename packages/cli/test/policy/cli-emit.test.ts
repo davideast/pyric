@@ -533,4 +533,46 @@ describe('pyric policy emit', () => {
     expect(stArt?.loweredRequirements).toEqual(['sizeOk']);
     expect(stArt?.residualRequirements).toEqual(['tagsOk']);
   });
+
+  it('keeps lowered/residual disjoint on unverified derive siblings and guards manifest dir before writes', async () => {
+    const dir = makeTempDir();
+    const pol = join(dir, 'sibling.policy');
+    const fsFile = join(dir, 'fs.json');
+    const stFile = join(dir, 'st.json');
+    writeFileSync(
+      pol,
+      [
+        'use extension derive;',
+        'transition sib {',
+        "  derive { let s = before.size; return {'a': s, 'b': s + 1}; }",
+        '  require checkA { return after.size == derived.a; }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(fsFile, JSON.stringify({ 'before.size': 'resource.data.size', 'after.size': 'request.resource.data.size' }));
+    writeFileSync(stFile, JSON.stringify({ 'before.size': 'resource.size', 'after.size': 'request.resource.size' }));
+    const res = await runEmit([pol, '--no-write', '--mode', 'mixed', '--firestore-bindings', fsFile, '--storage-bindings', stFile, '--json']);
+    expect(res.code).toBe(POLICY_EXIT_OK);
+    const report = JSON.parse(res.out) as PolicyEmitReport;
+    for (const target of ['firestore', 'storage'] as const) {
+      const art = report.artifacts.find((a) => a.target === target);
+      const summary = report.placement[target]?.summary;
+      expect(art?.complete).toBe(false);
+      expect(art?.loweredRequirements).toEqual([]);
+      expect(art?.residualRequirements).toEqual(['checkA']);
+      expect(art?.partialRequirements).toEqual(['checkA']);
+      expect(art?.loweredRequirements).toEqual(summary?.loweredRequirements);
+      expect(art?.residualRequirements).toEqual(summary?.residualRequirements);
+    }
+
+    // Manifest parent under a regular file must fail with IO_ERROR before writing outDir artifacts.
+    const blocker = join(dir, 'regular-file');
+    const outDir = join(dir, 'never-written');
+    writeFileSync(blocker, 'x');
+    const badManifest = await runEmit([pol, '--out-dir', outDir, '--manifest', join(blocker, 'manifest.json'), '--json']);
+    expect(badManifest.code).toBe(POLICY_EXIT_USAGE);
+    expect(JSON.parse(badManifest.out).diagnostics[0].code).toBe('IO_ERROR');
+    expect(existsSync(outDir)).toBe(false);
+  });
 });

@@ -209,6 +209,19 @@ export async function runPolicyEmit(
   const exitCode: PolicyExitCode = hasError ? POLICY_EXIT_PLACEMENT : POLICY_EXIT_OK;
   const shouldWrite = !hasError && !inputs.noWrite;
 
+  if (shouldWrite && inputs.manifestPath !== undefined) {
+    const mkdirFn = deps.mkdir ?? mkdir;
+    try {
+      await mkdirFn(dirname(inputs.manifestPath), { recursive: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new PolicyInputError(
+        `failed to prepare manifest directory for '${inputs.manifestPath}': ${message}`,
+        'io',
+      );
+    }
+  }
+
   if (shouldWrite && inputs.outDir !== undefined && staged.length > 0) {
     const mkdirFn = deps.mkdir ?? mkdir;
     const writeFileFn = deps.writeFile ?? writeFile;
@@ -254,10 +267,8 @@ export async function runPolicyEmit(
   };
 
   if (shouldWrite && inputs.manifestPath !== undefined) {
-    const mkdirFn = deps.mkdir ?? mkdir;
     const writeFileFn = deps.writeFile ?? writeFile;
     try {
-      await mkdirFn(dirname(inputs.manifestPath), { recursive: true });
       await writeFileFn(inputs.manifestPath, formatJson(report), 'utf8');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

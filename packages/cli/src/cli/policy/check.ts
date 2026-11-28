@@ -16,7 +16,7 @@ import {
   spanFromLocation,
 } from './diagnostics.js';
 import { formatCheckText, formatJson } from './format.js';
-import { isJsonOutput, loadPolicyInputs, type LoadedPolicyInputs } from './input.js';
+import { loadPolicyInputs, type LoadedPolicyInputs } from './input.js';
 import { loadPolicyExperimentalApi } from './loader.js';
 import {
   POLICY_EXIT_OK,
@@ -398,7 +398,7 @@ export async function runPolicyCheck(
       cost: analysis.cost,
       standalone: analysis.standalone,
     };
-    if (isJsonOutput(parsed.flags)) {
+    if (inputs.json) {
       writeReport(true, report, '', deps);
     } else {
       (deps.stderr ?? process.stderr).write(`pyric policy check: ${diag.message}\n`);
