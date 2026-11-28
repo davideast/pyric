@@ -91,10 +91,15 @@ export function lowerFirestore(expr: Expression, projections: Map<string, Expres
         return node;
       }
       case 'literal': return node;
+      case 'listLiteral': return { ...node, elements: node.elements.map(lower) };
+      case 'mapLiteral': return { ...node, entries: node.entries.map(e => ({ key: lower(e.key), value: lower(e.value) })) };
       case 'unaryOp': features.add(node.op); return { ...node, operand: lower(node.operand) };
       case 'binaryOp': features.add(node.op); return { ...node, left: lower(node.left), right: lower(node.right) };
       case 'isExpr': features.add('is ' + node.typeName); return { ...node, value: lower(node.value) };
       case 'inExpr': features.add('in'); return { ...node, element: lower(node.element), collection: lower(node.collection) };
+      case 'methodCall':
+        features.add('method:' + node.method);
+        return { ...node, object: lower(node.object), args: node.args.map(lower) };
       case 'ternary': {
         features.add('conditional');
         const condition = lower(node.condition);

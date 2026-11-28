@@ -313,9 +313,15 @@ function checkExpr(expr: IRExpr, names: Set<string>, ctx: ExprCheckContext): voi
       if (expr.object.type === 'identifier' && expr.object.name === 'bounded' && !names.has('bounded')) {
         throw new Error('Invalid bounded.' + expr.method + ' call or bound');
       }
-      if (ctx.kind === 'transition') break;
       if (ctx.kind === 'function') {
         if (!isPureValueMethod(expr.method, expr.args.length)) break;
+        visit(expr.object);
+        for (const arg of expr.args) visit(arg);
+        return;
+      }
+      if (ctx.kind === 'transition') {
+        const allowedArities = RULES_VALUE_METHOD_ARITIES.get(expr.method);
+        if (!allowedArities || !allowedArities.has(expr.args.length)) break;
         visit(expr.object);
         for (const arg of expr.args) visit(arg);
         return;
