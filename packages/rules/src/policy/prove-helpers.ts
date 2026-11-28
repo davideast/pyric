@@ -217,14 +217,43 @@ export function createFirestoreEvaluator(
   }`);
   const hasAuthBinding = entries.some(([, target]) => target === 'request.auth' || target.startsWith('request.auth.'));
   return (transition: Transition) => {
-    const resource: Record<string, unknown> =
-      transition.before && typeof transition.before === 'object' && !Array.isArray(transition.before)
-        ? (revivePolicyValue(transition.before) as Record<string, unknown>)
-        : {};
-    const data: Record<string, unknown> =
-      transition.after && typeof transition.after === 'object' && !Array.isArray(transition.after)
-        ? (revivePolicyValue(transition.after) as Record<string, unknown>)
-        : {};
+    let resource: Record<string, unknown> = {};
+    let data: Record<string, unknown> = {};
+    let hasResourceBinding = false;
+    let hasDataBinding = false;
+    for (const [policyPath, target] of entries) {
+      if (target === 'resource.data') {
+        hasResourceBinding = true;
+        const r = readTransitionPath(transition, policyPath);
+        if (r.present && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
+          resource = revivePolicyValue(r.value) as Record<string, unknown>;
+        }
+      } else if (target.startsWith('resource.data.')) {
+        hasResourceBinding = true;
+        const r = readTransitionPath(transition, policyPath);
+        if (r.present) {
+          setNestedPath(resource, target.slice('resource.data.'.length).split('.'), revivePolicyValue(r.value));
+        }
+      } else if (target === 'request.resource.data') {
+        hasDataBinding = true;
+        const r = readTransitionPath(transition, policyPath);
+        if (r.present && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
+          data = revivePolicyValue(r.value) as Record<string, unknown>;
+        }
+      } else if (target.startsWith('request.resource.data.')) {
+        hasDataBinding = true;
+        const r = readTransitionPath(transition, policyPath);
+        if (r.present) {
+          setNestedPath(data, target.slice('request.resource.data.'.length).split('.'), revivePolicyValue(r.value));
+        }
+      }
+    }
+    if (!hasResourceBinding && transition.before && typeof transition.before === 'object' && !Array.isArray(transition.before)) {
+      resource = revivePolicyValue(transition.before) as Record<string, unknown>;
+    }
+    if (!hasDataBinding && transition.after && typeof transition.after === 'object' && !Array.isArray(transition.after)) {
+      data = revivePolicyValue(transition.after) as Record<string, unknown>;
+    }
     let auth: { uid: string; token?: Record<string, unknown> } | null | undefined;
     if (hasAuthBinding) {
       let uid: unknown;
@@ -253,7 +282,8 @@ export function createFirestoreEvaluator(
           }
         }
       }
-      if (uidPresent && uid !== null && typeof uid !== 'string') return undefined;
+      // In Firestore, request.auth.uid is always a string when authenticated (never null or non-string).
+      if (uidPresent && typeof uid !== 'string') return undefined;
       if (typeof uid === 'string') {
         auth = hasToken ? { uid, token } : { uid };
       } else if (hasToken) {

@@ -496,7 +496,7 @@ describe('Phase 3: createPolicyGuard() Web-standard host boundary middleware', (
     expect(hostileReport.ok).toBe(true);
     expect(hostileReport.scenarios.passed).toBe(3);
 
-    // 2. provePolicy populates request.auth.* for Firestore target simulations
+    // 2. provePolicy populates request.auth.* and projects renamed/nested Firestore fields accurately
     const ownerPolicy = `
       transition ownerEdit {
         require isOwner {
@@ -506,20 +506,22 @@ describe('Phase 3: createPolicyGuard() Web-standard host boundary middleware', (
     `;
     const authReport = provePolicy(ownerPolicy, {
       firestore: {
-        'before.owner': 'resource.data.owner',
-        'before.count': 'resource.data.count',
-        'after.count': 'request.resource.data.count',
+        'before.owner': 'resource.data.ownerId',
+        'before.count': 'resource.data.meta.count',
+        'after.count': 'request.resource.data.meta.count',
         'input.uid': 'request.auth.uid',
       },
       scenarios: [
         { name: 'owner allowed', transition: { before: { owner: 'alice', count: 1 }, after: { count: 2 }, input: { uid: 'alice' } }, expectOk: true },
         { name: 'non-owner denied', transition: { before: { owner: 'alice', count: 1 }, after: { count: 2 }, input: { uid: 'bob' } }, expectOk: false },
+        { name: 'null uid outside auth.uid domain', transition: { before: { owner: null, count: 1 }, after: { count: 2 }, input: { uid: null } }, expectOk: true },
       ],
-      fuzz: { seed: 7, cases: 40 },
+      fuzz: { seed: 7, cases: 60 },
     });
     expect(authReport.ok).toBe(true);
     expect(authReport.scenarios.results[0]?.firestore).toBe('ALLOW');
     expect(authReport.scenarios.results[1]?.firestore).toBe('DENY');
+    expect(authReport.scenarios.results[2]?.firestore).toBeUndefined();
 
     // 3. guard.derive() preserves full strings (>512), arrays (>64), and -0 without diagnostic truncation
     const richPolicy = `
