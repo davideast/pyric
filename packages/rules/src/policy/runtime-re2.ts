@@ -1,14 +1,25 @@
 // Embedded zero-dependency linear-time Thompson NFA RE2 regex engine for standalone ES modules.
 // Guarantees O(states * chars) matching, splitting, and replacement with zero backtracking
 // and explicit tick accounting against the standalone evaluation budget.
+import { boundedRe2FoldRuntime } from './runtime-re2-fold.js';
+
 export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
+${boundedRe2FoldRuntime}
   function re2Word(c) {
     if (!c || c.length !== 1) return false;
     const k = c.charCodeAt(0);
     return (k >= 48 && k <= 57) || (k >= 65 && k <= 90) || (k >= 97 && k <= 122) || k === 95;
   }
-  function re2Space(c) {
+  function re2PosixSpace(c) {
     return c === ' ' || c === '\\t' || c === '\\n' || c === '\\r' || c === '\\f' || c === '\\v';
+  }
+  function re2PerlSpace(c) {
+    return c === ' ' || c === '\\t' || c === '\\n' || c === '\\r' || c === '\\f';
+  }
+  function re2IsAsciiAlnum(c) {
+    if (!c || c.length !== 1) return false;
+    const k = c.charCodeAt(0);
+    return (k >= 48 && k <= 57) || (k >= 65 && k <= 90) || (k >= 97 && k <= 122);
   }
   function re2Posix(name) {
     switch (name) {
@@ -22,7 +33,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       case 'lower': return (c) => c >= 'a' && c <= 'z';
       case 'print': return (c) => c.length === 1 && c.charCodeAt(0) >= 32 && c.charCodeAt(0) <= 126;
       case 'punct': return (c) => /^[!-\\/:-@\\[-\\\`{-~]$/.test(c);
-      case 'space': return re2Space;
+      case 'space': return re2PosixSpace;
       case 'upper': return (c) => c >= 'A' && c <= 'Z';
       case 'word': return re2Word;
       case 'xdigit': return (c) => /^[0-9A-Fa-f]$/.test(c);
@@ -31,19 +42,32 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
   }
   function re2UnicodeProp(spec, neg, ci) {
     if (!spec) fail('Invalid Unicode property class');
+    const hasCaret = spec[0] === '^';
+    const name = hasCaret ? spec.slice(1) : spec;
+    if (!/^[A-Za-z_]+$/.test(name)) fail('Invalid Unicode property class: ' + spec);
+    const prop = RE2_GEN_CATS.has(name) ? name : 'Script=' + name;
+    const inv = neg !== hasCaret;
     let re;
-    try { re = new RegExp('^\\\\' + (neg ? 'P' : 'p') + '{' + spec + '}$', ci ? 'iu' : 'u'); }
+    try { re = new RegExp('^\\\\p{' + prop + '}$', 'u'); }
     catch { fail('Invalid Unicode property class: ' + spec); }
-    return (c) => re.test(c);
+    return (c) => {
+      const hit = ci ? re2Orbit(c).some((p) => re.test(p)) : re.test(c);
+      return inv ? !hit : hit;
+    };
   }
-  function re2Octal(pat, pos) {
-    const m3 = /^[0-3][0-7]{2}/.exec(pat.slice(pos));
+  function re2Octal(pat, pos, inClass) {
+    const rest = pat.slice(pos);
+    const m3 = /^[0-3][0-7]{2}/.exec(rest);
     if (m3) return [String.fromCodePoint(parseInt(m3[0], 8)), pos + 3];
-    const m0 = /^0[0-7]{0,2}/.exec(pat.slice(pos));
+    if (inClass) {
+      const m2 = /^[1-7][0-7]/.exec(rest);
+      if (m2) return [String.fromCodePoint(parseInt(m2[0], 8)), pos + 2];
+    }
+    const m0 = /^0[0-7]{0,2}/.exec(rest);
     if (m0) return [String.fromCodePoint(parseInt(m0[0], 8)), pos + m0[0].length];
     return null;
   }
-  function re2EscapeChar(pat, pos) {
+  function re2EscapeChar(pat, pos, inClass) {
     if (pos >= pat.length) fail('Trailing backslash in regex');
     const c = pat[pos];
     if (c === 't') return ['\\t', pos + 1];
@@ -52,27 +76,30 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     if (c === 'f') return ['\\f', pos + 1];
     if (c === 'v') return ['\\v', pos + 1];
     if (c === 'a') return ['\\x07', pos + 1];
-    const oct = re2Octal(pat, pos);
+    const oct = re2Octal(pat, pos, inClass);
     if (oct) return oct;
     if (c === 'x') {
       if (pat[pos + 1] === '{') {
         const end = pat.indexOf('}', pos + 2);
         if (end === -1) fail('Unclosed hex escape');
         const hex = pat.slice(pos + 2, end);
-        if (!/^[0-9A-Fa-f]+$/.test(hex)) fail('Invalid hex escape');
-        return [String.fromCodePoint(parseInt(hex, 16)), end + 1];
+        if (!/^[0-9A-Fa-f]{1,8}$/.test(hex)) fail('Invalid hex escape');
+        const cp = parseInt(hex, 16);
+        if (!Number.isSafeInteger(cp) || cp > 0x10ffff) fail('Hex escape out of Unicode range');
+        return [String.fromCodePoint(cp), end + 1];
       }
       const hex = pat.slice(pos + 1, pos + 3);
       if (!/^[0-9A-Fa-f]{2}$/.test(hex)) fail('Invalid hex escape');
       return [String.fromCharCode(parseInt(hex, 16)), pos + 3];
     }
+    if (re2IsAsciiAlnum(c)) fail('Invalid escape sequence: \\\\' + c);
     const cp = pat.codePointAt(pos);
     const ch = String.fromCodePoint(cp);
     return [ch, pos + ch.length];
   }
   function re2FoldEq(a, b, ci) {
-    if (!ci) return a === b;
-    return a === b || a.toLowerCase() === b.toLowerCase();
+    if (!ci || a === b) return a === b;
+    return re2Orbit(a).includes(b);
   }
   function re2ClassTest(pat, start, ci) {
     let pos = start + 1;
@@ -95,10 +122,11 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
         }
         if ((nx === 'p' || nx === 'P') && /[A-Za-z]/.test(pat[pos + 2] || '')) {
           const spec = pat[pos + 2];
+          if (!RE2_SHORT_CATS.has(spec)) fail('Invalid Unicode property class: \\\\' + nx + spec);
           pos += 3;
           return { fn: re2UnicodeProp(spec, nx === 'P', ci) };
         }
-        const [ch, nextPos] = re2EscapeChar(pat, pos + 1);
+        const [ch, nextPos] = re2EscapeChar(pat, pos + 1, true);
         pos = nextPos;
         return { ch };
       }
@@ -110,12 +138,12 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     let first = true;
     while (pos < pat.length && (first || pat[pos] !== ']')) {
       first = false;
-      const pm = /^\\[:(\\^?)([a-z]+):\\]/.exec(pat.slice(pos));
+      const pm = /^\\[:(\\^?)([^:\\]]*):\\]/.exec(pat.slice(pos));
       if (pm) {
         const base = re2Posix(pm[2]);
         const inv = pm[1] === '^';
         tests.push((c) => {
-          const hit = ci ? (base(c) || base(c.toLowerCase()) || base(c.toUpperCase())) : base(c);
+          const hit = ci ? re2Orbit(c).some((p) => base(p)) : base(c);
           return inv ? !hit : hit;
         });
         pos += pm[0].length;
@@ -132,8 +160,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
           const cp = c.codePointAt(0);
           if (cp >= lo && cp <= hi) return true;
           if (!ci) return false;
-          const lc = c.toLowerCase().codePointAt(0), uc = c.toUpperCase().codePointAt(0);
-          return (lc >= lo && lc <= hi) || (uc >= lo && uc <= hi);
+          return re2Orbit(c).some((p) => { const pc = p.codePointAt(0); return pc >= lo && pc <= hi; });
         });
       } else if (left.fn) {
         tests.push(left.fn);
@@ -154,8 +181,8 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     if (esc === 'D') return (c) => !(c >= '0' && c <= '9');
     if (esc === 'w') return re2Word;
     if (esc === 'W') return (c) => !re2Word(c);
-    if (esc === 's') return re2Space;
-    return (c) => !re2Space(c);
+    if (esc === 's') return re2PerlSpace;
+    return (c) => !re2PerlSpace(c);
   }
   function re2Parse(pat) {
     let pos = 0, ci = false, ml = false, dotAll = false, ungreedy = false, groups = 0;
@@ -185,7 +212,8 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
         if (pat.startsWith('\\\\Q', pos)) {
           const end = pat.indexOf('\\\\E', pos + 2);
           const stop = end === -1 ? pat.length : end;
-          const lits = Array.from(pat.slice(pos + 2, stop)).map((ch) => ({ k: 'ch', fn: (c) => re2FoldEq(c, ch, ci) }));
+          const f = ci;
+          const lits = Array.from(pat.slice(pos + 2, stop)).map((ch) => ({ k: 'ch', fn: (c) => re2FoldEq(c, ch, f) }));
           pos = end === -1 ? stop : end + 2;
           const last = lits.pop();
           if (last) { items.push(...lits, parseQuant(last)); }
@@ -196,28 +224,31 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       if (items.length === 0) return { k: 'empty' };
       return items.length === 1 ? items[0] : { k: 'seq', items };
     };
+    const isQuantAt = (i) => {
+      const c = pat[i];
+      return c === '*' || c === '+' || c === '?' || (c === '{' && /^\\{\\d+(?:,\\d*)?\\}/.test(pat.slice(i)));
+    };
     const parseQuant = (preset) => {
-      let node = preset || parseAtom();
-      while (pos < pat.length) {
-        const ch = pat[pos];
-        let min, max;
-        if (ch === '*' || ch === '+' || ch === '?') {
-          pos++;
-          min = ch === '+' ? 1 : 0;
-          max = ch === '?' ? 1 : Infinity;
-        } else if (ch === '{') {
-          const m = /^\\{(\\d+)(?:,(\\d*))?\\}/.exec(pat.slice(pos));
-          if (!m) break;
-          pos += m[0].length;
-          min = Number(m[1]);
-          max = m[2] === undefined ? min : (m[2] === '' ? Infinity : Number(m[2]));
-          if (min > max || min > 1000 || (max !== Infinity && max > 1000)) fail('Invalid repeat count');
-        } else break;
-        const lazy = pat[pos] === '?';
-        if (lazy) pos++;
-        node = { k: 'rep', body: node, min, max, greedy: lazy === ungreedy };
+      const node = preset || parseAtom();
+      if (pos >= pat.length || !isQuantAt(pos)) return node;
+      if (node.k === 'as' || node.noQ) fail('Invalid regular expression: nothing to repeat');
+      const ch = pat[pos];
+      let min, max;
+      if (ch === '*' || ch === '+' || ch === '?') {
+        pos++;
+        min = ch === '+' ? 1 : 0;
+        max = ch === '?' ? 1 : Infinity;
+      } else {
+        const m = /^\\{(\\d+)(?:,(\\d*))?\\}/.exec(pat.slice(pos));
+        pos += m[0].length;
+        min = Number(m[1]);
+        max = m[2] === undefined ? min : (m[2] === '' ? Infinity : Number(m[2]));
+        if (min > max || min > 1000 || (max !== Infinity && max > 1000)) fail('Invalid repeat count');
       }
-      return node;
+      const lazy = pat[pos] === '?';
+      if (lazy) pos++;
+      if (pos < pat.length && isQuantAt(pos)) fail('Invalid regular expression: nothing to repeat');
+      return { k: 'rep', body: node, min, max, greedy: lazy === ungreedy };
     };
     const parseAtom = () => {
       const ch = pat[pos];
@@ -237,15 +268,18 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
             const ns = pat.indexOf('<', pos) + 1;
             const ne = pat.indexOf('>', ns);
             if (ne === -1) fail('Unclosed group name');
+            const gname = pat.slice(ns, ne);
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(gname)) fail('Invalid group specifier name: ' + gname);
+            if (Object.hasOwn(named, gname)) fail('Duplicate group specifier name: ' + gname);
             cap = ++groups;
-            named[pat.slice(ns, ne)] = cap;
+            named[gname] = cap;
             pos = ne + 1;
           } else {
             const fm = /^([imsU-]+)/.exec(pat.slice(pos));
             if (!fm) fail('Unsupported group syntax');
             applyFlags(fm[1]);
             pos += fm[0].length;
-            if (pat[pos] === ')') { pos++; return { k: 'empty' }; }
+            if (pat[pos] === ')') { pos++; return { k: 'empty', noQ: true }; }
             if (pat[pos] === ':') pos++;
             else fail('Invalid inline flag group');
           }
@@ -267,7 +301,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       if (ch === '\\\\') {
         const esc = pat[pos + 1];
         if (esc === undefined) fail('Trailing backslash in regex');
-        const oct = re2Octal(pat, pos + 1);
+        const oct = re2Octal(pat, pos + 1, false);
         if (oct) {
           pos = oct[1];
           const f = ci;
@@ -291,10 +325,11 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
         }
         if ((esc === 'p' || esc === 'P') && /[A-Za-z]/.test(pat[pos + 2] || '')) {
           const spec = pat[pos + 2];
+          if (!RE2_SHORT_CATS.has(spec)) fail('Invalid Unicode property class: \\\\' + esc + spec);
           pos += 3;
           return { k: 'ch', fn: re2UnicodeProp(spec, esc === 'P', ci) };
         }
-        const [lit, nextPos] = re2EscapeChar(pat, pos + 1);
+        const [lit, nextPos] = re2EscapeChar(pat, pos + 1, false);
         pos = nextPos;
         const f = ci;
         return { k: 'ch', fn: (c) => re2FoldEq(c, lit, f) };
@@ -448,10 +483,10 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
           return m ? m.map((p) => p < 0 ? -1 : offsets[p]) : null;
         }
         const nextIdx = charAt[from + 1];
-        const subChars = [subject[from], ...chars.slice(nextIdx)];
-        const m = re2Find(subChars, nfa, groups, 0);
+        const subChars = [subject[from - 1], subject[from], ...chars.slice(nextIdx)];
+        const m = re2Find(subChars, nfa, groups, 1);
         if (!m) return null;
-        return m.map((p) => p < 0 ? -1 : p === 0 ? from : offsets[nextIdx + p - 1]);
+        return m.map((p) => p < 0 ? -1 : p === 1 ? from : offsets[nextIdx + p - 2]);
       },
     };
   }

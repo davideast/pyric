@@ -149,7 +149,7 @@ function boundTerm(term: RtdbTerm, limit: number): string[] {
     const yb = boundTerm(term.arith.a, limit);
     const nb = boundTerm(term.arith.b, limit);
     if (!yb.length && !nb.length) return [];
-    if (sameGuards(term.arith.a.guards, term.arith.b.guards)) return mergeGuards(yb, nb);
+    if (sameGuards(yb, nb)) return yb;
     const y = yb.length ? guardPrefix(yb) : 'true';
     const n = nb.length ? guardPrefix(nb) : 'true';
     return [`(${term.arith.cond!} ? ${y} : ${n})`];
@@ -208,7 +208,7 @@ export function lowerRtdbExpression(
     const exact = normalized.get(path);
     let binding = exact;
     let remaining: string[] = [];
-    const isRootBinding = Boolean(exact);
+    const isRootBinding = Boolean(exact) && !path.includes('.');
     if (!exact) {
       const parts = path.split('.');
       for (let i = parts.length - 1; i >= 1; i--) {
@@ -432,7 +432,12 @@ export function lowerRtdbExpression(
         throw new Error('Unsupported RTDB type test: is ' + node.typeName);
       }
       const mapped = node.typeName === 'bool' ? 'boolean' : node.typeName;
-      if (inner.kind === mapped && (mapped === 'number' || mapped === 'string' || mapped === 'boolean')) {
+      if (inner.kind === mapped && mapped === 'boolean') {
+        if (node.value.type === 'literal') return makeTerm(String(pol === 'pos'), 'boolean', [], { pureWhenGuarded: true });
+        if (pol === 'neg') return makeTerm('false', 'boolean');
+        return makeTerm(`(${withGuards(emitBool(node.value, 'pos', env))} || ${withGuards(emitBool(node.value, 'neg', env))})`, 'boolean');
+      }
+      if (inner.kind === mapped && (mapped === 'number' || mapped === 'string')) {
         return makeTerm(String(pol === 'pos'), 'boolean', mergeGuards(inner.guards, arithGuards(inner)), { pureWhenGuarded: true });
       }
       throw new Error('Unsupported RTDB type test: is ' + node.typeName);
@@ -462,45 +467,43 @@ export function lowerRtdbExpression(
       const effectivePol = node.op === '==' ? pol : flip(pol);
       const leftBool = isDefinitelyBoolean(node.left, env);
       const rightBool = isDefinitelyBoolean(node.right, env);
+      const boolPair = (a: Expression, b: Expression) => {
+        const lp = withGuards(emitBool(a, 'pos', env)), ln = withGuards(emitBool(a, 'neg', env));
+        const rp = withGuards(emitBool(b, 'pos', env)), rn = withGuards(emitBool(b, 'neg', env));
+        return makeTerm(effectivePol === 'pos' ? `((${lp} && ${rp}) || (${ln} && ${rn}))` : `((${lp} && ${rn}) || (${ln} && ${rp}))`, 'boolean');
+      };
+      const boolSnap = (bNode: Expression, other: RtdbTerm) => {
+        const bp = withGuards(emitBool(bNode, 'pos', env)), bn = withGuards(emitBool(bNode, 'neg', env));
+        const n = other.snapshotNode!, strict = other.kind === 'boolean' || effectivePol === 'pos';
+        const exist = other.isRootBinding ? '' : `${n}.exists() && `;
+        const onTrue = strict ? `(${n}.isBoolean() && (${n}.val() == ${effectivePol === 'pos' ? 'true' : 'false'}))` : `(${exist}(${n}.val() != true))`;
+        const onFalse = strict ? `(${n}.isBoolean() && (${n}.val() == ${effectivePol === 'pos' ? 'false' : 'true'}))` : `(${exist}(${n}.val() != false))`;
+        return makeTerm(`((${bp} && ${onTrue}) || (${bn} && ${onFalse}))`, 'boolean');
+      };
       if (leftBool && rightBool) {
-        if (node.right.type === 'literal' && typeof node.right.value === 'boolean') {
-          return emitBool(node.left, node.right.value ? effectivePol : flip(effectivePol), env);
-        }
-        if (node.left.type === 'literal' && typeof node.left.value === 'boolean') {
-          return emitBool(node.right, node.left.value ? effectivePol : flip(effectivePol), env);
-        }
-        const lp = withGuards(emitBool(node.left, 'pos', env));
-        const ln = withGuards(emitBool(node.left, 'neg', env));
-        const rp = withGuards(emitBool(node.right, 'pos', env));
-        const rn = withGuards(emitBool(node.right, 'neg', env));
-        return makeTerm(
-          effectivePol === 'pos' ? `((${lp} && ${rp}) || (${ln} && ${rn}))` : `((${lp} && ${rn}) || (${ln} && ${rp}))`,
-          'boolean',
-        );
+        if (node.right.type === 'literal' && typeof node.right.value === 'boolean') return emitBool(node.left, node.right.value ? effectivePol : flip(effectivePol), env);
+        if (node.left.type === 'literal' && typeof node.left.value === 'boolean') return emitBool(node.right, node.left.value ? effectivePol : flip(effectivePol), env);
+        return boolPair(node.left, node.right);
       }
       const rawL = leftBool ? undefined : emitValue(node.left, undefined, env);
       const rawR = rightBool ? undefined : emitValue(node.right, undefined, env);
       if (leftBool || rightBool) {
-        const boolNode = leftBool ? node.left : node.right;
         const other = leftBool ? rawR! : rawL!;
-        if ((other.kind === 'boolean' || other.kind === 'unknown') && other.snapshotNode) {
-          const bp = withGuards(emitBool(boolNode, 'pos', env));
-          const bn = withGuards(emitBool(boolNode, 'neg', env));
-          const n = other.snapshotNode;
-          const strict = other.kind === 'boolean' || effectivePol === 'pos';
-          const exist = other.isRootBinding ? '' : `${n}.exists() && `;
-          const onTrue = strict ? `(${n}.isBoolean() && (${n}.val() == ${effectivePol === 'pos' ? 'true' : 'false'}))` : `(${exist}(${n}.val() != true))`;
-          const onFalse = strict ? `(${n}.isBoolean() && (${n}.val() == ${effectivePol === 'pos' ? 'false' : 'true'}))` : `(${exist}(${n}.val() != false))`;
-          return makeTerm(`((${bp} && ${onTrue}) || (${bn} && ${onFalse}))`, 'boolean');
-        }
+        if (other.kind === 'boolean' && !other.pureWhenGuarded) return boolPair(node.left, node.right);
+        if ((other.kind === 'boolean' || other.kind === 'unknown') && other.snapshotNode) return boolSnap(leftBool ? node.left : node.right, other);
         throw new Error('Unsupported RTDB equality between boolean and ' + other.kind);
       }
-      const lhs = rawL!;
-      const rhs = rawR!;
-      const cmpOp = effectivePol === 'pos' ? '==' : '!=';
+      const lhs = rawL!, rhs = rawR!, cmpOp = effectivePol === 'pos' ? '==' : '!=';
+      const lUnsafe = lhs.kind === 'boolean' && !lhs.pureWhenGuarded;
+      const rUnsafe = rhs.kind === 'boolean' && !rhs.pureWhenGuarded;
       if (lhs.kind === 'null' || rhs.kind === 'null') {
         const other = lhs.kind === 'null' ? rhs : lhs;
         if (other.kind === 'null') return makeTerm(String(effectivePol === 'pos'), 'boolean', [], { pureWhenGuarded: true });
+        if (other.kind === 'boolean' && !other.pureWhenGuarded) {
+          if (effectivePol === 'pos') return makeTerm('false', 'boolean');
+          const expr = lhs.kind === 'null' ? node.right : node.left;
+          return makeTerm(`(${withGuards(emitBool(expr, 'pos', env))} || ${withGuards(emitBool(expr, 'neg', env))})`, 'boolean');
+        }
         if (other.snapshotNode && !other.typedLeaf) {
           if (effectivePol === 'neg') return makeTerm(other.snapshotNode + '.exists()', 'boolean');
           if (!other.isRootBinding) throw new Error('Null equality on child snapshot cannot distinguish missing key from null');
@@ -508,6 +511,9 @@ export function lowerRtdbExpression(
         }
         return makeTerm(String(effectivePol === 'neg'), 'boolean', mergeGuards(other.guards, arithGuards(other)), { pureWhenGuarded: true });
       }
+      if ((lUnsafe && rhs.kind === 'boolean') || (rUnsafe && lhs.kind === 'boolean')) return boolPair(node.left, node.right);
+      if (lUnsafe && rhs.kind === 'unknown' && rhs.snapshotNode) return boolSnap(node.left, rhs);
+      if (rUnsafe && lhs.kind === 'unknown' && lhs.snapshotNode) return boolSnap(node.right, lhs);
       if (lhs.kind === 'unknown' && lhs.snapshotNode && (rhs.kind === 'number' || rhs.kind === 'string' || rhs.kind === 'boolean')) {
         const res = emitUntypedScalarEq(lhs, rhs, effectivePol, true);
         return makeTerm(res.text, 'boolean', mergeGuards(res.guards, arithGuards(rhs)), { pureWhenGuarded: true });
