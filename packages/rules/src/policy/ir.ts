@@ -6,7 +6,7 @@ import type { Expression, SourceLoc } from '../grammar/FirestoreAST.js';
 import { firestoreGrammar, firestoreSemantics } from '../grammar/FirestoreParser.js';
 import { boundSourceNesting } from '../grammar/source-nesting-bound.js';
 
-export type PolicyExtension = 'bounded' | 'derive' | 'loops';
+export type PolicyExtension = 'bounded' | 'derive' | 'loops' | 'methods';
 export type PolicyProgramKind = 'module' | 'function' | 'transition';
 
 export type BoundedUnaryOpKind = 'map' | 'flatMap' | 'select' | 'any' | 'all' | 'count';

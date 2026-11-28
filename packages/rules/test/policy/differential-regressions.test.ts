@@ -29,8 +29,12 @@ const loader = createModuleLoader('pyric-diff-reg-');
 afterAll(() => loader.cleanup());
 
 describe('Differential fuzzing & red-team permanent regressions', () => {
-  test('Reg-1: compilePolicy transitions support Rules v2 value methods across all 5 engines', async () => {
+  test('Reg-1: compilePolicy transitions support opt-in use extension methods; across all 5 engines', async () => {
+    // Plain transitions without `use extension methods;` remain strictly closed
+    expect(() => compilePolicy('transition closed { require r { return after.items.size() == 1; } }')).toThrow(/subset/);
+
     const storagePolicy = `
+      use extension methods;
       transition voiceUpload {
         require validClip {
           return input.auth != null
@@ -65,6 +69,7 @@ describe('Differential fuzzing & red-team permanent regressions', () => {
     }
 
     const rtdbPolicy = `
+      use extension methods;
       transition taggedText {
         require checkTag {
           return after.s.size() >= 2 && after.s.size() <= 5 && after.x == before.x + 1;
@@ -91,6 +96,7 @@ describe('Differential fuzzing & red-team permanent regressions', () => {
     }
 
     const fsPolicy = `
+      use extension methods;
       transition fsMethod {
         require check {
           return after.s.matches('^[a-z]+$') && after.tag in ['ok', 'go'];
@@ -125,6 +131,10 @@ describe('Differential fuzzing & red-team permanent regressions', () => {
       { src: 'transition t { require r { return after.x + 2 == after.x + 1; } }', before: {}, after: { x: 9007199254740991 }, want: 'DENY' },
       { src: 'transition t { require r { return after.x * after.x > 0; } }', before: {}, after: { x: 9007199254740991 }, want: 'DENY' },
       { src: 'transition t { require r { return (after.x * after.y) - (after.x * after.y) == 0; } }', before: {}, after: { x: 1000000000, y: 1000000000 }, want: 'DENY' },
+      { src: 'transition t { require r { return (after.x * after.x) is number; } }', before: {}, after: { x: 9007199254740991 }, want: 'DENY' },
+      { src: 'transition t { require r { return (after.x * after.x) != null; } }', before: {}, after: { x: 9007199254740991 }, want: 'DENY' },
+      { src: 'transition t { require r { return (after.a > 0 ? after.b * after.b : 1) != null; } }', before: {}, after: { a: 1, b: 9007199254740991 }, want: 'DENY' },
+      { src: 'transition t { require r { return (after.a > 0 ? after.b * after.b : 1) != null; } }', before: {}, after: { a: -1 }, want: 'ALLOW' },
       { src: 'transition t { require r { return ((before.flag ? after.x : after.y) + 1) > 5; } }', before: { flag: true }, after: { x: 5 }, want: 'ALLOW' },
     ];
     for (const c of cases) {
@@ -271,6 +281,7 @@ describe('Differential fuzzing & red-team permanent regressions', () => {
 
   test('Reg-6: policy.storageModule() and policy.bind.storage() compile and simulate end-to-end', () => {
     const policy = compilePolicy(`
+      use extension methods;
       transition avatarWrite {
         require authAndType {
           return input.auth != null

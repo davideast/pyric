@@ -78,41 +78,25 @@ function normalizeBinding(binding: RtdbBinding): RtdbSnapshotBinding | undefined
 function mergeGuards(...lists: readonly (readonly string[])[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const list of lists) {
-    for (const guard of list) {
-      if (!seen.has(guard)) {
-        seen.add(guard);
-        out.push(guard);
-      }
-    }
-  }
+  for (const list of lists) for (const guard of list) if (!seen.has(guard)) { seen.add(guard); out.push(guard); }
   return out;
 }
-
 function guardPrefix(guards: readonly string[]): string {
   return guards.length === 1 ? guards[0]! : '(' + guards.join(' && ') + ')';
 }
-
 function withGuards(term: RtdbTerm): string {
   return term.guards.length ? '(' + [...term.guards, term.text].join(' && ') + ')' : term.text;
 }
-
 function safeStringLiteral(value: string): string | undefined {
   return /[\r\n\u2028\u2029]/.test(value) ? undefined : JSON.stringify(value);
 }
-
 function integerCheck(nodeExpr: string, min = SAFE_INT_MIN, max = SAFE_INT_MAX): string {
   return `(${nodeExpr}.isNumber() && ${nodeExpr}.val() >= ${min} && ${nodeExpr}.val() <= ${max} && ${nodeExpr}.val() % 1 == 0)`;
 }
-
 function scalarGuard(nodeExpr: string): string {
   return `(${nodeExpr}.isNumber() || ${nodeExpr}.isString() || ${nodeExpr}.isBoolean())`;
 }
-
-function flip(pol: Polarity): Polarity {
-  return pol === 'pos' ? 'neg' : 'pos';
-}
-
+function flip(pol: Polarity): Polarity { return pol === 'pos' ? 'neg' : 'pos'; }
 function negateCmp(op: '<' | '<=' | '>' | '>='): '<' | '<=' | '>' | '>=' {
   return op === '<' ? '>=' : op === '<=' ? '>' : op === '>' ? '<=' : '<';
 }
@@ -449,7 +433,7 @@ export function lowerRtdbExpression(
       }
       const mapped = node.typeName === 'bool' ? 'boolean' : node.typeName;
       if (inner.kind === mapped && (mapped === 'number' || mapped === 'string' || mapped === 'boolean')) {
-        return makeTerm(String(pol === 'pos'), 'boolean', inner.guards, { pureWhenGuarded: true });
+        return makeTerm(String(pol === 'pos'), 'boolean', mergeGuards(inner.guards, arithGuards(inner)), { pureWhenGuarded: true });
       }
       throw new Error('Unsupported RTDB type test: is ' + node.typeName);
     }
@@ -522,7 +506,7 @@ export function lowerRtdbExpression(
           if (!other.isRootBinding) throw new Error('Null equality on child snapshot cannot distinguish missing key from null');
           return makeTerm('(!' + other.snapshotNode + '.exists())', 'boolean');
         }
-        return makeTerm(String(effectivePol === 'neg'), 'boolean', other.guards, { pureWhenGuarded: true });
+        return makeTerm(String(effectivePol === 'neg'), 'boolean', mergeGuards(other.guards, arithGuards(other)), { pureWhenGuarded: true });
       }
       if (lhs.kind === 'unknown' && lhs.snapshotNode && (rhs.kind === 'number' || rhs.kind === 'string' || rhs.kind === 'boolean')) {
         const res = emitUntypedScalarEq(lhs, rhs, effectivePol, true);

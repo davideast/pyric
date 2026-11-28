@@ -1,0 +1,4 @@
+{
+  "description": "Lower a unified multi-type RTDB policy (numeric increment, boolean gate, string length, and Kleene negation) via policy.rtdb() and score against @pyric/rules RTDB simulator using adapters/_shared/v1.",
+  "authority": "native-model"
+}

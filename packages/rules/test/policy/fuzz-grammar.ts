@@ -511,6 +511,7 @@ export function generateRtdbTransition(rng: SeededRng): FuzzTransitionProgram {
   return {
     kind: 'transition',
     name: 'fuzzRtdb',
+    extensions: ['methods'],
     requirements: [{ name: 'check', expr: generateRtdbExpr(rng, 3) }],
   };
 }
@@ -574,5 +575,5 @@ export function generateStorageTransition(rng: SeededRng, mode: 'create' | 'upda
     right: { kind: 'lit', value: null },
   };
   const body = rng.bool(0.75) ? { kind: 'binary' as const, op: '&&', left: authGuard, right: genBool(0) } : genBool(0);
-  return { kind: 'transition', name: 'fuzzStorage', requirements: [{ name: 'check', expr: body }] };
+  return { kind: 'transition', name: 'fuzzStorage', extensions: ['methods'], requirements: [{ name: 'check', expr: body }] };
 }

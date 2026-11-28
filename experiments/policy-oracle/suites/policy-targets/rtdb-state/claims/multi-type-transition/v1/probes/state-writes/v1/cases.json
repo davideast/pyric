@@ -1,0 +1,58 @@
+[
+  {
+    "id": "valid-increment-and-label",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 4, "active": true, "label": "prev" } },
+    "newData": { "count": 5, "active": true, "label": "next" }
+  },
+  {
+    "id": "valid-boundary-100",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 99, "active": true, "label": "go" } },
+    "newData": { "count": 100, "active": true, "label": "final-step12" }
+  },
+  {
+    "id": "skip-step-denied",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 4, "active": true, "label": "prev" } },
+    "newData": { "count": 6, "active": true, "label": "next" }
+  },
+  {
+    "id": "over-cap-101-denied",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 100, "active": true, "label": "prev" } },
+    "newData": { "count": 101, "active": true, "label": "next" }
+  },
+  {
+    "id": "inactive-flag-denied",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 4, "active": true, "label": "prev" } },
+    "newData": { "count": 5, "active": false, "label": "next" }
+  },
+  {
+    "id": "short-label-denied",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 4, "active": true, "label": "prev" } },
+    "newData": { "count": 5, "active": true, "label": "x" }
+  },
+  {
+    "id": "long-label-denied",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 4, "active": true, "label": "prev" } },
+    "newData": { "count": 5, "active": true, "label": "thirteenchars" }
+  },
+  {
+    "id": "wrong-type-count-denied",
+    "operation": "write",
+    "path": "/state",
+    "data": { "state": { "count": 4, "active": true, "label": "prev" } },
+    "newData": { "count": "5", "active": true, "label": "next" }
+  }
+]

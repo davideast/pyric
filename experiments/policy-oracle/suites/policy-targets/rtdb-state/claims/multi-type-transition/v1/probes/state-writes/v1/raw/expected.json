@@ -1,0 +1,12 @@
+{
+  "decisions": {
+    "valid-increment-and-label": "ALLOW",
+    "valid-boundary-100": "ALLOW",
+    "skip-step-denied": "DENY",
+    "over-cap-101-denied": "DENY",
+    "inactive-flag-denied": "DENY",
+    "short-label-denied": "DENY",
+    "long-label-denied": "DENY",
+    "wrong-type-count-denied": "DENY"
+  }
+}

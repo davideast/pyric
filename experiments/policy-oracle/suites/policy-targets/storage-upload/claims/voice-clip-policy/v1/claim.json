@@ -1,0 +1,4 @@
+{
+  "description": "Lower a Firebase Storage Rules v2 voice-clip upload policy via policy.storage() and score against @pyric/rules Storage simulator using adapters/_shared/v1.",
+  "authority": "native-model"
+}

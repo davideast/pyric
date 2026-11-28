@@ -1,0 +1,28 @@
+{
+  "authority": "native-model",
+  "inputDigest": "3477922692349c265f817f059ca137367d7829602f368ff3f87a53c4b3f8c137",
+  "results": {
+    "valid-increment-and-label": "ALLOW",
+    "valid-boundary-100": "ALLOW",
+    "skip-step-denied": "DENY",
+    "over-cap-101-denied": "DENY",
+    "inactive-flag-denied": "DENY",
+    "short-label-denied": "DENY",
+    "long-label-denied": "DENY",
+    "wrong-type-count-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "69399965317273909e8a18da085f4a8e8ae7aecbd0e8e2acdf72e829b010d017",
+    "pointers": {
+      "valid-increment-and-label": "/decisions/valid-increment-and-label",
+      "valid-boundary-100": "/decisions/valid-boundary-100",
+      "skip-step-denied": "/decisions/skip-step-denied",
+      "over-cap-101-denied": "/decisions/over-cap-101-denied",
+      "inactive-flag-denied": "/decisions/inactive-flag-denied",
+      "short-label-denied": "/decisions/short-label-denied",
+      "long-label-denied": "/decisions/long-label-denied",
+      "wrong-type-count-denied": "/decisions/wrong-type-count-denied"
+    }
+  }
+}

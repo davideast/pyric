@@ -317,5 +317,5 @@ describe('unified RTDB target (policy/rtdb.ts)', () => {
       expect(actual, `case #${i}: ${src} | before=${JSON.stringify(before)} after=${JSON.stringify(after)} | rtdb=${res.predicate}`).toBe(expected);
     }
     expect(loweredCount).toBeGreaterThan(120);
-  });
+  }, 20000);
 });

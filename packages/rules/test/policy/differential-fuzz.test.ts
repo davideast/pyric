@@ -140,14 +140,18 @@ async function shrinkStandaloneFailure(prog: FuzzFunctionProgram, a: unknown, b:
       break;
     }
   }
-  const shrunkA = shrinkCounterexample(a, shrinkValue, (x) => {
-    try {
-      const interp = interpretModule(baseSrc(curP));
-      captureCall(() => interp[curP.name]!(x, b));
-      return false;
-    } catch { return false; }
-  }, 10);
-  return `Shrunk program:\n${baseSrc(curP)}\nargs: [${JSON.stringify(shrunkA.value)}, ${JSON.stringify(b)}]`;
+  const src = baseSrc(curP);
+  const compiled = compileBoundedModule(src);
+  const mod = await loader.load(compiled.moduleSource, 'shrink_arg');
+  const interp = interpretModule(src);
+  const mismatchArgs = (x: unknown, y: unknown) => {
+    const o1 = captureCall(() => interp[curP.name]!(x, y));
+    const o2 = captureCall(() => mod[curP.name]!(x, y));
+    return !outcomesMatch(o1, o2);
+  };
+  const shrunkA = shrinkCounterexample(a, shrinkValue, (x) => mismatchArgs(x, b), 40);
+  const shrunkB = shrinkCounterexample(b, shrinkValue, (y) => mismatchArgs(shrunkA.value, y), 40);
+  return `Shrunk program:\n${src}\nargs: [${safeJson(shrunkA.value)}, ${safeJson(shrunkB.value)}]`;
 }
 
 describe('Multi-engine differential compiler fuzzer (>=2,000 cases)', () => {
@@ -265,6 +269,7 @@ describe('Multi-engine differential compiler fuzzer (>=2,000 cases)', () => {
     const policySrc = `
       use extension bounded;
       use extension derive;
+      use extension methods;
       transition tally {
         derive {
           let total = bounded.fold(input.moves, before.score, (acc, m) => acc + m, 4);
