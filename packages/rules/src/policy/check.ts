@@ -148,9 +148,9 @@ export interface CheckedPolicyIR {
   requirementNames: readonly string[];
 }
 
-export function checkExpressionLimit(expressionLimit: number): void {
-  if (!Number.isSafeInteger(expressionLimit) || expressionLimit < 1 || expressionLimit > 32768) {
-    throw new Error('Policy expression limit must be an integer from 1 to 32768');
+export function checkExpressionLimit(expressionLimit: number, maxLimit = 32768): void {
+  if (!Number.isSafeInteger(expressionLimit) || expressionLimit < 1 || expressionLimit > maxLimit) {
+    throw new Error('Policy expression limit must be an integer from 1 to ' + maxLimit);
   }
 }
 
@@ -443,8 +443,9 @@ function checkFunctionLoop(fn: IRFunction, names: Set<string>, ctx: ExprCheckCon
 
 /** Statically check a parsed Policy IR program and return a verified CheckedPolicyIR. */
 export function checkPolicyIR(program: IRProgram, options: CheckOptions = {}): CheckedPolicyIR {
-  const expressionLimit = options.expressionLimit ?? 8192;
-  checkExpressionLimit(expressionLimit);
+  const maxLimit = program.kind === 'module' ? 1000000 : 32768;
+  const expressionLimit = options.expressionLimit ?? (program.kind === 'module' ? 1000000 : 8192);
+  checkExpressionLimit(expressionLimit, maxLimit);
   const extensions = checkExtensions(program);
 
   const fnDefs = new Map<string, IRFunction>();

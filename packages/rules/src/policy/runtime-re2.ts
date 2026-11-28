@@ -29,6 +29,20 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       default: fail('Unknown POSIX class: ' + name);
     }
   }
+  function re2UnicodeProp(spec, neg, ci) {
+    if (!spec) fail('Invalid Unicode property class');
+    let re;
+    try { re = new RegExp('^\\\\' + (neg ? 'P' : 'p') + '{' + spec + '}$', ci ? 'iu' : 'u'); }
+    catch { fail('Invalid Unicode property class: ' + spec); }
+    return (c) => re.test(c);
+  }
+  function re2Octal(pat, pos) {
+    const m3 = /^[0-3][0-7]{2}/.exec(pat.slice(pos));
+    if (m3) return [String.fromCodePoint(parseInt(m3[0], 8)), pos + 3];
+    const m0 = /^0[0-7]{0,2}/.exec(pat.slice(pos));
+    if (m0) return [String.fromCodePoint(parseInt(m0[0], 8)), pos + m0[0].length];
+    return null;
+  }
   function re2EscapeChar(pat, pos) {
     if (pos >= pat.length) fail('Trailing backslash in regex');
     const c = pat[pos];
@@ -38,6 +52,8 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     if (c === 'f') return ['\\f', pos + 1];
     if (c === 'v') return ['\\v', pos + 1];
     if (c === 'a') return ['\\x07', pos + 1];
+    const oct = re2Octal(pat, pos);
+    if (oct) return oct;
     if (c === 'x') {
       if (pat[pos + 1] === '{') {
         const end = pat.indexOf('}', pos + 2);
@@ -69,6 +85,18 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
         if (nx === 'd' || nx === 'D' || nx === 'w' || nx === 'W' || nx === 's' || nx === 'S') {
           pos += 2;
           return { fn: re2ShortClass(nx) };
+        }
+        if ((nx === 'p' || nx === 'P') && pat[pos + 2] === '{') {
+          const end = pat.indexOf('}', pos + 3);
+          if (end === -1) fail('Unclosed Unicode property class');
+          const spec = pat.slice(pos + 3, end);
+          pos = end + 1;
+          return { fn: re2UnicodeProp(spec, nx === 'P', ci) };
+        }
+        if ((nx === 'p' || nx === 'P') && /[A-Za-z]/.test(pat[pos + 2] || '')) {
+          const spec = pat[pos + 2];
+          pos += 3;
+          return { fn: re2UnicodeProp(spec, nx === 'P', ci) };
         }
         const [ch, nextPos] = re2EscapeChar(pat, pos + 1);
         pos = nextPos;
@@ -239,6 +267,12 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       if (ch === '\\\\') {
         const esc = pat[pos + 1];
         if (esc === undefined) fail('Trailing backslash in regex');
+        const oct = re2Octal(pat, pos + 1);
+        if (oct) {
+          pos = oct[1];
+          const f = ci;
+          return { k: 'ch', fn: (c) => re2FoldEq(c, oct[0], f) };
+        }
         if (esc >= '1' && esc <= '9') fail('RE2 does not support backreferences');
         if (esc === 'b') { pos += 2; return { k: 'as', fn: (s, p) => re2Word(s[p - 1]) !== re2Word(s[p]) }; }
         if (esc === 'B') { pos += 2; return { k: 'as', fn: (s, p) => re2Word(s[p - 1]) === re2Word(s[p]) }; }
@@ -247,6 +281,18 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
         if (esc === 'd' || esc === 'D' || esc === 'w' || esc === 'W' || esc === 's' || esc === 'S') {
           pos += 2;
           return { k: 'ch', fn: re2ShortClass(esc) };
+        }
+        if ((esc === 'p' || esc === 'P') && pat[pos + 2] === '{') {
+          const end = pat.indexOf('}', pos + 3);
+          if (end === -1) fail('Unclosed Unicode property class');
+          const spec = pat.slice(pos + 3, end);
+          pos = end + 1;
+          return { k: 'ch', fn: re2UnicodeProp(spec, esc === 'P', ci) };
+        }
+        if ((esc === 'p' || esc === 'P') && /[A-Za-z]/.test(pat[pos + 2] || '')) {
+          const spec = pat[pos + 2];
+          pos += 3;
+          return { k: 'ch', fn: re2UnicodeProp(spec, esc === 'P', ci) };
         }
         const [lit, nextPos] = re2EscapeChar(pat, pos + 1);
         pos = nextPos;
@@ -267,6 +313,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     const states = [{ k: 'acc' }];
     const add = (st) => {
       if (states.length >= RE2_MAX_STATES) fail('Regex exceeds state limit');
+      if ((states.length & 15) === 0) tick();
       const id = states.length;
       states.push(st);
       return id;
@@ -301,11 +348,12 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     const nfa = re2Build(ast);
     const chars = Array.from(subject);
     const marks = new Uint32Array(nfa.states.length);
-    let mark = 0;
+    let mark = 0, steps = 0;
     const close = (seeds, pos) => {
       mark++;
       const stack = [...seeds], out = [];
       while (stack.length) {
+        if ((++steps & 7) === 0) tick();
         const id = stack.pop();
         if (marks[id] === mark) continue;
         marks[id] = mark;
@@ -322,6 +370,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       tick();
       const next = [];
       for (const id of cur) {
+        if ((++steps & 7) === 0) tick();
         const st = nfa.states[id];
         if (st.k === 'ch' && st.fn(chars[i])) next.push(st.out);
       }
@@ -331,7 +380,9 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
   }
   function re2Find(chars, nfa, groupCount, startPos) {
     const slotsLen = 2 * (groupCount + 1);
+    let steps = 0;
     const addThread = (list, seen, id, slots, pos) => {
+      if ((++steps & 7) === 0) tick();
       if (seen.has(id)) return;
       seen.add(id);
       const st = nfa.states[id];
@@ -339,6 +390,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
         addThread(list, seen, st.a, slots, pos);
         addThread(list, seen, st.b, slots, pos);
       } else if (st.k === 'save') {
+        tick(1 + (slotsLen >> 3));
         const next = slots.slice();
         next[st.slot] = pos;
         addThread(list, seen, st.out, next, pos);
@@ -359,6 +411,7 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       }
       const next = [], seenNext = new Set();
       for (const th of cur) {
+        if ((++steps & 7) === 0) tick();
         const st = nfa.states[th.id];
         if (st.k === 'acc') {
           const done = th.slots.slice();
@@ -375,23 +428,50 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     }
     return best;
   }
+  function re2Subject(subject) {
+    const chars = Array.from(subject);
+    const offsets = [];
+    const charAt = new Int32Array(subject.length + 1).fill(-1);
+    let off = 0;
+    for (let i = 0; i < chars.length; i++) {
+      offsets.push(off);
+      charAt[off] = i;
+      off += chars[i].length;
+    }
+    offsets.push(off);
+    charAt[off] = chars.length;
+    return {
+      find(nfa, groups, from) {
+        const idx = charAt[from];
+        if (idx >= 0) {
+          const m = re2Find(chars, nfa, groups, idx);
+          return m ? m.map((p) => p < 0 ? -1 : offsets[p]) : null;
+        }
+        const nextIdx = charAt[from + 1];
+        const subChars = [subject[from], ...chars.slice(nextIdx)];
+        const m = re2Find(subChars, nfa, groups, 0);
+        if (!m) return null;
+        return m.map((p) => p < 0 ? -1 : p === 0 ? from : offsets[nextIdx + p - 1]);
+      },
+    };
+  }
   function re2Split(subject, pattern) {
     text(subject); text(pattern);
     const { ast, groups } = re2Parse(pattern);
     const nfa = re2Build(ast);
-    const chars = Array.from(subject);
-    if (chars.length === 0) return re2Find(chars, nfa, groups, 0) === null ? [''] : [];
+    const sub = re2Subject(subject);
+    if (subject.length === 0) return sub.find(nfa, groups, 0) === null ? [''] : [];
     const pieces = [];
     let pieceStart = 0, from = 0;
-    while (from < chars.length) {
-      const m = re2Find(chars, nfa, groups, from);
-      if (!m || m[0] >= chars.length) break;
+    while (from < subject.length) {
+      const m = sub.find(nfa, groups, from);
+      if (!m || m[0] >= subject.length) break;
       if (m[1] === pieceStart) { from = m[0] + 1; continue; }
-      pieces.push(chars.slice(pieceStart, m[0]).join(''));
+      pieces.push(subject.slice(pieceStart, m[0]));
       pieceStart = m[1];
       from = pieceStart;
     }
-    pieces.push(chars.slice(pieceStart).join(''));
+    pieces.push(subject.slice(pieceStart));
     while (pieces.length > 1 && pieces[pieces.length - 1] === '') pieces.pop();
     return pieces;
   }
@@ -399,16 +479,16 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
     text(subject); text(pattern); text(replacement);
     const { ast, groups, named } = re2Parse(pattern);
     const nfa = re2Build(ast);
-    const chars = Array.from(subject);
+    const sub = re2Subject(subject);
     let out = '', copied = 0, from = 0;
-    while (from <= chars.length) {
-      const m = re2Find(chars, nfa, groups, from);
+    while (from <= subject.length) {
+      const m = sub.find(nfa, groups, from);
       if (!m) break;
-      out += chars.slice(copied, m[0]).join('');
+      out += subject.slice(copied, m[0]);
       const gs = [];
       for (let g = 0; g <= groups; g++) {
         const a = m[2 * g], b = m[2 * g + 1];
-        gs.push(a >= 0 && b >= a ? chars.slice(a, b).join('') : '');
+        gs.push(a >= 0 && b >= a ? subject.slice(a, b) : '');
       }
       for (let i = 0; i < replacement.length; ) {
         const c = replacement[i];
@@ -438,6 +518,6 @@ export const boundedRe2Runtime = `  const RE2_MAX_STATES = 20000;
       copied = m[1];
       from = m[1] === m[0] ? m[1] + 1 : m[1];
     }
-    return text(out + chars.slice(copied).join(''));
+    return text(out + subject.slice(copied));
   }
 `;

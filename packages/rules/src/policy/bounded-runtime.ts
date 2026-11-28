@@ -184,19 +184,20 @@ ${boundedRe2Runtime}
     }
     return result;
   }
-  function exportVal(value, depth = 0) {
-    if (depth > 64) limit('Output depth bound exceeded');
+  function exportVal(value, depth = 0, st = { n: 0 }) {
+    if (++st.n > 16384 || depth > 64) limit('Output depth or node bound exceeded');
+    tick();
     if (typeof value === 'bigint') return value >= MIN_SAFE && value <= MAX_SAFE ? Number(value) : value;
     if (value instanceof FloatVal) return value.v;
     if (value instanceof BytesVal) return new Uint8Array(value.d);
     if (value instanceof TimestampVal) return { __type: 'timestamp', seconds: value.s, nanos: value.n };
     if (value instanceof DurationVal) return { __type: 'duration', seconds: value.s, nanos: value.n };
-    if (value instanceof SetVal) return value.items.map((v) => exportVal(v, depth + 1));
-    if (Array.isArray(value)) return value.map((v) => exportVal(v, depth + 1));
+    if (value instanceof SetVal) return value.items.map((v) => exportVal(v, depth + 1, st));
+    if (Array.isArray(value)) return value.map((v) => exportVal(v, depth + 1, st));
     if (isMap(value)) {
       const out = {};
       for (const key of Object.keys(value)) {
-        Object.defineProperty(out, key, { value: exportVal(value[key], depth + 1), enumerable: true, writable: true, configurable: true });
+        Object.defineProperty(out, key, { value: exportVal(value[key], depth + 1, st), enumerable: true, writable: true, configurable: true });
       }
       return out;
     }

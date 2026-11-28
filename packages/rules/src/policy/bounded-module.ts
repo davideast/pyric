@@ -8,6 +8,7 @@ import {
   RULES_CONVERSION_ARITIES,
   RULES_NAMESPACE_METHODS,
   STANDALONE_HELPER_ARITIES,
+  type CheckOptions,
   type CheckedFunction,
   type CheckedPolicyIR,
 } from './check.js';
@@ -176,6 +177,7 @@ function emitFunction(
   checked: CheckedFunction,
   fnMap: ReadonlyMap<string, CheckedFunction>,
   forceExport: boolean,
+  budget: number,
 ): { code: string[]; exportName?: string } {
   const { id, fn, loop } = checked;
   const scope = new Map<string, string>();
@@ -212,11 +214,14 @@ function emitFunction(
   body.unshift('  $.tick(' + state.cost + ');');
 
   const lines: string[] = [];
-  lines.push(`// ${fn.name}\nfunction p${id}($${args.map((a) => ', ' + a).join('')}) {\n${body.join('\n')}\n}`);
+  const fnBody = loop
+    ? `  try {\n${body.join('\n')}\n  } catch (e) {\n    if (e instanceof Error && e.constructor.name === 'RuleError') return e;\n    throw e;\n  }`
+    : body.join('\n');
+  lines.push(`// ${fn.name}\nfunction p${id}($${args.map((a) => ', ' + a).join('')}) {\n${fnBody}\n}`);
   const shouldExport = forceExport || fn.exported;
   if (shouldExport) {
     lines.push(
-      `function entry${id}(...args) { if(args.length !== ${args.length}) throw new Error("Invalid argument count"); const $ = runtime(); return $.exportVal($.read(p${id}($, ...args.map(v => $.data(v))))); }\nexport { entry${id} as ${fn.name} };`,
+      `function entry${id}(...args) { if(args.length !== ${args.length}) throw new Error("Invalid argument count"); const $ = runtime(${budget}); return $.exportVal($.read(p${id}($, ...args.map(v => $.data(v))))); }\nexport { entry${id} as ${fn.name} };`,
     );
     return { code: lines, exportName: fn.name };
   }
@@ -225,6 +230,7 @@ function emitFunction(
 
 function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; exports: string[] } {
   const transition = checked.program.transition!;
+  const budget = checked.expressionLimit;
   const code: string[] = [];
   const exports: string[] = [];
 
@@ -239,7 +245,7 @@ function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; expo
     lines.unshift(`  $.tick(${state.cost});`);
     code.push(`function deriveImpl($, before, input) {\n${lines.join('\n')}\n}`);
     code.push(
-      `export function derive(start) { const $ = runtime(); return $.exportVal($.read(deriveImpl($, $.data(start.before), $.data(start.input)))); }`,
+      `export function derive(start) { const $ = runtime(${budget}); const before = $.data(start.before); const input = start.input === undefined ? Object.create(null) : $.data(start.input); return $.exportVal($.read(deriveImpl($, before, input))); }`,
     );
     exports.push('derive');
   }
@@ -252,13 +258,15 @@ function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; expo
       ['after', 'after'],
       ['input', 'input'],
     ]);
-    const stmts: string[] = [`    $.tick(${state.cost});`];
+    const stmts: string[] = [];
     if (checked.usesDerived.has(rule.name)) {
       scope.set('derived', 'derivedVal');
       stmts.push('    if (!hasDerived) { hasDerived = true; derivedVal = deriveImpl($, before, input); }');
     }
     for (const line of emitLets(rule.lets, scope, state)) stmts.push('  ' + line);
-    stmts.push(`    const ok = $.read(${emitExpr(rule.condition, scope, state)});`);
+    const condCode = emitExpr(rule.condition, scope, state);
+    stmts.unshift(`    $.tick(${state.cost});`);
+    stmts.push(`    const ok = $.read(${condCode});`);
     stmts.push(`    if (ok !== true) return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: ${JSON.stringify('Requirement failed: ' + rule.source)} };`);
     ruleBlocks.push(
       `  try {\n${stmts.join('\n')}\n  } catch (err) {\n    if (err instanceof Error && err.constructor.name === 'RuleError') return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: err.message };\n    if (err instanceof Error && err.constructor.name === 'ResourceLimitError') return { ok: false, requirement: ${JSON.stringify(rule.name)}, location: ${JSON.stringify(rule.location)}, reason: err.message, fatal: true };\n    throw err;\n  }`,
@@ -267,7 +275,7 @@ function emitTransitionExports(checked: CheckedPolicyIR): { code: string[]; expo
 
   const header = transition.derivation ? '  let hasDerived = false, derivedVal;' : '';
   code.push(
-    `export function judge(transition) {\n  const $ = runtime();\n  const before = $.data(transition.before);\n  const after = $.data(transition.after);\n  const input = $.data(transition.input);\n${header}\n${ruleBlocks.join('\n')}\n  return { ok: true };\n}`,
+    `export function judge(transition) {\n  const $ = runtime(${budget});\n  const before = $.data(transition.before);\n  const after = $.data(transition.after);\n  const input = transition.input === undefined ? Object.create(null) : $.data(transition.input);\n${header}\n${ruleBlocks.join('\n')}\n  return { ok: true };\n}`,
   );
   exports.push('judge');
   return { code, exports };
@@ -278,9 +286,10 @@ export function emitStandaloneModule(checked: CheckedPolicyIR): StandaloneModule
   const code: string[] = [boundedRuntime];
   const exports: string[] = [];
   const forceExport = checked.program.kind === 'function';
+  const budget = checked.expressionLimit;
 
   for (const fn of checked.functions.values()) {
-    const emitted = emitFunction(fn, checked.functions, forceExport);
+    const emitted = emitFunction(fn, checked.functions, forceExport, budget);
     code.push(...emitted.code);
     if (emitted.exportName) exports.push(emitted.exportName);
   }
@@ -297,8 +306,8 @@ export function emitStandaloneModule(checked: CheckedPolicyIR): StandaloneModule
 }
 
 /** Compile a `use extension bounded;` policy module into a standalone ES module. */
-export function compileBoundedModule(source: string): StandaloneModuleResult {
+export function compileBoundedModule(source: string, options?: CheckOptions): StandaloneModuleResult {
   const ir = parsePolicyIR(source, 'module');
-  const checked = checkPolicyIR(ir);
+  const checked = checkPolicyIR(ir, options);
   return emitStandaloneModule(checked);
 }

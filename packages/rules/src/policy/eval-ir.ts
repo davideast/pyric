@@ -229,7 +229,6 @@ export function evalBoundedOp(op: IRBoundedOp, ctx: EvalIRContext, scope: Scope)
       if (op.op === 'flatMap' && !Array.isArray(val)) throw new EvalError('Expected a list');
     } catch (error) {
       if (!isErrorValue(error)) throw error;
-      if (op.op === 'count' && !ctx.moduleMode) throw error;
       firstError ??= error;
       continue;
     }
@@ -330,16 +329,34 @@ export function evalIRExpr(expr: IRExpr, ctx: EvalIRContext, scope: Scope): unkn
     let lv: unknown, lErr: unknown;
     try { lv = requireBoolean(evalIRExpr(expr.left, ctx, scope), expr.left as Expression); }
     catch (e) { lErr = e; }
-    if (lErr instanceof ResourceLimitError) throw lErr;
+    if (lErr !== undefined && !isErrorValue(lErr)) throw lErr;
     if (lErr === undefined && lv === det) return det;
     let rv: unknown, rErr: unknown;
     try { rv = requireBoolean(evalIRExpr(expr.right, ctx, scope), expr.right as Expression); }
     catch (e) { rErr = e; }
-    if (rErr instanceof ResourceLimitError) throw rErr;
+    if (rErr !== undefined && !isErrorValue(rErr)) throw rErr;
     if (rErr === undefined && rv === det) return det;
     if (lErr !== undefined) throw lErr;
     if (rErr !== undefined) throw rErr;
     return rv;
+  }
+  if (expr.type === 'mapLiteral') {
+    const keys: IRExpr[] = expr.entries.map((e) =>
+      e.key.type === 'identifier' ? { type: 'literal', value: e.key.name, raw: JSON.stringify(e.key.name) } : e.key,
+    );
+    const vals = evalOperandsIR([...keys, ...expr.entries.map((e) => e.value)], ctx, scope);
+    const half = expr.entries.length;
+    const tempScope: Scope = Object.create(null);
+    const entries: { key: Expression; value: Expression }[] = [];
+    for (let i = 0; i < half; i++) {
+      const k = vals[i];
+      if (typeof k !== 'string') throw new EvalError('Map keys must be strings');
+      if (FORBIDDEN_KEYS.has(k)) throw new EvalError('Missing own data value: forbidden key ' + k);
+      const vn = '__v' + i;
+      tempScope[vn] = vals[half + i];
+      entries.push({ key: { type: 'literal', value: k, raw: JSON.stringify(k) }, value: { type: 'identifier', name: vn } });
+    }
+    return evaluate({ type: 'mapLiteral', entries }, ctx, tempScope);
   }
   if (expr.type === 'ternary') {
     const cond = requireBoolean(evalIRExpr(expr.condition, ctx, scope), expr.condition as Expression);
@@ -350,9 +367,8 @@ export function evalIRExpr(expr: IRExpr, ctx: EvalIRContext, scope: Scope): unkn
 }
 
 function hasCustomCalls(expr: IRExpr, ctx: EvalIRContext): boolean {
-  if (expr.type === 'boundedOp' || expr.type === 'functionCall') return true;
+  if (expr.type === 'boundedOp' || expr.type === 'functionCall' || expr.type === 'mapLiteral') return true;
   if (expr.type === 'methodCall' && ctx.moduleMode) return true;
-  if (expr.type === 'mapLiteral' && ctx.moduleMode && expr.entries.some((e) => e.key.type === 'identifier')) return true;
   switch (expr.type) {
     case 'literal':
     case 'identifier':
@@ -375,8 +391,6 @@ function hasCustomCalls(expr: IRExpr, ctx: EvalIRContext): boolean {
       return hasCustomCalls(expr.value, ctx);
     case 'listLiteral':
       return expr.elements.some((e) => hasCustomCalls(e, ctx));
-    case 'mapLiteral':
-      return expr.entries.some((e) => hasCustomCalls(e.key, ctx) || hasCustomCalls(e.value, ctx));
     case 'pathLiteral':
       return expr.segments.some((s) => typeof s !== 'string' && hasCustomCalls(s, ctx));
     case 'methodCall':
@@ -441,38 +455,18 @@ function evalCompoundIR(expr: IRExpr, ctx: EvalIRContext, scope: Scope): unknown
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Revive host JS numbers (`-0`, `2**53`, fractions) into Rules-v2-faithful types without mutating caller data. */
-export function revivePolicyValue(value: unknown, seen = new Set<object>()): unknown {
-  if (typeof value === 'number') return hostNumber(value);
-  if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) return value;
-  if (Array.isArray(value)) {
-    seen.add(value);
-    const out = value.map((item) => revivePolicyValue(item, seen));
-    seen.delete(value);
-    return out;
-  }
-  if (!isRulesMap(value)) return value;
-  seen.add(value);
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) {
-    Object.defineProperty(out, key, {
-      value: revivePolicyValue(value[key], seen),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
-  seen.delete(value);
-  return out;
-}
-
-function sanitizeHostInput(value: unknown, state: { nodes: number }, depth = 0): unknown {
+/** Sanitize and revive host input enforcing own-data, plain-prototype, key, and depth/node bounds. */
+export function sanitizeHostInput(
+  value: unknown,
+  state: { nodes: number } = { nodes: 0 },
+  depth = 0,
+  keepSafeInt = false,
+): unknown {
   if (++state.nodes > 16384 || depth > 32) throw new ResourceLimitError('Input depth or node bound exceeded');
   if (value === null || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
     const typed = hostNumber(value);
-    return typeof typed === 'number' ? BigInt(typed) : typed;
+    return !keepSafeInt && typeof typed === 'number' ? BigInt(typed) : typed;
   }
   if (typeof value === 'bigint') {
     if (!inInt64(value)) throw new EvalError('Integer value is out of range');
@@ -482,6 +476,10 @@ function sanitizeHostInput(value: unknown, state: { nodes: number }, depth = 0):
     if (value.length > 4096) throw new ResourceLimitError('String bound exceeded');
     return value;
   }
+  if (value instanceof RulesFloat && Object.getPrototypeOf(value) === RulesFloat.prototype) return value;
+  if (value instanceof Bytes && Object.getPrototypeOf(value) === Bytes.prototype) return value;
+  if (value instanceof Timestamp && Object.getPrototypeOf(value) === Timestamp.prototype) return value;
+  if (value instanceof Duration && Object.getPrototypeOf(value) === Duration.prototype) return value;
   if (value instanceof Uint8Array) {
     if (Object.getPrototypeOf(value) !== Uint8Array.prototype) throw new EvalError('Expected plain bytes data');
     if (value.length > 65536) throw new ResourceLimitError('Bytes bound exceeded');
@@ -504,7 +502,7 @@ function sanitizeHostInput(value: unknown, state: { nodes: number }, depth = 0):
     for (let i = 0; i < value.length; i++) {
       const desc = Object.getOwnPropertyDescriptor(value, i);
       if (!desc || !('value' in desc)) throw new EvalError('Missing own data value');
-      out.push(sanitizeHostInput(desc.value, state, depth + 1));
+      out.push(sanitizeHostInput(desc.value, state, depth + 1, keepSafeInt));
     }
     return out;
   }
@@ -522,7 +520,7 @@ function sanitizeHostInput(value: unknown, state: { nodes: number }, depth = 0):
     if (key.length > 4096) throw new ResourceLimitError('String bound exceeded');
     if (FORBIDDEN_KEYS.has(key)) throw new EvalError('Missing own data value: forbidden key ' + key);
     Object.defineProperty(out, key, {
-      value: sanitizeHostInput(desc.value, state, depth + 1),
+      value: sanitizeHostInput(desc.value, state, depth + 1, keepSafeInt),
       enumerable: true,
       writable: true,
       configurable: true,
@@ -531,8 +529,19 @@ function sanitizeHostInput(value: unknown, state: { nodes: number }, depth = 0):
   return out;
 }
 
-function exportRulesValue(value: unknown, depth = 0): unknown {
-  if (depth > 64) throw new ResourceLimitError('Output depth bound exceeded');
+/** Revive and harden transition host data (`before`/`after`/`input`) into Rules-v2-faithful types. */
+export function revivePolicyValue(value: unknown, state: { nodes: number } = { nodes: 0 }): unknown {
+  return sanitizeHostInput(value, state, 0, true);
+}
+
+function exportRulesValue(
+  value: unknown,
+  ctx: EvalIRContext,
+  depth = 0,
+  st: { nodes: number } = { nodes: 0 },
+): unknown {
+  if (++st.nodes > 16384 || depth > 64) throw new ResourceLimitError('Output depth or node bound exceeded');
+  ctx.expressionBudget.node();
   if (typeof value === 'bigint') {
     return value >= -9007199254740991n && value <= 9007199254740991n ? Number(value) : value;
   }
@@ -540,13 +549,13 @@ function exportRulesValue(value: unknown, depth = 0): unknown {
   if (value instanceof Bytes) return new Uint8Array(value.data);
   if (value instanceof Timestamp) return { __type: 'timestamp', seconds: value.seconds, nanos: value.nanos };
   if (value instanceof Duration) return { __type: 'duration', seconds: value.seconds, nanos: value.nanos };
-  if (value instanceof FirestoreSet) return value.toArray().map((v) => exportRulesValue(v, depth + 1));
-  if (Array.isArray(value)) return value.map((v) => exportRulesValue(v, depth + 1));
+  if (value instanceof FirestoreSet) return value.toArray().map((v) => exportRulesValue(v, ctx, depth + 1, st));
+  if (Array.isArray(value)) return value.map((v) => exportRulesValue(v, ctx, depth + 1, st));
   if (isRulesMap(value)) {
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value)) {
       Object.defineProperty(out, key, {
-        value: exportRulesValue(value[key], depth + 1),
+        value: exportRulesValue(value[key], ctx, depth + 1, st),
         enumerable: true,
         writable: true,
         configurable: true,
@@ -560,7 +569,7 @@ function exportRulesValue(value: unknown, depth = 0): unknown {
 /** Interpret a `use extension bounded;` module directly through the in-process Rules evaluator. */
 export function interpretModule(
   source: string,
-  { expressionLimit = 32768 }: { expressionLimit?: number } = {},
+  { expressionLimit = 1000000 }: { expressionLimit?: number } = {},
 ): Record<string, (...args: unknown[]) => unknown> {
   const checked: CheckedPolicyIR = checkPolicyIR(parsePolicyIR(source, 'module'), { expressionLimit });
   const exportsObj: Record<string, (...args: unknown[]) => unknown> = {};
@@ -571,7 +580,7 @@ export function interpretModule(
       const state = { nodes: 0 };
       const sanitized = rawArgs.map((arg) => sanitizeHostInput(arg, state));
       const ctx = createPolicyContext(expressionLimit, checked.functions, true);
-      return exportRulesValue(evalIRFunction(fn, sanitized, ctx));
+      return exportRulesValue(evalIRFunction(fn, sanitized, ctx), ctx);
     };
   }
   return exportsObj;

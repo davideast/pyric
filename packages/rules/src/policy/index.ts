@@ -155,16 +155,15 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
     { before, input }: Pick<Transition, 'before' | 'input'>,
     ctx: ReturnType<typeof createPolicyContext>,
     captureErrors: boolean,
+    preSanitized = false,
   ): unknown {
     if (!derivation) throw new Error('This policy has no derive block');
+    const state = { nodes: 0 };
     const scope: Scope = Object.assign(Object.create(null), {
-      before: revivePolicyValue(before),
-      input: revivePolicyValue(input),
+      before: preSanitized ? before : revivePolicyValue(before, state),
+      input: preSanitized ? input : input === undefined ? Object.create(null) : revivePolicyValue(input, state),
     });
     for (const binding of derivation.lets) evalIRLet(binding, ctx, scope);
-    if (!hasFunctions && isPureRulesExpr(derivation.expr)) {
-      return captureErrors ? evaluateBinding(derivation.expr, ctx, scope) : evaluate(derivation.expr, ctx, scope);
-    }
     try {
       return evalIRExpr(derivation.expr, ctx, scope);
     } catch (error) {
@@ -199,24 +198,22 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
     },
     judge(transition: Transition): Verdict {
       const ctx = createPolicyContext(expressionLimit, checked.functions);
-      const before = revivePolicyValue(transition.before);
-      const after = revivePolicyValue(transition.after);
-      const input = revivePolicyValue(transition.input);
+      const inputState = { nodes: 0 };
+      const before = revivePolicyValue(transition.before, inputState);
+      const after = revivePolicyValue(transition.after, inputState);
+      const input = transition.input === undefined ? Object.create(null) : revivePolicyValue(transition.input, inputState);
       let derived: unknown;
       for (const rule of requirements) {
         const scope: Scope = { before, after, input };
         try {
           if (usesDerived.has(rule.name)) {
-            derived ??= deriveFrom({ before, input }, ctx, true);
+            derived ??= deriveFrom({ before, input }, ctx, true, true);
             scope.derived = derived;
           }
           for (const binding of rule.lets) evalIRLet(binding, ctx, scope);
           const trace = new TraceRecorder();
           const evalCtx = { ...ctx, trace };
-          const ok =
-            !hasFunctions && isPureRulesExpr(rule.condition)
-              ? evaluate(rule.condition, evalCtx, scope)
-              : evalIRExpr(rule.condition, evalCtx, scope);
+          const ok = evalIRExpr(rule.condition, evalCtx, scope);
           if (ok === true) continue;
           // Report scalar evidence from the actual evaluation, without re-running policy code.
           const entries = trace.entries;
