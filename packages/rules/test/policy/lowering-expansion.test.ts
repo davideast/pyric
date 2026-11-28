@@ -570,5 +570,31 @@ describe('Deeper derive projections, sibling soundness, and trusted-input checks
     const [triFs] = tri.firestore({ 'before.x': 'resource.data.x', 'after.x': 'request.resource.data.x' }, 'complete');
     expect(evalFirestore(triFs!.predicate!, { x: 5 }, { x: -5 })).toBe('ALLOW');
     expect(evalFirestore(triFs!.predicate!, { x: 5 }, { x: 5 })).toBe('DENY');
+
+    // 5. Unquoted map keys stay static: `let k = 'foo'; { k: 1 }` must never rewrite to `{'foo': 1}` (fail-open)
+    for (const src of [
+      "transition t { require r { let k = 'foo'; return { k: 1 }.foo == 1; } }",
+      "function mk(k) { return { k: 1 }; } transition t { require r { return mk('foo').foo == 1; } }",
+      "use extension derive; transition t { derive { let k = 'foo'; return { k: before.x + 1 }; } require r { return after.x == derived.foo; } }",
+    ]) {
+      const sp = verifySplitEnforcement(src, {
+        firestore: { 'before.x': 'resource.data.x', 'after.x': 'request.resource.data.x' },
+        rtdb: { before: 'data', after: 'newData' },
+        storage: { 'before.x': 'resource.size', 'after.x': 'request.resource.size' },
+        scenarios: [{ name: 'static-key', transition: { before: { x: 1 }, after: { x: 2 } }, expectOk: false }],
+        fuzz: { enabled: false },
+      });
+      expect(sp.ok, src).toBe(true);
+      expect([sp.targets.firestore?.plan.mode, sp.targets.rtdb?.plan.mode, sp.targets.storage?.plan.mode], src).toEqual(['gateway-only', 'gateway-only', 'gateway-only']);
+    }
+
+    // 6. Exponential derive let-doubling chain (2^30 uncompressed nodes) aborts within budget instead of OOM/hang
+    const lets = Array.from({ length: 30 }, (_, i) => `let l${i + 1} = l${i} + l${i};`).join(' ');
+    const t0 = performance.now();
+    const bomb = compilePolicy(`use extension derive; transition t { derive { let l0 = before.x + 1; ${lets} return {'v': l30}; } require r { return after.x == derived.v; } }`);
+    const [bombFs] = bomb.firestore({ 'before.x': 'resource.data.x', 'after.x': 'request.resource.data.x' }, 'mixed');
+    expect(performance.now() - t0).toBeLessThan(1000);
+    expect(bombFs!.predicate).toBeUndefined();
+    expect(bombFs!.reason).toMatch(/budget/);
   });
 });

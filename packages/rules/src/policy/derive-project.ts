@@ -3,7 +3,6 @@
 // strictly-evaluated leaves so unverified sibling outputs are never bypassed.
 import type { Expression } from '../grammar/FirestoreAST.js';
 import { expressionChildren } from '../grammar/call-depth-limits.js';
-import { substituteIdentifiers } from '../simulator/query-proof-scope.js';
 import type { CheckedFunction } from './check.js';
 import { estimateIRExprUnits, type BoundedOpCostDetail } from './diagnostics.js';
 import { field } from './firestore.js';
@@ -139,6 +138,7 @@ export function buildDeriveExpansionPlan(
   functions: ReadonlyMap<string, CheckedFunction>,
   analyses: ReadonlyMap<string, HelperAnalysis>,
   inlineExpr: (expr: Expression) => Expression,
+  substituteExpr: (expr: Expression, env: ReadonlyMap<string, Expression>) => Expression,
 ): DeriveExpansionPlan {
   const operations = new Map<string, string>();
   const deriveBoundedOps: BoundedOpCostDetail[] = [];
@@ -163,9 +163,9 @@ export function buildDeriveExpansionPlan(
       operations.set(binding.name, 'bounded.' + directOps[0]!);
     } else if (helperOp) {
       operations.set(binding.name, helperOp);
-    } else if (isPureRulesExpr(binding.value)) {
+    } else if (!invalidHelperError && isPureRulesExpr(binding.value)) {
       try {
-        const substituted = substituteIdentifiers(binding.value, locals);
+        const substituted = substituteExpr(binding.value, locals);
         const subDeps = collectOperationDeps(substituted, operations);
         locals.set(binding.name, directCalls.size && !subDeps.length ? inlineExpr(substituted) : substituted);
       } catch (err) {
@@ -204,11 +204,16 @@ export function buildDeriveExpansionPlan(
     };
   }
 
+  if (invalidHelperError) {
+    return { operations, invalidHelperError, nonLiteralLeaves: [], deriveSourceUnits, deriveBoundedOps };
+  }
+
   let expandedEntries: Array<{ key: Expression; value: Expression }>;
   try {
     expandedEntries = derivation.expr.entries.map((entry) => {
-      const keyExpr = substituteIdentifiers(entry.key, locals);
-      const rawVal = substituteIdentifiers(entry.value, locals);
+      // Never substitute locals into map keys: unquoted identifier keys are static names in policy IR.
+      const keyExpr = entry.key;
+      const rawVal = substituteExpr(entry.value, locals);
       const calls = new Set<string>();
       collectDirectCalls(rawVal, functions, calls);
       const impureCall = [...calls].some((c) => !analyses.get(c)?.pure);
@@ -393,7 +398,7 @@ export function rewriteDerivedRefs(
       case 'listLiteral':
         return { ...node, elements: node.elements.map((e) => rewrite(e, sub, depth + 1)) };
       case 'mapLiteral':
-        return { ...node, entries: node.entries.map((en) => ({ key: rewrite(en.key, sub, depth + 1), value: rewrite(en.value, sub, depth + 1) })) };
+        return { ...node, entries: node.entries.map((en) => ({ key: en.key, value: rewrite(en.value, sub, depth + 1) })) };
       case 'pathLiteral':
         return { ...node, segments: node.segments.map((s) => (typeof s === 'string' ? s : rewrite(s, sub, depth + 1))) };
       case 'functionCall':

@@ -138,6 +138,7 @@ interface InlineState {
   readonly maxNodes: number;
   readonly maxDepth: number;
   readonly maxCallDepth: number;
+  readonly inlineCalls: boolean;
   readonly inlinedHelpers: Set<string>;
   readonly active: Set<string>;
   nodes: number;
@@ -150,12 +151,14 @@ function makeInlineState(
   maxNodes: number,
   maxDepth: number,
   maxCallDepth: number,
+  inlineCalls = true,
 ): InlineState {
   return {
     functions,
     maxNodes,
     maxDepth,
     maxCallDepth,
+    inlineCalls,
     inlinedHelpers: new Set(),
     active: new Set(),
     nodes: 0,
@@ -235,8 +238,9 @@ function inlinePureExpr(
     case 'mapLiteral':
       return {
         ...expr,
+        // Never substitute into map keys: policy IR treats unquoted identifier keys as static property names.
         entries: expr.entries.map((en) => ({
-          key: inlinePureExpr(en.key, env, state, depth + 1, callDepth),
+          key: en.key,
           value: inlinePureExpr(en.value, env, state, depth + 1, callDepth),
         })),
       };
@@ -248,7 +252,7 @@ function inlinePureExpr(
         ),
       };
     case 'functionCall': {
-      const callee = state.functions.get(expr.name);
+      const callee = state.inlineCalls ? state.functions.get(expr.name) : undefined;
       if (!callee) {
         return { ...expr, args: expr.args.map((a) => inlinePureExpr(a, env, state, depth + 1, callDepth)) };
       }
@@ -289,8 +293,13 @@ export function buildDeriveExpansionPlan(
   const maxNodes = options.maxNodes ?? DEFAULT_EXPANSION_NODE_LIMIT;
   const maxDepth = options.maxDepth ?? DEFAULT_EXPANSION_DEPTH_LIMIT;
   const maxCallDepth = options.maxCallDepth ?? DEFAULT_INLINE_CALL_DEPTH_LIMIT;
-  return buildDerivePlanWithInliner(derivation, functions, analyses, (expr) =>
-    inlinePureExpr(expr, new Map(), makeInlineState(functions, maxNodes * 4, maxDepth, maxCallDepth), 0, 0),
+  const workBudget = maxNodes * 4;
+  return buildDerivePlanWithInliner(
+    derivation,
+    functions,
+    analyses,
+    (expr) => inlinePureExpr(expr, new Map(), makeInlineState(functions, workBudget, maxDepth, maxCallDepth, true), 0, 0),
+    (expr, env) => inlinePureExpr(expr, env, makeInlineState(functions, workBudget, maxDepth, maxCallDepth, false), 0, 0),
   );
 }
 
