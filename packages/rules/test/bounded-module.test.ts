@@ -1,11 +1,23 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { compileBoundedModule } from '../src/policy/index.js';
 import { parseToASTOrError } from '../src/grammar/FirestoreParser.js';
+
+const tempDir = mkdtempSync(join(tmpdir(), 'pyric-bounded-module-'));
+let modSeq = 0;
+afterAll(() => {
+  rmSync(tempDir, { recursive: true, force: true });
+});
 
 const prefix = 'use extension bounded;';
 async function load(source: string) {
   const { moduleSource } = compileBoundedModule(prefix + source);
-  return import('data:text/javascript;base64,' + Buffer.from(moduleSource).toString('base64'));
+  const file = join(tempDir, `mod-${modSeq++}.mjs`);
+  writeFileSync(file, moduleSource, 'utf8');
+  return import(pathToFileURL(file).href);
 }
 
 test('emits portable pure functions with bounded lexical traversal and immutable updates', async () => {
