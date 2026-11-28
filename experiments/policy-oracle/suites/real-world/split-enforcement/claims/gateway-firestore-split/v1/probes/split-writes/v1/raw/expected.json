@@ -1,0 +1,21 @@
+{
+  "decisions": {
+    "db-allow-valid-order": "ALLOW",
+    "gw-allow-valid-order": "ALLOW",
+    "gw-allow-odd-cents-floor": "ALLOW",
+    "db-deny-wrong-tenant": "DENY",
+    "gw-deny-wrong-tenant": "DENY",
+    "db-deny-anonymous": "DENY",
+    "gw-deny-anonymous": "DENY",
+    "db-deny-over-budget": "DENY",
+    "gw-deny-over-budget": "DENY",
+    "db-deny-resubmit-replay": "DENY",
+    "gw-deny-resubmit-replay": "DENY",
+    "db-deny-forged-submitter": "DENY",
+    "gw-deny-forged-submitter": "DENY",
+    "db-passes-envelope-on-tampered-total": "ALLOW",
+    "gw-deny-residual-tampered-total": "DENY",
+    "gw-deny-residual-negative-item": "DENY",
+    "gw-deny-residual-over-bound-items": "DENY"
+  }
+}

@@ -1,0 +1,19 @@
+use extension bounded;
+
+transition documentApproval {
+  require validStageTransition {
+    return before.status == 'in_review'
+      && (after.status == 'approved' || after.status == 'rejected')
+      && before.quorum is int && before.quorum >= 2 && after.quorum == before.quorum
+      && before.revision is int && after.revision == before.revision
+      && after.contentHash == before.contentHash
+      && after.authorId == before.authorId
+      && before.requiresSecurity is bool
+      && after.requiresSecurity == before.requiresSecurity;
+  }
+  require quorumOnly {
+    let yesCount = bounded.count(after.approvals, a => a.decision == 'approve' && a.revision == before.revision, 16);
+    let noCount = bounded.count(after.approvals, a => a.decision == 'reject' && a.revision == before.revision, 16);
+    return after.status == 'approved' ? (yesCount >= before.quorum && noCount == 0) : noCount >= 1;
+  }
+}

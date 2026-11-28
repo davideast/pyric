@@ -1,0 +1,5 @@
+{
+  "description": "Verify a collaborative document approval workflow enforcing quorum count, order-independent distinct reviewers, veto semantics, required security sign-off, revision binding, and separation of duties via bounded.all/count/any and adapters/_shared/v1.",
+  "authority": "native-model",
+  "witness": "native-trace"
+}

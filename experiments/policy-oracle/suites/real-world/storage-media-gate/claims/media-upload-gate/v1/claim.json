@@ -1,0 +1,5 @@
+{
+  "description": "Lower a Cloud Storage media upload gate (tenant/user path wildcard binding, auth token claims, MIME allowlist with RE2 check, tiered 5 MiB image / 10 MiB PDF size ceiling, and custom metadata contract) via compilePolicy().bind.storage() using adapters/_shared/v1.",
+  "authority": "native-model",
+  "witness": "native-trace"
+}

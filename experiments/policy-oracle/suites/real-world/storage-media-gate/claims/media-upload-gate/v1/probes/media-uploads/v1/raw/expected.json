@@ -1,0 +1,20 @@
+{
+  "decisions": {
+    "valid-png-exact-5mib": "ALLOW",
+    "valid-webp-private": "ALLOW",
+    "valid-pdf-8mib": "ALLOW",
+    "valid-pdf-exact-10mib": "ALLOW",
+    "anonymous-upload-denied": "DENY",
+    "wrong-user-path-denied": "DENY",
+    "wrong-tenant-token-denied": "DENY",
+    "outside-prefix-path-denied": "DENY",
+    "svg-xss-mime-denied": "DENY",
+    "empty-file-denied": "DENY",
+    "oversized-image-over-5mib-denied": "DENY",
+    "oversized-pdf-over-10mib-denied": "DENY",
+    "spoofed-uploaded-by-metadata-denied": "DENY",
+    "wrong-tenant-metadata-denied": "DENY",
+    "public-visibility-denied": "DENY",
+    "invalid-sha256-metadata-denied": "DENY"
+  }
+}

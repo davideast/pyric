@@ -1,0 +1,33 @@
+transition tenantDocUpdate {
+  require authenticatedTenantMember {
+    return input.auth != null
+      && input.tenant == before.tenantId
+      && after.tenantId == before.tenantId
+      && input.pathTenant == before.tenantId;
+  }
+  require roleHierarchyAuthorized {
+    return (input.role == 'editor' || input.role == 'admin' || input.role == 'owner')
+      && input.roleRank is int
+      && before.minWriteRank is int
+      && input.roleRank >= before.minWriteRank
+      && ((input.role == 'editor' && input.roleRank == 2)
+        || (input.role == 'admin' && input.roleRank == 3)
+        || (input.role == 'owner' && input.roleRank == 4))
+      && (!before.restricted || input.roleRank >= 3);
+  }
+  require policyMetadataGuard {
+    return ((after.minWriteRank == before.minWriteRank && after.restricted == before.restricted)
+        || input.role == 'owner')
+      && after.minWriteRank is int
+      && after.minWriteRank >= 2
+      && after.minWriteRank <= 4
+      && after.restricted is bool;
+  }
+  require lifecycleAndAudit {
+    return before.status != 'archived'
+      && (after.status == 'draft' || after.status == 'active' || after.status == 'archived')
+      && (after.status != 'archived' || input.roleRank >= 3)
+      && after.createdBy == before.createdBy
+      && after.updatedBy == input.uid;
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "source": {
+    "repo": "davideast/pyric",
+    "revision": "864067f626c7c44871a9e54fbc3aa70c32395e21",
+    "path": "packages/rules/src/policy/rtdb.ts"
+  },
+  "cases": [
+    "valid-online-to-away-in-window",
+    "valid-20th-boundary-write",
+    "valid-window-rollover-reset",
+    "valid-offline-to-online-reconnect",
+    "offline-to-away-jump-denied",
+    "unknown-presence-state-denied",
+    "heartbeat-rewind-denied",
+    "heartbeat-jump-over-300s-denied",
+    "cooldown-burst-under-500ms-denied",
+    "rate-limit-21st-write-denied",
+    "premature-window-reset-denied",
+    "skipped-window-count-denied",
+    "note-over-64-chars-denied",
+    "cross-user-write-denied",
+    "anonymous-write-denied"
+  ],
+  "pins": {
+    "replay.mjs": "ff67d1e3220042ef3013c87e0c49f25f22752c571681555d3225fd08f7bc8719",
+    "policy.rules": "faea3195f3c9aada6baae3f3fd508e5bb29f34427b725c773047d5b3e10789c5",
+    "cases.json": "ba90051c9bc504e7eca6c8686d35f01f02f207714dde6caac53904a4f8f23193",
+    "@oracle/adapters/_shared/v1/index.mjs": "18f38a000005116bfc914e777878ca29852dbcadefb41d456d67aa1bdc49bff4",
+    "@oracle/adapters/_shared/v1/runtime.mjs": "cfdbe532317b927e08e9729898cbf0f2f2fd62e77dcfa833af20487568191a4d",
+    "@oracle/adapters/_shared/v1/fixture.mjs": "402b940763a18572ae86949c5876c2c934c98120b3402b5e142bb7799b78c799",
+    "@oracle/adapters/_shared/v1/score.mjs": "1c2764dafd934eef52e25a41edbb30f38c959683bb6c8821cb6bff7c30c63c97",
+    "@oracle/adapters/_shared/v1/verify.mjs": "10aafa3e3316740b01f085d55fcb9ef3299f6bada43d342d343dbb7d26fd5fdd",
+    "@oracle/arcade/runtime/package.json": "b894cdd1e6ffdfc86391b037d3d43152d8f1b5d1c6180f9c89e18793aabc1471",
+    "@oracle/arcade/runtime/package-lock.json": "cece3476406a7e713047d21cf3c641d816fd38d1a55decd5006f96c20bb09e1d",
+    "@oracle/arcade/vendor/ohm-js-17.5.0.tgz": "233d11842ac70dff9d0a9db7dacb6d370d00073ea879d2ad4202d2ee2acabd61",
+    "@oracle/arcade/vendor/pyric-rules-0.1.0.tgz": "67087040f9e1206c54660563a27329d4b5db22102229af8f11b8ccb68ea87743",
+    "@oracle/arcade/vendor/zod-3.25.76.tgz": "9e1f1a05f0dd0c1dab64ee91ceb9bf55cd44d35368c70edda80a2fdc70a88377"
+  },
+  "replay": "replay.mjs"
+}

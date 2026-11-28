@@ -1,0 +1,5 @@
+{
+  "description": "Verify a SaaS billing and seat-quota state machine using derive, bounded.fold, and exact integer-cent basis-point arithmetic via compilePolicy().judge() and adapters/_shared/v1.",
+  "authority": "native-model",
+  "witness": "native-trace"
+}

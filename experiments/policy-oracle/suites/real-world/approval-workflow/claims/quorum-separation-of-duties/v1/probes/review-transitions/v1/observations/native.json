@@ -1,0 +1,40 @@
+{
+  "authority": "native-model",
+  "inputDigest": "3af4132bb6ca40da9e77212f31d49e86132d8b4a126091ad205e197c9bf1bdb1",
+  "results": {
+    "valid-unsorted-two-of-three-approval": "ALLOW",
+    "valid-approval-with-security-signoff": "ALLOW",
+    "valid-single-reject-transition": "ALLOW",
+    "author-self-approval-denied": "DENY",
+    "author-finalizing-actor-denied": "DENY",
+    "duplicate-reviewer-stuffing-denied": "DENY",
+    "insufficient-quorum-denied": "DENY",
+    "veto-reject-blocks-approval-denied": "DENY",
+    "reject-without-reject-vote-denied": "DENY",
+    "stale-revision-approval-denied": "DENY",
+    "content-hash-tampered-denied": "DENY",
+    "ineligible-outsider-reviewer-denied": "DENY",
+    "missing-security-signoff-denied": "DENY",
+    "draft-to-approved-skip-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "5e3be852eaba5970d53aeef4f04945200f428253d8183455f123b6ef88974c8c",
+    "pointers": {
+      "valid-unsorted-two-of-three-approval": "/decisions/valid-unsorted-two-of-three-approval",
+      "valid-approval-with-security-signoff": "/decisions/valid-approval-with-security-signoff",
+      "valid-single-reject-transition": "/decisions/valid-single-reject-transition",
+      "author-self-approval-denied": "/decisions/author-self-approval-denied",
+      "author-finalizing-actor-denied": "/decisions/author-finalizing-actor-denied",
+      "duplicate-reviewer-stuffing-denied": "/decisions/duplicate-reviewer-stuffing-denied",
+      "insufficient-quorum-denied": "/decisions/insufficient-quorum-denied",
+      "veto-reject-blocks-approval-denied": "/decisions/veto-reject-blocks-approval-denied",
+      "reject-without-reject-vote-denied": "/decisions/reject-without-reject-vote-denied",
+      "stale-revision-approval-denied": "/decisions/stale-revision-approval-denied",
+      "content-hash-tampered-denied": "/decisions/content-hash-tampered-denied",
+      "ineligible-outsider-reviewer-denied": "/decisions/ineligible-outsider-reviewer-denied",
+      "missing-security-signoff-denied": "/decisions/missing-security-signoff-denied",
+      "draft-to-approved-skip-denied": "/decisions/draft-to-approved-skip-denied"
+    }
+  }
+}

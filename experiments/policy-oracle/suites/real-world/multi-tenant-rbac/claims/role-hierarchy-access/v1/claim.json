@@ -1,0 +1,5 @@
+{
+  "description": "Lower a multi-tenant Firestore RBAC and role-hierarchy guard (tenant isolation, role/rank binding, restricted doc floor, owner-only policy metadata changes, archive lock, and audit fields) via compilePolicy().bind.firestore() using adapters/_shared/v1.",
+  "authority": "native-model",
+  "witness": "native-trace"
+}

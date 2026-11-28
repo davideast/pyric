@@ -1,0 +1,27 @@
+use extension methods;
+
+transition presenceRateGuard {
+  require validPresenceState {
+    return (after.state == 'online' || after.state == 'away' || after.state == 'offline')
+      && (before.state == 'offline' ? after.state != 'away' : true);
+  }
+  require monotonicHeartbeat {
+    return before.lastSeenMs is int && after.lastSeenMs is int
+      && after.lastSeenMs >= before.lastSeenMs
+      && after.lastSeenMs - before.lastSeenMs <= 300000;
+  }
+  require windowRateLimit {
+    return before.windowStartMs is int && after.windowStartMs is int
+      && before.windowCount is int && after.windowCount is int
+      && ((after.windowStartMs == before.windowStartMs
+          && after.windowCount == before.windowCount + 1
+          && after.windowCount <= 20
+          && after.lastSeenMs - before.lastSeenMs >= 500)
+        || (after.windowStartMs >= before.windowStartMs + 60000
+          && after.windowStartMs <= after.lastSeenMs
+          && after.windowCount == 1));
+  }
+  require statusNoteBounds {
+    return after.note is string && after.note.size() <= 64;
+  }
+}
