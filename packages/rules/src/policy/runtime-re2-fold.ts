@@ -31,6 +31,7 @@ export const boundedRe2FoldRuntime = `  const RE2_GEN_CATS = new Set([
     return map;
   })();
   const re2PairCache = new Map();
+  const re2CacheSet = (k, v) => { if (re2PairCache.size >= 4096) re2PairCache.clear(); re2PairCache.set(k, v); };
   function re2Orbit(ch) {
     const special = RE2_ORBIT_MAP.get(ch);
     if (special !== undefined) return special;
@@ -39,19 +40,19 @@ export const boundedRe2FoldRuntime = `  const RE2_GEN_CATS = new Set([
     const lo = ch.toLowerCase();
     if (lo !== ch && Array.from(lo).length === 1 && lo.toUpperCase() === ch) {
       const pair = [ch, lo];
-      re2PairCache.set(ch, pair);
-      re2PairCache.set(lo, pair);
+      re2CacheSet(ch, pair);
+      re2CacheSet(lo, pair);
       return pair;
     }
     const up = ch.toUpperCase();
     if (up !== ch && Array.from(up).length === 1 && up.toLowerCase() === ch) {
       const pair = [ch, up];
-      re2PairCache.set(ch, pair);
-      re2PairCache.set(up, pair);
+      re2CacheSet(ch, pair);
+      re2CacheSet(up, pair);
       return pair;
     }
     const single = [ch];
-    re2PairCache.set(ch, single);
+    re2CacheSet(ch, single);
     return single;
   }
 `;

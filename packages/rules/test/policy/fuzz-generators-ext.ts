@@ -512,6 +512,10 @@ export const RE2_CURATED_PATTERNS: readonly string[] = [
   '[0-[:digit:]]',
   '[[:digit:]-]',
   '[\\d-]',
+  '{1,2}', '{2}', '{1,}', '{0}', 'a|{1,2}', '({1,2})', '(?:{1,2})',
+  '{,2}', '{1,2', '{}', '{a}', '(?i){a}', '(?i){', '(?i){,2}', '(?i)\\{a\\}',
+  '(?:^)*a', '(?i:^)*a', '(?:$)*a', '(?:\\b)*a', '(?:(?i))*a', '(?:(?:^))*a',
+  '(?s:^)*a', '(?:^){1,2}a', '(?P<a>x)|(?P<a>y)', '((?P<a>x)|(?P<a>y))(?P<a>z)',
 ];
 
 export const RE2_BACKTRACK_CASES: readonly (readonly [string, string])[] = [

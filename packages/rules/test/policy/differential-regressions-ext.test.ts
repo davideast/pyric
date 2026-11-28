@@ -228,6 +228,56 @@ describe('10K differential fuzzer shrunk permanent regressions', () => {
     expectEq('m', ['5', '[[:digit:]-]'], true);
     expectEq('m', ['-', '[\\p{L}-]'], true);
 
+    // 12. Leading/unanchored {m,n} brace quantifiers and '{' after inline flags rejected; non-quantifiers stay literal.
+    for (const [subj, bad] of [
+      ['{1,2}', '{1,2}'], ['{2}', '{2}'], ['{1,}', '{1,}'], ['{0}', '{0}'],
+      ['{0,0}', '{0,0}'], ['{2,1}', '{2,1}'], ['{1001}', '{1001}'], ['{1,2}', '{1,2}?'],
+      ['a', 'a|{1,2}'], ['{1,2}', 'a|{1,2}'], ['{1,2}', '({1,2})'], ['{1,2}', '(?:{1,2})'],
+      ['{1,2}', '\\Q\\E{1,2}'], ['{a}', '(?i){a}'], ['{', '(?i){'], ['{,2}', '(?i){,2}'],
+      ['{}', '(?i){}'], ['{1,2', '(?i){1,2'], ['a{a}b', 'a(?i){a}b'],
+    ] as const) {
+      expectEq('m', [subj, bad]);
+      expect(captureCall(() => mod.m!(subj, bad)).kind, bad).toBe('eval-error');
+    }
+    for (const lit of ['{,2}', '{1,2', '{}', '{a}']) {
+      expectEq('m', [lit, lit], true);
+    }
+    expectEq('m', ['{a}', '(?i)\\{a\\}'], true);
+    expectEq('m', ['{a}', '(?:(?i)){a}'], true);
+
+    // 13. Quantified non-capturing assertion and inline-flag groups remain valid; bare forms stay rejected.
+    for (const [subj, pat, want] of [
+      ['a', '(?:^)*a', true], ['a', '(?i:^)*a', true], ['a', '(?:$)*a', true],
+      ['a', '(?:\\b)*a', true], ['a', '(?:(?i))*a', true], ['a', '(?:(?:^))*a', true],
+      ['a', '(?s:^)*a', true], ['a', '(?:^){1,2}a', true], ['', '(?:^){0}', true],
+      ['', '(?:\\A)+', true], ['', '(?:\\z)?', true], ['', '(?:\\B)*', true],
+      ['', '(?m:$)*', true], ['', '(?:(?-i))+', true],
+    ] as const) {
+      expectEq('m', [subj, pat], want);
+    }
+    for (const bad of ['^*a', '^{1,2}a', '(?i)*', '(?i){1,2}a', 'a(?i){1,2}b', '$+', '\\b?a']) {
+      expectEq('m', ['a', bad]);
+      expect(captureCall(() => mod.m!('a', bad)).kind, bad).toBe('eval-error');
+    }
+
+    // 14. Duplicate named capture groups allowed across disjoint alternation branches, rejected in same path.
+    for (const [subj, pat, want] of [
+      ['x', '(?P<a>x)|(?P<a>y)', true], ['y', '(?P<a>x)|(?P<a>y)', true],
+      ['z', '(?P<a>x)|(?P<a>y)', false], ['x', '((?P<a>x)|(?P<a>y))|(?P<a>z)', true],
+      ['z', '(?:(?P<a>x)|y)|(?P<a>z)', true], ['x', '(?<a>x)|(?<a>y)', true],
+    ] as const) {
+      expectEq('m', [subj, pat], want);
+    }
+    expectEq('rp', ['x', '(?P<a>x)|(?P<a>y)', '[${a}|$1|$2]'], '[|x|]');
+    expectEq('rp', ['y', '(?P<a>x)|(?P<a>y)', '[${a}|$1|$2]'], '[y||y]');
+    for (const bad of [
+      '((?P<a>x)|(?P<a>y))(?P<a>z)', '((?P<a>x)|(?P<b>y))(?P<a>z)',
+      '(?P<a>x(?P<a>y))', '(?:(?P<a>x)|y)(?P<a>z)',
+    ]) {
+      expectEq('m', ['xz', bad]);
+      expect(captureCall(() => mod.m!('xz', bad)).kind, bad).toBe('eval-error');
+    }
+
     // End-to-end Firestore & Storage parity for \Q...\E and \s vs \v.
     const fsSrc = 'use extension methods; transition t { require r { return after.s.matches("\\\\Qabc\\\\E(?i)d"); } }';
     const fsPol = compilePolicy(fsSrc);

@@ -195,15 +195,22 @@ ${boundedRe2FoldRuntime}
         else fail('Unsupported regex flag: ' + f);
       }
     };
-    const parseAlt = () => {
-      let left = parseSeq();
+    const parseAlt = (outer) => {
+      const union = new Set();
+      const branch = () => {
+        const local = new Set();
+        const node = parseSeq(outer, local);
+        for (const n of local) union.add(n);
+        return node;
+      };
+      let left = branch();
       while (pos < pat.length && pat[pos] === '|') {
         pos++;
-        left = { k: 'alt', a: left, b: parseSeq() };
+        left = { k: 'alt', a: left, b: branch() };
       }
-      return left;
+      return [left, union];
     };
-    const parseSeq = () => {
+    const parseSeq = (outer, local) => {
       const items = [];
       while (pos < pat.length && pat[pos] !== '|' && pat[pos] !== ')') {
         if (pat.startsWith('\\\\Q', pos)) {
@@ -213,9 +220,9 @@ ${boundedRe2FoldRuntime}
           const lits = Array.from(pat.slice(pos + 2, stop)).map((ch) => ({ k: 'ch', fn: (c) => re2FoldEq(c, ch, f) }));
           pos = end === -1 ? stop : end + 2;
           const last = lits.pop();
-          if (last) { items.push(...lits, parseQuant(last)); }
+          if (last) { items.push(...lits, parseQuant(last, outer, local)); }
         } else {
-          items.push(parseQuant());
+          items.push(parseQuant(undefined, outer, local));
         }
       }
       if (items.length === 0) return { k: 'empty' };
@@ -225,8 +232,8 @@ ${boundedRe2FoldRuntime}
       const c = pat[i];
       return c === '*' || c === '+' || c === '?' || (c === '{' && /^\\{\\d+(?:,\\d*)?\\}/.test(pat.slice(i)));
     };
-    const parseQuant = (preset) => {
-      const node = preset || parseAtom();
+    const parseQuant = (preset, outer, local) => {
+      const node = preset || parseAtom(outer, local);
       if (pos >= pat.length || !isQuantAt(pos)) return node;
       if (node.k === 'as' || node.noQ) fail('Invalid regular expression: nothing to repeat');
       const ch = pat[pos];
@@ -247,9 +254,9 @@ ${boundedRe2FoldRuntime}
       if (pos < pat.length && isQuantAt(pos)) fail('Invalid regular expression: nothing to repeat');
       return { k: 'rep', body: node, min, max, greedy: lazy === ungreedy };
     };
-    const parseAtom = () => {
+    const parseAtom = (outer, local) => {
       const ch = pat[pos];
-      if (ch === '*' || ch === '+' || ch === '?' || ch === ')') fail('Unexpected regex token: ' + ch);
+      if (ch === ')' || isQuantAt(pos)) fail('Unexpected regex token: ' + ch);
       if (ch === '(') {
         pos++;
         const sCi = ci, sMl = ml, sDa = dotAll, sUg = ungreedy;
@@ -267,8 +274,9 @@ ${boundedRe2FoldRuntime}
             if (ne === -1) fail('Unclosed group name');
             const gname = pat.slice(ns, ne);
             if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(gname)) fail('Invalid group specifier name: ' + gname);
-            if (Object.hasOwn(named, gname)) fail('Duplicate group specifier name: ' + gname);
+            if (outer(gname) || local.has(gname)) fail('Duplicate group specifier name: ' + gname);
             cap = ++groups;
+            local.add(gname);
             named[gname] = cap;
             pos = ne + 1;
           } else {
@@ -276,16 +284,24 @@ ${boundedRe2FoldRuntime}
             if (!fm) fail('Unsupported group syntax');
             applyFlags(fm[1]);
             pos += fm[0].length;
-            if (pat[pos] === ')') { pos++; return { k: 'empty', noQ: true }; }
+            if (pat[pos] === ')') {
+              pos++;
+              if (pat[pos] === '{') fail('Invalid regular expression: nothing to repeat');
+              return { k: 'empty', noQ: true };
+            }
             if (pat[pos] === ':') pos++;
             else fail('Invalid inline flag group');
           }
         }
-        const inner = parseAlt();
+        const subOuter = local.size ? (g) => outer(g) || local.has(g) : outer;
+        const [inner, innerNames] = parseAlt(subOuter);
+        for (const n of innerNames) local.add(n);
         if (pat[pos] !== ')') fail('Unclosed regex group');
         pos++;
         ci = sCi; ml = sMl; dotAll = sDa; ungreedy = sUg;
-        return cap === undefined ? inner : { k: 'seq', items: [inner], cap };
+        return cap === undefined
+          ? (inner.k === 'as' || inner.noQ ? { k: 'seq', items: [inner] } : inner)
+          : { k: 'seq', items: [inner], cap };
       }
       if (ch === '[') {
         const [fn, nextPos] = re2ClassTest(pat, pos, ci);
@@ -337,7 +353,7 @@ ${boundedRe2FoldRuntime}
       const f = ci;
       return { k: 'ch', fn: (c) => re2FoldEq(c, lit, f) };
     };
-    const ast = parseAlt();
+    const [ast] = parseAlt(() => false);
     if (pos !== pat.length) fail('Unexpected trailing ) in regex');
     return { ast, groups, named };
   }
