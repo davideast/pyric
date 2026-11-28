@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { deleteApp, FirebaseError, getApps, initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
-import * as surface from '../../../../src/serve/entries/firestore-surface.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import {
   observeFirestoreConnectEmulatorOptions,
@@ -12,8 +11,15 @@ import {
   observeFirestoreAnonymousListenerAuthTransition,
   type AnonymousListenerAuthTransitionSubject,
 } from '../../../../../conformance/probes/firestore/firestore-anonymous-listener-auth-transition.ts';
+import { makeHostCtx } from '../integration-support.js';
 import { hostedFirestoreContext } from './hosted-firestore-support.ts';
-import { load, restoreSharedWorker, servedFirestoreContext } from './support.ts';
+import {
+  load,
+  loadServedFirestoreSurface,
+  restoreSharedWorker,
+  servedFirestoreContext,
+  type ServedFirestoreSurface,
+} from './support.ts';
 
 restoreSharedWorker();
 
@@ -38,38 +44,44 @@ function errorCodeOf(err: unknown): string {
 describe('served and hosted 3-plane oracle replay: connectFirestoreEmulator and anonymous listener', () => {
   it('replays firestore-connect-emulator-options over served SharedWorker surface (firestore#120, #121)', async () => {
     const observed = load('firestore-connect-emulator-options');
-    const subject: ConnectFirestoreEmulatorSubject<
-      ReturnType<typeof initializeApp>,
-      ReturnType<typeof surface.getFirestore>
-    > = {
-      createApp(name: string) {
-        return initializeApp({ projectId: 'demo-served-emulator' }, name);
-      },
-      deleteApp(app) {
-        return deleteApp(app);
-      },
-      getFirestore(app) {
-        return surface.getFirestore(app);
-      },
-      createDocRef(db, path: string) {
-        return surface.doc(db, path);
-      },
-      disableNetwork(db) {
-        return surface.disableNetwork(db);
-      },
-      terminate(db) {
-        return surface.terminate(db);
-      },
-      connectEmulator(db, host: string, port: number, options?: Record<string, unknown>) {
-        surface.connectFirestoreEmulator(db, host, port, options);
-      },
-      isFirebaseError(err: unknown): boolean {
-        return err instanceof FirebaseError;
-      },
-    };
+    const host = await makeHostCtx();
+    try {
+      const surface = await loadServedFirestoreSurface(host);
+      const subject: ConnectFirestoreEmulatorSubject<
+        ReturnType<typeof initializeApp>,
+        ReturnType<ServedFirestoreSurface['getFirestore']>
+      > = {
+        createApp(name: string) {
+          return initializeApp({ projectId: 'demo-served-emulator' }, name);
+        },
+        deleteApp(app) {
+          return deleteApp(app);
+        },
+        getFirestore(app) {
+          return surface.getFirestore(app);
+        },
+        createDocRef(db, path: string) {
+          return surface.doc(db, path);
+        },
+        disableNetwork(db) {
+          return surface.disableNetwork(db);
+        },
+        terminate(db) {
+          return surface.terminate(db);
+        },
+        connectEmulator(db, host: string, port: number, options?: Record<string, unknown>) {
+          surface.connectFirestoreEmulator(db, host, port, options);
+        },
+        isFirebaseError(err: unknown): boolean {
+          return err instanceof FirebaseError;
+        },
+      };
 
-    const actual = await observeFirestoreConnectEmulatorOptions(subject);
-    expect(actual).toEqual(observed);
+      const actual = await observeFirestoreConnectEmulatorOptions(subject);
+      expect(actual).toEqual(observed);
+    } finally {
+      host.sandbox.dispose();
+    }
   });
 
   it('replays firestore-connect-emulator-options over Node host loopback WebSocket (firestore#120, #121)', async () => {

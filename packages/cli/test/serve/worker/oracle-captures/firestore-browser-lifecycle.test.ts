@@ -2,13 +2,12 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { deleteApp, getApps, initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
 import { setRules } from 'pyric/sandbox/firestore';
-import * as surface from '../../../../src/serve/entries/firestore-surface.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { onSnapshotsInSync as workerOnSnapshotsInSync } from '../../../../src/serve/worker/client/firestore-reads.js';
 import type { FirestoreScenarioContext } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
-import { connectClientToHost, makeHostCtx } from '../integration-support.js';
+import { makeHostCtx } from '../integration-support.js';
 import { hostedFirestoreContext } from './hosted-firestore-support.ts';
-import { load, restoreSharedWorker, servedFirestoreContext } from './support.ts';
+import { load, loadServedFirestoreSurface, restoreSharedWorker, servedFirestoreContext } from './support.ts';
 
 restoreSharedWorker();
 
@@ -180,7 +179,7 @@ describe('3-plane oracle replay: firestore-browser-lifecycle (FP-9)', () => {
       host.sandbox,
       `rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if true; } } }`,
     );
-    connectClientToHost(host, 'worker://surface-direct-lifecycle');
+    const surface = await loadServedFirestoreSurface(host);
     const app = initializeApp({ projectId: 'demo-surface-lc', apiKey: 'demo-key' }, 'surface-lc-app');
     try {
       const db1 = surface.getFirestore(app);

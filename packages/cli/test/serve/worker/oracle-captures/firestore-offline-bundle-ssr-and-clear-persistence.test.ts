@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { FirebaseError, deleteApp, getApps, initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
 import { setRules } from 'pyric/sandbox/firestore';
-import * as surface from '../../../../src/serve/entries/firestore-surface.js';
 import { connectClientToHost, makeHostCtx } from '../integration-support.js';
 import {
   buildSyntheticArticlesBundle,
@@ -10,7 +9,7 @@ import {
   replayWithDriver,
 } from './firestore-offline-bundle-ssr-driver.ts';
 import { hostedFirestoreContext } from './hosted-firestore-support.ts';
-import { expectReplay, load, restoreSharedWorker } from './support.ts';
+import { expectReplay, load, loadServedFirestoreSurface, restoreSharedWorker } from './support.ts';
 
 restoreSharedWorker();
 
@@ -64,7 +63,7 @@ describe('firestore-offline-bundle-ssr-and-clear-persistence oracle capture (ser
   it('routes surface.loadBundle, surface.documentSnapshotFromJSON, and surface.clearIndexedDbPersistence end-to-end', async () => {
     const host = await makeHostCtx();
     setRules(host.sandbox, OPEN_RULES);
-    connectClientToHost(host, 'worker://surface-direct-bundle-ssr');
+    const surface = await loadServedFirestoreSurface(host);
     if (getApps().length === 0) await resetAppRegistryForTests();
     const existingApp = getApps()[0];
     let appOptions = { apiKey: 'fake-api-key', projectId: 'demo-firestore-bundle-ssr-probe' };
