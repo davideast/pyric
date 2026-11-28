@@ -3,6 +3,7 @@
 // Storage Rules v2 expressions, and verifies syntax, compile limits, and RE2
 // regex validity via @pyric/rules's Storage parser.
 import { assembleExpression, assembleRules } from '../grammar/FirestoreAssembler.js';
+import { addParenthesizedGroup } from '../grammar/paren-groups.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
 import { exprContains, walkExpr } from '../grammar/function-scopes.js';
 import { firestoreGrammar, firestoreSemantics, parseExpression, parseToASTOrError } from '../grammar/FirestoreParser.js';
@@ -259,7 +260,12 @@ export function lowerStorage(
         };
       case 'unaryOp': {
         features.add(node.op);
-        return { ...node, operand: lower(node.operand, false) };
+        let operand = lower(node.operand, false);
+        if (node.op === '-' && operand.type === 'unaryOp' && operand.op === '-') {
+          operand = { ...operand };
+          addParenthesizedGroup(operand);
+        }
+        return { ...node, operand };
       }
       case 'binaryOp': {
         features.add(node.op);

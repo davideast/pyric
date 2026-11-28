@@ -1,13 +1,11 @@
 // Experimental opt-in entry. Standard rules loaders never import this grammar.
 // Unified on Policy IR (ir.ts) + static checker (check.ts) across compilePolicy,
 // compileFunction, compileBoundedModule, provePolicy, and createPolicyGuard.
-import type { Expression } from '../grammar/FirestoreAST.js';
 import { EXPRESSION_LIMIT } from '../linter/expression-cost.js';
 import { EvalError, ResourceLimitError } from '../simulator/eval-error.js';
 import { TraceRecorder } from '../simulator/trace-recorder.js';
 import { emitStandaloneModule, type StandaloneModuleResult } from './bounded-module.js';
 import { checkPolicyIR, type CheckedPolicyIR } from './check.js';
-import { bindDerivedLocals, derivedCollectionReads, projectDerivedField } from './derived-field.js';
 import {
   buildFailureTrace,
   buildRequirementCost,
@@ -16,8 +14,16 @@ import {
   toDiagnosticJsonValue,
   type EvaluatedBindingTrace,
   type PolicyFailureTrace,
+  type RequirementCostExtras,
 } from './diagnostics.js';
 import { createPolicyContext, evalIRExpr, evalIRLet, revivePolicyValue, type Scope } from './eval-ir.js';
+import {
+  analyzeHelpers,
+  buildDeriveExpansionPlan,
+  computeDeriveCompleteReason,
+  expandRequirementForTarget,
+  type RequirementExpansionResult,
+} from './expand-ir.js';
 import {
   compileProjections,
   emitFirestoreModule,
@@ -25,20 +31,15 @@ import {
   type FirestoreBindings,
 } from './firestore.js';
 import {
-  asPureRulesExpr,
   collectBoundedOps,
   irFieldPath,
-  isPureRulesExpr,
   parsePolicyIR,
   type IRBoundedOp,
   type IRProgram,
+  type IRRequirement,
 } from './ir.js';
 import { bindRealtime, composeFirestore, type FirestoreTemplate, type RealtimePlacement } from './placement.js';
-import {
-  lowerRtdbExpression,
-  type LowerRtdbResult,
-  type RtdbBindings,
-} from './rtdb.js';
+import { lowerRtdbExpression, type LowerRtdbResult, type RtdbBindings } from './rtdb.js';
 import {
   compileStorageProjections,
   composeStorage,
@@ -55,6 +56,9 @@ export type Verdict =
   | { ok: true }
   | { ok: false; requirement: string; location: string; reason: string; fatal?: true; trace?: PolicyFailureTrace };
 export type SnapshotBindings = RtdbBindings;
+export type CompiledPolicy = ReturnType<typeof compilePolicy>;
+
+const RTDB_CHAR_LIMIT = 16384;
 
 function requirementBoundedOps(rule: { lets: readonly { value: unknown }[]; condition: unknown }): IRBoundedOp[] {
   const found: IRBoundedOp[] = [];
@@ -90,6 +94,194 @@ function recordBindingTrace(
   }
 }
 
+function boundRtdbEntry(bindings: RtdbBindings, key: string): { found: boolean; value: unknown } {
+  if (Object.hasOwn(bindings, key)) return { found: true, value: bindings[key] };
+  const parts = key.split('.');
+  for (let i = parts.length - 1; i >= 1; i--) {
+    const prefix = parts.slice(0, i).join('.');
+    if (Object.hasOwn(bindings, prefix)) return { found: true, value: bindings[prefix] };
+  }
+  return { found: false, value: undefined };
+}
+
+function boundStorageMap(bindings: StorageBindings, inputs: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of inputs) {
+    if (Object.hasOwn(bindings, key)) {
+      out[key] = bindings[key]!;
+      continue;
+    }
+    const parts = key.split('.');
+    for (let i = parts.length - 1; i >= 1; i--) {
+      const prefix = parts.slice(0, i).join('.');
+      if (Object.hasOwn(bindings, prefix)) {
+        out[key] = bindings[prefix]!;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function collectRuleExtensions(
+  rule: IRRequirement,
+  usesDerived: boolean,
+  exp: RequirementExpansionResult,
+): string[] {
+  const boundedNames = [
+    ...rule.lets.flatMap((l) => collectBoundedOps(l.value)),
+    ...collectBoundedOps(rule.condition),
+  ].map((op) => 'bounded.' + op);
+  const helperOpNames = exp.helperBoundedOps.map((o) => o.op);
+  return [
+    ...new Set([
+      ...boundedNames,
+      ...helperOpNames,
+      ...(usesDerived ? ['derive'] : []),
+      ...(exp.inlinedHelpers.length ? ['helpers'] : []),
+      ...(exp.inlinedLets > 0 ? ['lets'] : []),
+    ]),
+  ];
+}
+
+function makeCostExtras(
+  exp: RequirementExpansionResult,
+  predicate: string | undefined,
+  enforcement: string,
+  problems: readonly string[],
+  targetCharLimit?: number,
+): RequirementCostExtras {
+  const overChar = Boolean(problems.some((p) => p.includes('emission limit')));
+  return {
+    expandedUnits: exp.budgetExceeded ? exp.expandedUnits : null,
+    helperUnits: exp.helperUnits,
+    deriveUnits: exp.deriveUnits,
+    inlinedHelpers: exp.inlinedHelpers,
+    inlinedLets: exp.inlinedLets,
+    projectedDerivePaths: exp.projectedDerivePaths,
+    expandedNodes: exp.expandedNodes,
+    expansionNodeLimit: exp.expansionNodeLimit,
+    extraBoundedOps: exp.helperBoundedOps,
+    budgetExceeded: exp.budgetExceeded || overChar,
+    enforcement,
+    problems,
+    ...(predicate ? { targetChars: predicate.length } : {}),
+    ...(targetCharLimit !== undefined ? { targetCharLimit } : {}),
+  };
+}
+
+function attachCompleteReason<T extends { requirement: string; predicate?: string; diagnostics: ReturnType<typeof classifyPlacementProblems> }>(
+  rows: readonly T[],
+  projectedReqs: ReadonlySet<string>,
+  completeReason: string | undefined,
+): Array<T & { completeReason?: string }> {
+  return rows.map((row) => {
+    if (completeReason && row.predicate && projectedReqs.has(row.requirement)) {
+      return {
+        ...row,
+        completeReason,
+        diagnostics: [...row.diagnostics, ...classifyPlacementProblems([completeReason], false, completeReason)],
+      };
+    }
+    return row;
+  });
+}
+
+/** Interpret a checked transition policy, optionally filtered to a subset of requirements (e.g. residual). */
+export function evaluateCheckedTransition(
+  checked: CheckedPolicyIR,
+  transition: Transition,
+  includeRequirements?: ReadonlySet<string>,
+): Verdict {
+  const program = checked.program.transition!;
+  const { derivation, requirements } = program;
+  const { expressionLimit, usesDerived } = checked;
+  const ctx = createPolicyContext(expressionLimit, checked.functions);
+  const inputState = { nodes: 0 };
+  const before = revivePolicyValue(transition.before, inputState);
+  const after = revivePolicyValue(transition.after, inputState);
+  const input = transition.input === undefined ? Object.create(null) : revivePolicyValue(transition.input, inputState);
+  let derived: unknown;
+  let hasDerived = false;
+  const deriveBindings: EvaluatedBindingTrace[] = [];
+
+  const runDerive = (): unknown => {
+    const scope: Scope = Object.assign(Object.create(null), { before, input });
+    for (const binding of derivation!.lets) {
+      evalIRLet(binding, ctx, scope);
+      recordBindingTrace(deriveBindings, binding.name, 'derive', scope[binding.name], binding.loc);
+    }
+    try {
+      return evalIRExpr(derivation!.expr, ctx, scope);
+    } catch (error) {
+      if (error instanceof EvalError && !(error instanceof ResourceLimitError)) return error;
+      throw error;
+    }
+  };
+
+  for (const rule of requirements) {
+    if (includeRequirements && !includeRequirements.has(rule.name)) continue;
+    const scope: Scope = { before, after, input };
+    const reqBindings: EvaluatedBindingTrace[] = [];
+    const trace = new TraceRecorder();
+    let outcome: 'false' | 'eval-error' | 'resource-limit' = 'eval-error';
+    try {
+      if (usesDerived.has(rule.name)) {
+        if (!hasDerived) {
+          derived = runDerive();
+          hasDerived = true;
+        }
+        scope.derived = derived;
+      }
+      for (const binding of rule.lets) {
+        evalIRLet(binding, ctx, scope);
+        recordBindingTrace(reqBindings, binding.name, 'require', scope[binding.name], binding.loc);
+      }
+      const ok = evalIRExpr(rule.condition, { ...ctx, trace }, scope);
+      if (ok === true) continue;
+      outcome = 'false';
+      const entries = trace.entries;
+      let index = 0;
+      while (entries[index]?.operator === '&&' && entries[index]?.value === false) {
+        index = entries.findIndex((entry) => entry.parent === index && entry.value === false);
+      }
+      if (entries[index]?.operator === '==' && entries[index]?.value === false) {
+        const [actual, expected] = entries.filter((entry) => entry.parent === index);
+        const isScalarNum = (v: unknown) => typeof v === 'number' || typeof v === 'bigint';
+        if (isScalarNum(actual?.value) && isScalarNum(expected?.value)) {
+          throw new EvalError(actual!.source + ' was ' + actual!.value + ', expected ' + expected!.value);
+        }
+      }
+      throw new EvalError('Requirement failed: ' + rule.source);
+    } catch (error) {
+      if (!(error instanceof EvalError)) throw error;
+      const isFatal = error instanceof ResourceLimitError;
+      if (isFatal) outcome = 'resource-limit';
+      const bindings = usesDerived.has(rule.name) ? [...deriveBindings, ...reqBindings] : reqBindings;
+      const failureTrace = buildFailureTrace({
+        rule,
+        outcome,
+        bindings,
+        entries: trace.entries,
+        derived,
+        hasDerived: usesDerived.has(rule.name) && hasDerived,
+        expressionUnitsUsed: ctx.expressionBudget.evaluated,
+        expressionLimit,
+        errorMessage: outcome === 'false' ? undefined : error.message,
+      });
+      return {
+        ok: false,
+        requirement: rule.name,
+        location: rule.location,
+        reason: error.message,
+        ...(isFatal ? { fatal: true as const } : {}),
+        trace: failureTrace,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
   const ir: IRProgram = parsePolicyIR(source, 'transition');
   const checked: CheckedPolicyIR = checkPolicyIR(ir, { expressionLimit });
@@ -97,171 +289,56 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
   const { derivation, requirements } = program;
   const { reads, usesDerived } = checked;
 
-  const hasFunctions = checked.functions.size > 0;
-  function deriveFrom(
-    { before, input }: Pick<Transition, 'before' | 'input'>,
-    ctx: ReturnType<typeof createPolicyContext>,
-    captureErrors: boolean,
-    preSanitized = false,
-    bindingLog?: EvaluatedBindingTrace[],
-  ): unknown {
-    if (!derivation) throw new Error('This policy has no derive block');
-    const state = { nodes: 0 };
-    const scope: Scope = Object.assign(Object.create(null), {
-      before: preSanitized ? before : revivePolicyValue(before, state),
-      input: preSanitized ? input : input === undefined ? Object.create(null) : revivePolicyValue(input, state),
-    });
-    for (const binding of derivation.lets) {
-      evalIRLet(binding, ctx, scope);
-      if (bindingLog) recordBindingTrace(bindingLog, binding.name, 'derive', scope[binding.name], binding.loc);
-    }
-    try {
-      return evalIRExpr(derivation.expr, ctx, scope);
-    } catch (error) {
-      if (captureErrors && error instanceof EvalError && !(error instanceof ResourceLimitError)) return error;
-      throw error;
-    }
-  }
-
-  const projected = new Map<string, ReturnType<typeof projectDerivedField>>();
-  const locals = derivation && bindDerivedLocals(derivation);
-  const collectionFeatures = new Map<string, string[]>();
-  const pureDerivationExpr = derivation && isPureRulesExpr(derivation.expr) ? derivation.expr : undefined;
-  if (derivation && locals && pureDerivationExpr) {
-    for (const rule of requirements) {
-      if (!usesDerived.has(rule.name)) continue;
-      const dependencies = derivedCollectionReads(pureDerivationExpr, reads.get(rule.name)!, locals);
-      if (dependencies.length) {
-        const features = [...new Set(dependencies.map((name) => locals.operations.get(name)!))];
-        collectionFeatures.set(rule.name, features);
-        projected.set(rule.name, 'Requires ' + features.join(', ') + ': ' + dependencies.join(', '));
-      } else if (!rule.lets.length && isPureRulesExpr(rule.condition)) {
-        projected.set(rule.name, projectDerivedField(rule.condition, pureDerivationExpr, locals.locals));
-      }
-    }
-  }
+  const helperAnalyses = analyzeHelpers(checked.functions, checked.topoOrder);
+  const derivePlan = derivation ? buildDeriveExpansionPlan(derivation, checked.functions, helperAnalyses) : undefined;
 
   const api = {
     ir: checked,
     standaloneModule: (): StandaloneModuleResult => emitStandaloneModule(checked),
     derive(start: Pick<Transition, 'before' | 'input'>): Record<string, unknown> {
-      return deriveFrom(start, createPolicyContext(expressionLimit, checked.functions), false) as Record<string, unknown>;
+      if (!derivation) throw new Error('This policy has no derive block');
+      const ctx = createPolicyContext(expressionLimit, checked.functions);
+      const state = { nodes: 0 };
+      const scope: Scope = Object.assign(Object.create(null), {
+        before: revivePolicyValue(start.before, state),
+        input: start.input === undefined ? Object.create(null) : revivePolicyValue(start.input, state),
+      });
+      for (const binding of derivation.lets) evalIRLet(binding, ctx, scope);
+      return evalIRExpr(derivation.expr, ctx, scope) as Record<string, unknown>;
     },
     judge(transition: Transition): Verdict {
-      const ctx = createPolicyContext(expressionLimit, checked.functions);
-      const inputState = { nodes: 0 };
-      const before = revivePolicyValue(transition.before, inputState);
-      const after = revivePolicyValue(transition.after, inputState);
-      const input = transition.input === undefined ? Object.create(null) : revivePolicyValue(transition.input, inputState);
-      let derived: unknown;
-      let hasDerived = false;
-      const deriveBindings: EvaluatedBindingTrace[] = [];
-
-      for (const rule of requirements) {
-        const scope: Scope = { before, after, input };
-        const reqBindings: EvaluatedBindingTrace[] = [];
-        const trace = new TraceRecorder();
-        let outcome: 'false' | 'eval-error' | 'resource-limit' = 'eval-error';
-        try {
-          if (usesDerived.has(rule.name)) {
-            if (!hasDerived) {
-              derived = deriveFrom({ before, input }, ctx, true, true, deriveBindings);
-              hasDerived = true;
-            }
-            scope.derived = derived;
-          }
-          for (const binding of rule.lets) {
-            evalIRLet(binding, ctx, scope);
-            recordBindingTrace(reqBindings, binding.name, 'require', scope[binding.name], binding.loc);
-          }
-          const evalCtx = { ...ctx, trace };
-          const ok = evalIRExpr(rule.condition, evalCtx, scope);
-          if (ok === true) continue;
-          outcome = 'false';
-          const entries = trace.entries;
-          let index = 0;
-          while (entries[index]?.operator === '&&' && entries[index]?.value === false) {
-            index = entries.findIndex((entry) => entry.parent === index && entry.value === false);
-          }
-          if (entries[index]?.operator === '==' && entries[index]?.value === false) {
-            const operands = entries.filter((entry) => entry.parent === index);
-            const [actual, expected] = operands;
-            const isScalarNum = (v: unknown) => typeof v === 'number' || typeof v === 'bigint';
-            if (isScalarNum(actual?.value) && isScalarNum(expected?.value)) {
-              throw new EvalError(actual!.source + ' was ' + actual!.value + ', expected ' + expected!.value);
-            }
-          }
-          throw new EvalError('Requirement failed: ' + rule.source);
-        } catch (error) {
-          if (!(error instanceof EvalError)) throw error;
-          const isFatal = error instanceof ResourceLimitError;
-          if (isFatal) outcome = 'resource-limit';
-          const bindings = usesDerived.has(rule.name) ? [...deriveBindings, ...reqBindings] : reqBindings;
-          const failureTrace = buildFailureTrace({
-            rule,
-            outcome,
-            bindings,
-            entries: trace.entries,
-            derived,
-            hasDerived: usesDerived.has(rule.name) && hasDerived,
-            expressionUnitsUsed: ctx.expressionBudget.evaluated,
-            expressionLimit,
-            errorMessage: outcome === 'false' ? undefined : error.message,
-          });
-          return {
-            ok: false,
-            requirement: rule.name,
-            location: rule.location,
-            reason: error.message,
-            ...(isFatal ? { fatal: true as const } : {}),
-            trace: failureTrace,
-          };
-        }
-      }
-      return { ok: true };
+      return evaluateCheckedTransition(checked, transition);
     },
     firestore(bindings: FirestoreBindings, mode: 'complete' | 'mixed' = 'complete') {
       const projections = compileProjections(bindings);
-      const covered = new Set<string>();
+      const strictlyCovered = new Set<string>();
+      const allProjected = new Set<string>();
+      const projectedReqs = new Set<string>();
       const rows = requirements.map((rule) => {
-        const boundedNames = [
-          ...rule.lets.flatMap((l) => collectBoundedOps(l.value)),
-          ...collectBoundedOps(rule.condition),
-        ].map((op) => 'bounded.' + op);
-        const extensions = [
-          ...new Set([
-            ...boundedNames,
-            ...(usesDerived.has(rule.name) ? ['derive'] : []),
-            ...(collectionFeatures.get(rule.name) ?? []),
-          ]),
-        ];
-        const selection = projected.get(rule.name);
-        const expanded = typeof selection === 'object' ? selection.expanded : undefined;
+        const usesDer = usesDerived.has(rule.name);
+        const exp = expandRequirementForTarget(rule, checked, helperAnalyses, derivePlan, {
+          targetUnitLimit: EXPRESSION_LIMIT,
+        });
+        const extensions = collectRuleExtensions(rule, usesDer, exp);
         let result: ReturnType<typeof lowerFirestore>;
-        let loweredTargetExpr: Expression | undefined;
-        if (!hasFunctions && !rule.lets.length && isPureRulesExpr(rule.condition) && (expanded || !extensions.length)) {
-          loweredTargetExpr = expanded ?? asPureRulesExpr(rule.condition);
-          result = lowerFirestore(loweredTargetExpr, projections, Boolean(expanded));
-          if (result.predicate && typeof selection === 'object') covered.add(selection.key);
+        if (exp.ok && exp.expr) {
+          result = lowerFirestore(exp.expr, projections, exp.usesDerivedProjection, exp.expanded);
+          if (result.predicate && exp.usesDerivedProjection) {
+            projectedReqs.add(rule.name);
+            for (const p of exp.projectedDerivePaths) allProjected.add(p);
+            for (const p of exp.strictlyCoveredPaths) strictlyCovered.add(p);
+          }
         } else {
-          const problems =
-            typeof selection === 'string'
-              ? [selection]
-              : selection
-                ? ['Derived expression exceeds projection budget']
-                : hasFunctions
-                  ? ['Requires helper functions']
-                  : rule.lets.length && !extensions.length
-                    ? ['Requires local bindings']
-                    : extensions.map((name) => 'Requires ' + name);
-          result = { inputs: [...reads.get(rule.name)!], features: [], origins: {}, predicate: undefined, problems };
+          result = { inputs: [...reads.get(rule.name)!], features: [], origins: {}, predicate: undefined, problems: [...exp.problems] };
         }
+        const enforcement = result.predicate ? 'standalone and database' : 'standalone only';
         const reason = result.problems.join('; ') || 'All reads bound at this placement';
         const cost = buildRequirementCost(
           rule,
           expressionLimit,
-          result.predicate ? loweredTargetExpr : undefined,
+          result.predicate ? exp.expr : undefined,
           EXPRESSION_LIMIT,
+          makeCostExtras(exp, result.predicate, enforcement, result.problems),
         );
         return {
           requirement: rule.name,
@@ -271,42 +348,17 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
           features: ['Rules expressions', ...extensions, ...result.features],
           inputs: result.inputs,
           origins: result.origins,
-          bindings: Object.fromEntries(result.inputs.filter((key) => projections.has(key)).map((key) => [key, bindings[key]])),
+          bindings: Object.fromEntries(result.inputs.filter((k) => projections.has(k)).map((k) => [k, bindings[k]])),
           target: 'Firestore',
-          enforcement: result.predicate ? 'standalone and database' : 'standalone only',
+          enforcement,
           reason,
           diagnostics: classifyPlacementProblems(result.problems, Boolean(result.predicate), reason),
           cost,
           predicate: result.predicate,
         };
       });
-      const siblings: string[] = [];
-      if (covered.size && pureDerivationExpr?.type === 'mapLiteral') {
-        for (const { key, value } of pureDerivationExpr.entries) {
-          if (key.type === 'literal' && typeof key.value === 'string' && !covered.has(key.value) && value.type !== 'literal') {
-            siblings.push(key.value);
-          }
-        }
-      }
-      const completeReason = locals?.operations.size
-        ? 'Materializing derive requires ' +
-          [...new Set(locals.operations.values())].join(', ') +
-          ': ' +
-          [...locals.operations.keys()].join(', ')
-        : siblings.length
-          ? 'Unverified derive outputs: ' + siblings.join(', ')
-          : undefined;
-      type FirestoreRow = (typeof rows)[number] & { completeReason?: string };
-      const report: FirestoreRow[] = rows.map((row): FirestoreRow => {
-        if (completeReason && row.predicate && projected.has(row.requirement)) {
-          return {
-            ...row,
-            completeReason,
-            diagnostics: [...row.diagnostics, ...classifyPlacementProblems([completeReason], false, completeReason)],
-          };
-        }
-        return row;
-      });
+      const completeReason = computeDeriveCompleteReason(derivePlan, strictlyCovered, allProjected);
+      const report = attachCompleteReason(rows, projectedReqs, completeReason);
       const residual = report.filter((row) => !row.predicate || row.completeReason);
       if (mode === 'complete' && residual.length) {
         throw new Error(
@@ -317,70 +369,54 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
     },
     storage(bindings: StorageBindings, mode: 'complete' | 'mixed' = 'complete') {
       const projections = compileStorageProjections(bindings);
-      const covered = new Set<string>();
+      const strictlyCovered = new Set<string>();
+      const allProjected = new Set<string>();
+      const projectedReqs = new Set<string>();
       const rows = requirements.map((rule) => {
-        const boundedNames = [
-          ...rule.lets.flatMap((l) => collectBoundedOps(l.value)),
-          ...collectBoundedOps(rule.condition),
-        ].map((op) => 'bounded.' + op);
-        const extensions = [
-          ...new Set([
-            ...boundedNames,
-            ...(usesDerived.has(rule.name) ? ['derive'] : []),
-            ...(collectionFeatures.get(rule.name) ?? []),
-          ]),
-        ];
-        const selection = projected.get(rule.name);
-        const expanded = typeof selection === 'object' ? selection.expanded : undefined;
+        const usesDer = usesDerived.has(rule.name);
+        const exp = expandRequirementForTarget(rule, checked, helperAnalyses, derivePlan, {
+          targetUnitLimit: EXPRESSION_LIMIT,
+        });
+        const extensions = collectRuleExtensions(rule, usesDer, exp);
         let result: StorageLoweringResult;
-        if (!hasFunctions && !rule.lets.length && isPureRulesExpr(rule.condition) && (expanded || !extensions.length)) {
-          result = lowerStorage(expanded ?? asPureRulesExpr(rule.condition), projections, Boolean(expanded));
-          if (result.predicate && typeof selection === 'object') covered.add(selection.key);
+        if (exp.ok && exp.expr) {
+          result = lowerStorage(exp.expr, projections, exp.usesDerivedProjection);
+          if (result.predicate && exp.usesDerivedProjection) {
+            projectedReqs.add(rule.name);
+            for (const p of exp.projectedDerivePaths) allProjected.add(p);
+            for (const p of exp.strictlyCoveredPaths) strictlyCovered.add(p);
+          }
         } else {
-          const problems =
-            typeof selection === 'string'
-              ? [selection]
-              : selection
-                ? ['Derived expression exceeds projection budget']
-                : hasFunctions
-                  ? ['Requires helper functions']
-                  : rule.lets.length && !extensions.length
-                    ? ['Requires local bindings']
-                    : extensions.map((name) => 'Requires ' + name);
-          result = { inputs: [...reads.get(rule.name)!], features: [], origins: {}, predicate: undefined, problems };
+          result = { inputs: [...reads.get(rule.name)!], features: [], origins: {}, predicate: undefined, problems: [...exp.problems] };
         }
+        const enforcement = result.predicate ? 'standalone and storage' : 'standalone only';
         const reason = result.problems.join('; ') || 'All reads bound at this Storage placement';
+        const cost = buildRequirementCost(
+          rule,
+          expressionLimit,
+          result.predicate ? exp.expr : undefined,
+          EXPRESSION_LIMIT,
+          makeCostExtras(exp, result.predicate, enforcement, result.problems),
+        );
         return {
           requirement: rule.name,
           location: rule.location,
+          span: makePolicySpan(rule.loc, rule.location),
           source: rule.source,
           features: ['Rules expressions', ...extensions, ...result.features],
           inputs: result.inputs,
           origins: result.origins,
-          bindings: Object.fromEntries(result.inputs.filter((key) => projections.has(key)).map((key) => [key, bindings[key]])),
+          bindings: boundStorageMap(bindings, result.inputs),
           target: 'Storage',
-          enforcement: result.predicate ? 'standalone and storage' : 'standalone only',
+          enforcement,
           reason,
+          diagnostics: classifyPlacementProblems(result.problems, Boolean(result.predicate), reason),
+          cost,
           predicate: result.predicate,
         };
       });
-      const siblings: string[] = [];
-      if (covered.size && pureDerivationExpr?.type === 'mapLiteral') {
-        for (const { key, value } of pureDerivationExpr.entries) {
-          if (key.type === 'literal' && typeof key.value === 'string' && !covered.has(key.value) && value.type !== 'literal') {
-            siblings.push(key.value);
-          }
-        }
-      }
-      const completeReason = locals?.operations.size
-        ? 'Materializing derive requires ' + [...new Set(locals.operations.values())].join(', ') + ': ' + [...locals.operations.keys()].join(', ')
-        : siblings.length
-          ? 'Unverified derive outputs: ' + siblings.join(', ')
-          : undefined;
-      const report = rows.map((row) => ({
-        ...row,
-        ...(completeReason && row.predicate && projected.has(row.requirement) ? { completeReason } : {}),
-      }));
+      const completeReason = computeDeriveCompleteReason(derivePlan, strictlyCovered, allProjected);
+      const report = attachCompleteReason(rows, projectedReqs, completeReason);
       const residual = report.filter((row) => !row.predicate || row.completeReason);
       if (mode === 'complete' && residual.length) {
         throw new Error(
@@ -390,56 +426,43 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
       return report;
     },
     rtdb(bindings: RtdbBindings, mode: 'mixed' | 'complete' = 'mixed') {
-      const report = requirements.map((rule) => {
+      const strictlyCovered = new Set<string>();
+      const allProjected = new Set<string>();
+      const projectedReqs = new Set<string>();
+      const rows = requirements.map((rule) => {
         const inputs = [...reads.get(rule.name)!];
         const bOps = requirementBoundedOps(rule);
         const firstOp = bOps[0];
-        const pureLets = rule.lets.every((l) => isPureRulesExpr(l.value))
-          ? rule.lets.map((l) => ({ name: l.name, value: asPureRulesExpr(l.value) }))
-          : undefined;
-        const selection = projected.get(rule.name);
-        const expanded = typeof selection === 'object' ? selection.expanded : undefined;
+        const usesDer = usesDerived.has(rule.name);
+        const exp = expandRequirementForTarget(rule, checked, helperAnalyses, derivePlan, {
+          targetUnitLimit: null,
+        });
         let lowered: LowerRtdbResult;
-        if (
-          !hasFunctions &&
-          !bOps.length &&
-          pureLets &&
-          isPureRulesExpr(rule.condition) &&
-          (!usesDerived.has(rule.name) || Boolean(expanded))
-        ) {
+        if (exp.ok && exp.expr) {
           lowered = lowerRtdbExpression(
-            expanded ?? asPureRulesExpr(rule.condition),
+            exp.rtdbCondition ?? exp.expr,
             bindings,
-            { defaultLeafType: 'any', checkTiming: true },
-            expanded ? [] : pureLets,
+            { defaultLeafType: 'any', checkTiming: true, trustedInput: exp.usesDerivedProjection, maxLength: RTDB_CHAR_LIMIT },
+            exp.rtdbLets ?? [],
           );
+          if (lowered.predicate && exp.usesDerivedProjection) {
+            projectedReqs.add(rule.name);
+            for (const p of exp.projectedDerivePaths) allProjected.add(p);
+            for (const p of exp.strictlyCoveredPaths) strictlyCovered.add(p);
+          }
         } else {
-          const problems: string[] = [];
-          if (hasFunctions) problems.push('Requires helper functions');
-          if (usesDerived.has(rule.name)) problems.push(typeof selection === 'string' ? selection : 'Requires derive');
-          if (firstOp) problems.push('Requires decoded collection and bounded.' + firstOp.op);
+          const problems = firstOp
+            ? ['Requires decoded collection and bounded.' + firstOp.op, ...exp.problems.filter((p) => p !== 'Requires bounded.' + firstOp.op)]
+            : [...exp.problems];
           lowered = { inputs, features: [], problems, predicate: undefined };
         }
         const bound = Object.fromEntries(
-          inputs
-            .filter((key) => {
-              if (Object.hasOwn(bindings, key)) return true;
-              const parts = key.split('.');
-              for (let i = parts.length - 1; i >= 1; i--) {
-                if (Object.hasOwn(bindings, parts.slice(0, i).join('.'))) return true;
-              }
-              return false;
-            })
-            .map((key) => {
-              if (Object.hasOwn(bindings, key)) return [key, bindings[key]];
-              const parts = key.split('.');
-              for (let i = parts.length - 1; i >= 1; i--) {
-                const prefix = parts.slice(0, i).join('.');
-                if (Object.hasOwn(bindings, prefix)) return [key, bindings[prefix]];
-              }
-              return [key, undefined];
-            }),
+          inputs.flatMap((key) => {
+            const hit = boundRtdbEntry(bindings, key);
+            return hit.found ? [[key, hit.value]] : [];
+          }),
         );
+        const enforcement = lowered.predicate ? 'gateway and database' : 'gateway only';
         const reason = lowered.predicate
           ? 'Mapped RTDB snapshot expression'
           : lowered.problems.join('; ') || 'No equivalent predicate for this expression and snapshot binding';
@@ -447,32 +470,31 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
         const cost = buildRequirementCost(
           rule,
           expressionLimit,
-          lowered.predicate && isPureRulesExpr(rule.condition) ? (expanded ?? asPureRulesExpr(rule.condition)) : undefined,
+          lowered.predicate ? exp.expr : undefined,
           null,
+          makeCostExtras(exp, lowered.predicate, enforcement, effectiveProblems, RTDB_CHAR_LIMIT),
         );
+        const extensions = collectRuleExtensions(rule, usesDer, exp);
         return {
           requirement: rule.name,
           span: makePolicySpan(rule.loc, rule.location),
-          inputs,
+          inputs: lowered.inputs.length ? lowered.inputs : inputs,
           bindings: bound,
           source: rule.source,
           countInput: firstOp?.op === 'count' ? irFieldPath(firstOp.list) : undefined,
           foldInput: firstOp?.op === 'fold' ? irFieldPath(firstOp.list) : undefined,
-          features: [
-            'Rules expressions',
-            ...bOps.map((o) => 'bounded.' + o.op),
-            ...(usesDerived.has(rule.name) ? ['derive'] : []),
-            ...lowered.features,
-          ],
+          features: ['Rules expressions', ...extensions, ...lowered.features],
           target: 'RTDB',
-          enforcement: lowered.predicate ? 'gateway and database' : 'gateway only',
+          enforcement,
           reason,
           diagnostics: classifyPlacementProblems(effectiveProblems, Boolean(lowered.predicate), reason),
           cost,
           predicate: lowered.predicate,
         };
       });
-      const residual = report.filter((row) => !row.predicate);
+      const completeReason = computeDeriveCompleteReason(derivePlan, strictlyCovered, allProjected);
+      const report = attachCompleteReason(rows, projectedReqs, completeReason);
+      const residual = report.filter((row) => !row.predicate || row.completeReason);
       if (mode === 'complete' && residual.length) {
         throw new Error('Gateway required: ' + residual.map((row) => row.requirement).join(', '));
       }
@@ -495,39 +517,27 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
 }
 
 export {
-  lowerRtdbExpression,
-  emitRtdbFunctionPredicate,
-  hasRequiredConjunct,
-  type RtdbBinding,
-  type RtdbBindings,
-  type RtdbSnapshotBinding,
-  type LowerRtdbOptions,
-  type LowerRtdbResult,
+  lowerRtdbExpression, emitRtdbFunctionPredicate, hasRequiredConjunct,
+  type RtdbBinding, type RtdbBindings, type RtdbSnapshotBinding, type LowerRtdbOptions, type LowerRtdbResult,
 } from './rtdb.js';
 export {
-  compileStorageProjections,
-  lowerStorage,
-  emitStorageModule,
-  composeStorage,
-  type StorageBindings,
-  type StoragePlacement,
-  type StorageTemplate,
-  type StorageLoweringResult,
+  compileStorageProjections, lowerStorage, emitStorageModule, composeStorage,
+  type StorageBindings, type StoragePlacement, type StorageTemplate, type StorageLoweringResult,
 } from './storage.js';
-
 export { compileBoundedModule, emitStandaloneModule, type StandaloneModuleResult } from './bounded-module.js';
 export { checkPolicyIR, checkExpressionLimit, type CheckedPolicyIR, type CheckedFunction, type CheckOptions } from './check.js';
 export {
   toDiagnosticJsonValue,
   type BoundedOpCostDetail, type EvaluatedBindingTrace, type ExpressionCostBreakdown,
   type PlacementProblemDetail, type PlacementReasonCode, type PolicyFailureTrace,
-  type PolicySpan, type SubExpressionOperandTrace, type SubExpressionTrace,
+  type PolicySpan, type RequirementCostExtras, type SubExpressionOperandTrace, type SubExpressionTrace,
 } from './diagnostics.js';
 export { interpretModule } from './eval-ir.js';
 export {
   createPolicyGuard, jsonBodyExtractor, PolicyDeniedError, PolicyPayloadTooLargeError,
-  type DeniedVerdict, type HttpLikeRequest, type HttpLikeResponse,
-  type PolicyGuard, type PolicyGuardOptions, type RequestTransitionExtractor, type VerifiedTransition,
+  type DeniedVerdict, type HttpLikeRequest, type HttpLikeResponse, type PolicyGuard,
+  type PolicyGuardOptions, type PolicyGuardPlacement, type PolicyGuardTargetPlacement,
+  type RequestTransitionExtractor, type VerifiedTransition,
 } from './guard.js';
 export {
   parsePolicyIR, irChildren, walkIR, isPureRulesExpr, asPureRulesExpr, irFieldPath, collectBoundedOps,
@@ -537,7 +547,13 @@ export {
   type IRFunction, type IRDerivation, type IRRequirement, type IRTransition, type IRProgram,
 } from './ir.js';
 export {
-  detectPolicyKind, instantiateStandaloneModule, provePolicy,
-  type PolicyProofReport, type ProveDivergence, type ProvePolicyFuzzOptions,
+  detectPolicyKind, instantiateStandaloneModule, provePolicy, verifySplitEnforcement,
+  type PolicyPlacementRow, type PolicyProofReport, type ProveDivergence, type ProvePolicyFuzzOptions,
   type ProvePolicyOptions, type ProvePolicyScenario, type ProveScenarioResult,
+  type VerifySplitOptions, type VerifySplitReport,
 } from './prove.js';
+export {
+  type PolicyTargetName, type SplitCaseOutcome, type SplitDivergence, type SplitEnforcementMode,
+  type SplitNormalizedVerdict, type SplitPathCounts, type SplitTargetPlan, type SplitTargetProofSummary,
+} from './split-proof.js';
+export { type StorageSimMethod } from './target-evaluators.js';

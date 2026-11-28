@@ -95,6 +95,33 @@ export interface ExpressionCostBreakdown {
   letUnits: number;
   conditionUnits: number;
   boundedOps: BoundedOpCostDetail[];
+  helperUnits?: number;
+  deriveUnits?: number;
+  inlinedHelpers?: string[];
+  inlinedLets?: number;
+  projectedDerivePaths?: string[];
+  expandedNodes?: number;
+  expansionNodeLimit?: number;
+  targetChars?: number;
+  targetCharLimit?: number;
+  fallbackSummary?: string;
+}
+
+export interface RequirementCostExtras {
+  expandedUnits?: number | null;
+  helperUnits?: number;
+  deriveUnits?: number;
+  inlinedHelpers?: readonly string[];
+  inlinedLets?: number;
+  projectedDerivePaths?: readonly string[];
+  expandedNodes?: number;
+  expansionNodeLimit?: number;
+  targetChars?: number;
+  targetCharLimit?: number;
+  extraBoundedOps?: readonly BoundedOpCostDetail[];
+  budgetExceeded?: boolean;
+  enforcement?: string;
+  problems?: readonly string[];
 }
 
 export function makePolicySpan(loc: SourceLoc | undefined, fallbackLocation?: string): PolicySpan {
@@ -353,35 +380,118 @@ export function classifyPlacementProblems(
   }
   return problems.map((message) => {
     let code: PlacementReasonCode = 'UNSUPPORTED_EXPRESSION';
+    let detail: string | undefined;
     if (message.startsWith('Requires bounded.') || message.includes('decoded collection and bounded.')) {
       code = 'USES_BOUNDED_OP';
+      if (message.includes('via helper ')) detail = message.slice(message.indexOf('via helper '));
     } else if (message.startsWith('Materializing derive requires')) {
       code = 'USES_DERIVE_COLLECTION';
     } else if (message.startsWith('Requires derive')) {
       code = 'USES_DERIVE';
-    } else if (message.startsWith('Requires helper functions')) {
+    } else if (message.includes('with for...of loop')) {
+      code = 'LOOP_NOT_LOWERABLE';
+    } else if (message.startsWith('Requires helper function')) {
       code = 'USES_HELPER_FUNCTIONS';
     } else if (message.startsWith('Requires local bindings')) {
       code = 'USES_LOCAL_BINDINGS';
     } else if (message.startsWith('Missing binding:')) {
       code = 'MISSING_BINDING';
-    } else if (message.startsWith('Wrong snapshot:') || message.includes(' requires before, bound to') || message.includes(' requires after, bound to')) {
+      detail = message.slice('Missing binding:'.length).trim();
+    } else if (
+      message.startsWith('Wrong snapshot:') ||
+      message.includes(' requires before, bound to') ||
+      message.includes(' requires after, bound to')
+    ) {
       code = 'WRONG_SNAPSHOT_ORIGIN';
-    } else if (message.includes('requires a trusted stored input')) {
+    } else if (
+      message.includes('requires a trusted stored input') ||
+      message.includes('requires a trusted Storage input')
+    ) {
       code = 'UNTRUSTED_DERIVE_INPUT';
-    } else if (message.includes('projection budget')) {
+    } else if (message.includes('projection budget') || message.includes('projection depth budget')) {
       code = 'PROJECTION_BUDGET_EXCEEDED';
-    } else if (message.includes('budget')) {
+      detail = extractBudgetDetail(message);
+    } else if (
+      message.includes('budget') ||
+      message.includes('emission limit') ||
+      message.includes('inlining budget')
+    ) {
       code = 'EXPRESSION_BUDGET_EXCEEDED';
+      detail = extractBudgetDetail(message);
     } else if (message.startsWith('Unverified derive outputs:')) {
       code = 'UNVERIFIED_DERIVE_SIBLINGS';
-    } else if (message.startsWith('Invalid Firestore read') || message.startsWith('Expected a data projection')) {
+      detail = message.slice('Unverified derive outputs:'.length).trim();
+    } else if (
+      message.startsWith('Invalid Firestore read') ||
+      message.startsWith('Expected a data projection') ||
+      message.startsWith('Invalid Storage read') ||
+      message.startsWith('Expected a Storage data projection') ||
+      message.startsWith('Invalid Storage field projection') ||
+      message.startsWith('Invalid RTDB snapshot binding')
+    ) {
       code = 'INVALID_BINDING_PROJECTION';
-    } else if (message.includes('ordered accumulator') || message.includes('checked input') || message.includes('computed list elements')) {
+    } else if (
+      message.includes('ordered accumulator') ||
+      message.includes('checked input') ||
+      message.includes('computed list elements')
+    ) {
       code = 'LOOP_NOT_LOWERABLE';
     }
-    return { code, message };
+    return detail ? { code, message, detail } : { code, message };
   });
+}
+
+function extractBudgetDetail(message: string): string | undefined {
+  const match = /\(([^)]+)\)/.exec(message) ?? /(\d+-node|\d+\s+units|\d+\s+characters)/.exec(message);
+  return match?.[1];
+}
+
+function formatFallbackSummary(params: {
+  enforcement: string;
+  sourceUnits: number;
+  targetUnits: number | null;
+  targetLimit: number | null;
+  expandedNodes?: number;
+  expansionNodeLimit?: number;
+  targetChars?: number;
+  targetCharLimit?: number;
+  inlinedLets?: number;
+  inlinedHelpers?: readonly string[];
+  helperUnits?: number;
+  projectedDerivePaths?: readonly string[];
+  deriveUnits?: number;
+  boundedOps: readonly BoundedOpCostDetail[];
+  problems?: readonly string[];
+}): string {
+  const parts: string[] = [`Fallback (${params.enforcement}): source ${params.sourceUnits} units`];
+  if (params.targetUnits !== null && params.targetLimit !== null) {
+    parts.push(`expanded ${params.targetUnits}/${params.targetLimit} target units`);
+  } else if (params.targetUnits !== null) {
+    parts.push(`expanded ${params.targetUnits} target units`);
+  }
+  if (params.expandedNodes !== undefined && params.expansionNodeLimit !== undefined && params.expandedNodes > params.expansionNodeLimit) {
+    parts.push(`nodes ${params.expandedNodes}/${params.expansionNodeLimit}`);
+  }
+  if (params.targetChars !== undefined && params.targetCharLimit !== undefined && params.targetChars > params.targetCharLimit) {
+    parts.push(`chars ${params.targetChars}/${params.targetCharLimit}`);
+  }
+  if (params.inlinedLets) parts.push(`${params.inlinedLets} let(s)`);
+  if (params.inlinedHelpers?.length) {
+    const hu = params.helperUnits ? ` (+${params.helperUnits} units)` : '';
+    parts.push(`helpers [${params.inlinedHelpers.join(', ')}]${hu}`);
+  }
+  if (params.projectedDerivePaths?.length) {
+    const du = params.deriveUnits ? ` (+${params.deriveUnits} units)` : '';
+    parts.push(`derive [${params.projectedDerivePaths.join(', ')}]${du}`);
+  }
+  if (params.boundedOps.length) {
+    const opDesc = params.boundedOps.map((o) => `${o.op}(limit ${o.limit}, worst ${o.estimatedWorstCaseUnits})`).join(', ');
+    parts.push(`bounded ops: ${opDesc}`);
+  }
+  if (params.problems?.length) {
+    parts.push(`reason: ${params.problems[0]}`);
+  }
+  return parts.join('; ');
 }
 
 /** Compute source and target expression-cost breakdown for a requirement. */
@@ -390,21 +500,65 @@ export function buildRequirementCost(
   sourceLimit: number,
   loweredExpr?: Expression,
   targetLimit: number | null = EXPRESSION_LIMIT,
+  extras?: RequirementCostExtras,
 ): ExpressionCostBreakdown {
   const boundedOps: BoundedOpCostDetail[] = [];
   const letUnits = rule.lets.reduce((sum, l) => sum + 1 + estimateIRExprUnits(l.value, boundedOps), 0);
   const conditionUnits = estimateIRExprUnits(rule.condition, boundedOps);
+  if (extras?.extraBoundedOps?.length) {
+    for (const op of extras.extraBoundedOps) boundedOps.push(op);
+  }
   const sourceUnits = letUnits + conditionUnits;
-  const targetUnits = loweredExpr ? estimateIRExprUnits(loweredExpr) : null;
+  const computedTarget = loweredExpr
+    ? estimateIRExprUnits(loweredExpr)
+    : extras?.expandedUnits !== undefined
+      ? extras.expandedUnits
+      : null;
+  const withinTargetBudget =
+    extras?.budgetExceeded
+      ? false
+      : computedTarget !== null && targetLimit !== null
+        ? computedTarget <= targetLimit
+        : null;
+  const isFallback = !loweredExpr && Boolean(extras?.enforcement);
+  const fallbackSummary = isFallback
+    ? formatFallbackSummary({
+        enforcement: extras!.enforcement!,
+        sourceUnits,
+        targetUnits: computedTarget,
+        targetLimit,
+        expandedNodes: extras?.expandedNodes,
+        expansionNodeLimit: extras?.expansionNodeLimit,
+        targetChars: extras?.targetChars,
+        targetCharLimit: extras?.targetCharLimit,
+        inlinedLets: extras?.inlinedLets,
+        inlinedHelpers: extras?.inlinedHelpers,
+        helperUnits: extras?.helperUnits,
+        projectedDerivePaths: extras?.projectedDerivePaths,
+        deriveUnits: extras?.deriveUnits,
+        boundedOps,
+        problems: extras?.problems,
+      })
+    : undefined;
   return {
     sourceUnits,
     sourceLimit,
-    targetUnits,
+    targetUnits: computedTarget,
     targetLimit,
     withinSourceBudget: sourceUnits <= sourceLimit,
-    withinTargetBudget: targetUnits !== null && targetLimit !== null ? targetUnits <= targetLimit : null,
+    withinTargetBudget,
     letUnits,
     conditionUnits,
     boundedOps,
+    ...(extras?.helperUnits !== undefined && extras.helperUnits > 0 ? { helperUnits: extras.helperUnits } : {}),
+    ...(extras?.deriveUnits !== undefined && extras.deriveUnits > 0 ? { deriveUnits: extras.deriveUnits } : {}),
+    ...(extras?.inlinedHelpers?.length ? { inlinedHelpers: [...extras.inlinedHelpers] } : {}),
+    ...(extras?.inlinedLets ? { inlinedLets: extras.inlinedLets } : {}),
+    ...(extras?.projectedDerivePaths?.length ? { projectedDerivePaths: [...extras.projectedDerivePaths] } : {}),
+    ...(extras?.expandedNodes !== undefined && extras.expandedNodes > 0 ? { expandedNodes: extras.expandedNodes } : {}),
+    ...(extras?.expansionNodeLimit !== undefined ? { expansionNodeLimit: extras.expansionNodeLimit } : {}),
+    ...(extras?.targetChars !== undefined ? { targetChars: extras.targetChars } : {}),
+    ...(extras?.targetCharLimit !== undefined ? { targetCharLimit: extras.targetCharLimit } : {}),
+    ...(fallbackSummary ? { fallbackSummary } : {}),
   };
 }

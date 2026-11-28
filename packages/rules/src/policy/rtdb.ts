@@ -23,6 +23,8 @@ export interface LowerRtdbOptions {
   defaultLeafType?: 'number' | 'any';
   /** Reject `before.*` bound to `newData` or `after.*` bound to `data`. */
   checkTiming?: boolean;
+  /** Require `input.*` reads (e.g. projected from `derive`) to bind to `data`. */
+  trustedInput?: boolean;
   /** Maximum emitted predicate length in characters. */
   maxLength?: number;
 }
@@ -180,6 +182,7 @@ export function lowerRtdbExpression(
   const maxLength = options.maxLength ?? DEFAULT_MAX_LENGTH;
   const defaultLeafType = options.defaultLeafType ?? 'any';
   const checkTiming = options.checkTiming ?? false;
+  const trustedInput = options.trustedInput ?? false;
   const normalized = new Map<string, RtdbSnapshotBinding>();
   const problems = new Set<string>();
   const inputs = new Set<string>();
@@ -223,6 +226,10 @@ export function lowerRtdbExpression(
         problems.add('Wrong snapshot: ' + path + ' bound to ' + binding.snapshot);
         return undefined;
       }
+    }
+    if (trustedInput && path.split('.')[0] === 'input' && binding.snapshot !== 'data') {
+      problems.add(path + ' requires a trusted stored input bound to data');
+      return undefined;
     }
     if (!remaining.every((k) => KEY_SEGMENT.test(k))) { problems.add('Unsupported RTDB field ' + path); return undefined; }
     const childPath = [binding.path, ...remaining].filter(Boolean).join('/');

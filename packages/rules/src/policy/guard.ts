@@ -10,8 +10,17 @@ import { Duration } from '../simulator/wrappers/duration.js';
 import { RulesFloat } from '../simulator/wrappers/float.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
 import { toDiagnosticJsonValue, type PolicyFailureTrace } from './diagnostics.js';
-import { compilePolicy, type Transition, type Verdict } from './index.js';
-import { instantiateStandaloneModule } from './prove-helpers.js';
+import type { FirestoreBindings } from './firestore.js';
+import {
+  compilePolicy, evaluateCheckedTransition, type CompiledPolicy, type Transition, type Verdict,
+} from './index.js';
+import { instantiateStandaloneModule, type StorageSimMethod } from './prove-helpers.js';
+import type { RtdbBindings } from './rtdb.js';
+import {
+  classifyVerdictOrThrow, createSplitTargetHarness, type PolicyTargetName,
+  type SplitCaseOutcome, type SplitTargetHarness, type SplitTargetPlan,
+} from './split-proof.js';
+import type { StorageBindings } from './storage.js';
 
 export type DeniedVerdict = Extract<Verdict, { ok: false }>;
 
@@ -53,6 +62,23 @@ export interface PolicyGuardOptions<TContext = unknown> {
   payloadTooLargeStatus?: number;
   attachDigestHeader?: boolean;
   onDeny?: (verdict: DeniedVerdict, req: Request, context?: TContext) => Response | Promise<Response>;
+  firestore?: FirestoreBindings;
+  rtdb?: RtdbBindings;
+  storage?: StorageBindings;
+  storageMethod?: StorageSimMethod;
+  enforcement?: 'full' | 'residual';
+  residualTarget?: PolicyTargetName;
+}
+
+export interface PolicyGuardTargetPlacement<TRow> {
+  plan: SplitTargetPlan;
+  requirements: TRow[];
+}
+
+export interface PolicyGuardPlacement {
+  firestore?: PolicyGuardTargetPlacement<ReturnType<CompiledPolicy['firestore']>[number]>;
+  rtdb?: PolicyGuardTargetPlacement<ReturnType<CompiledPolicy['rtdb']>[number]>;
+  storage?: PolicyGuardTargetPlacement<ReturnType<CompiledPolicy['storage']>[number]>;
 }
 
 export interface VerifiedTransition<TContext = unknown> {
@@ -90,11 +116,21 @@ export interface HttpLikeResponse {
 export interface PolicyGuard<TContext = unknown> {
   readonly name: string;
   readonly engine: 'interpreter' | 'standalone';
+  readonly enforcement: 'full' | 'residual';
+  readonly residualTarget?: PolicyTargetName;
   check(transition: Transition): Verdict;
   assert(transition: Transition): void;
   derive(start: Pick<Transition, 'before' | 'input'>): Record<string, unknown>;
   digest(): Promise<string>;
   standaloneModule(): StandaloneModuleResult;
+  placement(): PolicyGuardPlacement;
+  residualModule(target?: PolicyTargetName): StandaloneModuleResult;
+  firestore(bindings?: FirestoreBindings, mode?: 'complete' | 'mixed'): ReturnType<CompiledPolicy['firestore']>;
+  rtdb(bindings?: RtdbBindings, mode?: 'complete' | 'mixed'): ReturnType<CompiledPolicy['rtdb']>;
+  storage(bindings?: StorageBindings, mode?: 'complete' | 'mixed'): ReturnType<CompiledPolicy['storage']>;
+  firestoreModule(bindings?: FirestoreBindings): string;
+  storageModule(bindings?: StorageBindings): string;
+  verifySplit(transition: Transition, target?: PolicyTargetName): SplitCaseOutcome;
   wrapFetch<TLocalContext = TContext>(
     extract: RequestTransitionExtractor<TLocalContext>,
     handler: (req: Request, verified: VerifiedTransition<TLocalContext>) => Response | Promise<Response>,
@@ -255,6 +291,12 @@ function sendHttpJson(
   }
 }
 
+function isFatalLimitError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const name = error.constructor.name;
+  return name === 'ResourceLimitError' || name === 'ExpressionLimitError';
+}
+
 function buildDenyPayload(verdict: DeniedVerdict, includeTrace: boolean): Record<string, unknown> {
   return {
     error: verdict.fatal ? 'POLICY_LIMIT_EXCEEDED' : 'POLICY_DENIED',
@@ -286,9 +328,70 @@ export function createPolicyGuard<TContext = unknown>(
   const compiled = compilePolicy(source, { expressionLimit });
   const transitionName = compiled.ir.program.transition!.name;
   const hasDerive = Boolean(compiled.ir.program.transition?.derivation);
+  const enforcement = options.enforcement ?? 'full';
+  const configuredTargets: PolicyTargetName[] = [];
+  const harnesses = new Map<PolicyTargetName, SplitTargetHarness>();
+  const placementSnapshot: PolicyGuardPlacement = {};
+  const register = (
+    target: PolicyTargetName,
+    rows: readonly { requirement: string; predicate?: string; completeReason?: string }[],
+    bindings: FirestoreBindings | RtdbBindings | StorageBindings,
+  ): SplitTargetHarness => {
+    const h = createSplitTargetHarness({
+      target, checked: compiled.ir, rows, bindings, storageMethod: options.storageMethod,
+      instantiate: instantiateStandaloneModule,
+    });
+    configuredTargets.push(target);
+    harnesses.set(target, h);
+    return h;
+  };
+  if (options.firestore) {
+    const requirements = compiled.firestore(options.firestore, 'mixed');
+    placementSnapshot.firestore = { plan: register('firestore', requirements, options.firestore).plan, requirements };
+  }
+  if (options.rtdb) {
+    const requirements = compiled.rtdb(options.rtdb, 'mixed');
+    placementSnapshot.rtdb = { plan: register('rtdb', requirements, options.rtdb).plan, requirements };
+  }
+  if (options.storage) {
+    const requirements = compiled.storage(options.storage, 'mixed');
+    placementSnapshot.storage = { plan: register('storage', requirements, options.storage).plan, requirements };
+  }
+
+  const resolveTarget = (explicit?: PolicyTargetName): PolicyTargetName => {
+    const chosen = explicit ?? options.residualTarget ?? (configuredTargets.length === 1 ? configuredTargets[0] : undefined);
+    if (!chosen) {
+      throw new Error(
+        configuredTargets.length === 0
+          ? 'No target bindings configured on policy guard'
+          : `Multiple target bindings configured (${configuredTargets.join(', ')}); specify residualTarget`,
+      );
+    }
+    if (!harnesses.has(chosen)) throw new Error(`Target '${chosen}' is not configured on policy guard`);
+    return chosen;
+  };
+  const requireBindings = <T>(value: T | undefined, label: string): T => {
+    if (!value) throw new Error(`${label} bindings not configured on policy guard`);
+    return value;
+  };
+
+  let activeResidualTarget: PolicyTargetName | undefined;
+  let activeResidualHarness: SplitTargetHarness | undefined;
+  if (enforcement === 'residual') {
+    activeResidualTarget = resolveTarget();
+    activeResidualHarness = harnesses.get(activeResidualTarget)!;
+  } else if (options.residualTarget) {
+    activeResidualTarget = resolveTarget(options.residualTarget);
+  }
+
   const emitted = engine === 'standalone' ? compiled.standaloneModule() : undefined;
-  const standalone = emitted ? instantiateStandaloneModule(emitted.moduleSource) : undefined;
+  let cachedStandalone = emitted ? instantiateStandaloneModule(emitted.moduleSource) : undefined;
   let cachedDigest: Promise<string> | undefined;
+
+  const getStandalone = () => {
+    cachedStandalone ??= instantiateStandaloneModule((emitted ?? compiled.standaloneModule()).moduleSource);
+    return cachedStandalone;
+  };
 
   const getDigest = (): Promise<string> => {
     cachedDigest ??= sha256Hex(source);
@@ -296,8 +399,12 @@ export function createPolicyGuard<TContext = unknown>(
   };
 
   const check = (transition: Transition): Verdict => {
-    if (standalone?.judge) {
-      return standalone.judge(transition) as Verdict;
+    if (activeResidualHarness) {
+      if (engine === 'standalone') return activeResidualHarness.judgeResidual(transition);
+      return evaluateCheckedTransition(compiled.ir, transition, activeResidualHarness.residualRequirementSet);
+    }
+    if (cachedStandalone?.judge && engine === 'standalone') {
+      return cachedStandalone.judge(transition) as Verdict;
     }
     return compiled.judge(transition);
   };
@@ -329,7 +436,7 @@ function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = {
 }
 
   const derive = (start: Pick<Transition, 'before' | 'input'>): Record<string, unknown> => {
-    if (standalone?.derive) return standalone.derive(start) as Record<string, unknown>;
+    if (engine === 'standalone' && cachedStandalone?.derive) return cachedStandalone.derive(start) as Record<string, unknown>;
     return unwrapDerivedValue(compiled.derive(start)) as Record<string, unknown>;
   };
 
@@ -341,11 +448,25 @@ function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = {
   return {
     name: transitionName,
     engine,
+    enforcement,
+    ...(activeResidualTarget ? { residualTarget: activeResidualTarget } : {}),
     check,
     assert: assertTransition,
     derive,
     digest: getDigest,
     standaloneModule: () => emitted ?? compiled.standaloneModule(),
+    placement: () => ({ ...placementSnapshot }),
+    residualModule: (target?: PolicyTargetName) => harnesses.get(resolveTarget(target))!.residualModule,
+    firestore: (bindings = options.firestore, mode = 'mixed') => compiled.firestore(requireBindings(bindings, 'Firestore'), mode),
+    rtdb: (bindings = options.rtdb, mode = 'mixed') => compiled.rtdb(requireBindings(bindings, 'RTDB'), mode),
+    storage: (bindings = options.storage, mode = 'mixed') => compiled.storage(requireBindings(bindings, 'Storage'), mode),
+    firestoreModule: (bindings = options.firestore) => compiled.firestoreModule(requireBindings(bindings, 'Firestore')),
+    storageModule: (bindings = options.storage) => compiled.storageModule(requireBindings(bindings, 'Storage')),
+    verifySplit: (transition: Transition, target?: PolicyTargetName) => {
+      const h = harnesses.get(resolveTarget(target))!;
+      const fullMod = getStandalone();
+      return h.evaluate(transition, classifyVerdictOrThrow(() => fullMod.judge!(transition) as Verdict));
+    },
 
     wrapFetch<TLocalContext = TContext>(
       extract: RequestTransitionExtractor<TLocalContext>,
@@ -390,29 +511,24 @@ function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = {
         }
         let derived: Record<string, unknown> | undefined;
         if (hasDerive) {
-          try {
-            derived = derive({ before: transition.before, input: transition.input });
-          } catch {
-            derived = undefined;
+          try { derived = derive({ before: transition.before, input: transition.input }); } catch (err) {
+            if (isFatalLimitError(err)) {
+              const fv: DeniedVerdict = { ok: false, requirement: transitionName, location: 'derive', reason: (err as Error).message, fatal: true };
+              if (options.onDeny) return await options.onDeny(fv, req, context as unknown as TContext);
+              return jsonResponse(buildDenyPayload(fv, includeTrace), fatalStatus, extraHeaders);
+            }
           }
         }
         const response = await handler(req, {
-          transition,
-          verdict,
+          transition, verdict,
           ...(derived !== undefined ? { derived } : {}),
           ...(context !== undefined ? { context } : {}),
           ...(digestHeader !== undefined ? { policyDigest: digestHeader } : {}),
         });
-        if (digestHeader) {
-          const headers = new Headers(response.headers);
-          headers.set('x-policy-digest', digestHeader);
-          return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
-            headers,
-          });
-        }
-        return response;
+        if (!digestHeader) return response;
+        const headers = new Headers(response.headers);
+        headers.set('x-policy-digest', digestHeader);
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
       };
     },
 
@@ -420,44 +536,33 @@ function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = {
       return async (req: HttpLikeRequest, res: HttpLikeResponse): Promise<void> => {
         const digestHeader = attachDigest ? await getDigest() : undefined;
         let transition: Transition;
-        try {
-          transition = await extract(req);
-        } catch (error) {
+        try { transition = await extract(req); } catch (error) {
           const isTooLarge = error instanceof PolicyPayloadTooLargeError;
-          sendHttpJson(
-            res,
-            isTooLarge ? payloadTooLargeStatus : badRequestStatus,
-            {
-              error: isTooLarge ? 'POLICY_PAYLOAD_TOO_LARGE' : 'POLICY_BAD_REQUEST',
-              reason: error instanceof Error ? error.message : String(error),
-            },
-            digestHeader,
-          );
+          sendHttpJson(res, isTooLarge ? payloadTooLargeStatus : badRequestStatus, {
+            error: isTooLarge ? 'POLICY_PAYLOAD_TOO_LARGE' : 'POLICY_BAD_REQUEST',
+            reason: error instanceof Error ? error.message : String(error),
+          }, digestHeader);
           return;
         }
         let verdict: Verdict;
-        try {
-          verdict = check(transition);
-        } catch (error) {
-          sendHttpJson(
-            res,
-            badRequestStatus,
-            { error: 'POLICY_BAD_REQUEST', reason: error instanceof Error ? error.message : String(error) },
-            digestHeader,
-          );
+        try { verdict = check(transition); } catch (error) {
+          sendHttpJson(res, badRequestStatus, {
+            error: 'POLICY_BAD_REQUEST', reason: error instanceof Error ? error.message : String(error),
+          }, digestHeader);
           return;
         }
         if (!verdict.ok) {
-          const status = verdict.fatal ? fatalStatus : denyStatus;
-          sendHttpJson(res, status, buildDenyPayload(verdict, includeTrace), digestHeader);
+          sendHttpJson(res, verdict.fatal ? fatalStatus : denyStatus, buildDenyPayload(verdict, includeTrace), digestHeader);
           return;
         }
         let derived: Record<string, unknown> | undefined;
         if (hasDerive) {
-          try {
-            derived = derive({ before: transition.before, input: transition.input });
-          } catch {
-            derived = undefined;
+          try { derived = derive({ before: transition.before, input: transition.input }); } catch (err) {
+            if (isFatalLimitError(err)) {
+              const fv: DeniedVerdict = { ok: false, requirement: transitionName, location: 'derive', reason: (err as Error).message, fatal: true };
+              sendHttpJson(res, fatalStatus, buildDenyPayload(fv, includeTrace), digestHeader);
+              return;
+            }
           }
         }
         if (digestHeader) {
@@ -465,10 +570,8 @@ function unwrapDerivedValue(value: unknown, depth = 0, st: { nodes: number } = {
           else if (typeof res.set === 'function') res.set('x-policy-digest', digestHeader);
         }
         await handler(req, res, {
-          transition,
-          verdict,
+          transition, verdict, context: req,
           ...(derived !== undefined ? { derived } : {}),
-          context: req,
           ...(digestHeader !== undefined ? { policyDigest: digestHeader } : {}),
         });
       };

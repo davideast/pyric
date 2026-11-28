@@ -1,15 +1,22 @@
 // Isomorphic helpers for `provePolicy` and `createPolicyGuard`:
-// standalone ES module instantiation, seeded value generation, outcome normalization,
-// and Firestore/RTDB target simulation bridges. Zero Node-only imports.
-import { firestoreRules } from '../api/firestore.js';
-import { rtdbRules } from '../api/rtdb.js';
+// standalone ES module instantiation, seeded value generation, and outcome normalization.
+// Simulator bridges live in `target-evaluators.ts`. Zero Node-only imports.
 import { EvalError, ResourceLimitError } from '../simulator/eval-error.js';
 import type { CheckedPolicyIR } from './check.js';
 import { toDiagnosticJsonValue } from './diagnostics.js';
-import { revivePolicyValue } from './eval-ir.js';
-import type { FirestoreBindings } from './firestore.js';
 import type { PolicyProgramKind } from './ir.js';
-import type { SnapshotBindings, Transition, Verdict } from './index.js';
+import type { Transition, Verdict } from './index.js';
+
+export {
+  createFirestoreEvaluator,
+  createFirestorePredicateEvaluator,
+  createRtdbEvaluator,
+  createStorageEvaluator,
+  generateStorageTransitionCase,
+  inferStorageMethod,
+  type StorageSimMethod,
+  type TargetDecision,
+} from './target-evaluators.js';
 
 /**
  * Instantiate an emitted standalone ES module in-process without dynamic module loading or Node APIs.
@@ -117,17 +124,26 @@ const ADVERSARIAL_SCALARS: readonly unknown[] = [
   [1, 2, 3, 4, 5],
 ];
 
-function setNestedPath(target: Record<string, unknown>, segments: string[], value: unknown): void {
+const FORBIDDEN_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function setNestedPath(target: Record<string, unknown>, segments: readonly string[], value: unknown): void {
   let cur = target;
   for (let i = 0; i < segments.length - 1; i++) {
     const seg = segments[i]!;
-    if (!cur[seg] || typeof cur[seg] !== 'object' || Array.isArray(cur[seg])) {
-      cur[seg] = {};
+    if (FORBIDDEN_PATH_KEYS.has(seg)) return;
+    const existing = Object.hasOwn(cur, seg) ? cur[seg] : undefined;
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) {
+      const next: Record<string, unknown> = {};
+      Object.defineProperty(cur, seg, { value: next, enumerable: true, writable: true, configurable: true });
+      cur = next;
+    } else {
+      cur = existing as Record<string, unknown>;
     }
-    cur = cur[seg] as Record<string, unknown>;
   }
   const last = segments[segments.length - 1];
-  if (last) cur[last] = value;
+  if (last && !FORBIDDEN_PATH_KEYS.has(last)) {
+    Object.defineProperty(cur, last, { value, enumerable: true, writable: true, configurable: true });
+  }
 }
 
 export function randomScalar(next: () => number, includeAdversarial: boolean): unknown {
@@ -166,174 +182,4 @@ export function generateTransitionCase(
     setNestedPath(roots[root], rest, randomScalar(next, includeAdversarial));
   }
   return roots;
-}
-
-function hasNonJsonNumber(value: unknown, depth = 0): boolean {
-  if (depth > 16 || value === null || value === undefined) return false;
-  if (typeof value === 'number') return Object.is(value, -0) || !Number.isFinite(value);
-  if (typeof value === 'bigint') return true;
-  if (Array.isArray(value)) return value.some((v) => hasNonJsonNumber(v, depth + 1));
-  if (typeof value === 'object') {
-    return Object.values(value as Record<string, unknown>).some((v) => hasNonJsonNumber(v, depth + 1));
-  }
-  return false;
-}
-
-function readNested(root: unknown, segments: readonly string[]): { present: boolean; value: unknown } {
-  let cur: unknown = root;
-  for (const seg of segments) {
-    if (!cur || typeof cur !== 'object' || Array.isArray(cur) || !Object.hasOwn(cur, seg)) {
-      return { present: false, value: undefined };
-    }
-    cur = (cur as Record<string, unknown>)[seg];
-  }
-  return { present: true, value: cur };
-}
-
-function readTransitionPath(transition: Transition, policyPath: string): { present: boolean; value: unknown } {
-  const [root, ...rest] = policyPath.split('.');
-  const rootObj =
-    root === 'before' ? transition.before : root === 'after' ? transition.after : root === 'input' ? transition.input : undefined;
-  if (!rest.length) return { present: rootObj !== undefined, value: rootObj };
-  return readNested(rootObj, rest);
-}
-
-const SUPPORTED_FS_BINDING = /^(?:resource\.data(?:\.[A-Za-z_][A-Za-z0-9_]*)*|request\.resource\.data(?:\.[A-Za-z_][A-Za-z0-9_]*)*|request\.auth(?:\.uid|\.token(?:\.[A-Za-z_][A-Za-z0-9_]*)+)?)$/;
-
-/** Pre-compile a lowered Firestore module once for fast scenario + fuzz replay. */
-export function createFirestoreEvaluator(
-  moduleSource: string,
-  fnName: string,
-  bindings: FirestoreBindings,
-): ((transition: Transition) => string | undefined) | undefined {
-  const entries = Object.entries(bindings);
-  if (entries.some(([, target]) => !SUPPORTED_FS_BINDING.test(target))) return undefined;
-  const body = moduleSource.slice(moduleSource.indexOf('export function') + 'export '.length);
-  const rules = firestoreRules(`rules_version = '2'; service cloud.firestore {
-    match /databases/{db}/documents {
-      ${body}
-      match /items/{id} { allow update: if ${fnName}(); }
-    }
-  }`);
-  const hasAuthBinding = entries.some(([, target]) => target === 'request.auth' || target.startsWith('request.auth.'));
-  return (transition: Transition) => {
-    let resource: Record<string, unknown> = {};
-    let data: Record<string, unknown> = {};
-    let hasResourceBinding = false;
-    let hasDataBinding = false;
-    for (const [policyPath, target] of entries) {
-      if (target === 'resource.data') {
-        hasResourceBinding = true;
-        const r = readTransitionPath(transition, policyPath);
-        if (r.present && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
-          resource = revivePolicyValue(r.value) as Record<string, unknown>;
-        }
-      } else if (target.startsWith('resource.data.')) {
-        hasResourceBinding = true;
-        const r = readTransitionPath(transition, policyPath);
-        if (r.present) {
-          setNestedPath(resource, target.slice('resource.data.'.length).split('.'), revivePolicyValue(r.value));
-        }
-      } else if (target === 'request.resource.data') {
-        hasDataBinding = true;
-        const r = readTransitionPath(transition, policyPath);
-        if (r.present && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
-          data = revivePolicyValue(r.value) as Record<string, unknown>;
-        }
-      } else if (target.startsWith('request.resource.data.')) {
-        hasDataBinding = true;
-        const r = readTransitionPath(transition, policyPath);
-        if (r.present) {
-          setNestedPath(data, target.slice('request.resource.data.'.length).split('.'), revivePolicyValue(r.value));
-        }
-      }
-    }
-    if (!hasResourceBinding && transition.before && typeof transition.before === 'object' && !Array.isArray(transition.before)) {
-      resource = revivePolicyValue(transition.before) as Record<string, unknown>;
-    }
-    if (!hasDataBinding && transition.after && typeof transition.after === 'object' && !Array.isArray(transition.after)) {
-      data = revivePolicyValue(transition.after) as Record<string, unknown>;
-    }
-    let auth: { uid: string; token?: Record<string, unknown> } | null | undefined;
-    if (hasAuthBinding) {
-      let uid: unknown;
-      let uidPresent = false;
-      const token: Record<string, unknown> = {};
-      let hasToken = false;
-      for (const [policyPath, target] of entries) {
-        if (target === 'request.auth.uid') {
-          const r = readTransitionPath(transition, policyPath);
-          uidPresent = r.present;
-          uid = r.value;
-        } else if (target.startsWith('request.auth.token.')) {
-          const r = readTransitionPath(transition, policyPath);
-          if (r.present) {
-            setNestedPath(token, target.slice('request.auth.token.'.length).split('.'), revivePolicyValue(r.value));
-            hasToken = true;
-          }
-        } else if (target === 'request.auth') {
-          const r = readTransitionPath(transition, policyPath);
-          if (r.present && r.value && typeof r.value === 'object' && !Array.isArray(r.value)) {
-            const obj = r.value as Record<string, unknown>;
-            if (typeof obj.uid === 'string') {
-              uidPresent = true;
-              uid = obj.uid;
-            }
-          }
-        }
-      }
-      // In Firestore, request.auth.uid is always a string when authenticated (never null or non-string).
-      if (uidPresent && typeof uid !== 'string') return undefined;
-      if (typeof uid === 'string') {
-        auth = hasToken ? { uid, token } : { uid };
-      } else if (hasToken) {
-        auth = { uid: '', token };
-      } else {
-        auth = null;
-      }
-    }
-    const [row] = rules.simulate([
-      {
-        description: 'provePolicy',
-        method: 'update',
-        path: 'items/one',
-        resource,
-        data,
-        ...(hasAuthBinding ? { auth } : {}),
-        expectation: 'ALLOW',
-      },
-    ]).cases;
-    return row?.unsupported ? undefined : row?.decision;
-  };
-}
-
-/** Pre-compile lowered RTDB `.write` rules once for fast scenario + fuzz replay. */
-export function createRtdbEvaluator(
-  predicates: string[],
-  bindings: SnapshotBindings,
-): ((transition: Transition) => string | undefined) | undefined {
-  if (!predicates.length) return undefined;
-  const beforeEntry = Object.entries(bindings).find(([k, v]) => k.startsWith('before.') && v === 'data');
-  const afterEntry = Object.entries(bindings).find(([k, v]) => k.startsWith('after.') && v === 'newData');
-  if (!beforeEntry || !afterEntry) return undefined;
-  const beforePath = beforeEntry[0].split('.').slice(1);
-  const afterPath = afterEntry[0].split('.').slice(1);
-  const expr = predicates.map((p) => `(${p})`).join(' && ');
-  // Enforce via `.write` (not `.validate`), because RTDB skips `.validate` on deletes (null / []).
-  const rules = rtdbRules({ rules: { item: { '.write': expr } } });
-  return (transition: Transition) => {
-    if (hasNonJsonNumber(transition.before) || hasNonJsonNumber(transition.after)) return undefined;
-    const bVal = readNested(transition.before, beforePath);
-    const aVal = readNested(transition.after, afterPath);
-    const [row] = rules.simulate([
-      {
-        path: '/item',
-        operation: 'write',
-        expectation: 'ALLOW',
-        data: bVal.present ? { item: bVal.value } : {},
-        newData: aVal.present ? aVal.value : null,
-      },
-    ]).cases;
-    return row?.decision;
-  };
 }
