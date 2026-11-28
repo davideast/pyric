@@ -188,21 +188,21 @@ function invokeNamespace(space: string, method: string, args: unknown[]): unknow
 }
 
 export function evalBoundedOp(op: IRBoundedOp, ctx: EvalIRContext, scope: Scope): unknown {
-  const items = evalIRExpr(op.list, ctx, scope);
-  if (!Array.isArray(items)) throw new EvalError('bounded.' + op.op + ' requires a list');
-  if (items.length > op.limit) throw new ResourceLimitError('Collection exceeds declared limit ' + op.limit);
-
-  if (op.op === 'append') {
-    const suffix = evalIRExpr(op.suffix, ctx, scope);
-    if (!Array.isArray(suffix)) throw new EvalError('bounded.append requires two lists');
-    if (items.length + suffix.length > op.limit) {
-      throw new ResourceLimitError('Append exceeds declared limit ' + op.limit);
+  if (op.op === 'append' || op.op === 'fold') {
+    const items = evalBindingIR(op.list, ctx, scope);
+    const second = evalBindingIR(op.op === 'append' ? op.suffix : op.initial, ctx, scope);
+    if (Array.isArray(items) && items.length > op.limit) {
+      throw new ResourceLimitError('Collection exceeds declared limit ' + op.limit);
     }
-    return [...items, ...suffix];
-  }
-
-  if (op.op === 'fold') {
-    let result = evalIRExpr(op.initial, ctx, scope);
+    if (isErrorValue(items)) throw items;
+    if (!Array.isArray(items)) throw new EvalError('bounded.' + op.op + ' requires a list');
+    if (isErrorValue(second)) throw second;
+    if (op.op === 'append') {
+      if (!Array.isArray(second)) throw new EvalError('bounded.append requires two lists');
+      if (items.length + second.length > op.limit) throw new ResourceLimitError('Append exceeds declared limit ' + op.limit);
+      return [...items, ...second];
+    }
+    let result = second;
     for (const item of items) {
       ctx.expressionBudget.node();
       const local: Scope = Object.assign(Object.create(null), scope, { [op.accumulator]: result, [op.item]: item });
@@ -211,6 +211,10 @@ export function evalBoundedOp(op: IRBoundedOp, ctx: EvalIRContext, scope: Scope)
     }
     return result;
   }
+
+  const items = evalIRExpr(op.list, ctx, scope);
+  if (!Array.isArray(items)) throw new EvalError('bounded.' + op.op + ' requires a list');
+  if (items.length > op.limit) throw new ResourceLimitError('Collection exceeds declared limit ' + op.limit);
 
   const out: unknown[] = [];
   let total = 0;

@@ -115,9 +115,9 @@ export function lowerFirestore(expr: Expression, projections: Map<string, Expres
   const predicate = lower(expr);
   if (missing.size) problems.add('Missing binding: ' + [...missing].join(', '));
   const source = problems.size ? undefined : assembleExpression(predicate);
-  if (projectedField && source) {
-    // Substitution can combine individually legal tokens or grow a projection
-    // past a structural limit. Check the emitted syntax before claiming it.
+  if (source) {
+    // Substitution or expression assembly (e.g. nested unary minus forming `--`)
+    // can violate syntax or compile limits; validate every emitted predicate.
     const check = parseToASTOrError(`rules_version = '2'; service cloud.firestore {
       match /databases/{db}/documents { match /items/{id} { allow update: if ${source}; } } }`);
     if (!check.ok) problems.add(check.error.message);

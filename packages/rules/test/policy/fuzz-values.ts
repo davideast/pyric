@@ -68,6 +68,72 @@ export const EDGE_STRINGS: readonly string[] = [
 
 export const SAFE_MAP_KEYS: readonly string[] = ['a', 'b', 'c', 'x', 'y', 'n', 'flag', 'tag'];
 
+// Pure 7-bit ASCII escaped Unicode, astral, and lone-surrogate strings for RE2/string parity.
+export const UNICODE_EDGE_STRINGS: readonly string[] = [
+  '',
+  'a',
+  'ABC',
+  'abc',
+  'a\nb',
+  'a\tb\u000bc',
+  '\u000b',
+  '\u000c',
+  '\u00a0',
+  '\u0000',
+  '\u00c5',
+  '\u00e5',
+  '\u212b',
+  '\u212a',
+  '\u017f',
+  '\u03a3',
+  '\u03c2',
+  '\u03c3',
+  '\u00df',
+  '\u1e9e',
+  '\u00e9',
+  '\u00c9',
+  '\u03a9',
+  '\u2126',
+  '\u0412',
+  '\u0432',
+  '\u1c80',
+  '\uD83D\uDE00',
+  'a\uD83D\uDE00b',
+  '\uD83D\uDE00\uD83D\uDE01',
+  '\uD83D\uDE00\n\uD83D\uDE01',
+  '\uD800',
+  '\uDC00',
+  'a\uD800b',
+  '\uFF00',
+];
+
+export const STORAGE_EDGE_MIMES: readonly string[] = [
+  'audio/wav',
+  'audio/ogg',
+  'audio/mpeg',
+  'AUDIO/wav',
+  'image/png',
+  'image/jpeg',
+  'image/svg+xml',
+  'text/plain',
+  'text/plain; charset=utf-8',
+  'application/octet-stream',
+  'application/vnd.api+json',
+  'text/\u000bplain',
+  '',
+];
+
+export const STORAGE_EDGE_PATHS: readonly string[] = [
+  'items/obj1',
+  'items/sub/clip-01.wav',
+  'items/a/b/c/avatar.v2.png',
+  'items/users/alice/doc_final.txt',
+  'items/nested/file.with.dots.jpeg',
+  'items/space name/report 1.pdf',
+  'items/encoded/%2e%2e/safe.bin',
+  'items/cafe-\u00e9/note.txt',
+];
+
 export const HOSTILE_KEYS: readonly string[] = [
   'constructor',
   '__proto__',
