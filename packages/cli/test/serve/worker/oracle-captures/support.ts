@@ -68,9 +68,10 @@ import {
 import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import { sameRtdbInstance } from '../../../../src/serve/worker/client/rtdb-references.js';
 import { getHostedFirestore } from '../../../../src/serve/worker/client/websocket-connection.js';
-import { handleMessage, type InboundMessage, type OutboundMessage, type PortLike } from '../../../../src/serve/worker/host.js';
+import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
+import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
-import { connectClientToHost, makeHostCtx, sleep, until } from '../integration-support.js';
+import { connectClientToHost, makeHostCtx, portPair, sleep, until, type FakePort } from '../integration-support.js';
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
 import { replayMismatches, type Behavior, type Replay } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 import type {
@@ -120,6 +121,37 @@ export function restoreSharedWorker(): void {
   let previous: unknown;
   beforeEach(() => { previous = (globalThis as { SharedWorker?: unknown }).SharedWorker; });
   afterEach(() => { (globalThis as { SharedWorker?: unknown }).SharedWorker = previous; });
+}
+
+export type ServedFirestoreSurface = typeof import('../../../../src/serve/entries/firestore-surface.js');
+
+/**
+ * Installs a fake `SharedWorker` (creating a fresh port pair per connection,
+ * optionally wired to `ctx`) and dynamically imports `entries/firestore-surface.js`.
+ * Loading the surface after `SharedWorker` is installed ensures `worker-runtime.js`
+ * never caches `useWorker = false` for subsequent SharedWorker tests in the same
+ * `bun test` process.
+ */
+export async function loadServedFirestoreSurface(
+  ctx?: HostCtx,
+): Promise<ServedFirestoreSurface> {
+  (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+    port: FakePort;
+    addEventListener() {}
+    constructor(_url: unknown, _opts: unknown) {
+      const { a: clientPort, b: hostPort } = portPair();
+      if (ctx !== undefined) {
+        const hostPortLike: PortLike = {
+          postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+        };
+        hostPort.onmessage = (event) => {
+          void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+        };
+      }
+      this.port = clientPort;
+    }
+  };
+  return import('../../../../src/serve/entries/firestore-surface.js');
 }
 
 export async function servedFirestoreContext(): Promise<

@@ -6,8 +6,19 @@ import {
   clearAppFirestoreSettings,
   recordImplicitAppFirestoreSettings,
 } from 'pyric/firestore/internal';
+import {
+  DocumentSnapshot,
+  FirestoreError,
+  LoadBundleTask,
+  Query,
+  QueryDocumentSnapshot,
+  QuerySnapshot,
+  memoryLocalCache,
+  setLogLevel,
+  type FirestoreSettings,
+  type LoadBundleTaskProgress,
+} from 'pyric/firestore';
 import type { Behavior } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
-import * as surface from '../../../../src/serve/entries/firestore-surface.js';
 import {
   clearIndexedDbPersistence as workerClearIndexedDbPersistence,
   documentSnapshotFromJSON as workerDocumentSnapshotFromJSON,
@@ -26,12 +37,12 @@ import * as workerClient from '../../../../src/serve/worker/index.js';
 
 export interface BundlePlaneDriver {
   getFirestore(app: FirebaseApp, databaseId?: string): unknown;
-  initializeFirestore(app: FirebaseApp, settings?: surface.FirestoreSettings, databaseId?: string): unknown;
+  initializeFirestore(app: FirebaseApp, settings?: FirestoreSettings, databaseId?: string): unknown;
   disableNetwork(db: unknown): Promise<void>;
   terminate(db: unknown): Promise<void>;
   clearIndexedDbPersistence(db: unknown): Promise<void>;
   doc(parent: unknown, path: string): unknown;
-  loadBundle(db: unknown, data: ReadableStream<Uint8Array> | ArrayBuffer | Uint8Array | string): surface.LoadBundleTask;
+  loadBundle(db: unknown, data: ReadableStream<Uint8Array> | ArrayBuffer | Uint8Array | string): LoadBundleTask;
   namedQuery(db: unknown, name: string): Promise<unknown>;
   getDocFromCache(ref: unknown): Promise<{ exists(): boolean; id: string; ref: { path: string }; metadata: { fromCache: boolean; hasPendingWrites: boolean }; data(): Record<string, unknown> | undefined; get(field: string): unknown; toJSON(): object }>;
   getDocsFromCache(q: unknown): Promise<{ size: number; empty: boolean; metadata: { fromCache: boolean; hasPendingWrites: boolean }; docs: Array<{ id: string; ref: { path: string }; data(): Record<string, unknown> }>; toJSON(): object }>;
@@ -54,7 +65,7 @@ function errorOutcomeOf(err: unknown, threwSynchronously: boolean): ObservedCall
     if (typeof record.code === 'string') code = record.code;
     if (typeof record.name === 'string') errorName = record.name;
   }
-  return { threw: true, threwSynchronously, code, errorName, isFirestoreError: err instanceof surface.FirestoreError, isFirebaseError: err instanceof FirebaseError };
+  return { threw: true, threwSynchronously, code, errorName, isFirestoreError: err instanceof FirestoreError, isFirebaseError: err instanceof FirebaseError };
 }
 function observeSyncThrow(fn: () => unknown): ObservedCallOutcome {
   try { fn(); return noErrorOutcome(); } catch (err) { return errorOutcomeOf(err, true); }
@@ -114,7 +125,7 @@ export function buildSyntheticArticlesBundle(projectId: string): string {
   return headerPayload + bodyPayload;
 }
 
-function toProgressStep(progress: surface.LoadBundleTaskProgress): ObservedProgressStep {
+function toProgressStep(progress: LoadBundleTaskProgress): ObservedProgressStep {
   return {
     taskState: progress.taskState,
     documentsLoaded: progress.documentsLoaded,
@@ -157,7 +168,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
   };
   const openOfflineMemoryDb = async (label: string): Promise<unknown> => {
     const app = openApp(label);
-    const db = driver.initializeFirestore(app, { localCache: surface.memoryLocalCache() });
+    const db = driver.initializeFirestore(app, { localCache: memoryLocalCache() });
     activeHandles.add(db);
     await driver.disableNetwork(db);
     return db;
@@ -172,7 +183,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
     const progressEvents: ObservedProgressStep[] = [];
     let onProgressCompleted = false;
     const stringTask = driver.loadBundle(dbProducer, bundleString);
-    const isLoadBundleTaskInstance = stringTask instanceof surface.LoadBundleTask;
+    const isLoadBundleTaskInstance = stringTask instanceof LoadBundleTask;
     stringTask.onProgress((p) => { progressEvents.push(toProgressStep(p)); }, undefined, () => { onProgressCompleted = true; });
     const finalStringProgress = toProgressStep(await stringTask);
 
@@ -183,7 +194,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
 
     let malformedProgressErrorInvoked = false;
     let malformedBundleOutcome: ObservedCallOutcome;
-    surface.setLogLevel('silent');
+    setLogLevel('silent');
     try {
       const badTask = driver.loadBundle(dbProducer, 'not-a-valid-bundle');
       badTask.onProgress(undefined, () => { malformedProgressErrorInvoked = true; });
@@ -194,7 +205,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
         malformedBundleOutcome = errorOutcomeOf(err, false);
       }
     } finally {
-      surface.setLogLevel('error');
+      setLogLevel('error');
     }
 
     const publishedQuery = await driver.namedQuery(dbProducer, 'published-articles');
@@ -234,7 +245,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
         dbResumeDoc,
         alphaJson,
         (snap: { exists(): boolean; id: string; ref: { path: string }; metadata: { fromCache: boolean; hasPendingWrites: boolean }; data(): unknown }) => {
-          resolve({ isDocumentSnapshotInstance: snap instanceof surface.DocumentSnapshot, exists: snap.exists(), id: snap.id, path: snap.ref.path, fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites, data: snap.data() ?? null });
+          resolve({ isDocumentSnapshotInstance: snap instanceof DocumentSnapshot, exists: snap.exists(), id: snap.id, path: snap.ref.path, fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites, data: snap.data() ?? null });
         },
         (err: unknown) => { reject(err); },
       );
@@ -249,7 +260,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
     }>((resolve, reject) => {
       const unsub = driver.onSnapshotResume(dbResumeQuery, queryJson, {
         next: (snap: { size: number; empty: boolean; metadata: { fromCache: boolean; hasPendingWrites: boolean }; docs: Array<{ id: string; data(): unknown }> }) => {
-          resolve({ isQuerySnapshotInstance: snap instanceof surface.QuerySnapshot, size: snap.size, empty: snap.empty, fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites, ids: snap.docs.map((e) => e.id), docsData: snap.docs.map((e) => e.data()) });
+          resolve({ isQuerySnapshotInstance: snap instanceof QuerySnapshot, size: snap.size, empty: snap.empty, fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites, ids: snap.docs.map((e) => e.id), docsData: snap.docs.map((e) => e.data()) });
         },
         error: (err: unknown) => { reject(err); },
       });
@@ -281,15 +292,15 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
           ghost: { exists: ghostSnap.exists(), id: ghostSnap.id, fromCache: ghostSnap.metadata.fromCache, dataIsUndefined: ghostSnap.data() === undefined },
         },
         namedQueries: {
-          foundIsQueryInstance: publishedQuery instanceof surface.Query, missingQueryIsNull: missingNamedQuery === null,
+          foundIsQueryInstance: publishedQuery instanceof Query, missingQueryIsNull: missingNamedQuery === null,
           publishedQueryResult: { size: publishedQuerySnap.size, empty: publishedQuerySnap.empty, fromCache: publishedQuerySnap.metadata.fromCache, ids: publishedQuerySnap.docs.map((e) => e.id), docsData: publishedQuerySnap.docs.map((e) => e.data()) },
         },
       },
       ssrSnapshotHydration: {
         serializedEnvelope: { docJsonType: extractJsonTypeTag(alphaJson), docJsonKeys: Object.keys(alphaJson).sort(), queryJsonType: extractJsonTypeTag(queryJson), queryJsonKeys: Object.keys(queryJson).sort() },
-        hydratedExistingDoc: { isDocumentSnapshotInstance: hydratedAlpha instanceof surface.DocumentSnapshot, exists: hydratedAlpha.exists(), id: hydratedAlpha.id, path: hydratedAlpha.ref.path, fromCache: hydratedAlpha.metadata.fromCache, hasPendingWrites: hydratedAlpha.metadata.hasPendingWrites, data: hydratedAlpha.data() ?? null, titleViaGet: hydratedAlpha.get('title') },
+        hydratedExistingDoc: { isDocumentSnapshotInstance: hydratedAlpha instanceof DocumentSnapshot, exists: hydratedAlpha.exists(), id: hydratedAlpha.id, path: hydratedAlpha.ref.path, fromCache: hydratedAlpha.metadata.fromCache, hasPendingWrites: hydratedAlpha.metadata.hasPendingWrites, data: hydratedAlpha.data() ?? null, titleViaGet: hydratedAlpha.get('title') },
         hydratedMissingDoc: { serializedType: extractJsonTypeTag(ghostJson), serializedBundleIsEmpty: missingDocBundleIsEmpty, fromJsonOutcome: hydratedMissingDocOutcome },
-        hydratedQuerySnapshot: { isQuerySnapshotInstance: hydratedQuery instanceof surface.QuerySnapshot, size: hydratedQuery.size, empty: hydratedQuery.empty, fromCache: hydratedQuery.metadata.fromCache, hasPendingWrites: hydratedQuery.metadata.hasPendingWrites, docs: hydratedQuery.docs.map((e) => ({ id: e.id, path: e.ref.path, isQueryDocumentSnapshotInstance: e instanceof surface.QueryDocumentSnapshot, data: e.data() })) },
+        hydratedQuerySnapshot: { isQuerySnapshotInstance: hydratedQuery instanceof QuerySnapshot, size: hydratedQuery.size, empty: hydratedQuery.empty, fromCache: hydratedQuery.metadata.fromCache, hasPendingWrites: hydratedQuery.metadata.hasPendingWrites, docs: hydratedQuery.docs.map((e) => ({ id: e.id, path: e.ref.path, isQueryDocumentSnapshotInstance: e instanceof QueryDocumentSnapshot, data: e.data() })) },
         resumedDocumentListener: { unsubscribeReturnType: unsubDocReturnType, snapshot: resumedDocSnapshot },
         resumedQueryListener: { unsubscribeReturnType: unsubQueryReturnType, snapshot: resumedQuerySnapshot },
         invalidSsrJsonChecks,
@@ -298,7 +309,7 @@ export async function replayWithDriver(driver: BundlePlaneDriver, labelPrefix: s
     };
   } finally {
     globalThis.fetch = originalFetch;
-    surface.setLogLevel('error');
+    setLogLevel('error');
     for (const unsub of activeUnsubs) unsub();
     for (const handle of activeHandles) await driver.terminate(handle).catch(() => {});
     await Promise.all(apps.map((app) => deleteApp(app)));
@@ -321,7 +332,7 @@ export function makeWorkerPlaneDriver(openClientForApp: (app: FirebaseApp) => { 
       recordImplicitAppFirestoreSettings(app, databaseId, handle);
       return handle;
     },
-    initializeFirestore(app: FirebaseApp, settings?: surface.FirestoreSettings, databaseId?: string) {
+    initializeFirestore(app: FirebaseApp, settings?: FirestoreSettings, databaseId?: string) {
       assertAndRecordAppFirestoreSettings(app, settings, databaseId);
       const handle = driver.getFirestore(app, databaseId) as object;
       applySettingsCacheMode(handle, settings, databaseId, app);

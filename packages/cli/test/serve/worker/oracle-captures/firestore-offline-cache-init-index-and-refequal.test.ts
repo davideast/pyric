@@ -1,25 +1,25 @@
 import { describe, it } from 'bun:test';
 import { FirebaseError, deleteApp, getApps, initializeApp, type FirebaseApp } from 'pyric/app';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
+import { FirestoreError, type FirestoreSettings } from 'pyric/firestore';
 import {
   applySettingsCacheMode,
   assertAndRecordAppFirestoreSettings,
   clearAppFirestoreSettings,
   recordImplicitAppFirestoreSettings,
 } from 'pyric/firestore/internal';
-import * as surface from '../../../../src/serve/entries/firestore-surface.js';
 import * as workerClient from '../../../../src/serve/worker/index.js';
 import { refEqual as workerRefEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import { connectClientToHost, makeHostCtx } from '../integration-support.js';
 import { hostedFirestoreContext } from './hosted-firestore-support.ts';
-import { expectReplay, load, restoreSharedWorker } from './support.ts';
+import { expectReplay, load, loadServedFirestoreSurface, restoreSharedWorker } from './support.ts';
 import type { Behavior } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 
 restoreSharedWorker();
 
 interface PlaneDriver {
   getFirestore(app: FirebaseApp, databaseId?: string): unknown;
-  initializeFirestore(app: FirebaseApp, settings?: surface.FirestoreSettings, databaseId?: string): unknown;
+  initializeFirestore(app: FirebaseApp, settings?: FirestoreSettings, databaseId?: string): unknown;
   doc(parent: unknown, path: string, ...segments: string[]): unknown;
   collection(parent: unknown, path: string, ...segments: string[]): unknown;
   refEqual(left: unknown, right: unknown): boolean;
@@ -64,7 +64,7 @@ function errorOutcomeOf(err: unknown, threwSynchronously: boolean): ObservedCall
     threwSynchronously,
     code,
     errorName,
-    isFirestoreError: err instanceof surface.FirestoreError,
+    isFirestoreError: err instanceof FirestoreError,
     isFirebaseError: err instanceof FirebaseError,
     isTypeError: err instanceof TypeError,
   };
@@ -93,7 +93,7 @@ function observeSyncVoidCall(fn: () => unknown): ObservedSyncReturnOutcome {
 function observeInitializeThrow(
   driver: PlaneDriver,
   app: FirebaseApp,
-  settings: surface.FirestoreSettings,
+  settings: FirestoreSettings,
   databaseId?: string,
 ): ObservedCallOutcome {
   try {
@@ -146,6 +146,7 @@ async function replayOfflineCacheInitWithDriver(
   driver: PlaneDriver,
   labelPrefix: string,
 ): Promise<Behavior> {
+  const surface = await loadServedFirestoreSurface();
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
   globalThis.fetch = Object.assign(
@@ -420,7 +421,7 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (served
         recordImplicitAppFirestoreSettings(app, databaseId, handle);
         return handle;
       },
-      initializeFirestore(app: FirebaseApp, settings?: surface.FirestoreSettings, databaseId?: string) {
+      initializeFirestore(app: FirebaseApp, settings?: FirestoreSettings, databaseId?: string) {
         assertAndRecordAppFirestoreSettings(app, settings, databaseId);
         const handle = driver.getFirestore(app, databaseId) as object;
         applySettingsCacheMode(handle, settings, databaseId, app);
@@ -483,7 +484,7 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (served
         recordImplicitAppFirestoreSettings(app, databaseId, handle);
         return handle;
       },
-      initializeFirestore(app: FirebaseApp, settings?: surface.FirestoreSettings, databaseId?: string) {
+      initializeFirestore(app: FirebaseApp, settings?: FirestoreSettings, databaseId?: string) {
         assertAndRecordAppFirestoreSettings(app, settings, databaseId);
         const handle = driver.getFirestore(app, databaseId) as object;
         applySettingsCacheMode(handle, settings, databaseId, app);
@@ -512,7 +513,7 @@ describe('firestore-offline-cache-init-index-and-refequal oracle capture (served
 
   it('routes surface.initializeFirestore and surface.getPersistentCacheIndexManager end-to-end', async () => {
     const host = await makeHostCtx();
-    connectClientToHost(host, 'worker://surface-direct-cache-init');
+    const surface = await loadServedFirestoreSurface(host);
     if (getApps().length === 0) {
       await resetAppRegistryForTests();
     }

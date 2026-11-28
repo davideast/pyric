@@ -10,7 +10,6 @@ import { describe, expect, it } from 'bun:test';
 import * as ip from 'pyric/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
-import * as surface from '../../../../src/serve/entries/firestore-surface.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { readDocumentAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { connectClientToHost, makeHostCtx } from '../integration-support.js';
@@ -18,7 +17,16 @@ import { scenario as aggregates } from '../../../../../conformance/src/capture/s
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
 import type { FirestoreScenarioContext, FirestoreSdk } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
 import { hostedFirestoreContext } from './hosted-firestore-support.ts';
-import { expectReplay, load, restoreSharedWorker, servedFirestoreContext, withoutMessages, type Pin } from './support.ts';
+import {
+  expectReplay,
+  load,
+  loadServedFirestoreSurface,
+  restoreSharedWorker,
+  servedFirestoreContext,
+  withoutMessages,
+  type Pin,
+  type ServedFirestoreSurface,
+} from './support.ts';
 
 restoreSharedWorker();
 
@@ -42,7 +50,7 @@ const AGGREGATE_PINS: Pin[] = [
 ];
 
 /** A replay context on the plane the surface picked at load: the worker client and host, or the in-page sandbox. */
-async function surfacePlaneContext(): Promise<FirestoreScenarioContext> {
+async function surfacePlaneContext(surface: ServedFirestoreSurface): Promise<FirestoreScenarioContext> {
   const servedOverWorker = surface.getAggregateFromServer === (client.getAggregateFromServer as unknown);
   if (servedOverWorker) return servedFirestoreContext();
   return {
@@ -65,14 +73,16 @@ function planeOf(exported: unknown, inPage: unknown, worker: unknown): 'in-page'
 const AGGREGATE_PRODUCTION = () => withoutMessages(load('firestore-aggregate-field-semantics'));
 
 describe('served firestore surface', () => {
-  it('getAggregateFromServer is the data-path pick, as getCountFromServer is', () => {
+  it('getAggregateFromServer is the data-path pick, as getCountFromServer is', async () => {
+    const surface = await loadServedFirestoreSurface();
     const aggregate = planeOf(surface.getAggregateFromServer, ip.getAggregateFromServer, client.getAggregateFromServer);
     const countOnly = planeOf(surface.getCountFromServer, ip.getCountFromServer, client.getCountFromServer);
     expect(aggregate).toBe(countOnly);
   });
 
   it('the served getAggregateFromServer aggregates as production does, apart from the aggregate findings', async () => {
-    const context = await surfacePlaneContext();
+    const surface = await loadServedFirestoreSurface();
+    const context = await surfacePlaneContext(surface);
     const fs = { ...context.fs, getAggregateFromServer: surface.getAggregateFromServer } as unknown as FirestoreSdk;
     const pyric = withoutMessages(await aggregates.run({ ...context, fs }));
     expectReplay({ production: AGGREGATE_PRODUCTION(), pyric, pins: AGGREGATE_PINS });
@@ -110,6 +120,7 @@ describe('served firestore surface', () => {
     const lifecycle = load('firestore-browser-lifecycle');
 
     it('a write after disableNetwork stays pending with local cache metadata until enableNetwork across planes', async () => {
+      const surface = await loadServedFirestoreSurface();
       const db = inPageDb();
       await surface.disableNetwork(db);
       let settled = false;
@@ -158,6 +169,7 @@ describe('served firestore surface', () => {
     });
 
     it('enableIndexedDbPersistence after first use rejects failed-precondition as production does', async () => {
+      const surface = await loadServedFirestoreSurface();
       const db = inPageDb();
       await ip.getDoc(ip.doc(db, 'lifecycle/precondition'));
       expect([lifecycle.persistenceAfterUseThrew, lifecycle.persistenceAfterUseCode]).toEqual([true, 'failed-precondition']);
