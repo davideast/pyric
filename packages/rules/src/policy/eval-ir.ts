@@ -367,8 +367,9 @@ export function evalIRExpr(expr: IRExpr, ctx: EvalIRContext, scope: Scope): unkn
 }
 
 function hasCustomCalls(expr: IRExpr, ctx: EvalIRContext): boolean {
-  if (expr.type === 'boundedOp' || expr.type === 'functionCall' || expr.type === 'mapLiteral') return true;
-  if (expr.type === 'methodCall' && ctx.moduleMode) return true;
+  if (expr.type === 'boundedOp' || expr.type === 'functionCall' || expr.type === 'mapLiteral' || expr.type === 'methodCall') {
+    return true;
+  }
   switch (expr.type) {
     case 'literal':
     case 'identifier':
@@ -393,8 +394,6 @@ function hasCustomCalls(expr: IRExpr, ctx: EvalIRContext): boolean {
       return expr.elements.some((e) => hasCustomCalls(e, ctx));
     case 'pathLiteral':
       return expr.segments.some((s) => typeof s !== 'string' && hasCustomCalls(s, ctx));
-    case 'methodCall':
-      return hasCustomCalls(expr.object, ctx) || expr.args.some((a) => hasCustomCalls(a, ctx));
   }
 }
 

@@ -1,0 +1,28 @@
+{
+  "authority": "native-model",
+  "inputDigest": "7be89793e205ee563bcd58b681071c78be89d4aca8cfca21327d7d9306454575",
+  "results": {
+    "valid-wav-upload": "ALLOW",
+    "valid-ogg-upload": "ALLOW",
+    "anonymous-upload-denied": "DENY",
+    "wrong-owner-denied": "DENY",
+    "missing-owner-metadata-denied": "DENY",
+    "oversized-clip-denied": "DENY",
+    "empty-clip-denied": "DENY",
+    "wrong-content-type-denied": "DENY"
+  },
+  "evidence": {
+    "path": "raw/expected.json",
+    "sha256": "73f39b93b0dfc08730313211bd3a3a27317d8a601830a0362f7c1e459aa058b8",
+    "pointers": {
+      "valid-wav-upload": "/decisions/valid-wav-upload",
+      "valid-ogg-upload": "/decisions/valid-ogg-upload",
+      "anonymous-upload-denied": "/decisions/anonymous-upload-denied",
+      "wrong-owner-denied": "/decisions/wrong-owner-denied",
+      "missing-owner-metadata-denied": "/decisions/missing-owner-metadata-denied",
+      "oversized-clip-denied": "/decisions/oversized-clip-denied",
+      "empty-clip-denied": "/decisions/empty-clip-denied",
+      "wrong-content-type-denied": "/decisions/wrong-content-type-denied"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+use extension methods;
+
+transition voiceClipUpload {
+  require authenticatedOwner {
+    return input.auth != null && input.auth.uid == after.metadata.get('owner', '');
+  }
+  require allowedFormatAndSize {
+    return after.contentType.matches('^audio/(wav|ogg)$') && after.size > 0 && after.size <= 1048576;
+  }
+}

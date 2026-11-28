@@ -1,0 +1,58 @@
+[
+  {
+    "id": "valid-wav-upload",
+    "method": "create",
+    "path": "clips/alice/take1.wav",
+    "auth": { "uid": "alice" },
+    "requestResource": { "size": 4096, "contentType": "audio/wav", "metadata": { "owner": "alice" } }
+  },
+  {
+    "id": "valid-ogg-upload",
+    "method": "create",
+    "path": "clips/alice/take2.ogg",
+    "auth": { "uid": "alice" },
+    "requestResource": { "size": 1048576, "contentType": "audio/ogg", "metadata": { "owner": "alice" } }
+  },
+  {
+    "id": "anonymous-upload-denied",
+    "method": "create",
+    "path": "clips/alice/anon.wav",
+    "auth": null,
+    "requestResource": { "size": 1024, "contentType": "audio/wav", "metadata": { "owner": "alice" } }
+  },
+  {
+    "id": "wrong-owner-denied",
+    "method": "create",
+    "path": "clips/alice/spoof.wav",
+    "auth": { "uid": "mallory" },
+    "requestResource": { "size": 1024, "contentType": "audio/wav", "metadata": { "owner": "alice" } }
+  },
+  {
+    "id": "missing-owner-metadata-denied",
+    "method": "create",
+    "path": "clips/alice/no-meta.wav",
+    "auth": { "uid": "alice" },
+    "requestResource": { "size": 1024, "contentType": "audio/wav", "metadata": {} }
+  },
+  {
+    "id": "oversized-clip-denied",
+    "method": "create",
+    "path": "clips/alice/huge.wav",
+    "auth": { "uid": "alice" },
+    "requestResource": { "size": 1048577, "contentType": "audio/wav", "metadata": { "owner": "alice" } }
+  },
+  {
+    "id": "empty-clip-denied",
+    "method": "create",
+    "path": "clips/alice/empty.wav",
+    "auth": { "uid": "alice" },
+    "requestResource": { "size": 0, "contentType": "audio/wav", "metadata": { "owner": "alice" } }
+  },
+  {
+    "id": "wrong-content-type-denied",
+    "method": "create",
+    "path": "clips/alice/photo.png",
+    "auth": { "uid": "alice" },
+    "requestResource": { "size": 1024, "contentType": "image/png", "metadata": { "owner": "alice" } }
+  }
+]

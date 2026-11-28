@@ -1,0 +1,12 @@
+{
+  "decisions": {
+    "valid-wav-upload": "ALLOW",
+    "valid-ogg-upload": "ALLOW",
+    "anonymous-upload-denied": "DENY",
+    "wrong-owner-denied": "DENY",
+    "missing-owner-metadata-denied": "DENY",
+    "oversized-clip-denied": "DENY",
+    "empty-clip-denied": "DENY",
+    "wrong-content-type-denied": "DENY"
+  }
+}

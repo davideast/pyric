@@ -123,7 +123,7 @@ export const RULES_TYPE_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 const RESERVED_EXPORTS = new Set(['default', 'await', 'yield', 'eval', 'arguments']);
-const KNOWN_EXTENSIONS = new Set(['bounded', 'derive', 'loops']);
+const KNOWN_EXTENSIONS = new Set(['bounded', 'derive', 'loops', 'methods']);
 
 export interface CheckOptions {
   expressionLimit?: number;
@@ -206,7 +206,7 @@ function checkExtensions(program: IRProgram): Set<string> {
   }
   if (program.kind === 'transition') {
     for (const ext of extensions) {
-      if (ext !== 'bounded' && ext !== 'derive') throw new Error('Unknown extension');
+      if (ext !== 'bounded' && ext !== 'derive' && ext !== 'methods') throw new Error('Unknown extension');
     }
   } else if (program.kind === 'module') {
     if (!extensions.has('bounded')) throw new Error('Bounded module requires use extension bounded;');
@@ -313,9 +313,16 @@ function checkExpr(expr: IRExpr, names: Set<string>, ctx: ExprCheckContext): voi
       if (expr.object.type === 'identifier' && expr.object.name === 'bounded' && !names.has('bounded')) {
         throw new Error('Invalid bounded.' + expr.method + ' call or bound');
       }
-      if (ctx.kind === 'transition') break;
       if (ctx.kind === 'function') {
         if (!isPureValueMethod(expr.method, expr.args.length)) break;
+        visit(expr.object);
+        for (const arg of expr.args) visit(arg);
+        return;
+      }
+      if (ctx.kind === 'transition') {
+        if (!ctx.extensions.has('methods')) break;
+        const allowedArities = RULES_VALUE_METHOD_ARITIES.get(expr.method);
+        if (!allowedArities || !allowedArities.has(expr.args.length)) break;
         visit(expr.object);
         for (const arg of expr.args) visit(arg);
         return;

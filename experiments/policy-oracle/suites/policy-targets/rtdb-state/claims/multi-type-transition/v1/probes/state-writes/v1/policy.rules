@@ -1,0 +1,10 @@
+use extension methods;
+
+transition counterState {
+  require exactStep {
+    return before.count is int && after.count is int && after.count == before.count + 1 && !(after.count > 100);
+  }
+  require activeLabel {
+    return after.active == true && after.label.size() >= 2 && after.label.size() <= 12;
+  }
+}
