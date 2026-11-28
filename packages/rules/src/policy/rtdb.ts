@@ -156,22 +156,31 @@ function inferLiteralKind(expr: Expression): 'number' | 'string' | 'boolean' | u
   return undefined;
 }
 
+// Bound a numeric term within [-limit, limit]: recurse on depth>=2 arithmetic trees so
+// intermediate subexpressions can never overflow and large trees are never duplicated.
 function boundTerm(term: RtdbTerm, limit: number): string[] {
   if (term.numVal !== undefined) return Math.abs(term.numVal) <= limit ? [] : ['false'];
-  if (term.text.length <= INLINE_BOUND_MAX_CHARS || !term.arith) {
-    return [`(${term.text} >= ${-limit} && ${term.text} <= ${limit})`];
-  }
+  if (!term.arith) return [`(${term.text} >= ${-limit} && ${term.text} <= ${limit})`];
   if (term.arith.op === '?:') {
     const yb = boundTerm(term.arith.a, limit);
     const nb = boundTerm(term.arith.b, limit);
     if (!yb.length && !nb.length) return [];
+    if (sameGuards(term.arith.a.guards, term.arith.b.guards)) return mergeGuards(yb, nb);
     const y = yb.length ? guardPrefix(yb) : 'true';
     const n = nb.length ? guardPrefix(nb) : 'true';
     return [`(${term.arith.cond!} ? ${y} : ${n})`];
   }
+  const hasNested = Boolean(term.arith.a.arith || term.arith.b.arith);
+  if (!hasNested && term.text.length <= INLINE_BOUND_MAX_CHARS) {
+    return [`(${term.text} >= ${-limit} && ${term.text} <= ${limit})`];
+  }
   const childLimit = term.arith.op === '*' ? Math.floor(Math.sqrt(limit)) : Math.floor(limit / 2);
   if (childLimit < 1) return [`(${term.text} >= ${-limit} && ${term.text} <= ${limit})`];
   return mergeGuards(boundTerm(term.arith.a, childLimit), boundTerm(term.arith.b, childLimit));
+}
+
+function arithGuards(term: RtdbTerm): string[] {
+  return term.kind === 'number' && term.arith ? boundTerm(term, SAFE_INT_MAX) : [];
 }
 
 function sameGuards(a: readonly string[], b: readonly string[]): boolean {
@@ -345,16 +354,14 @@ export function lowerRtdbExpression(
           if (nonZeroConstantNumber(node.right) === undefined) {
             throw new Error('RTDB % requires a non-zero constant divisor');
           }
-          return makeTerm('(' + l.text + ' % ' + r.text + ')', 'number', mergeGuards(l.guards, r.guards));
+          return makeTerm('(' + l.text + ' % ' + r.text + ')', 'number', mergeGuards(l.guards, r.guards, arithGuards(l)));
         }
         const exprText = '(' + l.text + ' ' + node.op + ' ' + r.text + ')';
         const arith = { op: node.op, a: l, b: r } as const;
         const rawNumVal = l.numVal !== undefined && r.numVal !== undefined
           ? (node.op === '+' ? l.numVal + r.numVal : node.op === '-' ? l.numVal - r.numVal : l.numVal * r.numVal)
           : undefined;
-        const candidate: RtdbTerm = { text: exprText, kind: 'number', guards: [], arith, numVal: rawNumVal };
-        const rangeGuard = boundTerm(candidate, SAFE_INT_MAX);
-        return makeTerm(exprText, 'number', mergeGuards(l.guards, r.guards, rangeGuard), { arith, numVal: rawNumVal });
+        return makeTerm(exprText, 'number', mergeGuards(l.guards, r.guards), { arith, numVal: rawNumVal });
       }
       throw new Error('Unsupported RTDB binary operator: ' + node.op);
     }
@@ -377,11 +384,9 @@ export function lowerRtdbExpression(
       const pureCond = Boolean(condPos.pureWhenGuarded && condNeg.pureWhenGuarded && sameGuards(condPos.guards, condNeg.guards));
       const condTest = pureCond ? condPos.text : withGuards(condPos);
       const condGuards = pureCond ? condPos.guards : ['(' + condTest + ' || ' + withGuards(condNeg) + ')'];
-      const yesGuard = yes.guards.length ? guardPrefix(yes.guards) : 'true';
-      const noGuard = no.guards.length ? guardPrefix(no.guards) : 'true';
-      const branchGuard = yesGuard === 'true' && noGuard === 'true'
-        ? []
-        : ['(' + condTest + ' ? ' + yesGuard + ' : ' + noGuard + ')'];
+      const branchGuard = sameGuards(yes.guards, no.guards)
+        ? yes.guards
+        : ['(' + condTest + ' ? ' + (yes.guards.length ? guardPrefix(yes.guards) : 'true') + ' : ' + (no.guards.length ? guardPrefix(no.guards) : 'true') + ')'];
       return makeTerm(
         '(' + condTest + ' ? ' + yes.text + ' : ' + no.text + ')',
         yes.kind,
@@ -466,7 +471,7 @@ export function lowerRtdbExpression(
       const l = narrow(rawL, targetKind);
       const r = narrow(rawR, targetKind);
       if (!l || !r) throw new Error('Unsupported RTDB ordering operands for ' + node.op);
-      return makeTerm('(' + l.text + ' ' + op + ' ' + r.text + ')', 'boolean', mergeGuards(l.guards, r.guards), { pureWhenGuarded: true });
+      return makeTerm('(' + l.text + ' ' + op + ' ' + r.text + ')', 'boolean', mergeGuards(l.guards, r.guards, arithGuards(l), arithGuards(r)), { pureWhenGuarded: true });
     }
     if (node.type === 'binaryOp' && (node.op === '==' || node.op === '!=')) {
       features.add(node.op);
@@ -520,17 +525,19 @@ export function lowerRtdbExpression(
         return makeTerm(String(effectivePol === 'neg'), 'boolean', other.guards, { pureWhenGuarded: true });
       }
       if (lhs.kind === 'unknown' && lhs.snapshotNode && (rhs.kind === 'number' || rhs.kind === 'string' || rhs.kind === 'boolean')) {
-        return emitUntypedScalarEq(lhs, rhs, effectivePol, true);
+        const res = emitUntypedScalarEq(lhs, rhs, effectivePol, true);
+        return makeTerm(res.text, 'boolean', mergeGuards(res.guards, arithGuards(rhs)), { pureWhenGuarded: true });
       }
       if (rhs.kind === 'unknown' && rhs.snapshotNode && (lhs.kind === 'number' || lhs.kind === 'string' || lhs.kind === 'boolean')) {
-        return emitUntypedScalarEq(rhs, lhs, effectivePol, false);
+        const res = emitUntypedScalarEq(rhs, lhs, effectivePol, false);
+        return makeTerm(res.text, 'boolean', mergeGuards(res.guards, arithGuards(lhs)), { pureWhenGuarded: true });
       }
       if (lhs.kind === 'unknown' && rhs.kind === 'unknown' && lhs.snapshotNode && rhs.snapshotNode) {
         const g = mergeGuards([scalarGuard(lhs.snapshotNode), scalarGuard(rhs.snapshotNode)]);
         return makeTerm(`(${lhs.snapshotNode}.val() ${cmpOp} ${rhs.snapshotNode}.val())`, 'boolean', g, { pureWhenGuarded: true });
       }
       if (lhs.kind === rhs.kind && (lhs.kind === 'number' || lhs.kind === 'string' || lhs.kind === 'boolean')) {
-        return makeTerm(`(${lhs.text} ${cmpOp} ${rhs.text})`, 'boolean', mergeGuards(lhs.guards, rhs.guards), { pureWhenGuarded: true });
+        return makeTerm(`(${lhs.text} ${cmpOp} ${rhs.text})`, 'boolean', mergeGuards(lhs.guards, rhs.guards, arithGuards(lhs), arithGuards(rhs)), { pureWhenGuarded: true });
       }
       throw new Error('Unsupported RTDB equality between ' + lhs.kind + ' and ' + rhs.kind);
     }

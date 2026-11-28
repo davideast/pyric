@@ -2,8 +2,9 @@ import type { Expression, MatchBlock, Operation } from '../grammar/FirestoreAST.
 import { exprContains } from '../grammar/function-scopes.js';
 import { assembleRules } from '../grammar/FirestoreAssembler.js';
 import { parseToASTOrError, firestoreGrammar, firestoreSemantics } from '../grammar/FirestoreParser.js';
-import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../rtdb/grammar/expression-tree.js';
+import { parseRtdbExpressionTree } from '../rtdb/grammar/expression-tree.js';
 import type { FirestoreBindings } from './firestore.js';
+import { hasRequiredConjunct, type RtdbBindings } from './rtdb.js';
 
 interface RequirementRow { requirement: string; reason: string; predicate?: string; completeReason?: string }
 export interface FirestorePlacement {
@@ -113,17 +114,8 @@ export function composeFirestore<R extends RequirementRow>(
 
 export interface RealtimePlacement {
   path: string;
-  bindings: Readonly<Record<string, 'data' | 'newData'>>;
+  bindings: RtdbBindings;
   mode?: 'complete' | 'mixed';
-}
-
-function hasPositiveTerm(expr: RtdbExpressionTree, wanted: string): boolean {
-  if (JSON.stringify(expr) === wanted) return true;
-  // Initializing a value and updating it may use different validation branches.
-  // This checks occurrence on a positive branch. A workload establishes when it applies.
-  if (expr.type === 'binary' && (expr.operator === '&&' || expr.operator === '||'))
-    return hasPositiveTerm(expr.left, wanted) || hasPositiveTerm(expr.right, wanted);
-  return expr.type === 'ternary' && (hasPositiveTerm(expr.consequent, wanted) || hasPositiveTerm(expr.alternate, wanted));
 }
 
 export function bindRealtime<R extends RequirementRow>(placement: RealtimePlacement, requirements: R[]) {
@@ -145,7 +137,7 @@ export function bindRealtime<R extends RequirementRow>(placement: RealtimePlacem
       for (const row of requirements) {
         if (!row.predicate) continue;
         const expected = parseRtdbExpressionTree(row.predicate);
-        if (!actual || !actual.ok || !expected.ok || !hasPositiveTerm(actual.tree, JSON.stringify(expected.tree)))
+        if (!actual || !actual.ok || !expected.ok || !hasRequiredConjunct(actual.tree, JSON.stringify(expected.tree)))
           throw new Error('Missing .validate placement at ' + placement.path + ' for ' + row.requirement);
       }
     },

@@ -13,7 +13,6 @@ import {
   compileProjections,
   emitFirestoreModule,
   emitPureFunctionModule,
-  field,
   lowerFirestore,
   type FirestoreBindings,
 } from './firestore.js';
@@ -29,12 +28,32 @@ import {
 } from './ir.js';
 import { bindRealtime, composeFirestore, type FirestoreTemplate, type RealtimePlacement } from './placement.js';
 import { emitRtdbNumericPredicate, type NumericSnapshot } from './rtdb-predicate.js';
+import {
+  emitRtdbFunctionPredicate,
+  hasRequiredConjunct,
+  lowerRtdbExpression,
+  type LowerRtdbOptions,
+  type LowerRtdbResult,
+  type RtdbBinding,
+  type RtdbBindings,
+  type RtdbSnapshotBinding,
+} from './rtdb.js';
+import {
+  compileStorageProjections,
+  composeStorage,
+  emitStorageModule,
+  lowerStorage,
+  type StorageBindings,
+  type StorageLoweringResult,
+  type StoragePlacement,
+  type StorageTemplate,
+} from './storage.js';
 
 export type Transition = { before: unknown; after: unknown; input: unknown };
 export type Verdict =
   | { ok: true }
   | { ok: false; requirement: string; location: string; reason: string; fatal?: true };
-export type SnapshotBindings = Readonly<Record<string, 'data' | 'newData'>>;
+export type SnapshotBindings = RtdbBindings;
 
 export function compileFunction(source: string, { expressionLimit = 8192 } = {}) {
   const ir: IRProgram = parsePolicyIR(source, 'function');
@@ -83,56 +102,12 @@ export function compileFunction(source: string, { expressionLimit = 8192 } = {})
       if (!pureFn) throw new Error('Bounded expressions have no RTDB numeric lowering');
       return emitRtdbNumericPredicate(pureFn, bindings);
     },
+    rtdbPredicate(bindings: RtdbBindings) {
+      if (loop) throw new Error('Loops have no RTDB lowering');
+      if (!pureFn) throw new Error('Bounded expressions have no RTDB lowering');
+      return emitRtdbFunctionPredicate(pureFn, bindings, 'any');
+    },
   });
-}
-
-// Each mapped snapshot must actually contain an integer in this safe arithmetic range.
-// Only implement equality of a bound integer to another bound integer plus a literal.
-function emitIncrement(expr: Expression, bindings: SnapshotBindings): string | undefined {
-  const terms: Expression[] = [];
-  function split(node: Expression) {
-    if (node.type === 'binaryOp' && node.op === '&&') {
-      split(node.left);
-      split(node.right);
-    } else terms.push(node);
-  }
-  split(expr);
-  const relation = terms.pop();
-  if (relation?.type !== 'binaryOp' || relation.op !== '==' || relation.right.type !== 'binaryOp' || relation.right.op !== '+') {
-    return;
-  }
-  const { left, right } = relation.right;
-  if (right.type !== 'literal' || right.raw !== '1') return;
-  // Database numbers are doubles. Only emit the increment when both fields
-  // have the exact same finite integer domain in the source policy.
-  const guards = new Set<string>();
-  for (const term of terms) {
-    if (term.type === 'isExpr' && term.typeName === 'int') guards.add(field(term.value) + ':int');
-    else if (
-      term.type === 'binaryOp' &&
-      term.right.type === 'literal' &&
-      ((term.op === '>=' && term.right.raw === '0') || (term.op === '<=' && term.right.raw === '9007199254740991'))
-    ) {
-      guards.add(field(term.left) + ':' + term.op);
-    } else return;
-  }
-  if (
-    guards.size !== 6 ||
-    ![left, relation.left].every((e) => ['int', '>=', '<='].every((test) => guards.has(field(e) + ':' + test)))
-  ) {
-    return;
-  }
-  const lookup = (e: Expression) => {
-    const key = field(e);
-    return key && Object.hasOwn(bindings, key) ? bindings[key] : undefined;
-  };
-  const next = lookup(relation.left);
-  const previous = lookup(left);
-  if (!next || !previous || next === previous) return;
-  if (![next, previous].every((value) => value === 'newData' || value === 'data')) return;
-  const integer = (s: string) =>
-    s + '.isNumber() && ' + s + '.val() >= 0 && ' + s + '.val() <= 9007199254740991 && ' + s + '.val() % 1 == 0';
-  return '(' + integer(previous) + ' && ' + integer(next) + ' && ' + next + '.val() == ' + previous + '.val() + 1)';
 }
 
 function requirementBoundedOps(rule: { lets: readonly { value: unknown }[]; condition: unknown }): IRBoundedOp[] {
@@ -320,31 +295,134 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
       }
       return report;
     },
-    rtdb(bindings: SnapshotBindings, mode: 'mixed' | 'complete' = 'mixed') {
+    storage(bindings: StorageBindings, mode: 'complete' | 'mixed' = 'complete') {
+      const projections = compileStorageProjections(bindings);
+      const covered = new Set<string>();
+      const rows = requirements.map((rule) => {
+        const boundedNames = [
+          ...rule.lets.flatMap((l) => collectBoundedOps(l.value)),
+          ...collectBoundedOps(rule.condition),
+        ].map((op) => 'bounded.' + op);
+        const extensions = [
+          ...new Set([
+            ...boundedNames,
+            ...(usesDerived.has(rule.name) ? ['derive'] : []),
+            ...(collectionFeatures.get(rule.name) ?? []),
+          ]),
+        ];
+        const selection = projected.get(rule.name);
+        const expanded = typeof selection === 'object' ? selection.expanded : undefined;
+        let result: StorageLoweringResult;
+        if (!hasFunctions && !rule.lets.length && isPureRulesExpr(rule.condition) && (expanded || !extensions.length)) {
+          result = lowerStorage(expanded ?? asPureRulesExpr(rule.condition), projections, Boolean(expanded));
+          if (result.predicate && typeof selection === 'object') covered.add(selection.key);
+        } else {
+          const problems =
+            typeof selection === 'string'
+              ? [selection]
+              : selection
+                ? ['Derived expression exceeds projection budget']
+                : hasFunctions
+                  ? ['Requires helper functions']
+                  : rule.lets.length && !extensions.length
+                    ? ['Requires local bindings']
+                    : extensions.map((name) => 'Requires ' + name);
+          result = { inputs: [...reads.get(rule.name)!], features: [], origins: {}, predicate: undefined, problems };
+        }
+        const reason = result.problems.join('; ') || 'All reads bound at this Storage placement';
+        return {
+          requirement: rule.name,
+          location: rule.location,
+          source: rule.source,
+          features: ['Rules expressions', ...extensions, ...result.features],
+          inputs: result.inputs,
+          origins: result.origins,
+          bindings: Object.fromEntries(result.inputs.filter((key) => projections.has(key)).map((key) => [key, bindings[key]])),
+          target: 'Storage',
+          enforcement: result.predicate ? 'standalone and storage' : 'standalone only',
+          reason,
+          predicate: result.predicate,
+        };
+      });
+      const siblings: string[] = [];
+      if (covered.size && pureDerivationExpr?.type === 'mapLiteral') {
+        for (const { key, value } of pureDerivationExpr.entries) {
+          if (key.type === 'literal' && typeof key.value === 'string' && !covered.has(key.value) && value.type !== 'literal') {
+            siblings.push(key.value);
+          }
+        }
+      }
+      const completeReason = locals?.operations.size
+        ? 'Materializing derive requires ' + [...new Set(locals.operations.values())].join(', ') + ': ' + [...locals.operations.keys()].join(', ')
+        : siblings.length
+          ? 'Unverified derive outputs: ' + siblings.join(', ')
+          : undefined;
+      const report = rows.map((row) => ({
+        ...row,
+        ...(completeReason && row.predicate && projected.has(row.requirement) ? { completeReason } : {}),
+      }));
+      const residual = report.filter((row) => !row.predicate || row.completeReason);
+      if (mode === 'complete' && residual.length) {
+        throw new Error(
+          residual.map((row) => row.requirement + ' at ' + row.location + ': ' + (row.completeReason ?? row.reason)).join('; '),
+        );
+      }
+      return report;
+    },
+    rtdb(bindings: RtdbBindings, mode: 'mixed' | 'complete' = 'mixed') {
       const report = requirements.map((rule) => {
         const inputs = [...reads.get(rule.name)!];
-        const bound = Object.fromEntries(inputs.filter((key) => Object.hasOwn(bindings, key)).map((key) => [key, bindings[key]]));
-        const timing = Object.entries(bound)
-          .filter(([key, value]) => {
-            const root = key.split('.')[0];
-            return (root === 'before' && value !== 'data') || (root === 'after' && value !== 'newData');
-          })
-          .map(([key, value]) => key + ' bound to ' + value);
-        const missing = inputs.filter((key) => !Object.hasOwn(bound, key));
         const bOps = requirementBoundedOps(rule);
         const firstOp = bOps[0];
-        const predicate =
-          !hasFunctions && !usesDerived.has(rule.name) && !rule.lets.length && isPureRulesExpr(rule.condition) && !timing.length
-            ? emitIncrement(rule.condition, bindings)
-            : undefined;
-        const problems: string[] = [];
-        if (usesDerived.has(rule.name)) problems.push('Requires derive');
-        if (firstOp) problems.push('Requires decoded collection and bounded.' + firstOp.op);
-        if (timing.length) problems.push('Wrong snapshot: ' + timing.join(', '));
-        if (missing.length) problems.push('Missing binding: ' + missing.join(', '));
-        const reason = predicate
-          ? 'Mapped integer snapshots with exact increment'
-          : problems.join('; ') || 'No equivalent predicate for this expression and snapshot binding';
+        const pureLets = rule.lets.every((l) => isPureRulesExpr(l.value))
+          ? rule.lets.map((l) => ({ name: l.name, value: asPureRulesExpr(l.value) }))
+          : undefined;
+        const selection = projected.get(rule.name);
+        const expanded = typeof selection === 'object' ? selection.expanded : undefined;
+        let lowered: LowerRtdbResult;
+        if (
+          !hasFunctions &&
+          !bOps.length &&
+          pureLets &&
+          isPureRulesExpr(rule.condition) &&
+          (!usesDerived.has(rule.name) || Boolean(expanded))
+        ) {
+          lowered = lowerRtdbExpression(
+            expanded ?? asPureRulesExpr(rule.condition),
+            bindings,
+            { defaultLeafType: 'any', checkTiming: true },
+            expanded ? [] : pureLets,
+          );
+        } else {
+          const problems: string[] = [];
+          if (hasFunctions) problems.push('Requires helper functions');
+          if (usesDerived.has(rule.name)) problems.push(typeof selection === 'string' ? selection : 'Requires derive');
+          if (firstOp) problems.push('Requires decoded collection and bounded.' + firstOp.op);
+          lowered = { inputs, features: [], problems, predicate: undefined };
+        }
+        const bound = Object.fromEntries(
+          inputs
+            .filter((key) => {
+              if (Object.hasOwn(bindings, key)) return true;
+              const parts = key.split('.');
+              for (let i = parts.length - 1; i >= 1; i--) {
+                if (Object.hasOwn(bindings, parts.slice(0, i).join('.'))) return true;
+              }
+              return false;
+            })
+            .map((key) => {
+              if (Object.hasOwn(bindings, key)) return [key, bindings[key]];
+              const parts = key.split('.');
+              for (let i = parts.length - 1; i >= 1; i--) {
+                const prefix = parts.slice(0, i).join('.');
+                if (Object.hasOwn(bindings, prefix)) return [key, bindings[prefix]];
+              }
+              return [key, undefined];
+            }),
+        );
+        const reason = lowered.predicate
+          ? 'Mapped RTDB snapshot expression'
+          : lowered.problems.join('; ') || 'No equivalent predicate for this expression and snapshot binding';
         return {
           requirement: rule.name,
           inputs,
@@ -356,11 +434,12 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
             'Rules expressions',
             ...bOps.map((o) => 'bounded.' + o.op),
             ...(usesDerived.has(rule.name) ? ['derive'] : []),
+            ...lowered.features,
           ],
           target: 'RTDB',
-          enforcement: predicate ? 'gateway and database' : 'gateway only',
+          enforcement: lowered.predicate ? 'gateway and database' : 'gateway only',
           reason,
-          predicate,
+          predicate: lowered.predicate,
         };
       });
       const residual = report.filter((row) => !row.predicate);
@@ -375,12 +454,36 @@ export function compilePolicy(source: string, { expressionLimit = 8192 } = {}) {
     ...api,
     /** Emit all requirements as one zero-argument 2+modules export named after the transition. */
     firestoreModule: (bindings: FirestoreBindings) => emitFirestoreModule(program.name, api.firestore(bindings, 'complete')),
+    /** Emit all requirements as one zero-argument Storage 2+modules export named after the transition. */
+    storageModule: (bindings: StorageBindings) => emitStorageModule(program.name, api.storage(bindings, 'complete')),
     bind: {
       firestore: (target: FirestoreTemplate) => composeFirestore(target, [...checked.requirementNames], (bindings) => api.firestore(bindings, 'mixed')),
+      storage: (target: StorageTemplate) => composeStorage(target, [...checked.requirementNames], (bindings) => api.storage(bindings, 'mixed')),
       rtdb: (target: RealtimePlacement) => bindRealtime(target, api.rtdb(target.bindings)),
     },
   };
 }
+
+export {
+  lowerRtdbExpression,
+  emitRtdbFunctionPredicate,
+  hasRequiredConjunct,
+  type RtdbBinding,
+  type RtdbBindings,
+  type RtdbSnapshotBinding,
+  type LowerRtdbOptions,
+  type LowerRtdbResult,
+} from './rtdb.js';
+export {
+  compileStorageProjections,
+  lowerStorage,
+  emitStorageModule,
+  composeStorage,
+  type StorageBindings,
+  type StoragePlacement,
+  type StorageTemplate,
+  type StorageLoweringResult,
+} from './storage.js';
 
 export { compileBoundedModule, emitStandaloneModule, type StandaloneModuleResult } from './bounded-module.js';
 export { checkPolicyIR, checkExpressionLimit, type CheckedPolicyIR, type CheckedFunction, type CheckOptions } from './check.js';
